@@ -220,7 +220,7 @@ simpleroutine PHNPObjectEnumerate(pluginHostPort :mach_port_t;
                                   pluginID :uint32_t;
                                   requestID :uint32_t;
                                   objectID :uint32_t);
-                                  
+
 // Replies
 
 simpleroutine PHBooleanReply(clientPort :mach_port_t;
@@ -233,3 +233,18 @@ simpleroutine PHBooleanAndDataReply(pluginHostPort :mach_port_t;
                                     requestID :uint32_t;
                                     returnValue :boolean_t;
                                     result :data_t);
+             
+simpleroutine PHPluginInstanceDidDraw(pluginHostPort :mach_port_t;
+                                      pluginID :uint32_t);
+simpleroutine PHPluginInstancePrivateBrowsingModeDidChange(pluginHostPort :mach_port_t;
+                                                           pluginID :uint32_t;
+                                                           privateBrowsingEnabled :boolean_t);
+
+simpleroutine PHSyncOpenPanelReply(pluginHostPort :mach_port_t;
+                                   filenames :data_t);
+
+simpleroutine PHPluginInstanceSnapshot(pluginHostPort :mach_port_t;
+                                    pluginID :uint32_t;
+                                    requestID :uint32_t;
+                                    width :uint32_t;
+                                    height :uint32_t);

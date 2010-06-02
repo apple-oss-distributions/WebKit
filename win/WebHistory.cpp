@@ -96,7 +96,7 @@ static bool areEqualOrClose(double d1, double d2)
     return (diff < .000001 && diff > -.000001);
 }
 
-static CFDictionaryPropertyBag* createUserInfoFromArray(BSTR notificationStr, CFArrayRef arrayItem)
+static COMPtr<CFDictionaryPropertyBag> createUserInfoFromArray(BSTR notificationStr, CFArrayRef arrayItem)
 {
     RetainPtr<CFMutableDictionaryRef> dictionary(AdoptCF, 
         CFDictionaryCreateMutable(0, 0, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks));
@@ -104,26 +104,17 @@ static CFDictionaryPropertyBag* createUserInfoFromArray(BSTR notificationStr, CF
     RetainPtr<CFStringRef> key(AdoptCF, MarshallingHelpers::BSTRToCFStringRef(notificationStr));
     CFDictionaryAddValue(dictionary.get(), key.get(), arrayItem);
 
-    CFDictionaryPropertyBag* result = CFDictionaryPropertyBag::createInstance();
+    COMPtr<CFDictionaryPropertyBag> result = CFDictionaryPropertyBag::createInstance();
     result->setDictionary(dictionary.get());
     return result;
 }
 
-static CFDictionaryPropertyBag* createUserInfoFromHistoryItem(BSTR notificationStr, IWebHistoryItem* item)
+static COMPtr<CFDictionaryPropertyBag> createUserInfoFromHistoryItem(BSTR notificationStr, IWebHistoryItem* item)
 {
     // reference counting of item added to the array is managed by the CFArray value callbacks
     RetainPtr<CFArrayRef> itemList(AdoptCF, CFArrayCreate(0, (const void**) &item, 1, &MarshallingHelpers::kIUnknownArrayCallBacks));
-    CFDictionaryPropertyBag* info = createUserInfoFromArray(notificationStr, itemList.get());
+    COMPtr<CFDictionaryPropertyBag> info = createUserInfoFromArray(notificationStr, itemList.get());
     return info;
-}
-
-static void releaseUserInfo(CFDictionaryPropertyBag* userInfo)
-{
-    // free the dictionary
-    userInfo->setDictionary(0);
-    int result = userInfo->Release();
-    (void)result;
-    ASSERT(result == 0);   // make sure no one else holds a reference to the userInfo.
 }
 
 // WebHistory -----------------------------------------------------------------
@@ -264,9 +255,8 @@ HRESULT STDMETHODCALLTYPE WebHistory::loadFromURL(
         goto exit;
 
     if (CFArrayGetCount(discardedItems.get()) > 0) {
-        CFDictionaryPropertyBag* userInfo = createUserInfoFromArray(getNotificationString(kWebHistoryItemsDiscardedWhileLoadingNotification), discardedItems.get());
-        hr = postNotification(kWebHistoryItemsDiscardedWhileLoadingNotification, userInfo);
-        releaseUserInfo(userInfo);
+        COMPtr<CFDictionaryPropertyBag> userInfo = createUserInfoFromArray(getNotificationString(kWebHistoryItemsDiscardedWhileLoadingNotification), discardedItems.get());
+        hr = postNotification(kWebHistoryItemsDiscardedWhileLoadingNotification, userInfo.get());
         if (FAILED(hr))
             goto exit;
     }
@@ -465,8 +455,8 @@ HRESULT STDMETHODCALLTYPE WebHistory::removeAllItems( void)
 
     PageGroup::removeAllVisitedLinks();
 
-    CFDictionaryPropertyBag* userInfo = createUserInfoFromArray(getNotificationString(kWebHistoryAllItemsRemovedNotification), allItems.get());
-    return postNotification(kWebHistoryAllItemsRemovedNotification, userInfo);
+    COMPtr<CFDictionaryPropertyBag> userInfo = createUserInfoFromArray(getNotificationString(kWebHistoryAllItemsRemovedNotification), allItems.get());
+    return postNotification(kWebHistoryAllItemsRemovedNotification, userInfo.get());
 }
 
 HRESULT STDMETHODCALLTYPE WebHistory::orderedLastVisitedDays( 
@@ -577,6 +567,18 @@ HRESULT WebHistory::data(IStream** stream)
     return result.copyRefTo(stream);
 }
 
+HRESULT WebHistory::setVisitedLinkTrackingEnabled(BOOL visitedLinkTrackingEnabled)
+{
+    PageGroup::setShouldTrackVisitedLinks(visitedLinkTrackingEnabled);
+    return S_OK;
+}
+
+HRESULT WebHistory::removeAllVisitedLinks()
+{
+    PageGroup::removeAllVisitedLinks();
+    return S_OK;
+}
+
 HRESULT STDMETHODCALLTYPE WebHistory::setHistoryItemLimit( 
     /* [in] */ int limit)
 {
@@ -632,10 +634,9 @@ HRESULT WebHistory::removeItem(IWebHistoryItem* entry)
     if (FAILED(hr))
         return hr;
 
-    CFDictionaryPropertyBag* userInfo = createUserInfoFromHistoryItem(
+    COMPtr<CFDictionaryPropertyBag> userInfo = createUserInfoFromHistoryItem(
         getNotificationString(kWebHistoryItemsRemovedNotification), entry);
-    hr = postNotification(kWebHistoryItemsRemovedNotification, userInfo);
-    releaseUserInfo(userInfo);
+    hr = postNotification(kWebHistoryItemsRemovedNotification, userInfo.get());
 
     return hr;
 }
@@ -683,10 +684,9 @@ HRESULT WebHistory::addItem(IWebHistoryItem* entry, bool discardDuplicate, bool*
 
     CFDictionarySetValue(m_entriesByURL.get(), urlString.get(), entry);
 
-    CFDictionaryPropertyBag* userInfo = createUserInfoFromHistoryItem(
+    COMPtr<CFDictionaryPropertyBag> userInfo = createUserInfoFromHistoryItem(
         getNotificationString(kWebHistoryItemsAddedNotification), entry);
-    hr = postNotification(kWebHistoryItemsAddedNotification, userInfo);
-    releaseUserInfo(userInfo);
+    hr = postNotification(kWebHistoryItemsAddedNotification, userInfo.get());
 
     if (added)
         *added = true;
@@ -742,10 +742,9 @@ void WebHistory::visitedURL(const KURL& url, const String& title, const String& 
     COMPtr<WebHistoryItem> item(Query, entry);
     item->historyItem()->setRedirectURLs(0);
 
-    CFDictionaryPropertyBag* userInfo = createUserInfoFromHistoryItem(
+    COMPtr<CFDictionaryPropertyBag> userInfo = createUserInfoFromHistoryItem(
         getNotificationString(kWebHistoryItemsAddedNotification), entry);
-    postNotification(kWebHistoryItemsAddedNotification, userInfo);
-    releaseUserInfo(userInfo);
+    postNotification(kWebHistoryItemsAddedNotification, userInfo.get());
 }
 
 HRESULT WebHistory::itemForURLString(
@@ -855,18 +854,33 @@ HRESULT WebHistory::removeItemFromDateCaches(IWebHistoryItem* entry)
     return hr;
 }
 
-WebHistory::DateKey timeIntervalForBeginningOfDay(CFAbsoluteTime day)
+static void getDayBoundaries(CFAbsoluteTime day, CFAbsoluteTime& beginningOfDay, CFAbsoluteTime& beginningOfNextDay)
 {
     RetainPtr<CFTimeZoneRef> timeZone(AdoptCF, CFTimeZoneCopyDefault());
     CFGregorianDate date = CFAbsoluteTimeGetGregorianDate(day, timeZone.get());
     date.hour = 0;
     date.minute = 0;
     date.second = 0;
-    CFAbsoluteTime result = CFGregorianDateGetAbsoluteTime(date, timeZone.get());
+    beginningOfDay = CFGregorianDateGetAbsoluteTime(date, timeZone.get());
+    date.day += 1;
+    beginningOfNextDay = CFGregorianDateGetAbsoluteTime(date, timeZone.get());
+}
 
-    // Converting from double to int64_t is safe here as NSDate's useful range
-    // is -2**48 .. 2**47 which will safely fit in an int64_t.
-    return static_cast<WebHistory::DateKey>(result);
+static inline CFAbsoluteTime beginningOfDay(CFAbsoluteTime date)
+{
+    static CFAbsoluteTime cachedBeginningOfDay = numeric_limits<CFAbsoluteTime>::quiet_NaN();
+    static CFAbsoluteTime cachedBeginningOfNextDay;
+    if (!(date >= cachedBeginningOfDay && date < cachedBeginningOfNextDay))
+        getDayBoundaries(date, cachedBeginningOfDay, cachedBeginningOfNextDay);
+    return cachedBeginningOfDay;
+}
+
+static inline WebHistory::DateKey dateKey(CFAbsoluteTime date)
+{
+    // Converting from double (CFAbsoluteTime) to int64_t (WebHistoryDateKey) is
+    // safe here because all sensible dates are in the range -2**48 .. 2**47 which
+    // safely fits in an int64_t.
+    return beginningOfDay(date);
 }
 
 // Returns whether the day is already in the list of days,
@@ -875,7 +889,7 @@ bool WebHistory::findKey(DateKey* key, CFAbsoluteTime forDay)
 {
     ASSERT_ARG(key, key);
 
-    *key = timeIntervalForBeginningOfDay(forDay);
+    *key = dateKey(forDay);
     return m_entriesByDate.contains(*key);
 }
 

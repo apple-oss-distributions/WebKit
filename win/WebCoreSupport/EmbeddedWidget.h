@@ -39,7 +39,7 @@ interface IWebEmbeddedView;
 
 class EmbeddedWidget : public WebCore::Widget, public WebCore::PluginManualLoader {
 public:
-    static EmbeddedWidget* create(IWebEmbeddedView*, WebCore::Element* element, HWND parentWindow, const WebCore::IntSize&);
+    static PassRefPtr<EmbeddedWidget> create(IWebEmbeddedView*, WebCore::Element* element, HWND parentWindow, const WebCore::IntSize&);
     ~EmbeddedWidget();
 
 private:
@@ -62,7 +62,7 @@ private:
     virtual void invalidateRect(const WebCore::IntRect&);
     virtual void setFrameRect(const WebCore::IntRect&);
     virtual void frameRectsChanged();
-    virtual void setFocus();
+    virtual void setFocus(bool);
     virtual void show();
     virtual void hide();
     virtual WebCore::IntRect windowClipRect() const;
