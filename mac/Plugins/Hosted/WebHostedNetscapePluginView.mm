@@ -22,7 +22,8 @@
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
-#if USE(PLUGIN_HOST_PROCESS)
+
+#if USE(PLUGIN_HOST_PROCESS) && ENABLE(NETSCAPE_PLUGIN_API)
 
 #import "WebHostedNetscapePluginView.h"
 
@@ -37,11 +38,13 @@
 #import "WebUIDelegate.h"
 
 #import <CoreFoundation/CoreFoundation.h>
-#import <WebCore/Bridge.h>
+#import <WebCore/BridgeJSC.h>
 #import <WebCore/Frame.h>
 #import <WebCore/FrameLoaderTypes.h>
+#import <WebCore/FrameView.h>
 #import <WebCore/HTMLPlugInElement.h>
 #import <WebCore/RenderEmbeddedObject.h>
+#import <WebCore/ResourceError.h>
 #import <WebCore/WebCoreObjCExtras.h>
 #import <WebCore/runtime_root.h>
 #import <runtime/InitializeThreading.h>
@@ -62,9 +65,7 @@ extern "C" {
 {
     JSC::initializeThreading();
     WTF::initializeMainThreadToProcessMainThread();
-#ifndef BUILDING_ON_TIGER
     WebCoreObjCFinalizeOnMainThread(self);
-#endif
     WKSendUserChangeNotifications();
 }
 
@@ -110,7 +111,7 @@ extern "C" {
     accleratedCompositingEnabled = [[[self webView] preferences] acceleratedCompositingEnabled];
 #endif
     
-    _proxy = NetscapePluginHostManager::shared().instantiatePlugin(_pluginPackage.get(), self, _MIMEType.get(), _attributeKeys.get(), _attributeValues.get(), userAgent, _sourceURL.get(), 
+    _proxy = NetscapePluginHostManager::shared().instantiatePlugin([_pluginPackage.get() path], [_pluginPackage.get() pluginHostArchitecture], [_pluginPackage.get() bundleIdentifier], self, _MIMEType.get(), _attributeKeys.get(), _attributeValues.get(), userAgent, _sourceURL.get(), 
                                                                    _mode == NP_FULL, _isPrivateBrowsingEnabled, accleratedCompositingEnabled);
     if (!_proxy) 
         return NO;
@@ -134,6 +135,10 @@ extern "C" {
             realPluginLayer.get().autoresizingMask = kCALayerWidthSizable | kCALayerHeightSizable;
             [_pluginLayer.get() addSublayer:realPluginLayer.get()];
 #endif
+            
+            // Eagerly enter compositing mode, since we know we'll need it. This avoids firing setNeedsStyleRecalc()
+            // for iframes that contain composited plugins at bad times. https://bugs.webkit.org/show_bug.cgi?id=39033
+            core([self webFrame])->view()->enterCompositingMode();
             [self element]->setNeedsStyleRecalc(SyntheticStyleChange);
         } else
             self.wantsLayer = YES;
@@ -175,8 +180,11 @@ extern "C" {
     if (!_proxy)
         return;
     
-    // Use AppKit to convert view coordinates to NSWindow coordinates.
-    NSRect boundsInWindow = [self convertRect:[self bounds] toView:nil];
+    // The base coordinates of a window and it's contentView happen to be the equal at a userSpaceScaleFactor
+    // of 1. For non-1.0 scale factors this assumption is false.
+    NSView *windowContentView = [[self window] contentView];
+    NSRect boundsInWindow = [self convertRect:[self bounds] toView:windowContentView];
+
     NSRect visibleRectInWindow;
     
     // Core Animation plug-ins need to be updated (with a 0,0,0,0 clipRect) when
@@ -185,7 +193,7 @@ extern "C" {
     // compatible with this behavior.    
     BOOL shouldClipOutPlugin = _pluginLayer && [self shouldClipOutPlugin];
     if (!shouldClipOutPlugin)
-        visibleRectInWindow = [self convertRect:[self visibleRect] toView:nil];
+        visibleRectInWindow = [self actualVisibleRectInWindow];
     else
         visibleRectInWindow = NSZeroRect;
     
@@ -199,6 +207,23 @@ extern "C" {
     _previousSize = boundsInWindow.size;
     
     _proxy->resize(boundsInWindow, visibleRectInWindow);
+
+    CGRect bounds = NSRectToCGRect([self bounds]);
+    CGRect frame = NSRectToCGRect([self frame]);
+    
+    // We're not scaled, or in a subframe
+    CATransform3D scaleTransform = CATransform3DIdentity;
+    if (CGSizeEqualToSize(bounds.size, frame.size)) {
+        // We're in a subframe. Backing store is boundsInWindow.size.
+        if (boundsInWindow.size.width && boundsInWindow.size.height)
+            scaleTransform = CATransform3DMakeScale(frame.size.width / boundsInWindow.size.width, frame.size.height / boundsInWindow.size.height, 1);
+    } else {
+        // We're in the main frame with scaling. Need to mimic the frame/bounds scaling on Widgets.
+        if (frame.size.width && frame.size.height)
+            scaleTransform = CATransform3DMakeScale(bounds.size.width / frame.size.width, bounds.size.height / frame.size.height, 1);
+    }
+
+    _pluginLayer.get().sublayerTransform = scaleTransform;
 }
 
 - (void)windowFocusChanged:(BOOL)hasFocus
@@ -371,9 +396,11 @@ extern "C" {
 
 - (void)pluginHostDied
 {
-    RenderEmbeddedObject* renderer = toRenderEmbeddedObject(_element->renderer());
-    if (renderer)
+    if (_element->renderer() && _element->renderer()->isEmbeddedObject()) {
+        // FIXME: The renderer could also be a RenderApplet, we should handle that.
+        RenderEmbeddedObject* renderer = toRenderEmbeddedObject(_element->renderer());
         renderer->setShowsCrashedPluginIndicator();
+    }
 
     _pluginLayer = nil;
     _proxy = 0;
@@ -392,6 +419,12 @@ extern "C" {
 
 - (void)drawRect:(NSRect)rect
 {
+    if (_cachedSnapshot) {
+        NSRect sourceRect = { NSZeroPoint, [_cachedSnapshot.get() size] };
+        [_cachedSnapshot.get() drawInRect:[self bounds] fromRect:sourceRect operation:NSCompositeSourceOver fraction:1];
+        return;
+    }
+
     if (_proxy) {
         if (_softwareRenderer) {
             if ([NSGraphicsContext currentContextDrawingToScreen]) {
@@ -399,7 +432,7 @@ extern "C" {
                 _proxy->didDraw();
             } else
                 _proxy->print(reinterpret_cast<CGContextRef>([[NSGraphicsContext currentContext] graphicsPort]), [self bounds].size.width, [self bounds].size.height);
-        } else if ([self inFlatteningPaint] && [self supportsSnapshotting]) {
+        } else if (_snapshotting && [self supportsSnapshotting]) {
             _proxy->snapshot(reinterpret_cast<CGContextRef>([[NSGraphicsContext currentContext] graphicsPort]), [self bounds].size.width, [self bounds].size.height);
         }
 
@@ -497,4 +530,4 @@ extern "C" {
 
 @end
 
-#endif
+#endif // USE(PLUGIN_HOST_PROCESS) && ENABLE(NETSCAPE_PLUGIN_API)

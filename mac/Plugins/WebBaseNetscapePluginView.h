@@ -31,6 +31,7 @@
 
 #import "WebNetscapePluginPackage.h"
 #import "WebPluginContainerCheck.h"
+#import <wtf/Forward.h>
 #import <wtf/OwnPtr.h>
 #import <wtf/PassRefPtr.h>
 #import <wtf/RefPtr.h>
@@ -40,10 +41,6 @@
 @class WebDataSource;
 @class WebFrame;
 @class WebView;
-
-namespace WTF {
-    class CString;
-}
 
 namespace WebCore {
     class HTMLPlugInElement;
@@ -73,11 +70,13 @@ class WebHaltablePlugin;
     BOOL _isPrivateBrowsingEnabled;
     BOOL _isHalted;
     BOOL _hasBeenHalted;
+    BOOL _snapshotting;
     
     RefPtr<WebCore::HTMLPlugInElement> _element;
     RetainPtr<NSString> _MIMEType;
     RetainPtr<NSURL> _baseURL;
     RetainPtr<NSURL> _sourceURL;
+    RetainPtr<NSImage> _cachedSnapshot;
     
     OwnPtr<WebHaltablePlugin> _haltable;
     
@@ -132,7 +131,10 @@ class WebHaltablePlugin;
 - (void)removeWindowObservers;
 - (BOOL)shouldClipOutPlugin;
 - (BOOL)inFlatteningPaint;
+
 - (BOOL)supportsSnapshotting;
+- (void)cacheSnapshot;
+- (void)clearCachedSnapshot;
 
 - (BOOL)convertFromX:(double)sourceX andY:(double)sourceY space:(NPCoordinateSpace)sourceSpace
                  toX:(double *)destX andY:(double *)destY space:(NPCoordinateSpace)destSpace;
@@ -140,14 +142,14 @@ class WebHaltablePlugin;
 
 - (void)invalidatePluginContentRect:(NSRect)rect;
 
+- (NSRect)actualVisibleRectInWindow; // takes transforms into account.
+
+- (CALayer *)pluginLayer;
+
 @end
 
 
 namespace WebKit {
-#if !defined(BUILDING_ON_TIGER) && !defined(BUILDING_ON_LEOPARD)
-WTF::CString proxiesForURL(NSURL *);
-#endif
-    
 bool getAuthenticationInfo(const char* protocolStr, const char* hostStr, int32_t port, const char* schemeStr, const char* realmStr,
                            WTF::CString& username, WTF::CString& password);
 } 

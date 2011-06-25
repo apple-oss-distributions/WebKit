@@ -99,3 +99,27 @@ interface IWebUIDelegatePrivate2 : IWebUIDelegatePrivate
 
     HRESULT decidePolicyForGeolocationRequest([in] IWebView* sender, [in] IWebFrame* frame, [in] IWebSecurityOrigin* origin, [in] IWebGeolocationPolicyListener* listener);
 }
+
+[
+    object,
+    oleautomation,
+    uuid(e9834891-233b-48a0-984b-8f8a19abdd0f),
+    pointer_default(unique)
+]
+interface IWebUIDelegatePrivate3 : IWebUIDelegatePrivate2
+{
+    HRESULT didPressMissingPluginButton([in] IDOMElement*);
+}
+
+[
+    object,
+    oleautomation,
+    uuid(944e8e46-6d63-450f-b381-c5d68b80b727),
+    pointer_default(unique)
+]
+interface IWebUIDelegatePrivate4 : IWebUIDelegatePrivate3
+{
+    HRESULT supportsFullScreenForElement([in] IDOMElement*, [in] BOOL withKeyboard, [out, retval] BOOL* supports);
+    HRESULT enterFullScreenForElement([in] IDOMElement*);
+    HRESULT exitFullScreenForElement([in] IDOMElement*);
+}

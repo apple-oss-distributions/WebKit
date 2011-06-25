@@ -345,7 +345,7 @@ static inline id CallDelegate(IMP implementation, WebView *self, id delegate, SE
     return nil;
 }
 
-static inline id CallDelegate(IMP implementation, WebView *self, id delegate, SEL selector, id object1, NSInteger integer1, NSInteger integer2, id object2)
+static inline id CallDelegate(IMP implementation, WebView *self, id delegate, SEL selector, id object1, NSInteger integer1, int integer2, id object2)
 {
     if (!delegate)
         return nil;
@@ -353,6 +353,20 @@ static inline id CallDelegate(IMP implementation, WebView *self, id delegate, SE
         return implementation(delegate, selector, self, object1, integer1, integer2, object2);
     @try {
         return implementation(delegate, selector, self, object1, integer1, integer2, object2);
+    } @catch(id exception) {
+        ReportDiscardedDelegateException(selector, exception);
+    }
+    return nil;
+}
+
+static inline id CallDelegate(IMP implementation, WebView *self, id delegate, SEL selector, id object1, BOOL boolean, NSInteger integer1, int integer2, id object2)
+{
+    if (!delegate)
+        return nil;
+    if (!self->_private->catchesDelegateExceptions)
+        return implementation(delegate, selector, self, object1, boolean, integer1, integer2, object2);
+    @try {
+        return implementation(delegate, selector, self, object1, boolean, integer1, integer2, object2);
     } @catch(id exception) {
         ReportDiscardedDelegateException(selector, exception);
     }
@@ -535,6 +549,18 @@ id CallResourceLoadDelegate(IMP implementation, WebView *self, SEL selector, id 
     return CallDelegate(implementation, self, self->_private->resourceProgressDelegate, selector, object1, object2, integer, object3);
 }
 
+BOOL CallResourceLoadDelegateReturningBoolean(BOOL result, IMP implementation, WebView *self, SEL selector, id object1)
+{
+    if (!self->_private->catchesDelegateExceptions)
+        return reinterpret_cast<BOOL (*)(id, SEL, WebView *, id)>(objc_msgSend)(self->_private->resourceProgressDelegate, selector, self, object1);
+    @try {
+        return reinterpret_cast<BOOL (*)(id, SEL, WebView *, id)>(objc_msgSend)(self->_private->resourceProgressDelegate, selector, self, object1);
+    } @catch(id exception) {
+        ReportDiscardedDelegateException(selector, exception);
+    }
+    return result;
+}
+
 BOOL CallResourceLoadDelegateReturningBoolean(BOOL result, IMP implementation, WebView *self, SEL selector, id object1, id object2)
 {
     if (!self->_private->catchesDelegateExceptions)
@@ -574,9 +600,14 @@ id CallScriptDebugDelegate(IMP implementation, WebView *self, SEL selector, id o
     return CallDelegate(implementation, self, self->_private->scriptDebugDelegate, selector, object1, integer, object2, object3, object4);
 }
 
-id CallScriptDebugDelegate(IMP implementation, WebView *self, SEL selector, id object1, NSInteger integer1, NSInteger integer2, id object2)
+id CallScriptDebugDelegate(IMP implementation, WebView *self, SEL selector, id object1, NSInteger integer1, int integer2, id object2)
 {
     return CallDelegate(implementation, self, self->_private->scriptDebugDelegate, selector, object1, integer1, integer2, object2);
+}
+
+id CallScriptDebugDelegate(IMP implementation, WebView *self, SEL selector, id object1, BOOL boolean, NSInteger integer1, int integer2, id object2)
+{
+    return CallDelegate(implementation, self, self->_private->scriptDebugDelegate, selector, object1, boolean, integer1, integer2, object2);
 }
 
 id CallHistoryDelegate(IMP implementation, WebView *self, SEL selector)

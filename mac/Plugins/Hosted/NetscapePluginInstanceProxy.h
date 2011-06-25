@@ -28,25 +28,24 @@
 #ifndef NetscapePluginInstanceProxy_h
 #define NetscapePluginInstanceProxy_h
 
-#include <JavaScriptCore/Protect.h>
+#include <JavaScriptCore/JSGlobalData.h>
+#include <JavaScriptCore/Strong.h>
 #include <WebCore/Timer.h>
 #include <WebKit/npapi.h>
 #include <wtf/Deque.h>
+#include <wtf/Forward.h>
 #include <wtf/HashMap.h>
 #include <wtf/PassRefPtr.h>
 #include <wtf/RefCounted.h>
 #include <wtf/RetainPtr.h>
 #include "WebKitPluginHostTypes.h"
 
-namespace WebCore {
-    class String;
-}
-
 namespace JSC {
     namespace Bindings {
         class Instance;
         class RootObject;
     }
+    class ArgList;
 }
 @class WebHostedNetscapePluginView;
 @class WebFrame;
@@ -60,10 +59,7 @@ class ProxyInstance;
     
 class NetscapePluginInstanceProxy : public RefCounted<NetscapePluginInstanceProxy> {
 public:
-    static PassRefPtr<NetscapePluginInstanceProxy> create(NetscapePluginHostProxy* pluginHostProxy, WebHostedNetscapePluginView *pluginView, bool fullFramePlugin)
-    {
-        return adoptRef(new NetscapePluginInstanceProxy(pluginHostProxy, pluginView, fullFramePlugin));
-    }
+    static PassRefPtr<NetscapePluginInstanceProxy> create(NetscapePluginHostProxy*, WebHostedNetscapePluginView *, bool fullFramePlugin);
     ~NetscapePluginInstanceProxy();
     
     uint32_t pluginID() const 
@@ -114,7 +110,7 @@ public:
     bool getPluginElementNPObject(uint32_t& objectID);
     bool forgetBrowserObjectID(uint32_t objectID); // Will fail if the ID is being sent to plug-in right now (i.e., retain/release calls aren't balanced).
 
-    bool evaluate(uint32_t objectID, const WebCore::String& script, data_t& resultData, mach_msg_type_number_t& resultLength, bool allowPopups);
+    bool evaluate(uint32_t objectID, const WTF::String& script, data_t& resultData, mach_msg_type_number_t& resultLength, bool allowPopups);
     bool invoke(uint32_t objectID, const JSC::Identifier& methodName, data_t argumentsData, mach_msg_type_number_t argumentsLength, data_t& resultData, mach_msg_type_number_t& resultLength);
     bool invokeDefault(uint32_t objectID, data_t argumentsData, mach_msg_type_number_t argumentsLength, data_t& resultData, mach_msg_type_number_t& resultLength);
     bool construct(uint32_t objectID, data_t argumentsData, mach_msg_type_number_t argumentsLength, data_t& resultData, mach_msg_type_number_t& resultLength);
@@ -158,7 +154,7 @@ public:
     void invalidate();
     
     void willCallPluginFunction();
-    void didCallPluginFunction();
+    void didCallPluginFunction(bool& stopped);
     bool shouldStop();
     
     uint32_t nextRequestID();
@@ -172,7 +168,7 @@ public:
     void didDraw();
     void privateBrowsingModeDidChange(bool isPrivateBrowsingEnabled);
     
-    static void setGlobalException(const WebCore::String&);
+    static void setGlobalException(const WTF::String&);
     static void moveGlobalExceptionToExecState(JSC::ExecState*);
 
     // Reply structs
@@ -267,8 +263,14 @@ public:
             ASSERT(reply->m_type == T::ReplyType);
         
         m_waitingForReply = false;
-        
-        didCallPluginFunction();
+
+        bool stopped = false;
+        didCallPluginFunction(stopped);
+        if (stopped) {
+            // The instance proxy may have been deleted from didCallPluginFunction(), so a null reply needs to be returned.
+            delete static_cast<T*>(reply);
+            return std::auto_ptr<T>();
+        }
 
         return std::auto_ptr<T>(static_cast<T*>(reply));
     }
@@ -312,11 +314,12 @@ private:
     bool demarshalValueFromArray(JSC::ExecState*, NSArray *array, NSUInteger& index, JSC::JSValue& result);
     void demarshalValues(JSC::ExecState*, data_t valuesData, mach_msg_type_number_t valuesLength, JSC::MarkedArgumentBuffer& result);
 
-    class LocalObjectMap : Noncopyable {
+    class LocalObjectMap {
+        WTF_MAKE_NONCOPYABLE(LocalObjectMap);
     public:
         LocalObjectMap();
         ~LocalObjectMap();
-        uint32_t idForObject(JSC::JSObject*);
+        uint32_t idForObject(JSC::JSGlobalData&, JSC::JSObject*);
         void retain(JSC::JSObject*);
         void release(JSC::JSObject*);
         void clear();
@@ -325,7 +328,7 @@ private:
         JSC::JSObject* get(uint32_t) const;
 
     private:
-        HashMap<uint32_t, JSC::ProtectedPtr<JSC::JSObject> > m_idToJSObjectMap;
+        HashMap<uint32_t, JSC::Strong<JSC::JSObject> > m_idToJSObjectMap;
         // The pair consists of object ID and a reference count. One reference belongs to remote plug-in,
         // and the proxy will add transient references for arguments that are being sent out.
         HashMap<JSC::JSObject*, pair<uint32_t, uint32_t> > m_jsObjectToIDMap;
@@ -344,7 +347,19 @@ private:
     unsigned m_pluginFunctionCallDepth;
     bool m_shouldStopSoon;
     uint32_t m_currentRequestID;
-    bool m_inDestroy;
+
+    // All NPRuntime functions will return false when destroying a plug-in. This is necessary because there may be unhandled messages waiting,
+    // and spinning in processRequests() will unexpectedly execute them from inside destroy(). That's not a good time to execute arbitrary JavaScript,
+    // since both loading and rendering data structures may be in inconsistent state.
+    // This suppresses calls from all plug-ins, even those in different pages, since JS might affect the frame with plug-in that's being stopped.
+    //
+    // FIXME: Plug-ins can execute arbitrary JS from destroy() in same process case, and other browsers also support that.
+    // A better fix may be to make sure that unrelated messages are postponed until after destroy() returns.
+    // Another possible fix may be to send destroy message at a time when internal structures are consistent.
+    //
+    // FIXME: We lack similar message suppression in other cases - resize() is also triggered by layout, so executing arbitrary JS is also problematic.
+    static bool m_inDestroy;
+
     bool m_pluginIsWaitingForDraw;
     
     RefPtr<HostedNetscapePluginStream> m_manualStream;
