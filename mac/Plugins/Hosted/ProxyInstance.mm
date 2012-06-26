@@ -134,7 +134,7 @@ ProxyInstance::~ProxyInstance()
     
 RuntimeObject* ProxyInstance::newRuntimeObject(ExecState* exec)
 {
-    return new (exec) ProxyRuntimeObject(exec, exec->lexicalGlobalObject(), this);
+    return ProxyRuntimeObject::create(exec, exec->lexicalGlobalObject(), this);
 }
 
 JSC::Bindings::Class* ProxyInstance::getClass() const
@@ -179,28 +179,44 @@ JSValue ProxyInstance::invoke(JSC::ExecState* exec, InvokeType type, uint64_t id
 
 class ProxyRuntimeMethod : public RuntimeMethod {
 public:
-    ProxyRuntimeMethod(ExecState* exec, JSGlobalObject* globalObject, const Identifier& name, Bindings::MethodList& list)
+    typedef RuntimeMethod Base;
+
+    static ProxyRuntimeMethod* create(ExecState* exec, JSGlobalObject* globalObject, const Identifier& name, Bindings::MethodList& list)
+    {
         // FIXME: deprecatedGetDOMStructure uses the prototype off of the wrong global object
         // exec-globalData() is also likely wrong.
-        : RuntimeMethod(exec, globalObject, deprecatedGetDOMStructure<ProxyRuntimeMethod>(exec), name, list)
-    {
-        ASSERT(inherits(&s_info));
+        Structure* domStructure = deprecatedGetDOMStructure<ProxyRuntimeMethod>(exec);
+        ProxyRuntimeMethod* method = new (allocateCell<ProxyRuntimeMethod>(*exec->heap())) ProxyRuntimeMethod(globalObject, domStructure, list);
+        method->finishCreation(exec->globalData(), name);
+        return method;
     }
 
-    static Structure* createStructure(JSGlobalData& globalData, JSValue prototype)
+    static Structure* createStructure(JSGlobalData& globalData, JSGlobalObject* globalObject, JSValue prototype)
     {
-        return Structure::create(globalData, prototype, TypeInfo(ObjectType, StructureFlags), AnonymousSlotCount, &s_info);
+        return Structure::create(globalData, globalObject, prototype, TypeInfo(ObjectType, StructureFlags), &s_info);
     }
 
     static const ClassInfo s_info;
+
+private:
+    ProxyRuntimeMethod(JSGlobalObject* globalObject, Structure* structure, Bindings::MethodList& list)
+        : RuntimeMethod(globalObject, structure, list)
+    {
+    }
+
+    void finishCreation(JSGlobalData& globalData, const Identifier& name)
+    {
+        Base::finishCreation(globalData, name);
+        ASSERT(inherits(&s_info));
+    }
 };
 
-const ClassInfo ProxyRuntimeMethod::s_info = { "ProxyRuntimeMethod", &RuntimeMethod::s_info, 0, 0 };
+const ClassInfo ProxyRuntimeMethod::s_info = { "ProxyRuntimeMethod", &RuntimeMethod::s_info, 0, 0, CREATE_METHOD_TABLE(ProxyRuntimeMethod) };
 
 JSValue ProxyInstance::getMethod(JSC::ExecState* exec, const JSC::Identifier& propertyName)
 {
     MethodList methodList = getClass()->methodsNamed(propertyName, this);
-    return new (exec) ProxyRuntimeMethod(exec, exec->lexicalGlobalObject(), propertyName, methodList);
+    return ProxyRuntimeMethod::create(exec, exec->lexicalGlobalObject(), propertyName, methodList);
 }
 
 JSValue ProxyInstance::invokeMethod(ExecState* exec, JSC::RuntimeMethod* runtimeMethod)
@@ -360,13 +376,13 @@ MethodList ProxyInstance::methodsNamed(const Identifier& identifier)
         return MethodList();
 
     // Add a new entry to the map unless an entry was added while we were in waitForReply.
-    pair<MethodMap::iterator, bool> mapAddResult = m_methods.add(identifier.impl(), 0);
-    if (mapAddResult.second && reply->m_result)
-        mapAddResult.first->second = new ProxyMethod(methodName);
+    MethodMap::AddResult mapAddResult = m_methods.add(identifier.impl(), 0);
+    if (mapAddResult.isNewEntry && reply->m_result)
+        mapAddResult.iterator->second = new ProxyMethod(methodName);
 
     MethodList methodList;
-    if (mapAddResult.first->second)
-        methodList.append(mapAddResult.first->second);
+    if (mapAddResult.iterator->second)
+        methodList.append(mapAddResult.iterator->second);
     return methodList;
 }
 
@@ -396,10 +412,10 @@ Field* ProxyInstance::fieldNamed(const Identifier& identifier)
         return 0;
     
     // Add a new entry to the map unless an entry was added while we were in waitForReply.
-    pair<FieldMap::iterator, bool> mapAddResult = m_fields.add(identifier.impl(), 0);
-    if (mapAddResult.second && reply->m_result)
-        mapAddResult.first->second = new ProxyField(propertyName);
-    return mapAddResult.first->second;
+    FieldMap::AddResult mapAddResult = m_fields.add(identifier.impl(), 0);
+    if (mapAddResult.isNewEntry && reply->m_result)
+        mapAddResult.iterator->second = new ProxyField(propertyName);
+    return mapAddResult.iterator->second;
 }
 
 JSC::JSValue ProxyInstance::fieldValue(ExecState* exec, const Field* field) const

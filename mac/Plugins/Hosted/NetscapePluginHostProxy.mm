@@ -39,7 +39,6 @@
 #import <WebCore/Frame.h>
 #import <WebCore/IdentifierRep.h>
 #import <WebCore/ScriptController.h>
-#import <string>
 
 extern "C" {
 #import "WebKitPluginHost.h"
@@ -567,7 +566,7 @@ kern_return_t WKPCEvaluate(mach_port_t clientPort, uint32_t pluginID, uint32_t r
 
     PluginDestroyDeferrer deferrer(instanceProxy);
     
-    String script = String::fromUTF8WithLatin1Fallback(scriptData, scriptLength);
+    String script = scriptLength ? String::fromUTF8WithLatin1Fallback(scriptData, scriptLength) : emptyString();
     
     data_t resultData = 0;
     mach_msg_type_number_t resultLength = 0;
@@ -1125,8 +1124,7 @@ kern_return_t WKPCSetException(mach_port_t clientPort, data_t message, mach_msg_
 {
     DataDeallocator deallocator(message, messageCnt);
 
-    string str(message, messageCnt);
-    NetscapePluginInstanceProxy::setGlobalException(str.c_str());
+    NetscapePluginInstanceProxy::setGlobalException(String::fromUTF8WithLatin1Fallback(message, messageCnt));
 
     return KERN_SUCCESS;
 }

@@ -41,6 +41,7 @@
 #import <WebCore/FrameLoader.h>
 #import <WebCore/ResourceLoadScheduler.h>
 #import <WebCore/SecurityOrigin.h>
+#import <WebCore/SecurityPolicy.h>
 #import <WebCore/WebCoreURLResponse.h>
 #import <wtf/RefCountedLeakCounter.h>
 
@@ -48,9 +49,7 @@ using namespace WebCore;
 
 namespace WebKit {
 
-#ifndef NDEBUG
-static WTF::RefCountedLeakCounter hostedNetscapePluginStreamCounter("HostedNetscapePluginStream");
-#endif
+DEFINE_DEBUG_ONLY_GLOBAL(WTF::RefCountedLeakCounter, hostedNetscapePluginStreamCounter, ("HostedNetscapePluginStream"));
 
 HostedNetscapePluginStream::HostedNetscapePluginStream(NetscapePluginInstanceProxy* instance, uint32_t streamID, NSURLRequest *request)
     : m_instance(instance)
@@ -60,8 +59,11 @@ HostedNetscapePluginStream::HostedNetscapePluginStream(NetscapePluginInstancePro
     , m_requestURL([request URL])
     , m_frameLoader(0)
 {
-    if (SecurityOrigin::shouldHideReferrer([request URL], core([instance->pluginView() webFrame])->loader()->outgoingReferrer()))
+    String referrer = SecurityPolicy::generateReferrerHeader(core([instance->pluginView() webFrame])->document()->referrerPolicy(), [request URL], core([instance->pluginView() webFrame])->loader()->outgoingReferrer());
+    if (referrer.isEmpty())
         [m_request.get() _web_setHTTPReferrer:nil];
+    else
+        [m_request.get() _web_setHTTPReferrer:referrer];
 
 #ifndef NDEBUG
     hostedNetscapePluginStreamCounter.increment();

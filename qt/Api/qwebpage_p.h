@@ -21,9 +21,10 @@
 #ifndef QWEBPAGE_P_H
 #define QWEBPAGE_P_H
 
+#include <QWeakPointer>
+
 #include <qbasictimer.h>
 #include <qnetworkproxy.h>
-#include <qpointer.h>
 #include <qevent.h>
 #include <qgraphicssceneevent.h>
 
@@ -164,7 +165,7 @@ public:
     QWebPage *q;
     WebCore::Page *page;
     OwnPtr<QWebPageClient> client;
-    QPointer<QWebFrame> mainFrame;
+    QWeakPointer<QWebFrame> mainFrame;
 
 #ifndef QT_NO_UNDOSTACK
     QUndoStack *undoStack;
@@ -191,12 +192,11 @@ public:
 
     QSize viewportSize;
     QSize fixedLayoutSize;
-    qreal pixelRatio;
 
     QWebHistory history;
     QWebHitTestResult hitTestResult;
 #ifndef QT_NO_CONTEXTMENU
-    QPointer<QMenu> currentContextMenu;
+    QWeakPointer<QMenu> currentContextMenu;
 #endif
     QWebSettings *settings;
     QPalette palette;

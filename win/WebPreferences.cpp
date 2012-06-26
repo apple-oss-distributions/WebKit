@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2006, 2007, 2008, 2009, 2010 Apple Inc.  All rights reserved.
+ * Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011 Apple Inc.  All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -189,6 +189,7 @@ void WebPreferences::initializeDefaultSettings()
     CFDictionaryAddValue(defaults, CFSTR(WebKitSansSerifFontPreferenceKey), CFSTR("Arial"));
     CFDictionaryAddValue(defaults, CFSTR(WebKitCursiveFontPreferenceKey), CFSTR("Comic Sans MS"));
     CFDictionaryAddValue(defaults, CFSTR(WebKitFantasyFontPreferenceKey), CFSTR("Comic Sans MS"));
+    CFDictionaryAddValue(defaults, CFSTR(WebKitPictographFontPreferenceKey), CFSTR("Times New Roman"));
     CFDictionaryAddValue(defaults, CFSTR(WebKitMinimumFontSizePreferenceKey), CFSTR("0"));
     CFDictionaryAddValue(defaults, CFSTR(WebKitMinimumLogicalFontSizePreferenceKey), CFSTR("9"));
     CFDictionaryAddValue(defaults, CFSTR(WebKitDefaultFontSizePreferenceKey), CFSTR("16"));
@@ -224,8 +225,12 @@ void WebPreferences::initializeDefaultSettings()
     CFDictionaryAddValue(defaults, CFSTR(WebKitPrivateBrowsingEnabledPreferenceKey), kCFBooleanFalse);
     CFDictionaryAddValue(defaults, CFSTR(WebKitRespectStandardStyleKeyEquivalentsPreferenceKey), kCFBooleanFalse);
     CFDictionaryAddValue(defaults, CFSTR(WebKitShowsURLsInToolTipsPreferenceKey), kCFBooleanFalse);
+    CFDictionaryAddValue(defaults, CFSTR(WebKitShowsToolTipOverTruncatedTextPreferenceKey), kCFBooleanFalse);
     CFDictionaryAddValue(defaults, CFSTR(WebKitPDFDisplayModePreferenceKey), CFSTR("1"));
     CFDictionaryAddValue(defaults, CFSTR(WebKitPDFScaleFactorPreferenceKey), CFSTR("0"));
+    CFDictionaryAddValue(defaults, CFSTR(WebKitShouldDisplaySubtitlesPreferenceKey), kCFBooleanFalse);
+    CFDictionaryAddValue(defaults, CFSTR(WebKitShouldDisplayCaptionsPreferenceKey), kCFBooleanFalse);
+    CFDictionaryAddValue(defaults, CFSTR(WebKitShouldDisplayTextDescriptionsPreferenceKey), kCFBooleanFalse);
 
     RetainPtr<CFStringRef> linkBehaviorStringRef(AdoptCF, CFStringCreateWithFormat(0, 0, CFSTR("%d"), WebKitEditableLinkDefaultBehavior));
     CFDictionaryAddValue(defaults, CFSTR(WebKitEditableLinkBehaviorPreferenceKey), linkBehaviorStringRef.get());
@@ -255,9 +260,6 @@ void WebPreferences::initializeDefaultSettings()
 
     CFDictionaryAddValue(defaults, CFSTR(WebKitUseHighResolutionTimersPreferenceKey), kCFBooleanTrue);
 
-    RetainPtr<CFStringRef> pluginAllowedRunTime(AdoptCF, CFStringCreateWithFormat(0, 0, CFSTR("%u"), numeric_limits<unsigned>::max()));
-    CFDictionaryAddValue(defaults, CFSTR(WebKitPluginAllowedRunTimePreferenceKey), pluginAllowedRunTime.get());
-
     CFDictionaryAddValue(defaults, CFSTR(WebKitAcceleratedCompositingEnabledPreferenceKey), kCFBooleanFalse);
     
     CFDictionaryAddValue(defaults, CFSTR(WebKitShowDebugBordersPreferenceKey), kCFBooleanFalse);
@@ -266,6 +268,10 @@ void WebPreferences::initializeDefaultSettings()
 
     CFDictionaryAddValue(defaults, CFSTR(WebKitMemoryInfoEnabledPreferenceKey), kCFBooleanFalse);
     CFDictionaryAddValue(defaults, CFSTR(WebKitHyperlinkAuditingEnabledPreferenceKey), kCFBooleanTrue);
+    CFDictionaryAddValue(defaults, CFSTR(WebKitHixie76WebSocketProtocolEnabledPreferenceKey), kCFBooleanFalse);
+
+    CFDictionaryAddValue(defaults, CFSTR(WebKitMediaPlaybackRequiresUserGesturePreferenceKey), kCFBooleanFalse);
+    CFDictionaryAddValue(defaults, CFSTR(WebKitMediaPlaybackAllowsInlinePreferenceKey), kCFBooleanTrue);
 
     defaultSettings = defaults;
 }
@@ -648,6 +654,20 @@ HRESULT STDMETHODCALLTYPE WebPreferences::setFantasyFontFamily(
     return S_OK;
 }
 
+HRESULT STDMETHODCALLTYPE WebPreferences::pictographFontFamily( 
+    /* [retval][out] */ BSTR* family)
+{
+    *family = stringValueForKey(CFSTR(WebKitPictographFontPreferenceKey));
+    return (*family) ? S_OK : E_FAIL;
+}
+
+HRESULT STDMETHODCALLTYPE WebPreferences::setPictographFontFamily( 
+    /* [in] */ BSTR family)
+{
+    setStringValue(CFSTR(WebKitPictographFontPreferenceKey), family);
+    return S_OK;
+}
+
 HRESULT STDMETHODCALLTYPE WebPreferences::defaultFontSize( 
     /* [retval][out] */ int* fontSize)
 {
@@ -939,6 +959,48 @@ HRESULT STDMETHODCALLTYPE WebPreferences::loadsSiteIconsIgnoringImageLoadingPref
     /* [retval][out] */ BOOL* enabled)
 {
     *enabled = boolValueForKey(CFSTR(WebKitLoadSiteIconsKey));
+    return S_OK;
+}
+
+HRESULT STDMETHODCALLTYPE WebPreferences::setHixie76WebSocketProtocolEnabled(
+    /* [in] */ BOOL enabled)
+{
+    setBoolValue(CFSTR(WebKitHixie76WebSocketProtocolEnabledPreferenceKey), enabled);
+    return S_OK;
+}
+
+HRESULT STDMETHODCALLTYPE WebPreferences::hixie76WebSocketProtocolEnabled(
+    /* [retval][out] */ BOOL* enabled)
+{
+    *enabled = boolValueForKey(CFSTR(WebKitHixie76WebSocketProtocolEnabledPreferenceKey));
+    return S_OK;
+}
+
+HRESULT STDMETHODCALLTYPE WebPreferences::setMediaPlaybackRequiresUserGesture(
+    /* [in] */ BOOL enabled)
+{
+    setBoolValue(CFSTR(WebKitMediaPlaybackRequiresUserGesturePreferenceKey), enabled);
+    return S_OK;
+}
+
+HRESULT STDMETHODCALLTYPE WebPreferences::mediaPlaybackRequiresUserGesture(
+    /* [retval][out] */ BOOL* enabled)
+{
+    *enabled = boolValueForKey(CFSTR(WebKitMediaPlaybackRequiresUserGesturePreferenceKey));
+    return S_OK;
+}
+
+HRESULT STDMETHODCALLTYPE WebPreferences::setMediaPlaybackAllowsInline(
+    /* [in] */ BOOL enabled)
+{
+    setBoolValue(CFSTR(WebKitMediaPlaybackAllowsInlinePreferenceKey), enabled);
+    return S_OK;
+}
+
+HRESULT STDMETHODCALLTYPE WebPreferences::mediaPlaybackAllowsInline(
+    /* [retval][out] */ BOOL* enabled)
+{
+    *enabled = boolValueForKey(CFSTR(WebKitMediaPlaybackAllowsInlinePreferenceKey));
     return S_OK;
 }
 
@@ -1259,16 +1321,16 @@ HRESULT WebPreferences::setCacheModel(WebCacheModel cacheModel)
     return S_OK;
 }
 
-HRESULT WebPreferences::setShouldPaintCustomScrollbars(BOOL shouldPaint)
+HRESULT WebPreferences::unused3()
 {
-    setBoolValue(CFSTR(WebKitPaintCustomScrollbarsPreferenceKey), shouldPaint);
-    return S_OK;
+    ASSERT_NOT_REACHED();
+    return E_FAIL;
 }
 
-HRESULT WebPreferences::shouldPaintCustomScrollbars(BOOL* shouldPaint)
+HRESULT WebPreferences::unused4()
 {
-    *shouldPaint = boolValueForKey(CFSTR(WebKitPaintCustomScrollbarsPreferenceKey));
-    return S_OK;
+    ASSERT_NOT_REACHED();
+    return E_FAIL;
 }
 
 HRESULT WebPreferences::shouldPaintNativeControls(BOOL* shouldPaint)
@@ -1429,18 +1491,6 @@ HRESULT STDMETHODCALLTYPE WebPreferences::shouldUseHighResolutionTimers(BOOL* us
     return S_OK;
 }
 
-HRESULT WebPreferences::setPluginAllowedRunTime(UINT allowedRunTime)
-{
-    setIntegerValue(CFSTR(WebKitPluginAllowedRunTimePreferenceKey), allowedRunTime);
-    return S_OK;
-}
-
-HRESULT WebPreferences::pluginAllowedRunTime(UINT* allowedRunTime)
-{
-    *allowedRunTime = integerValueForKey(CFSTR(WebKitPluginAllowedRunTimePreferenceKey));
-    return S_OK;
-}
-
 HRESULT WebPreferences::setPreferenceForTest(BSTR key, BSTR value)
 {
     if (!SysStringLen(key) || !SysStringLen(value))
@@ -1551,6 +1601,59 @@ HRESULT WebPreferences::setFullScreenEnabled(BOOL enabled)
 #endif
 }
 
+HRESULT WebPreferences::avFoundationEnabled(BOOL* enabled)
+{
+#if USE(AVFOUNDATION)
+    if (!enabled)
+        return E_POINTER;
+
+    *enabled = boolValueForKey(CFSTR(WebKitAVFoundationEnabledPreferenceKey));
+    return S_OK;
+#else
+    return E_NOTIMPL;
+#endif
+}
+
+HRESULT WebPreferences::setAVFoundationEnabled(BOOL enabled)
+{
+#if USE(AVFOUNDATION)
+    setBoolValue(CFSTR(WebKitAVFoundationEnabledPreferenceKey), enabled);
+    return S_OK;
+#else
+    return E_NOTIMPL;
+#endif
+}
+
+HRESULT WebPreferences::showsToolTipOverTruncatedText(BOOL* showsToolTip)
+{
+    if (!showsToolTip)
+        return E_POINTER;
+
+    *showsToolTip = boolValueForKey(CFSTR(WebKitShowsToolTipOverTruncatedTextPreferenceKey));
+    return S_OK;
+}
+
+HRESULT WebPreferences::setShowsToolTipOverTruncatedText(BOOL showsToolTip)
+{
+    setBoolValue(CFSTR(WebKitShowsToolTipOverTruncatedTextPreferenceKey), showsToolTip);
+    return S_OK;
+}
+
+HRESULT WebPreferences::shouldInvertColors(BOOL* shouldInvertColors)
+{
+    if (!shouldInvertColors)
+        return E_POINTER;
+
+    *shouldInvertColors = boolValueForKey(CFSTR(WebKitShouldInvertColorsPreferenceKey));
+    return S_OK;
+}
+
+HRESULT WebPreferences::setShouldInvertColors(BOOL shouldInvertColors)
+{
+    setBoolValue(CFSTR(WebKitShouldInvertColorsPreferenceKey), shouldInvertColors);
+    return S_OK;
+}
+
 void WebPreferences::willAddToWebView()
 {
     ++m_numWebViews;
@@ -1563,4 +1666,73 @@ void WebPreferences::didRemoveFromWebView()
         IWebNotificationCenter* nc = WebNotificationCenter::defaultCenterInternal();
         nc->postNotificationName(webPreferencesRemovedNotification(), static_cast<IWebPreferences*>(this), 0);
     }
+}
+
+HRESULT WebPreferences::shouldDisplaySubtitles(BOOL* enabled)
+{
+#if ENABLE(VIDEO_TRACK)
+    if (!enabled)
+        return E_POINTER;
+
+    *enabled = boolValueForKey(CFSTR(WebKitShouldDisplaySubtitlesPreferenceKey));
+    return S_OK;
+#else
+    return E_NOTIMPL;
+#endif
+}
+
+HRESULT WebPreferences::setShouldDisplaySubtitles(BOOL enabled)
+{
+#if ENABLE(VIDEO_TRACK)
+    setBoolValue(CFSTR(WebKitShouldDisplaySubtitlesPreferenceKey), enabled);
+    return S_OK;
+#else
+    return E_NOTIMPL;
+#endif
+}
+
+HRESULT WebPreferences::shouldDisplayCaptions(BOOL* enabled)
+{
+#if ENABLE(VIDEO_TRACK)
+    if (!enabled)
+        return E_POINTER;
+
+    *enabled = boolValueForKey(CFSTR(WebKitShouldDisplayCaptionsPreferenceKey));
+    return S_OK;
+#else
+    return E_NOTIMPL;
+#endif
+}
+
+HRESULT WebPreferences::setShouldDisplayCaptions(BOOL enabled)
+{
+#if ENABLE(VIDEO_TRACK)
+    setBoolValue(CFSTR(WebKitShouldDisplayCaptionsPreferenceKey), enabled);
+    return S_OK;
+#else
+    return E_NOTIMPL;
+#endif
+}
+
+HRESULT WebPreferences::shouldDisplayTextDescriptions(BOOL* enabled)
+{
+#if ENABLE(VIDEO_TRACK)
+    if (!enabled)
+        return E_POINTER;
+
+    *enabled = boolValueForKey(CFSTR(WebKitShouldDisplayTextDescriptionsPreferenceKey));
+    return S_OK;
+#else
+    return E_NOTIMPL;
+#endif
+}
+
+HRESULT WebPreferences::setShouldDisplayTextDescriptions(BOOL enabled)
+{
+#if ENABLE(VIDEO_TRACK)
+    setBoolValue(CFSTR(WebKitShouldDisplayTextDescriptionsPreferenceKey), enabled);
+    return S_OK;
+#else
+    return E_NOTIMPL;
+#endif
 }
