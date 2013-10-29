@@ -41,6 +41,7 @@
 #import <JavaScriptCore/APICast.h>
 #import <WebCore/Document.h>
 #import <WebCore/Frame.h>
+#import <WebCore/FrameLoader.h>
 #import <WebCore/HTMLInputElement.h>
 #import <WebCore/HTMLParserIdioms.h>
 #import <WebCore/JSElement.h>
@@ -51,7 +52,7 @@
 #import <WebKit/DOMExtensions.h>
 #import <WebKit/DOMHTML.h>
 #import <runtime/JSLock.h>
-#import <runtime/JSValue.h>
+#import <runtime/JSCJSValue.h>
 #import <wtf/Assertions.h>
 
 using namespace WebCore;
@@ -67,13 +68,9 @@ using namespace JSC;
     if (!value)
         return 0;
 
-    JSLock lock(SilenceAssertionsOnly);
-    return kit(toElement(toJS(toJS(context), value)));
-}
-
-- (NSString *)_markerTextForListItem
-{
-    return WebCore::markerTextForListItem(core(self));
+    ExecState* exec = toJS(context);
+    JSLockHolder lock(exec);
+    return kit(toElement(toJS(exec, value)));
 }
 
 @end
@@ -102,9 +99,8 @@ bool WebFrameFilter::shouldIncludeSubframe(Frame* frame) const
 {
     if (!m_filterBlock)
         return true;
-        
-    WebFrame* webFrame = static_cast<WebFrameLoaderClient*>(frame->loader()->client())->webFrame();
-    return m_filterBlock(webFrame);
+
+    return m_filterBlock(kit(frame));
 }
 
 @implementation DOMNode (WebDOMNodeOperations)
@@ -136,26 +132,6 @@ bool WebFrameFilter::shouldIncludeSubframe(Frame* frame) const
 
 @end
 
-/* This doesn't appear to be used by anyone.  We should consider removing this. */
-@implementation DOMNode (WebDOMNodeOperationsInternal)
-
-- (NSArray *)_subresourceURLs
-{
-    ListHashSet<KURL> urls;
-    core(self)->getSubresourceURLs(urls);
-    if (!urls.size())
-        return nil;
-
-    NSMutableArray *array = [NSMutableArray arrayWithCapacity:urls.size()];
-    ListHashSet<KURL>::iterator end = urls.end();
-    for (ListHashSet<KURL>::iterator it = urls.begin(); it != end; ++it)
-        [array addObject:(NSURL *)*it];
-
-    return array;
-}
-
-@end
-
 @implementation DOMDocument (WebDOMDocumentOperations)
 
 - (WebFrame *)webFrame
@@ -183,20 +159,6 @@ bool WebFrameFilter::shouldIncludeSubframe(Frame* frame) const
         [range selectNode:documentElement];
 
     return range;
-}
-
-@end
-
-@implementation DOMDocument (WebDOMDocumentOperationsPrivate)
-
-- (NSArray *)_focusableNodes
-{
-    Vector<RefPtr<Node> > nodes;
-    core(self)->getFocusableNodes(nodes);
-    NSMutableArray *array = [NSMutableArray arrayWithCapacity:nodes.size()];
-    for (unsigned i = 0; i < nodes.size(); ++i)
-        [array addObject:kit(nodes[i].get())];
-    return array;
 }
 
 @end
@@ -238,11 +200,6 @@ bool WebFrameFilter::shouldIncludeSubframe(Frame* frame) const
 - (void)_setAutofilled:(BOOL)autofilled
 {
     static_cast<HTMLInputElement*>(core((DOMElement *)self))->setAutofilled(autofilled);
-}
-
-- (void)_setValueForUser:(NSString *)value
-{
-    static_cast<HTMLInputElement*>(core((DOMElement *)self))->setValueForUser(value);
 }
 
 @end

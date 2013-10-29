@@ -89,33 +89,37 @@ enum {
     WebMenuItemTagMakeLowerCase,
     WebMenuItemTagCapitalize,
     WebMenuItemTagChangeBack,
+    WebMenuItemTagOpenMediaInNewWindow,
+    WebMenuItemTagCopyMediaLinkToClipboard,
+    WebMenuItemTagToggleMediaControls,
+    WebMenuItemTagToggleMediaLoop,
+    WebMenuItemTagEnterVideoFullscreen,
+    WebMenuItemTagMediaPlayPause,
+    WebMenuItemTagMediaMute,
+    WebMenuItemTagDictationAlternative,
+    WebMenuItemBaseCustomTag = 5000,
+    WebMenuItemCustomTagNoAction = 5998,
+    WebMenuItemLastCustomTag = 5999,
     WebMenuItemTagBaseApplication = 10000
 };
 
 // Message Sources.
-extern NSString *WebConsoleMessageHTMLMessageSource;
 extern NSString *WebConsoleMessageXMLMessageSource;
 extern NSString *WebConsoleMessageJSMessageSource;
 extern NSString *WebConsoleMessageNetworkMessageSource;
 extern NSString *WebConsoleMessageConsoleAPIMessageSource;
+extern NSString *WebConsoleMessageStorageMessageSource;
+extern NSString *WebConsoleMessageAppCacheMessageSource;
+extern NSString *WebConsoleMessageRenderingMessageSource;
+extern NSString *WebConsoleMessageCSSMessageSource;
+extern NSString *WebConsoleMessageSecurityMessageSource;
 extern NSString *WebConsoleMessageOtherMessageSource;
 
-// Message Types.
-extern NSString *WebConsoleMessageLogMessageType;
-extern NSString *WebConsoleMessageDirMessageType;
-extern NSString *WebConsoleMessageDirXMLMessageType;
-extern NSString *WebConsoleMessageTraceMessageType;
-extern NSString *WebConsoleMessageStartGroupMessageType;
-extern NSString *WebConsoleMessageStartGroupCollapsedMessageType;
-extern NSString *WebConsoleMessageEndGroupMessageType;
-extern NSString *WebConsoleMessageAssertMessageType;
-
 // Message Levels.
-extern NSString *WebConsoleMessageTipMessageLevel;
+extern NSString *WebConsoleMessageDebugMessageLevel;
 extern NSString *WebConsoleMessageLogMessageLevel;
 extern NSString *WebConsoleMessageWarningMessageLevel;
 extern NSString *WebConsoleMessageErrorMessageLevel;
-extern NSString *WebConsoleMessageDebugMessageLevel;
 
 @class DOMElement;
 @class DOMNode;
@@ -143,7 +147,7 @@ extern NSString *WebConsoleMessageDebugMessageLevel;
     @method webView:addMessageToConsole:withSource:
     @param webView The WebView sending the delegate method.
     @param message A dictionary representation of the console message.
-    @param source Where the message came from. See WebConsoleMessageHTMLMessageSource and other source types.
+    @param source Where the message came from. See WebConsoleMessageXMLMessageSource and other source types.
     @discussion The dictionary contains the following keys:
 
     <dl>
@@ -155,18 +159,13 @@ extern NSString *WebConsoleMessageDebugMessageLevel;
         <dd>If this came from a file, this is the URL to the file this message originates from.</dd>
         <dt>MessageSource</dt>
         <dd>
-            Where the message came from. HTML, XML, JavaScript, CSS, etc.
-            See WebConsoleMessageHTMLMessageSource and similar constants.
-        </dd>
-        <dt>MessageType</dt>
-        <dd>
-            Class of message. Start / End of a Group, a Log, Network related, etc.
-            See WebConsoleMessageLogMessageType and similar constants.
+            Where the message came from. XML, JavaScript, CSS, etc.
+            See WebConsoleMessageXMLMessageSource and similar constants.
         </dd>
         <dt>MessageLevel</dt>
         <dd>
-            Severity level of the message. Tip, Log, Warning, etc.
-            See WebConsoleMessageTipMessageLevel and similar constants.
+            Severity level of the message. Debug, Log, Warning, etc.
+            See WebConsoleMessageDebugMessageLevel and similar constants.
         </dd>
     </dl>
 */

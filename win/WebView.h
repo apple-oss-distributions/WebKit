@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011 Apple Inc.  All rights reserved.
+ * Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011, 2012 Apple Inc.  All rights reserved.
  * Copyright (C) 2009, 2010, 2011 Appcelerator, Inc. All rights reserved.
  * Copyright (C) 2011 Brent Fulgham. All rights reserved.
  *
@@ -55,6 +55,9 @@ namespace WebCore {
     class CACFLayerTreeHost;
 #endif
     class FullScreenController;
+#if PLATFORM(WIN) && USE(AVFOUNDATION)
+    struct GraphicsDeviceAdapter;
+#endif
 }
 
 namespace WebCore {
@@ -135,6 +138,12 @@ public:
         /* [in] */ RECT frame,
         /* [in] */ BSTR frameName,
         /* [in] */ BSTR groupName);
+
+    virtual HRESULT STDMETHODCALLTYPE setAccessibilityDelegate(
+        /* [in] */ IAccessibilityDelegate *d);
+
+    virtual HRESULT STDMETHODCALLTYPE accessibilityDelegate(
+        /* [out][retval] */ IAccessibilityDelegate **d);
 
     virtual HRESULT STDMETHODCALLTYPE setUIDelegate( 
         /* [in] */ IWebUIDelegate *d);
@@ -947,6 +956,10 @@ public:
     void setRootChildLayer(WebCore::GraphicsLayer*);
 #endif
 
+#if PLATFORM(WIN) && USE(AVFOUNDATION)
+    WebCore::GraphicsDeviceAdapter* graphicsDeviceAdapter() const;
+#endif
+
     void enterFullscreenForNode(WebCore::Node*);
     void exitFullscreen();
 
@@ -962,6 +975,25 @@ public:
     WebCore::Element* fullScreenElement() const { return m_fullScreenElement.get(); }
 #endif
 
+    // Used by TextInputController in DumpRenderTree
+
+    HRESULT STDMETHODCALLTYPE setCompositionForTesting(
+        /* [in] */ BSTR composition, 
+        /* [in] */ UINT from, 
+        /* [in] */ UINT length);
+
+    HRESULT STDMETHODCALLTYPE hasCompositionForTesting(/* [out, retval] */ BOOL* result);
+
+    HRESULT STDMETHODCALLTYPE confirmCompositionForTesting(/* [in] */ BSTR composition);
+
+    HRESULT STDMETHODCALLTYPE compositionRangeForTesting(/* [out] */ UINT* startPosition, /* [out] */ UINT* length);
+
+    HRESULT STDMETHODCALLTYPE firstRectForCharacterRangeForTesting(
+    /* [in] */ UINT location, 
+    /* [in] */ UINT length, 
+    /* [out, retval] */ RECT* resultRect);
+
+    HRESULT STDMETHODCALLTYPE selectedRangeForTesting(/* [out] */ UINT* location, /* [out] */ UINT* length);
 private:
     void setZoomMultiplier(float multiplier, bool isTextOnly);
     float zoomMultiplier(bool isTextOnly);
@@ -992,10 +1024,8 @@ private:
 #if USE(ACCELERATED_COMPOSITING)
     // GraphicsLayerClient
     virtual void notifyAnimationStarted(const WebCore::GraphicsLayer*, double time);
-    virtual void notifySyncRequired(const WebCore::GraphicsLayer*);
+    virtual void notifyFlushRequired(const WebCore::GraphicsLayer*);
     virtual void paintContents(const WebCore::GraphicsLayer*, WebCore::GraphicsContext&, WebCore::GraphicsLayerPaintingPhase, const WebCore::IntRect& inClip);
-    virtual bool showDebugBorders(const WebCore::GraphicsLayer*) const;
-    virtual bool showRepaintCounter(const WebCore::GraphicsLayer*) const;
 
     // CACFLayerTreeHostClient
     virtual void flushPendingGraphicsLayerChanges();
@@ -1037,6 +1067,8 @@ protected:
     virtual void fullScreenClientWillExitFullScreen();
     virtual void fullScreenClientDidExitFullScreen();
     virtual void fullScreenClientForceRepaint();
+    virtual void fullScreenClientSaveScrollPosition();
+    virtual void fullScreenClientRestoreScrollPosition();
 #endif
 
     ULONG m_refCount;
@@ -1055,6 +1087,7 @@ protected:
     SIZE m_backingStoreSize;
     RefPtr<RefCountedHRGN> m_backingStoreDirtyRegion;
 
+    COMPtr<IAccessibilityDelegate> m_accessibilityDelegate;
     COMPtr<IWebEditingDelegate> m_editingDelegate;
     COMPtr<IWebFrameLoadDelegate> m_frameLoadDelegate;
     COMPtr<IWebFrameLoadDelegatePrivate> m_frameLoadDelegatePrivate;
@@ -1088,8 +1121,6 @@ protected:
     bool m_isBeingDestroyed;
     unsigned m_paintCount;
     bool m_hasSpellCheckerDocumentTag;
-    bool m_smartInsertDeleteEnabled;
-    bool m_selectTrailingWhitespaceEnabled;
     bool m_didClose;
     bool m_hasCustomDropTarget;
     unsigned m_inIMEComposition;
@@ -1138,6 +1169,7 @@ protected:
 #if ENABLE(FULLSCREEN_API)
     RefPtr<WebCore::Element> m_fullScreenElement;
     OwnPtr<WebCore::FullScreenController> m_fullscreenController;
+    WebCore::IntPoint m_scrollPosition;
 #endif
 };
 
