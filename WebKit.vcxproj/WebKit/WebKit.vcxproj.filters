@@ -220,9 +220,6 @@
     <ClCompile Include="..\..\win\WebScriptWorld.cpp">
       <Filter>Sources</Filter>
     </ClCompile>
-    <ClCompile Include="..\..\win\WebScrollBar.cpp">
-      <Filter>Sources</Filter>
-    </ClCompile>
     <ClCompile Include="..\..\win\WebSecurityOrigin.cpp">
       <Filter>Sources</Filter>
     </ClCompile>
@@ -274,6 +271,9 @@
     <ClCompile Include="..\..\win\WebKitPrefix.cpp" />
     <ClCompile Include="..\..\cf\WebCoreSupport\WebInspectorClientCF.cpp">
       <Filter>WebCoreSupport</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\win\AccessibleTextImpl.cpp">
+      <Filter>Sources</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
@@ -499,9 +499,6 @@
     <ClInclude Include="..\..\win\WebScriptWorld.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\win\WebScrollBar.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
     <ClInclude Include="..\..\win\WebSecurityOrigin.h">
       <Filter>Header Files</Filter>
     </ClInclude>
@@ -536,6 +533,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="..\..\win\WebKitPrefix.h" />
+    <ClInclude Include="..\..\win\AccessibleTextImpl.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <None Include="WebKitPostBuild.cmd" />
@@ -619,13 +619,17 @@
     <None Include="..\..\win\WebKit.resources\zoomOutCursor.png">
       <Filter>Resources</Filter>
     </None>
-    <None Include="$(ConfigurationBuildDir)\obj32\WebKitExportGenerator\WebKitExports.def">
+    <None Include="$(ConfigurationBuildDir)\obj$(PlatformArchitecture)\WebKitExportGenerator\WebKitExports.def">
       <Filter>Generated</Filter>
     </None>
+    <None Include="WebKitVersion.cmd" />
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="..\..\win\WebKit.resources\WebKit.rc">
       <Filter>Resources</Filter>
     </ResourceCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <CustomBuild Include="..\..\mac\Configurations\Version.xcconfig" />
   </ItemGroup>
 </Project>

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2006, 2007, 2011 Apple Inc. All rights reserved.
+ * Copyright (C) 2006, 2007, 2011, 2013 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -10,10 +10,10 @@
  *    notice, this list of conditions and the following disclaimer in the
  *    documentation and/or other materials provided with the distribution.
  *
- * THIS SOFTWARE IS PROVIDED BY APPLE COMPUTER, INC. ``AS IS'' AND ANY
+ * THIS SOFTWARE IS PROVIDED BY APPLE INC. ``AS IS'' AND ANY
  * EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
  * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
- * PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL APPLE COMPUTER, INC. OR
+ * PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL APPLE INC. OR
  * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
  * EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
  * PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
@@ -26,8 +26,6 @@
 #ifndef WebFrame_H
 #define WebFrame_H
 
-#include "WebFrameLoaderClient.h"
-
 #include "WebKit.h"
 #include "WebDataSource.h"
 
@@ -36,7 +34,7 @@
 #include <WebCore/AdjustViewSizeOrNot.h>
 #include <WebCore/FrameWin.h>
 #include <WebCore/GraphicsContext.h>
-#include <WebCore/KURL.h>
+#include <WebCore/URL.h>
 #include <WebCore/ResourceHandleClient.h>
 
 #include <WTF/RefPtr.h>
@@ -81,7 +79,6 @@ WebFrame* kit(WebCore::Frame*);
 WebCore::Frame* core(WebFrame*);
 
 class DECLSPEC_UUID("{A3676398-4485-4a9d-87DC-CB5A40E6351D}") WebFrame : public IWebFrame, IWebFramePrivate, IWebDocumentText
-    , public WebFrameLoaderClient
 {
 public:
     static WebFrame* createInstance();
@@ -160,7 +157,7 @@ public:
     virtual /* [local] */ JSGlobalContextRef STDMETHODCALLTYPE globalContext();
 
     // IWebFramePrivate
-    virtual HRESULT STDMETHODCALLTYPE unused1(BSTR*) { return E_NOTIMPL; }
+    virtual HRESULT STDMETHODCALLTYPE unused1() { return E_NOTIMPL; }
     virtual HRESULT STDMETHODCALLTYPE renderTreeAsExternalRepresentation(BOOL forPrinting, BSTR *result);
 
     virtual HRESULT STDMETHODCALLTYPE pageNumberForElementById(
@@ -182,13 +179,12 @@ public:
     virtual HRESULT STDMETHODCALLTYPE firstLayoutDone(
         /* [retval][out] */ BOOL* result);
 
-    virtual HRESULT STDMETHODCALLTYPE loadType( 
-        /* [retval][out] */ WebFrameLoadType* type);
+    virtual HRESULT STDMETHODCALLTYPE unused2() { return E_NOTIMPL; }
 
     virtual HRESULT STDMETHODCALLTYPE pendingFrameUnloadEventCount( 
         /* [retval][out] */ UINT* result);
 
-    virtual HRESULT STDMETHODCALLTYPE unused2();
+    virtual HRESULT STDMETHODCALLTYPE unused3() { return E_NOTIMPL; }
     
     virtual HRESULT STDMETHODCALLTYPE setInPrintingMode( 
         /* [in] */ BOOL value,
@@ -280,7 +276,7 @@ public:
 
     virtual HRESULT STDMETHODCALLTYPE setTextDirection(BSTR);
 
-    virtual HRESULT STDMETHODCALLTYPE unused3(BSTR, BSTR*) { return E_NOTIMPL; }
+    virtual HRESULT STDMETHODCALLTYPE unused4() { return E_NOTIMPL; }
 
     virtual HRESULT STDMETHODCALLTYPE resumeAnimations();
 
@@ -299,67 +295,10 @@ public:
     
     // FrameLoaderClient
     virtual void frameLoaderDestroyed();
-    virtual void makeRepresentation(WebCore::DocumentLoader*);
-    virtual void forceLayoutForNonHTML();
-    virtual void setCopiesOnScroll();
-    virtual void detachedFromParent2();
-    virtual void detachedFromParent3();
-    virtual void cancelPolicyCheck();
-    virtual void dispatchWillSendSubmitEvent(PassRefPtr<WebCore::FormState>);
-    virtual void dispatchWillSubmitForm(WebCore::FramePolicyFunction, PassRefPtr<WebCore::FormState>);
-    virtual void revertToProvisionalState(WebCore::DocumentLoader*);
-    virtual void setMainFrameDocumentReady(bool);
-    virtual void willChangeTitle(WebCore::DocumentLoader*);
-    virtual void didChangeTitle(WebCore::DocumentLoader*);
-    virtual void didChangeIcons(WebCore::DocumentLoader*);
-    virtual bool canHandleRequest(const WebCore::ResourceRequest&) const;
-    virtual bool canShowMIMEType(const WTF::String& MIMEType) const;
-    virtual bool canShowMIMETypeAsHTML(const WTF::String& MIMEType) const;
-    virtual bool representationExistsForURLScheme(const WTF::String& URLScheme) const;
-    virtual WTF::String generatedMIMETypeForURLScheme(const WTF::String& URLScheme) const;
-    virtual void frameLoadCompleted();
-    virtual void restoreViewState();
-    virtual void provisionalLoadStarted();
-    virtual bool shouldTreatURLAsSameAsCurrent(const WebCore::KURL&) const;
-    virtual void addHistoryItemForFragmentScroll();
-    virtual void didFinishLoad();
-    virtual void prepareForDataSourceReplacement();
-    virtual WTF::String userAgent(const WebCore::KURL&);
-    virtual void saveViewStateToItem(WebCore::HistoryItem *);
-    virtual WebCore::ResourceError cancelledError(const WebCore::ResourceRequest&);
-    virtual WebCore::ResourceError blockedError(const WebCore::ResourceRequest&);
-    virtual WebCore::ResourceError cannotShowURLError(const WebCore::ResourceRequest&);
-    virtual WebCore::ResourceError interruptedForPolicyChangeError(const WebCore::ResourceRequest&);
-    virtual WebCore::ResourceError cannotShowMIMETypeError(const WebCore::ResourceResponse&);
-    virtual WebCore::ResourceError fileDoesNotExistError(const WebCore::ResourceResponse&);
-    virtual WebCore::ResourceError pluginWillHandleLoadError(const WebCore::ResourceResponse&);
-    virtual bool shouldFallBack(const WebCore::ResourceError&);
-    virtual void dispatchDecidePolicyForResponse(WebCore::FramePolicyFunction, const WebCore::ResourceResponse&, const WebCore::ResourceRequest&);
-    virtual void dispatchDecidePolicyForNewWindowAction(WebCore::FramePolicyFunction, const WebCore::NavigationAction&, const WebCore::ResourceRequest&, PassRefPtr<WebCore::FormState>, const WTF::String& frameName);
-    virtual void dispatchDecidePolicyForNavigationAction(WebCore::FramePolicyFunction, const WebCore::NavigationAction&, const WebCore::ResourceRequest&, PassRefPtr<WebCore::FormState>);
-    virtual void dispatchUnableToImplementPolicy(const WebCore::ResourceError&);
-    virtual void convertMainResourceLoadToDownload(WebCore::DocumentLoader*, const WebCore::ResourceRequest&, const WebCore::ResourceResponse&);
-
-    virtual bool dispatchDidLoadResourceFromMemoryCache(WebCore::DocumentLoader*, const WebCore::ResourceRequest&, const WebCore::ResourceResponse&, int length);
-    virtual void dispatchDidFailProvisionalLoad(const WebCore::ResourceError&);
-    virtual void dispatchDidFailLoad(const WebCore::ResourceError&);
-    virtual void startDownload(const WebCore::ResourceRequest&, const String& suggestedName = String());
-        
-    virtual PassRefPtr<WebCore::Widget> createJavaAppletWidget(const WebCore::IntSize&, WebCore::HTMLAppletElement*, const WebCore::KURL& baseURL, const Vector<WTF::String>& paramNames, const Vector<WTF::String>& paramValues);
-
-    virtual WebCore::ObjectContentType objectContentType(const WebCore::KURL&, const WTF::String& mimeType, bool shouldPreferPlugInsForImages);
-    virtual WTF::String overrideMediaType() const;
-
-    virtual void dispatchDidClearWindowObjectInWorld(WebCore::DOMWrapperWorld*);
-    virtual void documentElementAvailable();
-    virtual void didPerformFirstNavigation() const;
-
-    virtual void registerForIconNotification(bool listen);
-
-    virtual PassRefPtr<WebCore::FrameNetworkingContext> createNetworkingContext();
 
     // WebFrame
-    PassRefPtr<WebCore::Frame> init(IWebView*, WebCore::Page*, WebCore::HTMLFrameOwnerElement*);
+    PassRefPtr<WebCore::Frame> createSubframeWithOwnerElement(IWebView*, WebCore::Page*, WebCore::HTMLFrameOwnerElement*);
+    void initWithWebView(IWebView*, WebCore::Page*);
     WebCore::Frame* impl();
     void invalidate();
     void unmarkAllMisspellings();
@@ -378,10 +317,7 @@ public:
     HRESULT matchLabelsAgainstElement(const BSTR* labels, int cLabels, IDOMElement* againstElement, BSTR* result);
     HRESULT canProvideDocumentSource(bool* result);
 
-    COMPtr<WebFramePolicyListener> setUpPolicyListener(WebCore::FramePolicyFunction function);
-    void receivedPolicyDecision(WebCore::PolicyAction);
-
-    WebCore::KURL url() const;
+    WebCore::URL url() const;
 
     WebView* webView() const;
     void setWebView(WebView*);
@@ -404,7 +340,7 @@ protected:
     class WebFramePrivate;
     WebFramePrivate*    d;
     bool                m_quickRedirectComing;
-    WebCore::KURL       m_originalRequestURL;
+    WebCore::URL       m_originalRequestURL;
     bool                m_inPrintingMode;
     Vector<WebCore::IntRect> m_pageRects;
     int m_pageHeight;   // height of the page adjusted by margins

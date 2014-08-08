@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2006, 2007 Apple Inc.  All rights reserved.
+ * Copyright (C) 2006, 2007, 2013 Apple Inc.  All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -10,10 +10,10 @@
  *    notice, this list of conditions and the following disclaimer in the
  *    documentation and/or other materials provided with the distribution.
  *
- * THIS SOFTWARE IS PROVIDED BY APPLE COMPUTER, INC. ``AS IS'' AND ANY
+ * THIS SOFTWARE IS PROVIDED BY APPLE INC. ``AS IS'' AND ANY
  * EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
  * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
- * PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL APPLE COMPUTER, INC. OR
+ * PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL APPLE INC. OR
  * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
  * EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
  * PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
@@ -32,6 +32,7 @@
 #include "WebDocumentLoader.h"
 #include "WebError.h"
 #include "WebFrame.h"
+#include "WebFrameLoaderClient.h"
 #include "WebKit.h"
 #include "WebHTMLRepresentation.h"
 #include "WebKitStatisticsPrivate.h"
@@ -43,7 +44,7 @@
 #include <WebCore/Document.h>
 #include <WebCore/Frame.h>
 #include <WebCore/FrameLoader.h>
-#include <WebCore/KURL.h>
+#include <WebCore/URL.h>
 #include <WebCore/ResourceBuffer.h>
 
 using namespace WebCore;
@@ -184,12 +185,11 @@ HRESULT STDMETHODCALLTYPE WebDataSource::data(
     return MemoryStream::createInstance(buffer ? buffer->sharedBuffer() : 0).copyRefTo(stream);
 }
 
-HRESULT STDMETHODCALLTYPE WebDataSource::representation( 
-    /* [retval][out] */ IWebDocumentRepresentation** rep)
+HRESULT WebDataSource::representation(/* [retval][out] */ IWebDocumentRepresentation** rep)
 {
     HRESULT hr = S_OK;
     if (!m_representation) {
-        WebHTMLRepresentation* htmlRep = WebHTMLRepresentation::createInstance(static_cast<WebFrame*>(m_loader->frameLoader()->client()));
+        WebHTMLRepresentation* htmlRep = WebHTMLRepresentation::createInstance(static_cast<WebFrameLoaderClient&>(m_loader->frameLoader()->client()).webFrame());
         hr = htmlRep->QueryInterface(IID_IWebDocumentRepresentation, (void**) &m_representation);
         htmlRep->Release();
     }
@@ -197,10 +197,9 @@ HRESULT STDMETHODCALLTYPE WebDataSource::representation(
     return m_representation.copyRefTo(rep);
 }
 
-HRESULT STDMETHODCALLTYPE WebDataSource::webFrame( 
-    /* [retval][out] */ IWebFrame** frame)
+HRESULT WebDataSource::webFrame(/* [retval][out] */ IWebFrame** frame)
 {
-    *frame = static_cast<WebFrame*>(m_loader->frameLoader()->client());
+    *frame = static_cast<WebFrameLoaderClient&>(m_loader->frameLoader()->client()).webFrame();
     (*frame)->AddRef();
     return S_OK;
 }
@@ -255,8 +254,8 @@ HRESULT STDMETHODCALLTYPE WebDataSource::pageTitle(
 HRESULT STDMETHODCALLTYPE WebDataSource::unreachableURL( 
     /* [retval][out] */ BSTR* url)
 {
-    KURL unreachableURL = m_loader->unreachableURL();
-    BString urlString((LPOLESTR)unreachableURL.string().characters(), unreachableURL.string().length());
+    URL unreachableURL = m_loader->unreachableURL();
+    BString urlString(unreachableURL.string());
 
     *url = urlString.release();
     return S_OK;
@@ -294,7 +293,7 @@ HRESULT STDMETHODCALLTYPE WebDataSource::subresourceForURL(
 
     *resource = 0;
 
-    Document *doc = m_loader->frameLoader()->frame()->document();
+    Document *doc = m_loader->frameLoader()->frame().document();
 
     if (!doc)
         return E_FAIL;

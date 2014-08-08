@@ -1,8 +1,8 @@
-%SystemDrive%\cygwin\bin\which.exe bash
+%SystemDrive%\cygwin\bin\which.exe perl
 if errorlevel 1 set PATH=%SystemDrive%\cygwin\bin;%PATH%
 
 echo Preparing generator output directory...
-set GeneratorDirectory=%CONFIGURATIONBUILDDIR%/obj32/WebKitExportGenerator
+set GeneratorDirectory=%CONFIGURATIONBUILDDIR%/obj%PlatformArchitecture%/WebKitExportGenerator
 mkdir "%GeneratorDirectory%" 2>NUL
 mkdir "%GeneratorDirectory%\DerivedSources" 2>NUL
 
@@ -12,7 +12,7 @@ del /F /Q "%GeneratorDirectory%\DerivedSources\WebKitExportGenerator.cpp"
 del /F /Q "%OUTDIR%\WebKitExportGenerator%DEBUGSUFFIX%.exe"
 
 cmd /c
-if exist "%CONFIGURATIONBUILDDIR%\buildfailed" grep XX%PROJECTNAME%XX "%CONFIGURATIONBUILDDIR%\buildfailed"
+if exist "%CONFIGURATIONBUILDDIR%\buildfailed" perl -wnle "if (/XX%PROJECTNAME%XX/) { print } else { exit 1 }" "%CONFIGURATIONBUILDDIR%\buildfailed"
 if errorlevel 1 exit 1
 echo XX%PROJECTNAME%XX > "%CONFIGURATIONBUILDDIR%\buildfailed"
 

@@ -46,11 +46,12 @@
 #import <WebCore/RenderEmbeddedObject.h>
 #import <WebCore/ResourceError.h>
 #import <WebCore/WebCoreObjCExtras.h>
-#import <WebCore/RunLoop.h>
 #import <WebCore/runtime_root.h>
 #import <runtime/InitializeThreading.h>
 #import <wtf/Assertions.h>
 #import <wtf/MainThread.h>
+#import <wtf/ObjcRuntimeExtras.h>
+#import <wtf/RunLoop.h>
 
 using namespace WebCore;
 using namespace WebKit;
@@ -60,13 +61,21 @@ extern "C" {
 #include "WebKitPluginHost.h"
 }
 
+#if HAVE(OUT_OF_PROCESS_LAYER_HOSTING)
+@interface NSWindow (Details)
+- (BOOL)_hostsLayersInWindowServer;
+@end
+#endif
+
 @implementation WebHostedNetscapePluginView
 
 + (void)initialize
 {
+#if !PLATFORM(IOS)
     JSC::initializeThreading();
     WTF::initializeMainThreadToProcessMainThread();
-    WebCore::RunLoop::initializeMainRunLoop();
+    RunLoop::initializeMainRunLoop();
+#endif
     WebCoreObjCFinalizeOnMainThread(self);
     WKSendUserChangeNotifications();
 }
@@ -101,53 +110,83 @@ extern "C" {
     
     _attributeKeys = adoptNS([keys copy]);
     _attributeValues = adoptNS([values copy]);
-}    
+}
+
+- (BOOL)windowHostsLayersInWindowServer
+{
+#if HAVE(OUT_OF_PROCESS_LAYER_HOSTING)
+    return [[[self webView] window] _hostsLayersInWindowServer];
+#else
+    return false;
+#endif
+}
 
 - (BOOL)createPlugin
 {
     ASSERT(!_proxy);
 
     NSString *userAgent = [[self webView] userAgentForURL:_baseURL.get()];
-    BOOL accleratedCompositingEnabled = false;
-#if USE(ACCELERATED_COMPOSITING)
-    accleratedCompositingEnabled = [[[self webView] preferences] acceleratedCompositingEnabled];
-#endif
-    
-    _proxy = NetscapePluginHostManager::shared().instantiatePlugin([_pluginPackage.get() path], [_pluginPackage.get() pluginHostArchitecture], [_pluginPackage.get() bundleIdentifier], self, _MIMEType.get(), _attributeKeys.get(), _attributeValues.get(), userAgent, _sourceURL.get(), 
-                                                                   _mode == NP_FULL, _isPrivateBrowsingEnabled, accleratedCompositingEnabled);
+    BOOL acceleratedCompositingEnabled = false;
+    acceleratedCompositingEnabled = [[[self webView] preferences] acceleratedCompositingEnabled];
+    _hostsLayersInWindowServer = [self windowHostsLayersInWindowServer];
+
+    _proxy = NetscapePluginHostManager::shared().instantiatePlugin([_pluginPackage.get() path], [_pluginPackage.get() pluginHostArchitecture], [_pluginPackage.get() bundleIdentifier], self, _MIMEType.get(), _attributeKeys.get(), _attributeValues.get(), userAgent, _sourceURL.get(),
+                                                                   _mode == NP_FULL, _isPrivateBrowsingEnabled, acceleratedCompositingEnabled, _hostsLayersInWindowServer);
     if (!_proxy) 
         return NO;
 
     if (_proxy->rendererType() == UseSoftwareRenderer)
         _softwareRenderer = WKSoftwareCARendererCreate(_proxy->renderContextID());
-    else {
-        _pluginLayer = WKMakeRenderLayer(_proxy->renderContextID());
-
-        if (accleratedCompositingEnabled && _proxy->rendererType() == UseAcceleratedCompositing) {
-            // FIXME: This code can be shared between WebHostedNetscapePluginView and WebNetscapePluginView.
-            // Since this layer isn't going to be inserted into a view, we need to create another layer and flip its geometry
-            // in order to get the coordinate system right.
-            RetainPtr<CALayer> realPluginLayer = adoptNS(_pluginLayer.leakRef());
-            
-            _pluginLayer = adoptNS([[CALayer alloc] init]);
-            _pluginLayer.get().bounds = realPluginLayer.get().bounds;
-            _pluginLayer.get().geometryFlipped = YES;
-            
-            realPluginLayer.get().autoresizingMask = kCALayerWidthSizable | kCALayerHeightSizable;
-            [_pluginLayer.get() addSublayer:realPluginLayer.get()];
-            
-            // Eagerly enter compositing mode, since we know we'll need it. This avoids firing setNeedsStyleRecalc()
-            // for iframes that contain composited plugins at bad times. https://bugs.webkit.org/show_bug.cgi?id=39033
-            core([self webFrame])->view()->enterCompositingMode();
-            [self element]->setNeedsStyleRecalc(SyntheticStyleChange);
-        } else
-            self.wantsLayer = YES;
-    }
+    else
+        [self createPluginLayer];
     
     // Update the window frame.
     _proxy->windowFrameChanged([[self window] frame]);
     
     return YES;
+}
+
+- (void)createPluginLayer
+{
+    BOOL acceleratedCompositingEnabled = false;
+    acceleratedCompositingEnabled = [[[self webView] preferences] acceleratedCompositingEnabled];
+
+    _pluginLayer = WKMakeRenderLayer(_proxy->renderContextID());
+
+    if (acceleratedCompositingEnabled && _proxy->rendererType() == UseAcceleratedCompositing) {
+        // FIXME: This code can be shared between WebHostedNetscapePluginView and WebNetscapePluginView.
+        // Since this layer isn't going to be inserted into a view, we need to create another layer and flip its geometry
+        // in order to get the coordinate system right.
+        RetainPtr<CALayer> realPluginLayer = adoptNS(_pluginLayer.leakRef());
+
+        _pluginLayer = adoptNS([[CALayer alloc] init]);
+        _pluginLayer.get().bounds = realPluginLayer.get().bounds;
+        _pluginLayer.get().geometryFlipped = YES;
+
+        _pluginLayer.get().backgroundColor = adoptCF(CGColorCreateGenericRGB(1, 0, 1, 1)).get();
+
+        realPluginLayer.get().autoresizingMask = kCALayerWidthSizable | kCALayerHeightSizable;
+        [_pluginLayer.get() addSublayer:realPluginLayer.get()];
+
+        // Eagerly enter compositing mode, since we know we'll need it. This avoids firing setNeedsStyleRecalc()
+        // for iframes that contain composited plugins at bad times. https://bugs.webkit.org/show_bug.cgi?id=39033
+        core([self webFrame])->view()->enterCompositingMode();
+        [self element]->setNeedsStyleRecalc(SyntheticStyleChange);
+    } else
+        self.wantsLayer = YES;
+}
+
+- (void)setHostsLayersInWindowServer:(bool)hostsLayersInWindowServer
+{
+    if (_proxy->rendererType() == UseSoftwareRenderer)
+        return;
+
+    RetainPtr<CALayer> currentSuperlayer = [_pluginLayer superlayer];
+
+    _hostsLayersInWindowServer = hostsLayersInWindowServer;
+
+    [self createPluginLayer];
+    [self setLayer:currentSuperlayer.get()];
 }
 
 // FIXME: This method is an ideal candidate to move up to the base class
@@ -215,6 +254,10 @@ extern "C" {
     _previousSize = boundsInWindow.size;
     
     _proxy->resize(boundsInWindow, visibleRectInWindow);
+
+    bool shouldHostLayersInWindowServer = [self windowHostsLayersInWindowServer];
+    if (_hostsLayersInWindowServer != shouldHostLayersInWindowServer)
+        _proxy->setShouldHostLayersInWindowServer(shouldHostLayersInWindowServer);
 }
 
 - (void)windowFocusChanged:(BOOL)hasFocus
@@ -388,7 +431,6 @@ extern "C" {
 - (void)pluginHostDied
 {
     if (_element->renderer() && _element->renderer()->isEmbeddedObject()) {
-        // FIXME: The renderer could also be a RenderApplet, we should handle that.
         RenderEmbeddedObject* renderer = toRenderEmbeddedObject(_element->renderer());
         renderer->setPluginUnavailabilityReason(RenderEmbeddedObject::PluginCrashed);
     }
@@ -400,12 +442,6 @@ extern "C" {
     self.wantsLayer = NO;
     
     [self invalidatePluginContentRect:[self bounds]];
-}
-
-- (void)visibleRectDidChange
-{
-    [super visibleRectDidChange];
-    WKSyncSurfaceToView(self);
 }
 
 - (void)drawRect:(NSRect)rect
@@ -447,7 +483,7 @@ extern "C" {
     
     ASSERT(!_proxy->manualStream());
 
-    _proxy->setManualStream(HostedNetscapePluginStream::create(_proxy.get(), core([self webFrame])->loader()));
+    _proxy->setManualStream(HostedNetscapePluginStream::create(_proxy.get(), &core([self webFrame])->loader()));
     _proxy->manualStream()->startStreamWithResponse(response);
 }
 
