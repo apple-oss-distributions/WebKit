@@ -1194,9 +1194,6 @@ static void WebKitInitializeGamepadProviderIfNecessary()
     // FIXME: this is a workaround for <rdar://problem/11820090> Quoted text changes in size when replying to certain email
     _private->page->settings().setMinimumFontSize([_private->preferences minimumFontSize]);
 
-    // This is a workaround for <rdar://problem/21309911>.
-    _private->page->settings().setHttpEquivEnabled([_private->preferences httpEquivEnabled]);
-
     [self setGroupName:groupName];
 
 #if ENABLE(REMOTE_INSPECTOR)
@@ -2298,7 +2295,6 @@ static bool needsSelfRetainWhileLoadingQuirk()
     }
 
     settings.setPlugInSnapshottingEnabled([preferences plugInSnapshottingEnabled]);
-    settings.setHttpEquivEnabled([preferences httpEquivEnabled]);
 
     settings.setFixedPositionCreatesStackingContext(true);
 #if PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED >= 10100
@@ -2330,8 +2326,6 @@ static bool needsSelfRetainWhileLoadingQuirk()
 #if ENABLE(IOS_TEXT_AUTOSIZING)
     settings.setMinimumZoomFontSize([preferences _minimumZoomFontSize]);
 #endif
-
-    settings.setAllowNavigationToInvalidURL(!WebKitLinkedOnOrAfter(WEBKIT_FIRST_VERSION_WITH_NAVIGATION_URL_VALIDATION));
 #endif // PLATFORM(IOS)
 
 #if PLATFORM(MAC)
@@ -8266,19 +8260,6 @@ static inline uint64_t roundUpToPowerOf2(uint64_t num)
     if (result == nil)
         result = [self mainFrame];
     return result;
-}
-
-- (void)_clearCredentials
-{
-    Frame* frame = [self _mainCoreFrame];
-    if (!frame)
-        return;
-
-    NetworkingContext* networkingContext = frame->loader().networkingContext();
-    if (!networkingContext)
-        return;
-
-    networkingContext->storageSession().credentialStorage().clearCredentials();
 }
 
 - (BOOL)_needsOneShotDrawingSynchronization

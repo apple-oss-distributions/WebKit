@@ -1,235 +1,103 @@
-2015-08-05  Babak Shafiei  <bshafiei@apple.com>
+2014-08-19  Dana Burkart  <dburkart@apple.com>
 
-        Roll out r186982.
+        Merge r172709. <rdar://problem/17850158>
 
-2015-07-21  Lucas Forschler  <lforschler@apple.com>
-
-        Merge r187103
-
-    2015-07-21  Brady Eidson  <beidson@apple.com>
-
-            Fix WebPreferences infinite recursion introduced in r186232.
-            <rdar://problem/9091261> and https://bugs.webkit.org/show_bug.cgi?id=147149
-
-            Reviewed by Tim Horton.
-
-            * WebView/WebPreferences.mm:
-            (-[WebPreferences metaRefreshEnabled]):
-
-2015-07-17  Andy Estes  <aestes@apple.com>
-
-        Merge r186982. rdar://problem/21709404
-
-    2015-07-17  Andy Estes  <aestes@apple.com>
-
-        [iOS] Further tighten the sandbox around pages fetched with Content-Disposition: attachment
-        https://bugs.webkit.org/show_bug.cgi?id=147044
-        rdar://problem/21567820
-
-        Reviewed by Brady Eidson.
-
-        * WebView/WebView.mm:
-        (-[WebView _commonInitializationWithFrameName:groupName:]): Enabled Content-Disposition: attachment sandbox on iOS.
-
-2015-07-13  David Kilzer  <ddkilzer@apple.com>
-
-        Merge r186476. rdar://problem/21708269
-
-    2015-07-07  Brady Eidson  <beidson@apple.com>
-
-        HTTP Auth cached after disabling private browsing/reset.
-        <rdar://problem/8293055> and https://bugs.webkit.org/show_bug.cgi?id=146654
-
-        Reviewed by Tim Horton.
-
-        * Misc/WebCache.h:
-        * Misc/WebCache.mm:
-        (+[WebCache clearCachedCredentials]): Clear the global CredentialStorage as well as the
-          storages belonging to each main frame of each WebView. This method is for DRT.
-        
-        * Misc/WebDownload.mm:
-        (-[WebDownloadInternal download:didReceiveAuthenticationChallenge:]):
-        
-        * Plugins/WebBaseNetscapePluginView.mm:
-        (WebKit::getAuthenticationInfo):
-        
-        * WebView/WebView.mm:
-        (-[WebView _clearCredentials]): Clear the storage belonging to the current networking session
-          of the main frame of this WebView.
-        * WebView/WebViewInternal.h:
-
-2015-07-08  Lucas Forschler  <lforschler@apple.com>
-
-        Merge r186232 rdar://problem/9091261
-
-    2015-07-02  Brady Eidson  <beidson@apple.com>
-
-            Add preference to disable all http-equiv.
-            <rdar://problem/9091261> and https://bugs.webkit.org/show_bug.cgi?id=146553
-
-            Reviewed by Sam Weinig.
-
-            * WebView/WebPreferenceKeysPrivate.h:
-
-            * WebView/WebPreferences.mm:
-            (+[WebPreferences initialize]):
-            (-[WebPreferences setMetaRefreshEnabled:]): Still expose this SPI, but have it affect
-              the "httpEquivEnabled" setting.
-            (-[WebPreferences metaRefreshEnabled]): Ditto.
-            (-[WebPreferences setHTTPEquivEnabled:]):
-            (-[WebPreferences httpEquivEnabled]):
-            * WebView/WebPreferencesPrivate.h:
-
-            * WebView/WebView.mm:
-            (-[WebView initSimpleHTMLDocumentWithStyle:frame:preferences:groupName:]):
-            (-[WebView _preferencesChanged:]):
-
-2015-06-10  Babak Shafiei  <bshafiei@apple.com>
-
-        Merge r185436.
-
-    2015-06-10  Jon Honeycutt  <jhoneycutt@apple.com>
-
-            Meta refresh preference is not respected on fast path WebView
-            initialization
-
-            <https://bugs.webkit.org/show_bug.cgi?id=145861>
-            <rdar://problem/21309911>
-
-            Reviewed by Brady Eidson.
-
-            * WebView/WebView.mm:
-            (-[WebView initSimpleHTMLDocumentWithStyle:frame:preferences:groupName:]):
-            Set the WebCore setting from the WebPreferences preference.
-
-2015-06-08  Babak Shafiei  <bshafiei@apple.com>
-
-        Merge r183682.
-
-    2015-05-01  Brady Eidson  <beidson@apple.com>
-
-            Add API to disable meta refreshes.
-            <rdar://problem/20333198> and https://bugs.webkit.org/show_bug.cgi?id=144269
-
-            Reviewed by Alexey Proskuryakov.
-
-            Add a preference to enable/disable meta refreshes, enabled by default.
-
-            * WebView/WebPreferenceKeysPrivate.h:
-            * WebView/WebPreferences.mm:
-            (+[WebPreferences initialize]):
-            (-[WebPreferences setMetaRefreshEnabled:]):
-            (-[WebPreferences metaRefreshEnabled]):
-            * WebView/WebPreferencesPrivate.h:
-            * WebView/WebView.mm:
-            (-[WebView _preferencesChanged:]):
-
-2015-04-21  Lucas Forschler  <lforschler@apple.com>
-
-        Merge r180110
-
-    2015-02-14  Alexey Proskuryakov  <ap@apple.com>
-
-            rel="noreferrer" should make window.opener null
-            https://bugs.webkit.org/show_bug.cgi?id=141579
-
+    2014-08-18  Andy Estes  <aestes@apple.com>
+    
+            REGRESSION (r167856): adobe.com no longer able to launch Create Cloud app using a URL with a custom scheme
+            https://bugs.webkit.org/show_bug.cgi?id=136010
+    
             Reviewed by Darin Adler.
-
+    
+            * Misc/WebKitVersionChecks.h: Removed WEBKIT_FIRST_VERSION_WITH_NAVIGATION_URL_VALIDATION.
             * WebView/WebPDFView.mm:
-            (-[WebPDFView PDFViewWillClickOnLink:withURL:]): Updated for a new WebCore
-            function signature. There is no rel="noreferrer" in PDF, so we can just always allow.
+            (-[WebPDFView PDFViewWillClickOnLink:withURL:]): Passed AllowNavigationToInvalidURL::Yes to FrameLoader::loadFrameRequest.
+            * WebView/WebView.mm:
+            (-[WebView _preferencesChanged:]): Reverted the linked-on-or-after check added in r170120 since it's no longer necessary.
+    
+2014-08-13  Lucas Forschler  <lforschler@apple.com>
 
-2015-02-13  Matthew Hanson  <matthew_hanson@apple.com>
+        Merge r172526
 
-        Merge r179580. rdar://problem/19709200
+    2014-08-13  Timothy Hatcher  <timothy@apple.com>
 
-    2015-02-03  Enrica Casucci  <enrica@apple.com>
+            Web Inspector: Workaround a NSWindow change to the title bar.
+            https://bugs.webkit.org/show_bug.cgi?id=135880
 
-            [iOS] Add support for deleteFromInputWithFlags.
-            https://bugs.webkit.org/show_bug.cgi?id=141216
-            rdar://problem/19130081
+            Reviewed by Joseph Pecoraro.
 
-            Reviewed by Benjamin Poulain.
+            * WebCoreSupport/WebInspectorClient.mm:
+            (WebInspectorFrontendClient::setToolbarHeight): Only call setContentBorderThickness: on 10.9 and earlier.
+            (-[WebInspectorWindowController init]): Only call setDrawsBackground: on 10.9 and earlier.
+            (-[WebInspectorWindowController window]): Set titlebarAppearsTransparent on 10.10.
+            Only call border thickness APIs on 10.9 and earlier.
 
-            Adopts the new method as soon as it is available.
-            The patch also removes some obsolete code used for staging.
+2014-08-12  Lucas Forschler  <lforschler@apple.com>
 
-            * WebView/WebHTMLView.mm:
-            (-[WebHTMLView _handleEditingKeyEvent:]):
+        Merge r172379
 
-2015-01-26  David Kilzer  <ddkilzer@apple.com>
+    2014-08-10  Timothy Hatcher  <timothy@apple.com>
 
-        Merge r172854.
+            Web Inspector: new glyphs are visible on OS X 10.9 builds
+            https://bugs.webkit.org/show_bug.cgi?id=135743
 
-        * WebView/WebView.mm:
-        (-[WebView _didFinishScrollingOrZooming]): Call
-        FrameView::resumeVisibleImageAnimationsIncludingSubframes().
+            Reviewed by Joseph Pecoraro.
 
-2015-01-25  David Kilzer  <ddkilzer@apple.com>
+            * WebCoreSupport/WebInspectorClient.mm:
+            (-[WebInspectorWindowController window]): Use 10100 instead of 1090 for the version.
 
-        Merge r177301.
+2014-08-07  Dana Burkart <dburkart@apple.com>
 
-    2014-12-15  Myles C. Maxfield  <mmaxfield@apple.com>
+        Merge r172241
 
-        Addressing post-review comments in r177035
-        https://bugs.webkit.org/show_bug.cgi?id=139557
+    2014-08-07  Timothy Hatcher  <timothy@apple.com>
 
-        Reviewed by Darin Adler.
+            Web Inspector: Update glyphs to be more like Xcode 6
+            https://bugs.webkit.org/show_bug.cgi?id=135705
 
-        * WebView/WebActionMenuController.mm:
-        (elementBoundingBoxInWindowCoordinatesFromNode): Migrate off rendererBoundingBox().
+            Reviewed by Joseph Pecoraro.
 
-2015-01-24  David Kilzer  <ddkilzer@apple.com>
+            * Resources/Dock.pdf: Added.
+            * Resources/DockLegacy.pdf: Copied from Source/WebKit/mac/Resources/Dock.pdf.
+            * WebCoreSupport/WebInspectorClient.mm:
+            (-[WebInspectorWindowController window]): Use new images.
 
-        Merge r177035.
+2014-08-07  Dana Burkart <dburkart@apple.com>
 
-    2014-12-09  Myles C. Maxfield  <mmaxfield@apple.com>
-
-        Delete Node::boundingBox()
-        https://bugs.webkit.org/show_bug.cgi?id=139333
-
-        Reviewed by Zalan Bujtas.
-
-        * WebView/WebActionMenuController.mm:
-        (elementBoundingBoxInWindowCoordinatesFromNode): Use
-        RenderObject::absoluteBoundingBoxRect().
-
-2014-08-06  Matthew Hanson  <matthew_hanson@apple.com>
-
-        Merge r172172. <rdar://problem/17862892>
+        Merge r172172
 
     2014-08-06  Alexey Proskuryakov  <ap@apple.com>
-    
+
             REGRESSION (WebKit2): iOS Safari default encoding doesn't follow system language
             https://bugs.webkit.org/show_bug.cgi?id=135667
             <rdar://problem/17862892>
-    
+
             Reviewed by Anders Carlsson.
-    
+
             * WebView/WebPreferences.mm: (+[WebPreferences _setInitialDefaultTextEncodingToSystemEncoding]):
             Moved implementation to WebCore, so that it can be shared with WebKit2.
-    
+
             * WebCoreSupport/WebSystemInterface.mm: (InitWebCoreSystemInterface):
             We now use WKGetWebDefaultCFStringEncoding in WebCore, so it needs to be initialized.
-    
-2014-08-05  Matthew Hanson  <matthew_hanson@apple.com>
 
-        Merge r172016. <rdar://problem/17896295>
+2014-08-05  Lucas Forschler  <lforschler@apple.com>
+
+        Merge r172016
 
     2014-08-04  Benjamin Poulain  <bpoulain@apple.com>
-    
+
             Check for null frame when processing geolocation authorization request
             https://bugs.webkit.org/show_bug.cgi?id=135577
             <rdar://problem/17896295>
-    
+
             Reviewed by Geoffrey Garen.
-    
+
             * WebCoreSupport/WebGeolocationClient.mm:
             (WebGeolocationClient::requestPermission):
-    
-2014-08-03  Babak Shafiei  <bshafiei@apple.com>
 
-        Merge r171973.
+2014-08-05  Lucas Forschler  <lforschler@apple.com>
+
+        Merge r171973
 
     2014-08-02  Jeremy Jones  <jeremyj@apple.com>
 

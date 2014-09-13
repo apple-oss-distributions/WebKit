@@ -440,8 +440,6 @@ public:
 #endif
         [NSNumber numberWithBool:YES],  WebKitPluginsEnabledPreferenceKey,
         [NSNumber numberWithBool:YES],  WebKitDatabasesEnabledPreferenceKey,
-        [NSNumber numberWithBool:YES],  WebKitHTTPEquivEnabledPreferenceKey,
-
 #if PLATFORM(IOS)
         [NSNumber numberWithBool:NO],   WebKitStorageTrackerEnabledPreferenceKey,
 #endif
@@ -2532,26 +2530,6 @@ static bool needsScreenFontsEnabledQuirk()
 - (void)setShouldConvertPositionStyleOnCopy:(BOOL)enabled
 {
     [self _setBoolValue:enabled forKey:WebKitShouldConvertPositionStyleOnCopyPreferenceKey];
-}
-
-- (void)setMetaRefreshEnabled:(BOOL)enabled
-{
-    [self setHTTPEquivEnabled:enabled];
-}
-
-- (BOOL)metaRefreshEnabled
-{
-    return [self httpEquivEnabled];
-}
-
-- (void)setHTTPEquivEnabled:(BOOL)enabled
-{
-    [self _setBoolValue:enabled forKey:WebKitHTTPEquivEnabledPreferenceKey];
-}
-
-- (BOOL)httpEquivEnabled
-{
-    return [self _boolValueForKey:WebKitHTTPEquivEnabledPreferenceKey];
 }
 
 @end
