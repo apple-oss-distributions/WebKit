@@ -23,44 +23,43 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#if ENABLE(SERVICE_CONTROLS)
+#if PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED >= 101000
 
+#import "WebUIDelegatePrivate.h"
+#import <AppKit/NSSharingService.h>
+#import <WebCore/HitTestResult.h>
 #import <wtf/RetainPtr.h>
-#import <WebCore/NSSharingServicePickerSPI.h>
-#import <WebCore/NSSharingServiceSPI.h>
 
-@class WebSharingServicePickerController;
+@class DDActionContext;
+@class WebView;
 
 namespace WebCore {
-class FloatRect;
-class Page;
+class Range;
+class TextIndicator;
 }
 
-class WebContextMenuClient;
-
-class WebSharingServicePickerClient {
-public:
-    virtual ~WebSharingServicePickerClient() { }
-
-    virtual void sharingServicePickerWillBeDestroyed(WebSharingServicePickerController &) = 0;
-    virtual WebCore::Page* pageForSharingServicePicker(WebSharingServicePickerController &) = 0;
-    virtual RetainPtr<NSWindow> windowForSharingServicePicker(WebSharingServicePickerController &) = 0;
-
-    virtual WebCore::FloatRect screenRectForCurrentSharingServicePickerItem(WebSharingServicePickerController &) = 0;
-    virtual RetainPtr<NSImage> imageForCurrentSharingServicePickerItem(WebSharingServicePickerController &) = 0;
-};
-
-@interface WebSharingServicePickerController : NSObject <NSSharingServiceDelegate, NSSharingServicePickerDelegate> {
-    WebSharingServicePickerClient* _pickerClient;
-    RetainPtr<NSSharingServicePicker> _picker;
-    BOOL _includeEditorServices;
+@interface WebActionMenuController : NSObject <NSSharingServiceDelegate, NSSharingServicePickerDelegate> {
+@private
+    WebView *_webView;
+    WebActionMenuType _type;
+    WebCore::HitTestResult _hitTestResult;
+    RetainPtr<NSSharingServicePicker> _sharingServicePicker;
+    RetainPtr<DDActionContext> _currentActionContext;
+    RefPtr<WebCore::Range> _currentDetectedDataRange;
+    BOOL _isShowingTextIndicator;
+    RefPtr<WebCore::TextIndicator> _currentDetectedDataTextIndicator;
+    BOOL _hasActivatedActionContext;
 }
 
-- (instancetype)initWithItems:(NSArray *)items includeEditorServices:(BOOL)includeEditorServices client:(WebSharingServicePickerClient*)pickerClient style:(NSSharingServicePickerStyle)style;
-- (NSMenu *)menu;
-- (void)didShareImageData:(NSData *)data confirmDataIsValidTIFFData:(BOOL)confirmData;
-- (void)clear;
+- (id)initWithWebView:(WebView *)webView;
+- (void)webViewClosed;
+- (void)prepareForMenu:(NSMenu *)menu withEvent:(NSEvent *)event;
+- (void)willOpenMenu:(NSMenu *)menu withEvent:(NSEvent *)event;
+- (void)didCloseMenu:(NSMenu *)menu withEvent:(NSEvent *)event;
+
+- (void)webView:(WebView *)webView willHandleMouseDown:(NSEvent *)event;
+- (void)webView:(WebView *)webView didHandleScrollWheel:(NSEvent *)event;
 
 @end
 
-#endif
+#endif // PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED >= 101000

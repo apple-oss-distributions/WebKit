@@ -23,44 +23,45 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+#ifndef WebSelectionServiceController_h
+#define WebSelectionServiceController_h
+
 #if ENABLE(SERVICE_CONTROLS)
 
+#import "WebSharingServicePickerController.h"
 #import <wtf/RetainPtr.h>
-#import <WebCore/NSSharingServicePickerSPI.h>
-#import <WebCore/NSSharingServiceSPI.h>
+#import <wtf/Vector.h>
+#import <wtf/text/WTFString.h>
 
-@class WebSharingServicePickerController;
+OBJC_CLASS NSImage;
+OBJC_CLASS NSWindow;
+OBJC_CLASS WebView;
 
 namespace WebCore {
-class FloatRect;
-class Page;
+class FrameSelection;
+class IntPoint;
 }
 
-class WebContextMenuClient;
-
-class WebSharingServicePickerClient {
+class WebSelectionServiceController : public WebSharingServicePickerClient {
 public:
-    virtual ~WebSharingServicePickerClient() { }
+    WebSelectionServiceController(WebView*);
 
-    virtual void sharingServicePickerWillBeDestroyed(WebSharingServicePickerController &) = 0;
-    virtual WebCore::Page* pageForSharingServicePicker(WebSharingServicePickerController &) = 0;
-    virtual RetainPtr<NSWindow> windowForSharingServicePicker(WebSharingServicePickerController &) = 0;
+    void handleSelectionServiceClick(WebCore::FrameSelection&, const Vector<String>& telephoneNumbers, const WebCore::IntPoint&);
+    bool hasRelevantSelectionServices(bool isTextOnly) const;
 
-    virtual WebCore::FloatRect screenRectForCurrentSharingServicePickerItem(WebSharingServicePickerController &) = 0;
-    virtual RetainPtr<NSImage> imageForCurrentSharingServicePickerItem(WebSharingServicePickerController &) = 0;
+    // WebSharingServicePickerClient
+    virtual void sharingServicePickerWillBeDestroyed(WebSharingServicePickerController &) override;
+    virtual WebCore::Page* pageForSharingServicePicker(WebSharingServicePickerController &) override;
+    virtual RetainPtr<NSWindow> windowForSharingServicePicker(WebSharingServicePickerController &) override;
+    virtual WebCore::FloatRect screenRectForCurrentSharingServicePickerItem(WebSharingServicePickerController &) override;
+    virtual RetainPtr<NSImage> imageForCurrentSharingServicePickerItem(WebSharingServicePickerController &) override;
+
+private:
+    WebView *m_webView;
+
+    RetainPtr<WebSharingServicePickerController> m_sharingServicePickerController;
 };
 
-@interface WebSharingServicePickerController : NSObject <NSSharingServiceDelegate, NSSharingServicePickerDelegate> {
-    WebSharingServicePickerClient* _pickerClient;
-    RetainPtr<NSSharingServicePicker> _picker;
-    BOOL _includeEditorServices;
-}
+#endif // ENABLE(SERVICE_CONTROLS)
 
-- (instancetype)initWithItems:(NSArray *)items includeEditorServices:(BOOL)includeEditorServices client:(WebSharingServicePickerClient*)pickerClient style:(NSSharingServicePickerStyle)style;
-- (NSMenu *)menu;
-- (void)didShareImageData:(NSData *)data confirmDataIsValidTIFFData:(BOOL)confirmData;
-- (void)clear;
-
-@end
-
-#endif
+#endif // WebSelectionServiceController_h
