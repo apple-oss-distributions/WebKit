@@ -1,3 +1,58 @@
+2015-02-13  Matthew Hanson  <matthew_hanson@apple.com>
+
+        Merge r179580. rdar://problem/19709200
+
+    2015-02-03  Enrica Casucci  <enrica@apple.com>
+
+            [iOS] Add support for deleteFromInputWithFlags.
+            https://bugs.webkit.org/show_bug.cgi?id=141216
+            rdar://problem/19130081
+
+            Reviewed by Benjamin Poulain.
+
+            Adopts the new method as soon as it is available.
+            The patch also removes some obsolete code used for staging.
+
+            * WebView/WebHTMLView.mm:
+            (-[WebHTMLView _handleEditingKeyEvent:]):
+
+2015-01-26  David Kilzer  <ddkilzer@apple.com>
+
+        Merge r172854.
+
+        * WebView/WebView.mm:
+        (-[WebView _didFinishScrollingOrZooming]): Call
+        FrameView::resumeVisibleImageAnimationsIncludingSubframes().
+
+2015-01-25  David Kilzer  <ddkilzer@apple.com>
+
+        Merge r177301.
+
+    2014-12-15  Myles C. Maxfield  <mmaxfield@apple.com>
+
+        Addressing post-review comments in r177035
+        https://bugs.webkit.org/show_bug.cgi?id=139557
+
+        Reviewed by Darin Adler.
+
+        * WebView/WebActionMenuController.mm:
+        (elementBoundingBoxInWindowCoordinatesFromNode): Migrate off rendererBoundingBox().
+
+2015-01-24  David Kilzer  <ddkilzer@apple.com>
+
+        Merge r177035.
+
+    2014-12-09  Myles C. Maxfield  <mmaxfield@apple.com>
+
+        Delete Node::boundingBox()
+        https://bugs.webkit.org/show_bug.cgi?id=139333
+
+        Reviewed by Zalan Bujtas.
+
+        * WebView/WebActionMenuController.mm:
+        (elementBoundingBoxInWindowCoordinatesFromNode): Use
+        RenderObject::absoluteBoundingBoxRect().
+
 2014-08-06  Matthew Hanson  <matthew_hanson@apple.com>
 
         Merge r172172. <rdar://problem/17862892>
