@@ -112,6 +112,30 @@ enum {
     WebMenuItemTagBaseApplication = 10000
 };
 
+// Deprecated; remove when there are no more clients.
+typedef enum {
+    WebActionMenuNone = 0,
+    WebActionMenuLink,
+    WebActionMenuReadOnlyText,
+    WebActionMenuEditableText,
+    WebActionMenuWhitespaceInEditableArea,
+    WebActionMenuEditableTextWithSuggestions,
+    WebActionMenuImage,
+    WebActionMenuVideo,
+    WebActionMenuDataDetectedItem,
+    WebActionMenuMailtoLink,
+    WebActionMenuTelLink
+} WebActionMenuType;
+
+typedef enum {
+    WebImmediateActionNone = 0,
+    WebImmediateActionLinkPreview,
+    WebImmediateActionDataDetectedItem,
+    WebImmediateActionText,
+    WebImmediateActionMailtoLink,
+    WebImmediateActionTelLink
+} WebImmediateActionType;
+
 // Message Sources.
 extern NSString *WebConsoleMessageXMLMessageSource;
 extern NSString *WebConsoleMessageJSMessageSource;
@@ -127,11 +151,14 @@ extern NSString *WebConsoleMessageOtherMessageSource;
 // Message Levels.
 extern NSString *WebConsoleMessageDebugMessageLevel;
 extern NSString *WebConsoleMessageLogMessageLevel;
+extern NSString *WebConsoleMessageInfoMessageLevel;
 extern NSString *WebConsoleMessageWarningMessageLevel;
 extern NSString *WebConsoleMessageErrorMessageLevel;
 
+@class DDActionContext;
 @class DOMElement;
 @class DOMNode;
+@class DOMRange;
 @class WebSecurityOrigin;
 
 #if ENABLE_FULLSCREEN_API
@@ -187,12 +214,17 @@ extern NSString *WebConsoleMessageErrorMessageLevel;
 #endif
 - (void)webView:(WebView *)sender didDrawRect:(NSRect)rect;
 - (void)webView:(WebView *)sender didScrollDocumentInFrameView:(WebFrameView *)frameView;
-// FIXME: If we ever make this method public, it should include a WebFrame parameter.
-- (BOOL)webViewShouldInterruptJavaScript:(WebView *)sender;
 #if !TARGET_OS_IPHONE
 - (void)webView:(WebView *)sender willPopupMenu:(NSMenu *)menu;
 - (void)webView:(WebView *)sender contextMenuItemSelected:(NSMenuItem *)item forElement:(NSDictionary *)element;
 - (void)webView:(WebView *)sender saveFrameView:(WebFrameView *)frameView showingPanel:(BOOL)showingPanel;
+
+// FIXME: Rename this because it's only used by immediate action code.
+- (DDActionContext *)_webView:(WebView *)sender actionContextForHitTestResult:(NSDictionary *)hitTestResult range:(DOMRange **)range;
+
+// Clients that want to maintain default behavior can return nil. To disable the immediate action entirely, return NSNull. And to
+// do something custom, return an object that conforms to the NSImmediateActionAnimationController protocol.
+- (id)_webView:(WebView *)sender immediateActionAnimationControllerForHitTestResult:(NSDictionary *)hitTestResult withType:(WebImmediateActionType)type;
 #endif
 - (BOOL)webView:(WebView *)sender didPressMissingPluginButton:(DOMElement *)element;
 /*!

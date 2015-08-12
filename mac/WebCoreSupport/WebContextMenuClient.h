@@ -26,6 +26,9 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+#if ENABLE(CONTEXT_MENUS)
+
+#import "WebSharingServicePickerController.h"
 #import <WebCore/ContextMenuClient.h>
 #import <WebCore/IntRect.h>
 
@@ -36,10 +39,14 @@ namespace WebCore {
 class Node;
 }
 
-class WebContextMenuClient : public WebCore::ContextMenuClient {
+class WebContextMenuClient : public WebCore::ContextMenuClient
+#if ENABLE(SERVICE_CONTROLS)
+    , public WebSharingServicePickerClient
+#endif
+{
 public:
     WebContextMenuClient(WebView *webView);
-    ~WebContextMenuClient();
+    virtual ~WebContextMenuClient();
 
     virtual void contextMenuDestroyed() override;
     
@@ -52,25 +59,28 @@ public:
     virtual bool isSpeaking() override;
     virtual void speak(const WTF::String&) override;
     virtual void stopSpeaking() override;
+    virtual WebCore::ContextMenuItem shareMenuItem(const WebCore::HitTestResult&) override;
     virtual void searchWithSpotlight() override;
     virtual void showContextMenu() override;
 
-    NSRect screenRectForHitTestNode() const;
-
 #if ENABLE(SERVICE_CONTROLS)
-    void clearSharingServicePickerController();
-    NSImage *renderedImageForControlledImage() const;
+    // WebSharingServicePickerClient
+    virtual void sharingServicePickerWillBeDestroyed(WebSharingServicePickerController &) override;
+    virtual WebCore::FloatRect screenRectForCurrentSharingServicePickerItem(WebSharingServicePickerController &) override;
+    virtual RetainPtr<NSImage> imageForCurrentSharingServicePickerItem(WebSharingServicePickerController &) override;
 #endif
 
-    WebView *webView() { return m_webView; }
-        
 private:
     NSMenu *contextMenuForEvent(NSEvent *, NSView *, bool& isServicesMenu);
 
     bool clientFloatRectForNode(WebCore::Node&, WebCore::FloatRect&) const;
 
-    WebView *m_webView;
 #if ENABLE(SERVICE_CONTROLS)
     RetainPtr<WebSharingServicePickerController> m_sharingServicePickerController;
+#else
+    WebView* m_webView;
 #endif
 };
+
+#endif // ENABLE(CONTEXT_MENUS)
+

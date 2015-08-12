@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2006-2009, 2011, 2013 Apple Inc. All rights reserved.
+ * Copyright (C) 2006-2009, 2011, 2013-2015 Apple Inc. All rights reserved.
  * Copyright (C) Research In Motion Limited 2009. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -24,7 +24,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
-#include "config.h"
 #include "WebKitDLL.h"
 #include "WebFrame.h"
 
@@ -33,6 +32,8 @@
 #include "DOMCoreClasses.h"
 #include "HTMLFrameOwnerElement.h"
 #include "MarshallingHelpers.h"
+#include "PluginDatabase.h"
+#include "PluginView.h"
 #include "WebActionPropertyBag.h"
 #include "WebChromeClient.h"
 #include "WebDataSource.h"
@@ -86,8 +87,6 @@
 #include <WebCore/Page.h>
 #include <WebCore/PlatformKeyboardEvent.h>
 #include <WebCore/PluginData.h>
-#include <WebCore/PluginDatabase.h>
-#include <WebCore/PluginView.h>
 #include <WebCore/PolicyChecker.h>
 #include <WebCore/PrintContext.h>
 #include <WebCore/ResourceHandle.h>
@@ -194,7 +193,7 @@ static Element *elementFromDOMElement(IDOMElement *element)
 static HTMLFormElement *formElementFromDOMElement(IDOMElement *element)
 {
     if (!element)
-        return 0;
+        return nullptr;
 
     IDOMElementPrivate* elePriv;
     HRESULT hr = element->QueryInterface(IID_IDOMElementPrivate, (void**) &elePriv);
@@ -202,16 +201,16 @@ static HTMLFormElement *formElementFromDOMElement(IDOMElement *element)
         Element* ele;
         hr = elePriv->coreElement((void**)&ele);
         elePriv->Release();
-        if (SUCCEEDED(hr) && ele && isHTMLFormElement(ele))
-            return toHTMLFormElement(ele);
+        if (SUCCEEDED(hr) && is<HTMLFormElement>(ele))
+            return downcast<HTMLFormElement>(ele);
     }
-    return 0;
+    return nullptr;
 }
 
 static HTMLInputElement* inputElementFromDOMElement(IDOMElement* element)
 {
     if (!element)
-        return 0;
+        return nullptr;
 
     IDOMElementPrivate* elePriv;
     HRESULT hr = element->QueryInterface(IID_IDOMElementPrivate, (void**) &elePriv);
@@ -219,10 +218,10 @@ static HTMLInputElement* inputElementFromDOMElement(IDOMElement* element)
         Element* ele;
         hr = elePriv->coreElement((void**)&ele);
         elePriv->Release();
-        if (SUCCEEDED(hr) && ele && isHTMLInputElement(ele))
-            return toHTMLInputElement(ele);
+        if (SUCCEEDED(hr) && is<HTMLInputElement>(ele))
+            return downcast<HTMLInputElement>(ele);
     }
-    return 0;
+    return nullptr;
 }
 
 // WebFramePrivate ------------------------------------------------------------
@@ -253,7 +252,7 @@ WebFrame::WebFrame()
 {
     WebFrameCount++;
     gClassCount++;
-    gClassNameCount.add("WebFrame");
+    gClassNameCount().add("WebFrame");
 }
 
 WebFrame::~WebFrame()
@@ -261,7 +260,7 @@ WebFrame::~WebFrame()
     delete d;
     WebFrameCount--;
     gClassCount--;
-    gClassNameCount.remove("WebFrame");
+    gClassNameCount().remove("WebFrame");
 }
 
 WebFrame* WebFrame::createInstance()
@@ -314,9 +313,7 @@ HRESULT WebFrame::reloadFromOrigin()
     return S_OK;
 }
 
-HRESULT STDMETHODCALLTYPE WebFrame::paintDocumentRectToContext(
-    /* [in] */ RECT rect,
-    /* [in] */ OLE_HANDLE deviceContext)
+HRESULT WebFrame::paintDocumentRectToContext(RECT rect, HDC deviceContext)
 {
     Frame* coreFrame = core(this);
     if (!coreFrame)
@@ -329,8 +326,7 @@ HRESULT STDMETHODCALLTYPE WebFrame::paintDocumentRectToContext(
     // We can't paint with a layout still pending.
     view->updateLayoutAndStyleIfNeededRecursive();
 
-    HDC dc = reinterpret_cast<HDC>(static_cast<ULONG64>(deviceContext));
-    GraphicsContext gc(dc);
+    GraphicsContext gc(deviceContext);
     gc.setShouldIncludeChildWindows(true);
     gc.save();
     LONG width = rect.right - rect.left;
@@ -346,10 +342,7 @@ HRESULT STDMETHODCALLTYPE WebFrame::paintDocumentRectToContext(
     return S_OK;
 }
 
-HRESULT STDMETHODCALLTYPE WebFrame::paintScrollViewRectToContextAtPoint(
-    /* [in] */ RECT rect,
-    /* [in] */ POINT pt,
-    /* [in] */ OLE_HANDLE deviceContext)
+HRESULT WebFrame::paintScrollViewRectToContextAtPoint(RECT rect, POINT pt, HDC deviceContext)
 {
     Frame* coreFrame = core(this);
     if (!coreFrame)
@@ -362,8 +355,7 @@ HRESULT STDMETHODCALLTYPE WebFrame::paintScrollViewRectToContextAtPoint(
     // We can't paint with a layout still pending.
     view->updateLayoutAndStyleIfNeededRecursive();
 
-    HDC dc = reinterpret_cast<HDC>(static_cast<ULONG64>(deviceContext));
-    GraphicsContext gc(dc);
+    GraphicsContext gc(deviceContext);
     gc.setShouldIncludeChildWindows(true);
     gc.save();
     IntRect dirtyRect(rect);
@@ -554,7 +546,7 @@ HRESULT STDMETHODCALLTYPE WebFrame::loadRequest(
     if (!coreFrame)
         return E_FAIL;
 
-    coreFrame->loader().load(FrameLoadRequest(coreFrame, requestImpl->resourceRequest()));
+    coreFrame->loader().load(FrameLoadRequest(coreFrame, requestImpl->resourceRequest(), ShouldOpenExternalURLsPolicy::ShouldNotAllow));
     return S_OK;
 }
 
@@ -569,16 +561,17 @@ void WebFrame::loadData(PassRefPtr<WebCore::SharedBuffer> data, BSTR mimeType, B
     // FIXME: We should really be using MarshallingHelpers::BSTRToKURL here,
     // but that would turn a null BSTR into a null URL, and we crash inside of
     // WebCore if we use a null URL in constructing the ResourceRequest.
-    URL baseKURL = URL(URL(), String(baseURL ? baseURL : L"", SysStringLen(baseURL)));
+    URL baseCoreURL = URL(URL(), String(baseURL ? baseURL : L"", SysStringLen(baseURL)));
 
-    URL failingKURL = MarshallingHelpers::BSTRToKURL(failingURL);
+    URL failingCoreURL = MarshallingHelpers::BSTRToKURL(failingURL);
 
-    ResourceRequest request(baseKURL);
-    SubstituteData substituteData(data, mimeTypeString, encodingString, failingKURL);
+    ResourceRequest request(baseCoreURL);
+    ResourceResponse response(URL(), mimeTypeString, data->size(), encodingString);
+    SubstituteData substituteData(data, failingCoreURL, response, SubstituteData::SessionHistoryVisibility::Hidden);
 
     // This method is only called from IWebFrame methods, so don't ASSERT that the Frame pointer isn't null.
     if (Frame* coreFrame = core(this))
-        coreFrame->loader().load(FrameLoadRequest(coreFrame, request, substituteData));
+        coreFrame->loader().load(FrameLoadRequest(coreFrame, request, ShouldOpenExternalURLsPolicy::ShouldNotAllow, substituteData));
 }
 
 
@@ -801,7 +794,7 @@ public:
             *pCeltFetched = 0;
         if (!rgVar)
             return E_POINTER;
-        VariantInit(rgVar);
+        ::VariantInit(rgVar);
         if (!celt || celt > 1)
             return S_FALSE;
         if (!m_frame || !m_curChild)
@@ -1053,7 +1046,7 @@ PassRefPtr<Frame> WebFrame::createSubframeWithOwnerElement(IWebView* webView, Pa
     webView->QueryInterface(&d->webView);
     d->webView->Release(); // don't hold the extra ref
 
-    OLE_HANDLE viewWindow;
+    HWND viewWindow;
     d->webView->viewWindow(&viewWindow);
 
     this->AddRef(); // We release this ref in frameLoaderDestroyed()
@@ -1067,7 +1060,7 @@ void WebFrame::initWithWebView(IWebView* webView, Page* page)
     webView->QueryInterface(&d->webView);
     d->webView->Release(); // don't hold the extra ref
 
-    OLE_HANDLE viewWindow;
+    HWND viewWindow;
     d->webView->viewWindow(&viewWindow);
 
     this->AddRef(); // We release this ref in frameLoaderDestroyed()
@@ -1108,12 +1101,12 @@ HRESULT WebFrame::elementWithName(BSTR name, IDOMElement* form, IDOMElement** el
         const Vector<FormAssociatedElement*>& elements = formElement->associatedElements();
         AtomicString targetName((UChar*)name, SysStringLen(name));
         for (unsigned int i = 0; i < elements.size(); i++) {
-            if (!elements[i]->isFormControlElement())
+            if (!is<HTMLFormControlElement>(*elements[i]))
                 continue;
-            HTMLFormControlElement* elt = toHTMLFormControlElement(elements[i]);
+            HTMLFormControlElement& elt = downcast<HTMLFormControlElement>(*elements[i]);
             // Skip option elements, other duds
-            if (elt->name() == targetName) {
-                *element = DOMElement::createInstance(elt);
+            if (elt.name() == targetName) {
+                *element = DOMElement::createInstance(&elt);
                 return S_OK;
             }
         }
@@ -1188,7 +1181,7 @@ HRESULT WebFrame::pauseAnimation(BSTR animationName, IDOMNode* node, double seco
     if (!domNode)
         return E_FAIL;
 
-    *animationWasRunning = frame->animation().pauseAnimationAtTime(toRenderElement(domNode->node()->renderer()), String(animationName, SysStringLen(animationName)), secondsFromNow);
+    *animationWasRunning = frame->animation().pauseAnimationAtTime(downcast<RenderElement>(domNode->node()->renderer()), String(animationName, SysStringLen(animationName)), secondsFromNow);
     return S_OK;
 }
 
@@ -1207,7 +1200,7 @@ HRESULT WebFrame::pauseTransition(BSTR propertyName, IDOMNode* node, double seco
     if (!domNode)
         return E_FAIL;
 
-    *transitionWasRunning = frame->animation().pauseTransitionAtTime(toRenderElement(domNode->node()->renderer()), String(propertyName, SysStringLen(propertyName)), secondsFromNow);
+    *transitionWasRunning = frame->animation().pauseTransitionAtTime(downcast<RenderElement>(domNode->node()->renderer()), String(propertyName, SysStringLen(propertyName)), secondsFromNow);
     return S_OK;
 }
 
@@ -1584,7 +1577,7 @@ void WebFrame::drawHeader(PlatformGraphicsContext* pctx, IWebUIDelegate* ui, con
     int x = pageRect.x();
     int y = 0;
     RECT headerRect = {x, y, x+pageRect.width(), y+static_cast<int>(headerHeight)};
-    ui->drawHeaderInRect(d->webView, &headerRect, static_cast<OLE_HANDLE>(reinterpret_cast<LONG64>(pctx)));
+    ui->drawHeaderInRect(d->webView, &headerRect, reinterpret_cast<ULONG_PTR>(pctx));
 }
 
 void WebFrame::drawFooter(PlatformGraphicsContext* pctx, IWebUIDelegate* ui, const IntRect& pageRect, UINT page, UINT pageCount, float headerHeight, float footerHeight)
@@ -1592,7 +1585,7 @@ void WebFrame::drawFooter(PlatformGraphicsContext* pctx, IWebUIDelegate* ui, con
     int x = pageRect.x();
     int y = max((int)headerHeight+pageRect.height(), m_pageHeight-static_cast<int>(footerHeight));
     RECT footerRect = {x, y, x+pageRect.width(), y+static_cast<int>(footerHeight)};
-    ui->drawFooterInRect(d->webView, &footerRect, static_cast<OLE_HANDLE>(reinterpret_cast<LONG64>(pctx)), page+1, pageCount);
+    ui->drawFooterInRect(d->webView, &footerRect, reinterpret_cast<ULONG_PTR>(pctx), page + 1, pageCount);
 }
 
 void WebFrame::spoolPage(PlatformGraphicsContext* pctx, GraphicsContext* spoolCtx, HDC printDC, IWebUIDelegate* ui, float headerHeight, float footerHeight, UINT page, UINT pageCount)
@@ -1663,7 +1656,7 @@ void WebFrame::drawHeader(PlatformGraphicsContext* pctx, IWebUIDelegate* ui, con
     int y = 0;
     RECT headerRect = {x, y, x + pageRect.width(), y + static_cast<int>(headerHeight)};
 
-    ui->drawHeaderInRect(d->webView, &headerRect, static_cast<OLE_HANDLE>(reinterpret_cast<LONG64>(hdc)));
+    ui->drawHeaderInRect(d->webView, &headerRect, reinterpret_cast<ULONG_PTR>(hdc));
 }
 
 void WebFrame::drawFooter(PlatformGraphicsContext* pctx, IWebUIDelegate* ui, const IntRect& pageRect, UINT page, UINT pageCount, float headerHeight, float footerHeight)
@@ -1674,7 +1667,7 @@ void WebFrame::drawFooter(PlatformGraphicsContext* pctx, IWebUIDelegate* ui, con
     int y = max(static_cast<int>(headerHeight) + pageRect.height(), m_pageHeight  -static_cast<int>(footerHeight));
     RECT footerRect = {x, y, x + pageRect.width(), y + static_cast<int>(footerHeight)};
 
-    ui->drawFooterInRect(d->webView, &footerRect, static_cast<OLE_HANDLE>(reinterpret_cast<LONG64>(hdc)), page+1, pageCount);
+    ui->drawFooterInRect(d->webView, &footerRect, reinterpret_cast<ULONG_PTR>(hdc), page+1, pageCount);
 }
 
 static XFORM buildXFORMFromCairo(HDC targetDC, cairo_t* previewContext)
@@ -2104,3 +2097,14 @@ void WebFrame::updateBackground()
     coreFrame->view()->updateBackgroundRecursively(backgroundColor, webView()->transparent());
 }
 
+// IWebFrame2
+HRESULT WebFrame::isMainFrame(BOOL* value)
+{
+    if (!value)
+        return E_POINTER;
+
+    Frame* coreFrame = core(this);
+    *value = coreFrame->isMainFrame();
+
+    return S_OK;
+}

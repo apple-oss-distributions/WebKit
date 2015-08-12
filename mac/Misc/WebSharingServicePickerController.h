@@ -27,19 +27,48 @@
 
 #import <wtf/RetainPtr.h>
 
-@class NSSharingServicePicker;
-@protocol NSSharingServiceDelegate;
-@protocol NSSharingServicePickerDelegate;
+#if PLATFORM(MAC)
+#import <WebCore/NSSharingServicePickerSPI.h>
+#import <WebCore/NSSharingServiceSPI.h>
+#endif
+
+@class WebSharingServicePickerController;
+@class WebView;
+
+namespace WebCore {
+class FloatRect;
+class Page;
+}
 
 class WebContextMenuClient;
 
+class WebSharingServicePickerClient {
+public:
+    virtual ~WebSharingServicePickerClient() { }
+
+    virtual void sharingServicePickerWillBeDestroyed(WebSharingServicePickerController &);
+    virtual WebCore::Page* pageForSharingServicePicker(WebSharingServicePickerController &);
+    virtual RetainPtr<NSWindow> windowForSharingServicePicker(WebSharingServicePickerController &);
+
+    virtual WebCore::FloatRect screenRectForCurrentSharingServicePickerItem(WebSharingServicePickerController &);
+    virtual RetainPtr<NSImage> imageForCurrentSharingServicePickerItem(WebSharingServicePickerController &);
+
+    WebView *webView() { return m_webView; }
+
+protected:
+    explicit WebSharingServicePickerClient(WebView *);
+    WebView *m_webView;
+};
+
 @interface WebSharingServicePickerController : NSObject <NSSharingServiceDelegate, NSSharingServicePickerDelegate> {
-    WebContextMenuClient* _menuClient;
+    WebSharingServicePickerClient* _pickerClient;
     RetainPtr<NSSharingServicePicker> _picker;
     BOOL _includeEditorServices;
+    BOOL _handleEditingReplacement;
 }
 
-- (instancetype)initWithData:(NSData *)data includeEditorServices:(BOOL)includeEditorServices menuClient:(WebContextMenuClient*)menuClient;
+- (instancetype)initWithItems:(NSArray *)items includeEditorServices:(BOOL)includeEditorServices client:(WebSharingServicePickerClient*)pickerClient style:(NSSharingServicePickerStyle)style;
+- (instancetype)initWithSharingServicePicker:(NSSharingServicePicker *)sharingServicePicker client:(WebSharingServicePickerClient&)pickerClient;
 - (NSMenu *)menu;
 - (void)didShareImageData:(NSData *)data confirmDataIsValidTIFFData:(BOOL)confirmData;
 - (void)clear;

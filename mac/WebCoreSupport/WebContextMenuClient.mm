@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2006, 2007, 2008 Apple Inc. All rights reserved.
+ * Copyright (C) 2006, 2007, 2008, 2015 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -30,7 +30,6 @@
 
 #import "WebContextMenuClient.h"
 
-#import <WebCore/BitmapImage.h>
 #import "WebDelegateImplementationCaching.h"
 #import "WebElementDictionary.h"
 #import "WebFrame.h"
@@ -44,6 +43,7 @@
 #import "WebUIDelegatePrivate.h"
 #import "WebView.h"
 #import "WebViewInternal.h"
+#import <WebCore/BitmapImage.h>
 #import <WebCore/ContextMenu.h>
 #import <WebCore/ContextMenuController.h>
 #import <WebCore/Document.h>
@@ -52,6 +52,7 @@
 #import <WebCore/GraphicsContext.h>
 #import <WebCore/ImageBuffer.h>
 #import <WebCore/LocalizedStrings.h>
+#import <WebCore/NSSharingServicePickerSPI.h>
 #import <WebCore/Page.h>
 #import <WebCore/RenderBox.h>
 #import <WebCore/RenderObject.h>
@@ -66,8 +67,12 @@ using namespace WebCore;
 - (void)speakString:(NSString *)string;
 @end
 
-WebContextMenuClient::WebContextMenuClient(WebView *webView) 
+WebContextMenuClient::WebContextMenuClient(WebView *webView)
+#if ENABLE(SERVICE_CONTROLS)
+    : WebSharingServicePickerClient(webView)
+#else
     : m_webView(webView)
+#endif
 {
 }
 
@@ -320,12 +325,10 @@ void WebContextMenuClient::contextMenuItemSelected(ContextMenuItem* item, const 
     SEL selector = @selector(webView:contextMenuItemSelected:forElement:);
     if ([delegate respondsToSelector:selector]) {
         NSDictionary *element = [[WebElementDictionary alloc] initWithHitTestResult:[m_webView page]->contextMenuController().hitTestResult()];
-        NSMenuItem *platformItem = item->releasePlatformDescription();
 
-        CallUIDelegate(m_webView, selector, platformItem, element);
+        CallUIDelegate(m_webView, selector, item->platformDescription(), element);
 
         [element release];
-        [platformItem release];
     }
 }
 
@@ -367,6 +370,26 @@ void WebContextMenuClient::stopSpeaking()
     [NSApp stopSpeaking:nil];
 }
 
+ContextMenuItem WebContextMenuClient::shareMenuItem(const HitTestResult& hitTestResult)
+{
+    if (![[NSMenuItem class] respondsToSelector:@selector(standardShareMenuItemWithItems:)])
+        return ContextMenuItem();
+
+    Node* node = hitTestResult.innerNonSharedNode();
+    if (!node)
+        return ContextMenuItem();
+
+    Frame* frame = node->document().frame();
+    if (!frame)
+        return ContextMenuItem();
+
+    URL downloadableMediaURL;
+    if (!hitTestResult.absoluteMediaURL().isEmpty() && hitTestResult.isDownloadableMedia())
+        downloadableMediaURL = hitTestResult.absoluteMediaURL();
+
+    return ContextMenuItem::shareMenuItem(hitTestResult.absoluteLinkURL(), downloadableMediaURL, hitTestResult.image(), hitTestResult.selectedText());
+}
+
 bool WebContextMenuClient::clientFloatRectForNode(Node& node, FloatRect& rect) const
 {
     RenderObject* renderer = node.renderer();
@@ -376,18 +399,24 @@ bool WebContextMenuClient::clientFloatRectForNode(Node& node, FloatRect& rect) c
         return false;
     }
 
-    if (!renderer->isBox())
+    if (!is<RenderBox>(*renderer))
         return false;
-    RenderBox* renderBox = toRenderBox(renderer);
+    auto& renderBox = downcast<RenderBox>(*renderer);
 
-    LayoutRect layoutRect = renderBox->clientBoxRect();
-    FloatQuad floatQuad = renderBox->localToAbsoluteQuad(FloatQuad(layoutRect));
+    LayoutRect layoutRect = renderBox.clientBoxRect();
+    FloatQuad floatQuad = renderBox.localToAbsoluteQuad(FloatQuad(layoutRect));
     rect = floatQuad.boundingBox();
 
     return true;
 }
 
-NSRect WebContextMenuClient::screenRectForHitTestNode() const
+#if ENABLE(SERVICE_CONTROLS)
+void WebContextMenuClient::sharingServicePickerWillBeDestroyed(WebSharingServicePickerController &)
+{
+    m_sharingServicePickerController = nil;
+}
+
+WebCore::FloatRect WebContextMenuClient::screenRectForCurrentSharingServicePickerItem(WebSharingServicePickerController &)
 {
     Page* page = [m_webView page];
     if (!page)
@@ -415,8 +444,7 @@ NSRect WebContextMenuClient::screenRectForHitTestNode() const
     return frameView->contentsToScreen(intRect);
 }
 
-#if ENABLE(SERVICE_CONTROLS)
-NSImage *WebContextMenuClient::renderedImageForControlledImage() const
+RetainPtr<NSImage> WebContextMenuClient::imageForCurrentSharingServicePickerItem(WebSharingServicePickerController &)
 {
     Page* page = [m_webView page];
     if (!page)
@@ -443,7 +471,7 @@ NSImage *WebContextMenuClient::renderedImageForControlledImage() const
 
     VisibleSelection oldSelection = frameView->frame().selection().selection();
     RefPtr<Range> range = Range::create(node->document(), Position(node, Position::PositionIsBeforeAnchor), Position(node, Position::PositionIsAfterAnchor));
-    frameView->frame().selection().setSelection(VisibleSelection(range.get()), FrameSelection::DoNotSetFocus);
+    frameView->frame().selection().setSelection(VisibleSelection(*range), FrameSelection::DoNotSetFocus);
 
     PaintBehavior oldPaintBehavior = frameView->paintBehavior();
     frameView->setPaintBehavior(PaintBehaviorSelectionOnly);
@@ -455,10 +483,12 @@ NSImage *WebContextMenuClient::renderedImageForControlledImage() const
     frameView->setPaintBehavior(oldPaintBehavior);
 
     RefPtr<Image> image = buffer->copyImage(DontCopyBackingStore);
-    return [[image->getNSImage() retain] autorelease];
+    if (!image)
+        return nil;
+
+    return image->getNSImage();
 }
 #endif
-
 
 NSMenu *WebContextMenuClient::contextMenuForEvent(NSEvent *event, NSView *view, bool& isServicesMenu)
 {
@@ -468,16 +498,14 @@ NSMenu *WebContextMenuClient::contextMenuForEvent(NSEvent *event, NSView *view, 
     if (!page)
         return nil;
 
-#if ENABLE(SERVICE_CONTROLS)
+#if ENABLE(SERVICE_CONTROLS) && defined(__LP64__)
     if (Image* image = page->contextMenuController().context().controlledImage()) {
         ASSERT(page->contextMenuController().context().hitTestResult().innerNode());
 
-        RefPtr<SharedBuffer> data = image->data();
-        ASSERT(data);
-        RetainPtr<CFDataRef> cfData = data->createCFData();
+        RetainPtr<NSItemProvider> itemProvider = adoptNS([[NSItemProvider alloc] initWithItem:image->getNSImage() typeIdentifier:@"public.image"]);
 
         bool isContentEditable = page->contextMenuController().context().hitTestResult().innerNode()->isContentEditable();
-        m_sharingServicePickerController = adoptNS([[WebSharingServicePickerController alloc] initWithData:(NSData *)cfData.get() includeEditorServices:isContentEditable menuClient:this]);
+        m_sharingServicePickerController = adoptNS([[WebSharingServicePickerController alloc] initWithItems:@[ itemProvider.get() ] includeEditorServices:isContentEditable client:this style:NSSharingServicePickerStyleRollover]);
 
         isServicesMenu = true;
         return [m_sharingServicePickerController menu];
@@ -512,12 +540,5 @@ void WebContextMenuClient::showContextMenu()
             [NSMenu popUpContextMenu:menu withEvent:event forView:view];
     }
 }
-
-#if ENABLE(SERVICE_CONTROLS)
-void WebContextMenuClient::clearSharingServicePickerController()
-{
-    m_sharingServicePickerController = nil;
-}
-#endif
 
 #endif // !PLATFORM(IOS)

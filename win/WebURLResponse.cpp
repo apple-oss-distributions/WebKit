@@ -23,7 +23,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
-#include "config.h"
 #include "WebURLResponse.h"
 
 #include "WebKitDLL.h"
@@ -212,20 +211,20 @@ WebURLResponse::WebURLResponse()
     :m_refCount(0)
 {
     gClassCount++;
-    gClassNameCount.add("WebURLResponse");
+    gClassNameCount().add("WebURLResponse");
 }
 
 WebURLResponse::~WebURLResponse()
 {
     gClassCount--;
-    gClassNameCount.remove("WebURLResponse");
+    gClassNameCount().remove("WebURLResponse");
 }
 
 WebURLResponse* WebURLResponse::createInstance()
 {
     WebURLResponse* instance = new WebURLResponse();
     // fake an http response - so it has the IWebHTTPURLResponse interface
-    instance->m_response = ResourceResponse(WebCore::URL(ParsedURLString, "http://"), String(), 0, String(), String());
+    instance->m_response = ResourceResponse(WebCore::URL(ParsedURLString, "http://"), String(), 0, String());
     instance->AddRef();
     return instance;
 }
@@ -293,7 +292,7 @@ HRESULT STDMETHODCALLTYPE WebURLResponse::initWithURL(
     /* [in] */ int expectedContentLength,
     /* [in] */ BSTR textEncodingName)
 {
-    m_response = ResourceResponse(MarshallingHelpers::BSTRToKURL(url), String(mimeType), expectedContentLength, String(textEncodingName), String());
+    m_response = ResourceResponse(MarshallingHelpers::BSTRToKURL(url), String(mimeType), expectedContentLength, String(textEncodingName));
     return S_OK;
 }
 
@@ -400,8 +399,7 @@ HRESULT STDMETHODCALLTYPE WebURLResponse::isAttachment(
 }
 
 
-HRESULT STDMETHODCALLTYPE WebURLResponse::sslPeerCertificate( 
-    /* [retval][out] */ OLE_HANDLE* result)
+HRESULT WebURLResponse::sslPeerCertificate(/* [retval][out] */ ULONG_PTR* result)
 {
     if (!result)
         return E_POINTER;
@@ -414,7 +412,7 @@ HRESULT STDMETHODCALLTYPE WebURLResponse::sslPeerCertificate(
     void* data = wkGetSSLPeerCertificateDataBytePtr(dict);
     if (!data)
         return E_FAIL;
-    *result = (OLE_HANDLE)(ULONG64)data;
+    *result = reinterpret_cast<ULONG_PTR>(data);
 #endif
 
     return *result ? S_OK : E_FAIL;

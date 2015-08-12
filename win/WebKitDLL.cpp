@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2006, 2007 Apple Inc.  All rights reserved.
+ * Copyright (C) 2006, 2007, 2014-2015 Apple Inc.  All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -23,13 +23,13 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
-#include "config.h"
 #include "WebKitDLL.h"
 
 #include "ForEachCoClass.h"
 #include "resource.h"
 #include "WebKit.h"
 #include "WebKitClassFactory.h"
+#include "WebStorageNamespaceProvider.h"
 #include <WebCore/COMPtr.h>
 #include <WebCore/IconDatabase.h>
 #include <WebCore/Page.h>
@@ -40,13 +40,13 @@
 #include <WebCore/Widget.h>
 #include <olectl.h>
 #include <wchar.h>
+#include <wtf/NeverDestroyed.h>
 #include <wtf/Vector.h>
 
 using namespace WebCore;
 
 ULONG gLockCount;
 ULONG gClassCount;
-HashCountedSet<String> gClassNameCount;
 HINSTANCE gInstance;
 
 #define CLSID_FOR_CLASS(cls) CLSID_##cls,
@@ -55,10 +55,25 @@ CLSID gRegCLSIDs[] = {
 };
 #undef CLSID_FOR_CLASS
 
+HashCountedSet<String>& gClassNameCount()
+{
+    static NeverDestroyed<HashCountedSet<String>> gClassNameCount;
+    return gClassNameCount.get();
+}
+
+
 STDAPI_(BOOL) DllMain( HMODULE hModule, DWORD  ul_reason_for_call, LPVOID /*lpReserved*/)
 {
     switch (ul_reason_for_call) {
         case DLL_PROCESS_ATTACH:
+#if defined(_M_X64) || defined(__x86_64__)
+            // The VS2013 runtime has a bug where it mis-detects AVX-capable processors
+            // if the feature has been disabled in firmware. This causes us to crash
+            // in some of the math functions. For now, we disable those optimizations
+            // because Microsoft is not going to fix the problem in VS2013.
+            // FIXME: http://webkit.org/b/141449: Remove this workaround when we switch to VS2015+.
+            _set_FMA3_enable(0);
+#endif
             gLockCount = gClassCount = 0;
             gInstance = hModule;
             WebCore::setInstanceHandle(hModule);
@@ -134,7 +149,7 @@ STDAPI LocalServerDidDie()
 void shutDownWebKit()
 {
     WebCore::iconDatabase().close();
-    WebCore::PageGroup::closeLocalStorage();
+    WebStorageNamespaceProvider::closeLocalStorage();
 }
 
 //FIXME: We should consider moving this to a new file for cross-project functionality

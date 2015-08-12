@@ -30,6 +30,10 @@ cpp_quote("#define WebViewProgressStartedNotification TEXT(\"WebProgressStartedN
 cpp_quote("#define WebViewProgressEstimateChangedNotification TEXT(\"WebProgressEstimateChangedNotification\")")
 cpp_quote("#define WebViewProgressFinishedNotification TEXT(\"WebProgressFinishedNotification\")")
 cpp_quote("#define WebViewDidChangeSelectionNotification TEXT(\"WebViewDidChangeSelectionNotification\")")
+cpp_quote("#define WebViewDidBeginEditingNotification TEXT(\"WebViewDidBeginEditingNotification\")")
+cpp_quote("#define WebViewDidEndEditingNotification TEXT(\"WebViewDidEndEditingNotification\")")
+cpp_quote("#define WebViewDidChangeTypingStyleNotification TEXT(\"WebViewDidChangeTypingStyleNotification\")")
+cpp_quote("#define WebViewDidChangeNotification TEXT(\"WebViewDidChangeNotification\")")
 
 #ifndef DO_NO_IMPORTS
 import "oaidl.idl";
@@ -545,14 +549,14 @@ interface IWebView : IUnknown
         not in an actual window.
         - (void)setHostWindow:(NSWindow *)hostWindow;
     */
-    HRESULT setHostWindow([in] OLE_HANDLE window);
+    HRESULT setHostWindow([in] HWND window);
 
     /*!
         @method hostWindow
         @result The host window for the web view.
         - (NSWindow *)hostWindow;
     */
-    HRESULT hostWindow([out, retval] OLE_HANDLE* window);
+    HRESULT hostWindow([out, retval] HWND* window);
 
     /*!
         @method searchFor:direction:caseSensitive:
@@ -735,7 +739,7 @@ interface IWebView : IUnknown
         @result Returns the main frame's icon if any, otherwise nil.
         - (NSImage *)mainFrameIcon;
     */
-    HRESULT mainFrameIcon([out, retval] OLE_HANDLE* hBitmap);
+    HRESULT mainFrameIcon([out, retval] HBITMAP* hBitmap);
 
     /*!
         @method registerURLSchemeAsLocal

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2006, 2007, 2008 Apple Inc.  All rights reserved.
+ * Copyright (C) 2006, 2007, 2008, 2015 Apple Inc.  All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -72,7 +72,7 @@ interface IWebViewPrivate : IUnknown
       */
     HRESULT inViewSourceMode([out, retval] BOOL* flag);
 
-    HRESULT viewWindow([out, retval] OLE_HANDLE* window);
+    HRESULT viewWindow([out, retval] HWND* window);
 
     // May well become public
     //- (void)_setFormDelegate:(id<WebFormDelegate>)delegate;
@@ -96,7 +96,7 @@ interface IWebViewPrivate : IUnknown
     HRESULT unmarkAllTextMatches();
     HRESULT rectsForTextMatches([out]IEnumTextMatches** pmatches);
     HRESULT selectionRect([in, out] RECT* rc);
-    HRESULT generateSelectionImage(BOOL forceWhiteText, [out, retval] OLE_HANDLE* hBitmap);
+    HRESULT generateSelectionImage(BOOL forceWhiteText, [out, retval] HBITMAP* hBitmap);
 
     HRESULT canHandleRequest([in] IWebURLRequest* request, [out, retval] BOOL* result);
 
@@ -137,7 +137,7 @@ interface IWebViewPrivate : IUnknown
 
     HRESULT windowAncestryDidChange();
 
-    HRESULT paintDocumentRectToContext([in] RECT rect, [in] OLE_HANDLE dc);
+    HRESULT paintDocumentRectToContext([in] RECT rect, [in] HDC dc);
 
     HRESULT setDefersCallbacks([in] BOOL defersCallbacks);
     HRESULT defersCallbacks([out, retval] BOOL* defersCallbacks);
@@ -147,7 +147,7 @@ interface IWebViewPrivate : IUnknown
     HRESULT setCustomHTMLTokenizerTimeDelay([in] double timeDelay);
     HRESULT setCustomHTMLTokenizerChunkSize([in] int chunkSize);
 
-    HRESULT backingStore([out, retval] OLE_HANDLE* hBitmap);
+    HRESULT backingStore([out, retval] HBITMAP* hBitmap);
 
     HRESULT setTransparent([in] BOOL transparent);
     HRESULT transparent([out, retval] BOOL* transparent);
@@ -233,7 +233,7 @@ interface IWebViewPrivate : IUnknown
 
     HRESULT nextDisplayIsSynchronous();
 
-    HRESULT paintScrollViewRectToContextAtPoint([in] RECT rect, [in] POINT pt, [in] OLE_HANDLE dc);
+    HRESULT paintScrollViewRectToContextAtPoint([in] RECT rect, [in] POINT pt, [in] HDC dc);
 
     [local] HRESULT reportException([in] JSContextRef context, [in] JSValueRef exception);
 
@@ -290,4 +290,18 @@ interface IWebViewPrivate : IUnknown
     HRESULT firstRectForCharacterRangeForTesting([in] UINT location, [in] UINT length, [out, retval] RECT* resultRect);
 
     HRESULT selectedRangeForTesting([out] UINT* location, [out] UINT* length);
+}
+
+[ uuid(671FB259-ABEF-48FC-88FB-EC4CF304E866) ]
+interface IWebViewPrivate2 : IWebViewPrivate
+{
+    // SPI for DumpRenderTree
+    HRESULT setLoadResourcesSerially([in] BOOL serialize);
+
+    HRESULT scaleWebView([in] double scale, [in] POINT origin);
+
+    HRESULT dispatchPendingLoadRequests();
+
+    HRESULT setCustomBackingScaleFactor([in] double);
+    HRESULT backingScaleFactor([out] double*);
 }
