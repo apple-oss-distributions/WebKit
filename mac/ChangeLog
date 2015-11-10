@@ -1,1 +1,55 @@
+2015-10-23  Matthew Hanson  <matthew_hanson@apple.com>
+
+        Merge r191487. rdar://problem/22811325
+
+    2015-10-22  Sam Weinig  <sam@webkit.org>
+
+            Navigations on the same host (but with different schemes and ports) should not trigger universal links
+            <rdar://problem/22811325>
+            https://bugs.webkit.org/show_bug.cgi?id=150481
+
+            Reviewed by Dan Bernstein.
+
+            * WebCoreSupport/WebFrameLoaderClient.mm:
+            (shouldTryAppLink):
+            Update the policy for following universal links to only take host into consideration.
+
+2015-10-15  Matthew Hanson  <matthew_hanson@apple.com>
+
+        Rollout r188486. rdar://problem/22707497
+
+2015-10-14  Matthew Hanson  <matthew_hanson@apple.com>
+
+        Merge r188486. rdar://problem/22707497
+
+    2015-08-13  Andy Estes  <aestes@apple.com>
+
+            [Cocoa] Downloads do not start if policy decision is made asynchronously
+            https://bugs.webkit.org/show_bug.cgi?id=147985
+
+            Reviewed by Brady Eidson.
+
+            * WebCoreSupport/WebFrameLoaderClient.mm:
+            (WebFrameLoaderClient::convertMainResourceLoadToDownload): Started a new download if the main resource loader is not calling didReceiveResponse.
+
+2015-10-02  Babak Shafiei  <bshafiei@apple.com>
+
+        Merge r190092.
+
+    2015-09-21  Alexey Proskuryakov  <ap@apple.com>
+
+            REGRESSION (r182648): UIWebView does not set location.hash synchronously
+            https://bugs.webkit.org/show_bug.cgi?id=149415
+            <rdar://problem/22169467>
+
+            Reviewed by Darin Adler.
+
+            The problem was that the delegate in UI thread became asynchronous due to calling
+            into LaunchServices.
+
+            * WebCoreSupport/WebFrameLoaderClient.mm: (shouldTryAppLink): Don't attempt app
+            links for same domain navigations. This check is part of substantially more complicated
+            logic in WebKit2 that I don't understand, but that should be enough to demonstrate
+            that this fix is an improvement at least.
+
 == Rolled over to ChangeLog-2015-07-23 ==
