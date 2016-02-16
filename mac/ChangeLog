@@ -1,3 +1,71 @@
+2016-01-11  Matthew Hanson  <matthew_hanson@apple.com>
+
+        Merge r194667. rdar://problem/24074334
+
+    2016-01-06  Simon Fraser  <simon.fraser@apple.com>
+
+            [iOS] Revert overflow:hidden on the body affecting viewport scale (r186786)
+            https://bugs.webkit.org/show_bug.cgi?id=152803
+            rdar://problem/22242515
+
+            Reviewed by Tim Horton.
+
+            * WebView/WebView.mm:
+            (-[WebView _contentsSizeRespectingOverflow]): Keep this function which is used
+            by UIKit, but change the implementation to just return the document size.
+
+2015-12-14  Matthew Hanson  <matthew_hanson@apple.com>
+
+        Merge r193997. rdar://problem/23814333
+
+    2015-12-11  Beth Dakin  <bdakin@apple.com>
+
+            _touchEventRegions should return regions in the view's coordinates
+            https://bugs.webkit.org/show_bug.cgi?id=152189
+            -and corresponding-
+            rdar://problem/23188605
+
+            Reviewed by Dan Bernstein.
+
+            The comment here was actually out of date. It claimed that touch rectangles
+            are in the coordinate system of the document, but we had actually changed
+            them to be in the view’s coordinate system in order to fix issues with
+            handling touch events in UIWebView. But now we are going back to having the
+            touch rectangles be in the document’s coordinate system, so we should fix the
+            rtl bugs here by converting to view coordinates before handing the rects off
+            to iOS WK1 clients.
+            * WebView/WebView.mm:
+            (-[WebView _touchEventRegions]):
+
+2015-10-17  Myles C. Maxfield  <mmaxfield@apple.com>
+
+        Build fix after r191260
+
+        Unreviewed.
+
+        * WebView/WebView.mm:
+        (+[WebView initialize]):
+
+2015-10-18  Myles C. Maxfield  <mmaxfield@apple.com>
+
+        Stop honoring the user default "WebKitKerningAndLigaturesEnabledByDefault"
+        https://bugs.webkit.org/show_bug.cgi?id=150287
+
+        Reviewed by Simon Fraser.
+
+        * WebView/WebView.mm:
+        (+[WebView initialize]): Deleted.
+
+2015-10-13  Myles C. Maxfield  <mmaxfield@apple.com>
+
+        Split TypesettingFeatures into kerning and ligatures bools
+        https://bugs.webkit.org/show_bug.cgi?id=150074
+
+        Reviewed by Simon Fraser.
+
+        * WebView/WebView.mm:
+        (+[WebView initialize]):
+
 2015-10-23  Matthew Hanson  <matthew_hanson@apple.com>
 
         Merge r191487. rdar://problem/22811325
