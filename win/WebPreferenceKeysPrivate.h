@@ -163,3 +163,15 @@
 #define WebKitMockScrollbarsEnabledPreferenceKey "WebKitMockScrollbarsEnabled"
 
 #define WebKitEnableInheritURIQueryComponentPreferenceKey "WebKitEnableInheritURIQueryComponent"
+
+#define WebKitAllowDisplayAndRunningOfInsecureContentPreferenceKey "WebKitAllowDisplayAndRunningOfInsecureContent"
+
+#define WebKitShowTiledScrollingIndicatorPreferenceKey "WebKitShowTiledScrollingIndicator"
+
+#define WebKitDOMIteratorEnabledPreferenceKey "WebKitDOMIteratorEnabled"
+
+#define WebKitFetchAPIEnabledPreferenceKey "WebKitFetchAPIEnabled"
+
+#define WebKitShadowDOMEnabledPreferenceKey "WebKitShadowDOMEnabled"
+
+#define WebKitCustomElementsEnabledPreferenceKey "WebKitCustomElementsEnabled"

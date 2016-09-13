@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014 Apple Inc. All rights reserved.
+ * Copyright (C) 2016 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -23,23 +23,19 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#if PLATFORM(MAC)
+#import "WebDatabaseProvider.h"
+#import "WebDatabaseManagerPrivate.h"
 
-#import <WebCore/FloatPoint.h>
-#import <wtf/RetainPtr.h>
+#import <WebCore/FileSystem.h>
 
-@class NSAttributedString;
-@class NSDictionary;
-
-namespace WebCore {
-class TextIndicator;
-};
-
-struct DictionaryPopupInfo {
-    NSPoint origin;
-    RetainPtr<NSDictionary> options;
-    RetainPtr<NSAttributedString> attributedString;
-    RefPtr<WebCore::TextIndicator> textIndicator;
-};
-
-#endif // PLATFORM(MAC)
+String WebDatabaseProvider::indexedDatabaseDirectoryPath()
+{
+    NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+    NSString *databasesDirectory = [defaults objectForKey:WebDatabaseDirectoryDefaultsKey];
+    if (!databasesDirectory || ![databasesDirectory isKindOfClass:[NSString class]])
+        databasesDirectory = WebCore::pathByAppendingComponent(ASCIILiteral("~/Library/WebKit/Databases/___IndexedDB"), [[NSBundle mainBundle] bundleIdentifier]);
+    else
+        databasesDirectory = WebCore::pathByAppendingComponent(databasesDirectory, ASCIILiteral("___IndexedDB"));
+    
+    return [databasesDirectory stringByStandardizingPath];
+}
