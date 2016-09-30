@@ -282,10 +282,6 @@
 - (void)_resetDragMargins {
 }
 
-- (NSColor *)contentFill
-{
-    return [NSColor clearColor];
-}
 
 @end // implementation NSCarbonWindowFrame
 
