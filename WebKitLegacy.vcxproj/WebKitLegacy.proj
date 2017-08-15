@@ -13,7 +13,7 @@
     <DebugSuffixDefinition>-DDEBUG_SUFFIX=_debug</DebugSuffixDefinition>
   </PropertyGroup>
 
-  <!-- Wrapper to build WebKit for both win32 and x64. -->
+  <!-- Wrapper to build WebKitLegacy for both win32 and x64. -->
   <PropertyGroup>
     <OFFICIAL_BUILD>1</OFFICIAL_BUILD>
     <WebKit_Libraries>$(SRCROOT)\AppleInternal</WebKit_Libraries>
@@ -50,13 +50,13 @@
     <MakeDir Directories="$(DSTROOT)\$(ProgramFilesAAS32)\WebKit.resources;$(DSTROOT)\$(ProgramFilesAAS64)\WebKit.resources" />
   </Target>
 
-  <!-- Build WebKit Software -->
+  <!-- Build WebKitLegacy Software -->
   <Target Name="Build" AfterTargets="PreBuild">
     <Message Text="Building $(CONFIGURATION) Solution" />
     <Error Text="DSTROOT property or environment variable must be defined." Condition="'$(DSTROOT)' == ''" />
-	<Exec Command="$(CMakeCommandCommon) -G &quot;Visual Studio 14 2015&quot;" WorkingDirectory="$(OBJROOT)/$(CONFIG)/build32"/>
+	<Exec Command="$(CMakeCommandCommon) -DWTF_CPU_X86=1 -G &quot;Visual Studio 14 2015&quot;" WorkingDirectory="$(OBJROOT)/$(CONFIG)/build32"/>
 	<Exec Command="msbuild Project.sln /p:Configuration=$(CONFIG)" WorkingDirectory="$(OBJROOT)/$(CONFIG)/build32"/>
-	<Exec Command="$(CMakeCommandCommon) -G &quot;Visual Studio 14 2015 Win64&quot;" WorkingDirectory="$(OBJROOT)/$(CONFIG)/build64"/>
+	<Exec Command="$(CMakeCommandCommon) -DWTF_CPU_X86_64=1 -G &quot;Visual Studio 14 2015 Win64&quot;" WorkingDirectory="$(OBJROOT)/$(CONFIG)/build64"/>
 	<Exec Command="msbuild Project.sln /p:Configuration=$(CONFIG)" WorkingDirectory="$(OBJROOT)/$(CONFIG)/build64"/>
   </Target>
 

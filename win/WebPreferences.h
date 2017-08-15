@@ -30,7 +30,7 @@
 #include <WebCore/BString.h>
 #include <wtf/RetainPtr.h>
 
-class WebPreferences : public IWebPreferences, public IWebPreferencesPrivate4 {
+class WebPreferences : public IWebPreferences, public IWebPreferencesPrivate5 {
 public:
     static WebPreferences* createInstance();
 protected:
@@ -159,8 +159,6 @@ public:
     virtual HRESULT STDMETHODCALLTYPE setLocalStorageDatabasePath(_In_ BSTR);
     virtual HRESULT STDMETHODCALLTYPE experimentalNotificationsEnabled(_Out_ BOOL*);
     virtual HRESULT STDMETHODCALLTYPE setExperimentalNotificationsEnabled(BOOL);
-    virtual HRESULT STDMETHODCALLTYPE allowsPageCacheWithWindowOpener(_Out_ BOOL*);
-    virtual HRESULT STDMETHODCALLTYPE setAllowsPageCacheWithWindowOpener(BOOL);
 
     // These two methods are no-ops, and only retained to keep
     // the Interface consistent. DO NOT USE THEM.
@@ -242,11 +240,25 @@ public:
     virtual HRESULT STDMETHODCALLTYPE setCustomElementsEnabled(BOOL);
     virtual HRESULT STDMETHODCALLTYPE modernMediaControlsEnabled(_Out_ BOOL*);
     virtual HRESULT STDMETHODCALLTYPE setModernMediaControlsEnabled(BOOL);
-    virtual HRESULT STDMETHODCALLTYPE es6ModulesEnabled(_Out_ BOOL*);
-    virtual HRESULT STDMETHODCALLTYPE setES6ModulesEnabled(BOOL);
 
     // IWebPreferencesPrivate4
     virtual HRESULT STDMETHODCALLTYPE setApplicationId(BSTR);
+    virtual HRESULT STDMETHODCALLTYPE webAnimationsEnabled(_Out_ BOOL*);
+    virtual HRESULT STDMETHODCALLTYPE setWebAnimationsEnabled(BOOL);
+    virtual HRESULT STDMETHODCALLTYPE userTimingEnabled(_Out_ BOOL*);
+    virtual HRESULT STDMETHODCALLTYPE setUserTimingEnabled(BOOL);
+    virtual HRESULT STDMETHODCALLTYPE resourceTimingEnabled(_Out_ BOOL*);
+    virtual HRESULT STDMETHODCALLTYPE setResourceTimingEnabled(BOOL);
+    virtual HRESULT STDMETHODCALLTYPE linkPreloadEnabled(_Out_ BOOL*);
+    virtual HRESULT STDMETHODCALLTYPE setLinkPreloadEnabled(BOOL);
+    virtual HRESULT STDMETHODCALLTYPE mediaPreloadingEnabled(_Out_ BOOL*);
+    virtual HRESULT STDMETHODCALLTYPE setMediaPreloadingEnabled(BOOL);
+    virtual HRESULT STDMETHODCALLTYPE clearNetworkLoaderSession();
+    virtual HRESULT STDMETHODCALLTYPE switchNetworkLoaderToNewTestingSession();
+
+    // IWebPreferencesPrivate5
+    virtual HRESULT STDMETHODCALLTYPE isSecureContextAttributeEnabled(_Out_ BOOL*);
+    virtual HRESULT STDMETHODCALLTYPE setIsSecureContextAttributeEnabled(BOOL);
 
     // WebPreferences
 

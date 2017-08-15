@@ -23,10 +23,11 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#import <WebKitLegacy/DOMDOMImplementation.h>
+
+#import <WebKitLegacy/DOMTokenList.h>
 
 namespace WebCore {
-class DOMImplementation;
+class DOMTokenList;
 }
 
-DOMImplementation *kit(WebCore::DOMImplementation*);
+DOMTokenList *kit(WebCore::DOMTokenList*);
