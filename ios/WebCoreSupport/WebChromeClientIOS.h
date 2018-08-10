@@ -58,6 +58,8 @@ private:
     void clearContentChangeObservers(WebCore::Frame&) final;
     WebCore::FloatSize screenSize() const final;
     WebCore::FloatSize availableScreenSize() const final;
+    WebCore::FloatSize overrideScreenSize() const final;
+    void dispatchDisabledAdaptationsDidChange(const OptionSet<WebCore::DisabledAdaptations>&) const final;
     void dispatchViewportPropertiesDidChange(const WebCore::ViewportArguments&) const final;
     void notifyRevealedSelectionByScrollingFrame(WebCore::Frame&) final;
     bool isStopping() final;
@@ -88,7 +90,7 @@ private:
 
     void webAppOrientationsUpdated() final;
     void focusedElementChanged(WebCore::Element*) final;
-    void showPlaybackTargetPicker(bool hasVideo) final;
+    void showPlaybackTargetPicker(bool hasVideo, WebCore::RouteSharingPolicy, const String&) final;
     RefPtr<WebCore::Icon> createIconForFiles(const Vector<String>& filenames) final;
 
 #if ENABLE(ORIENTATION_EVENTS)

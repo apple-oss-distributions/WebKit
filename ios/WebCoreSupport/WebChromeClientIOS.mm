@@ -44,6 +44,7 @@
 #import "WebView.h"
 #import "WebViewInternal.h"
 #import "WebViewPrivate.h"
+#import <WebCore/DisabledAdaptations.h>
 #import <WebCore/FileChooser.h>
 #import <WebCore/FloatRect.h>
 #import <WebCore/Frame.h>
@@ -227,9 +228,18 @@ FloatSize WebChromeClientIOS::availableScreenSize() const
     return FloatSize();
 }
 
+FloatSize WebChromeClientIOS::overrideScreenSize() const
+{
+    return screenSize();
+}
+
 void WebChromeClientIOS::dispatchViewportPropertiesDidChange(const WebCore::ViewportArguments& arguments) const
 {
     [[webView() _UIKitDelegateForwarder] webView:webView() didReceiveViewportArguments:dictionaryForViewportArguments(arguments)];
+}
+
+void WebChromeClientIOS::dispatchDisabledAdaptationsDidChange(const OptionSet<WebCore::DisabledAdaptations>&) const
+{
 }
 
 void WebChromeClientIOS::notifyRevealedSelectionByScrollingFrame(WebCore::Frame& frame)
@@ -362,7 +372,7 @@ void WebChromeClientIOS::focusedElementChanged(Element* element)
     CallFormDelegate(webView(), @selector(didFocusTextField:inFrame:), kit(&inputElement), kit(inputElement.document().frame()));
 }
 
-void WebChromeClientIOS::showPlaybackTargetPicker(bool hasVideo)
+void WebChromeClientIOS::showPlaybackTargetPicker(bool hasVideo, WebCore::RouteSharingPolicy, const String&)
 {
     CGPoint point = [[webView() _UIKitDelegateForwarder] interactionLocation];
     CGRect elementRect = [[webView() mainFrame] elementRectAtPoint:point];

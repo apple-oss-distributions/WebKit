@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013-2016 Apple Inc. All rights reserved.
+ * Copyright (C) 2009-2018 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -23,32 +23,36 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef WebUserMediaClient_h
-#define WebUserMediaClient_h
+#if PLATFORM(MAC) && ENABLE(VIDEO)
 
-#if ENABLE(MEDIA_STREAM)
+#import <AppKit/NSWindowController.h>
+#import <wtf/RefPtr.h>
 
-#import <WebCore/UserMediaClient.h>
+namespace WebCore {
+class HTMLVideoElement;
+}
 
-@class WebView;
+@class WebVideoFullscreenHUDWindowController;
+@class WebWindowFadeAnimation;
 
-class WebUserMediaClient final : public WebCore::UserMediaClient {
-public:
-    WebUserMediaClient(WebView*);
-    ~WebUserMediaClient();
+@interface WebVideoFullscreenController : NSWindowController {
+    RefPtr<WebCore::HTMLVideoElement> _videoElement;
 
-    // UserMediaClient
-    void requestUserMediaAccess(WebCore::UserMediaRequest&) final;
-    void cancelUserMediaAccessRequest(WebCore::UserMediaRequest&) final;
+    NSWindow *_backgroundFullscreenWindow; // (retain)
+    WebVideoFullscreenHUDWindowController *_hudController; // (retain)
 
-    void enumerateMediaDevices(WebCore::MediaDevicesEnumerationRequest&) final;
-    void cancelMediaDevicesEnumerationRequest(WebCore::MediaDevicesEnumerationRequest&) final;
+    WebWindowFadeAnimation *_fadeAnimation; // (retain)
 
-    void pageDestroyed() final;
+    BOOL _isEndingFullscreen;
+    BOOL _forceDisableAnimation;
+}
 
-private:
-    WebView* m_webView;
-};
+- (void)setVideoElement:(WebCore::HTMLVideoElement *)videoElement;
+- (WebCore::HTMLVideoElement *)videoElement;
 
-#endif
+- (void)enterFullscreen:(NSScreen *)screen;
+- (void)exitFullscreen;
+
+@end
+
 #endif
