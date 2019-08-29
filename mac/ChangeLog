@@ -1,6 +1,112 @@
-2019-08-06  Kocsen Chung  <kocsen_chung@apple.com>
+2019-08-21  Kocsen Chung  <kocsen_chung@apple.com>
 
-        Cherry-pick r247837. rdar://problem/53973599
+        Cherry-pick r248974. rdar://problem/54579634
+
+    [Mail] Tapping top of message scrolls back to copied text instead of top of the message
+    https://bugs.webkit.org/show_bug.cgi?id=200999
+    <rdar://problem/54564878>
+    
+    Reviewed by Wenson Hsieh.
+    
+    Source/WebCore:
+    
+    Test: editing/selection/ios/change-selection-by-tapping-with-existing-selection.html
+    
+    * page/EditorClient.h:
+    (WebCore::EditorClient::shouldAllowSingleClickToChangeSelection const):
+    * page/EventHandler.cpp:
+    (WebCore::EventHandler::handleMousePressEventSingleClick):
+    Instead of encoding platform behaviors in EventHandler, defer to EditorClient.
+    
+    Source/WebKit:
+    
+    In the case where you have a WebCore selection but are not first responder,
+    when you tap the WKWebView to become first responder, EventHandler would
+    bail from setting the selection, assuming UIKit was going to do it. This
+    behavior was introduced in r233311.
+    
+    However, since we are not first responder, UIKit does not change the
+    selection, since it considers the view to not be editable.
+    
+    Fix this by letting WebCore set the selection in this case, as it used to.
+    
+    * WebProcess/WebCoreSupport/WebEditorClient.h:
+    * WebProcess/WebCoreSupport/ios/WebEditorClientIOS.mm:
+    (WebKit::WebEditorClient::shouldAllowSingleClickToChangeSelection const):
+    * WebProcess/WebPage/WebPage.h:
+    (WebKit::WebPage::isShowingInputViewForFocusedElement const):
+    Copy the logic from EventHandler, with the added caveat (which fixes the
+    aforementioned behavior) that we will allow EventHandler to change the
+    selection if we don't have a focused node in the UIKit sense, because
+    we know that the platform text interaction code will *not* change the
+    selection if that is the case, so it's up to us.
+    
+    Source/WebKitLegacy/mac:
+    
+    * WebCoreSupport/WebEditorClient.h:
+    * WebCoreSupport/WebEditorClient.mm:
+    (WebEditorClient::shouldAllowSingleClickToChangeSelection const):
+    Copy the existing behavior from EventHandler.
+    We do not fix the bug in WebKitLegacy for a multitude of reasons, primarily
+    because we do not know of any user impact.
+    
+    LayoutTests:
+    
+    * editing/selection/ios/change-selection-by-tapping-with-existing-selection-expected.txt: Added.
+    * editing/selection/ios/change-selection-by-tapping-with-existing-selection.html: Added.
+    
+    
+    git-svn-id: https://svn.webkit.org/repository/webkit/trunk@248974 268f45cc-cd09-0410-ab3c-d52691b4dbfc
+
+    2019-08-21  Tim Horton  <timothy_horton@apple.com>
+
+            [Mail] Tapping top of message scrolls back to copied text instead of top of the message
+            https://bugs.webkit.org/show_bug.cgi?id=200999
+            <rdar://problem/54564878>
+
+            Reviewed by Wenson Hsieh.
+
+            * WebCoreSupport/WebEditorClient.h:
+            * WebCoreSupport/WebEditorClient.mm:
+            (WebEditorClient::shouldAllowSingleClickToChangeSelection const):
+            Copy the existing behavior from EventHandler.
+            We do not fix the bug in WebKitLegacy for a multitude of reasons, primarily
+            because we do not know of any user impact.
+
+2019-08-15  Alan Coon  <alancoon@apple.com>
+
+        Cherry-pick r248741. rdar://problem/54360841
+
+    Yellow Lookup highlight gets stuck over Mail messages
+    https://bugs.webkit.org/show_bug.cgi?id=200778
+    <rdar://problem/53868514>
+    
+    Reviewed by Wenson Hsieh.
+    
+    * WebView/WebView.mm:
+    (-[WebView _showDictionaryLookupPopup:]):
+    Add a dismissal callback so that when Reveal hides the panel, it also
+    dismisses the yellow indicator. This matches the behavior in modern WebKit.
+    
+    
+    git-svn-id: https://svn.webkit.org/repository/webkit/trunk@248741 268f45cc-cd09-0410-ab3c-d52691b4dbfc
+
+    2019-08-15  Tim Horton  <timothy_horton@apple.com>
+
+            Yellow Lookup highlight gets stuck over Mail messages
+            https://bugs.webkit.org/show_bug.cgi?id=200778
+            <rdar://problem/53868514>
+
+            Reviewed by Wenson Hsieh.
+
+            * WebView/WebView.mm:
+            (-[WebView _showDictionaryLookupPopup:]):
+            Add a dismissal callback so that when Reveal hides the panel, it also
+            dismisses the yellow indicator. This matches the behavior in modern WebKit.
+
+2019-07-29  Alan Coon  <alancoon@apple.com>
+
+        Cherry-pick r247837. rdar://problem/53648220
 
     Add helper for ignoring deprecated implementation warnings
     https://bugs.webkit.org/show_bug.cgi?id=200135
@@ -149,9 +255,168 @@
             (-[WebHTMLView insertText:]):
             (-[WebHTMLView IGNORE_WARNINGS_END]): Deleted.
 
-2019-07-25  Alan Coon  <alancoon@apple.com>
+2019-07-29  Alan Coon  <alancoon@apple.com>
 
-        Cherry-pick r247692. rdar://problem/53519923
+        Cherry-pick r247722. rdar://problem/53647293
+
+    [macOS 10.15] Web process crashes when attempting to show the font panel via Font > Show Fonts
+    https://bugs.webkit.org/show_bug.cgi?id=200021
+    <rdar://problem/53301325>
+    
+    Reviewed by Ryosuke Niwa.
+    
+    Source/WebCore:
+    
+    In macOS 10.15, attempting to access ~/Library/FontCollections/ from the web process causes a Sandbox violation
+    and a subsequent crash. This can be triggered by trying to show the font panel via Font > Show Fonts in the
+    context menu after right clicking.
+    
+    In the (near) future, we should fix this by moving logic to show the font panel, color panel and styles panel
+    from the Editor in the web process to the UI process in WebKit2. However, for the time being, we can just work
+    around this by adding a new EditorClient hook to determine whether to allow the font panel to show; this returns
+    true in the legacy macOS WebKit port, and false everywhere else.
+    
+    Test: editing/mac/style/do-not-crash-when-showing-font-panel.html
+    
+    * editing/mac/EditorMac.mm:
+    (WebCore::Editor::showFontPanel):
+    * loader/EmptyClients.cpp:
+    * page/EditorClient.h:
+    
+    Source/WebKit:
+    
+    Always return false from canShowFontPanel in WebKit2.
+    
+    * WebProcess/WebCoreSupport/WebEditorClient.h:
+    
+    Source/WebKitLegacy/mac:
+    
+    Implement a new editing client hook. In WebKit1, this always returns true on macOS and false on iOS.
+    
+    * WebCoreSupport/WebEditorClient.h:
+    
+    Source/WebKitLegacy/win:
+    
+    Implement a new editing client hook.
+    
+    * WebCoreSupport/WebEditorClient.h:
+    
+    Tools:
+    
+    Add support for grabbing the child menu items of a context menu item.
+    
+    * WebKitTestRunner/InjectedBundle/EventSendingController.cpp:
+    (WTR::getMenuItemChildrenCallback):
+    
+    LayoutTests:
+    
+    Add a new layout test to verify that attempting to show the font panel doesn't crash the web process in WebKit2.
+    This test is skipped in WebKit1, since EventSender::contextClick() in WebKit1 only returns an array of strings
+    corresponding to the titles of each menu item.
+    
+    * editing/mac/style/do-not-crash-when-showing-font-panel-expected.txt: Added.
+    * editing/mac/style/do-not-crash-when-showing-font-panel.html: Added.
+    * platform/mac-wk1/TestExpectations:
+    
+    
+    git-svn-id: https://svn.webkit.org/repository/webkit/trunk@247722 268f45cc-cd09-0410-ab3c-d52691b4dbfc
+
+    2019-07-23  Wenson Hsieh  <wenson_hsieh@apple.com>
+
+            [macOS 10.15] Web process crashes when attempting to show the font panel via Font > Show Fonts
+            https://bugs.webkit.org/show_bug.cgi?id=200021
+            <rdar://problem/53301325>
+
+            Reviewed by Ryosuke Niwa.
+
+            Implement a new editing client hook. In WebKit1, this always returns true on macOS and false on iOS.
+
+            * WebCoreSupport/WebEditorClient.h:
+
+2019-07-29  Alan Coon  <alancoon@apple.com>
+
+        Cherry-pick r247712. rdar://problem/53647280
+
+    Fix WebView iframe rendering in macOS Catalina
+    https://bugs.webkit.org/show_bug.cgi?id=200022
+    rdar://problem/49102040
+    
+    Reviewed by Darin Adler.
+    Source/WebKitLegacy/mac:
+    
+    Adapt to internal NSView method renames in Catalina.
+    
+    * WebView/WebHTMLView.mm:
+    (-[WebHTMLView _recursive:displayRectIgnoringOpacity:inContext:stopAtLayerBackedViews:_recursive:displayRectIgnoringOpacity:inContext:shouldChangeFontReferenceColor:stopAtLayerBackedViews:_recursive:displayRectIgnoringOpacity:inContext:shouldChangeFontReferenceColor:_recursive:displayRectIgnoringOpacity:inContext:topView:]):
+    (-[WebHTMLView _recursive:displayRectIgnoringOpacity:inContext:shouldChangeFontReferenceColor:stopAtLayerBackedViews:_recursive:displayRectIgnoringOpacity:inContext:shouldChangeFontReferenceColor:_recursive:displayRectIgnoringOpacity:inContext:topView:]): Deleted.
+    
+    LayoutTests:
+    
+    New test for rendering of overlapping iframes, defects when we fail to setAsideSubviews
+    in WebView.
+    
+    * fast/frames/frames-not-double-painted-expected.html: Added.
+    * fast/frames/frames-not-double-painted.html: Added.
+    
+    
+    git-svn-id: https://svn.webkit.org/repository/webkit/trunk@247712 268f45cc-cd09-0410-ab3c-d52691b4dbfc
+
+    2019-07-22  Simon Fraser  <simon.fraser@apple.com>
+
+            Fix WebView iframe rendering in macOS Catalina
+            https://bugs.webkit.org/show_bug.cgi?id=200022
+            rdar://problem/49102040
+
+            Reviewed by Darin Adler.
+
+            Adapt to internal NSView method renames in Catalina.
+
+            * WebView/WebHTMLView.mm:
+            (-[WebHTMLView _recursive:displayRectIgnoringOpacity:inContext:stopAtLayerBackedViews:_recursive:displayRectIgnoringOpacity:inContext:shouldChangeFontReferenceColor:stopAtLayerBackedViews:_recursive:displayRectIgnoringOpacity:inContext:shouldChangeFontReferenceColor:_recursive:displayRectIgnoringOpacity:inContext:topView:]):
+            (-[WebHTMLView _recursive:displayRectIgnoringOpacity:inContext:shouldChangeFontReferenceColor:stopAtLayerBackedViews:_recursive:displayRectIgnoringOpacity:inContext:shouldChangeFontReferenceColor:_recursive:displayRectIgnoringOpacity:inContext:topView:]): Deleted.
+
+2019-07-29  Alan Coon  <alancoon@apple.com>
+
+        Cherry-pick r247708. rdar://problem/53648010
+
+    Enable CSSOMViewScrollingAPIEnabled in WebKit1
+    https://bugs.webkit.org/show_bug.cgi?id=200008
+    rdar://problem/53409062
+    
+    Reviewed by Tim Horton.
+    
+    Default WebKitCSSOMViewScrollingAPIEnabledPreferenceKey to YES, so that
+    CSSOMViewScrollingAPIEnabled is on for both WebKit1 and WebKit2.
+    
+    DumpRenderTree already turns this preference on, so this change is not
+    detected by tests.
+    
+    * WebView/WebPreferences.mm:
+    (+[WebPreferences initialize]):
+    
+    
+    git-svn-id: https://svn.webkit.org/repository/webkit/trunk@247708 268f45cc-cd09-0410-ab3c-d52691b4dbfc
+
+    2019-07-22  Simon Fraser  <simon.fraser@apple.com>
+
+            Enable CSSOMViewScrollingAPIEnabled in WebKit1
+            https://bugs.webkit.org/show_bug.cgi?id=200008
+            rdar://problem/53409062
+
+            Reviewed by Tim Horton.
+
+            Default WebKitCSSOMViewScrollingAPIEnabledPreferenceKey to YES, so that
+            CSSOMViewScrollingAPIEnabled is on for both WebKit1 and WebKit2.
+
+            DumpRenderTree already turns this preference on, so this change is not
+            detected by tests.
+
+            * WebView/WebPreferences.mm:
+            (+[WebPreferences initialize]):
+
+2019-07-29  Alan Coon  <alancoon@apple.com>
+
+        Cherry-pick r247692. rdar://problem/53519917
 
     Disable MediaRecorder for legacy WebKit
     https://bugs.webkit.org/show_bug.cgi?id=200001
@@ -199,40 +464,7 @@
 
 2019-07-24  Alan Coon  <alancoon@apple.com>
 
-        Apply patch. rdar://problem/53458020
-
-    Disable Web Animations in WebKitLegacy https://bugs.webkit.org/show_bug.cgi?id=200041 <rdar://problem/53458020>
-    
-    Reviewed by Jon Lee.
-    
-    We want this disabled for WebKitLegacy in shipping branches.
-    
-    Source/WebKitLegacy/mac:
-    
-    * WebView/WebPreferences.mm:
-    (+[WebPreferences initialize]):
-    
-    Source/WebKitLegacy/win:
-    
-    * WebPreferences.cpp:
-    (WebPreferences::initializeDefaultSettings):
-
-    2019-07-23  Keith Rollin  <krollin@apple.com>
-
-            Disable Web Animations in WebKitLegacy
-            https://bugs.webkit.org/show_bug.cgi?id=200041
-            <rdar://problem/53458020>
-
-            Reviewed by Jon Lee.
-
-            We want this disabled for WebKitLegacy in shipping branches.
-
-            * WebView/WebPreferences.mm:
-            (+[WebPreferences initialize]):
-
-2019-07-24  Alan Coon  <alancoon@apple.com>
-
-        Apply patch. rdar://problem/53457282
+        Apply patch. rdar://problem/53483188
 
     Disable ENABLE_LAYOUT_FORMATTING_CONTEXT https://bugs.webkit.org/show_bug.cgi?id=200038 <rdar://problem/53457282>
     
@@ -279,6 +511,23 @@
             to be disabled in branches for shipping products.
 
             * Configurations/FeatureDefines.xcconfig:
+
+2019-07-24  Alan Coon  <alancoon@apple.com>
+
+        Apply patch. rdar://problem/53483293
+
+    2019-07-24  Keith Rollin  <krollin@apple.com>
+
+            Disable Web Animations in WebKitLegacy
+            https://bugs.webkit.org/show_bug.cgi?id=200041
+            <rdar://problem/53458020>
+
+            Reviewed by Jon Lee.
+
+            We want this disabled for WebKitLegacy in shipping branches.
+
+            * WebView/WebPreferences.mm:
+            (+[WebPreferences initialize]):
 
 2019-07-17  Kocsen Chung  <kocsen_chung@apple.com>
 

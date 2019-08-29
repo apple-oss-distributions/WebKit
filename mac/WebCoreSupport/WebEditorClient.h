@@ -175,6 +175,19 @@ private:
 
     void registerUndoOrRedoStep(WebCore::UndoStep&, bool isRedo);
 
+#if PLATFORM(IOS_FAMILY)
+    bool shouldAllowSingleClickToChangeSelection(WebCore::Node& targetNode, const WebCore::VisibleSelection& newSelection) const;
+#endif
+
+    bool canShowFontPanel() const final
+    {
+#if PLATFORM(MAC)
+        return true;
+#else
+        return false;
+#endif
+    }
+
     WebView *m_webView;
     RetainPtr<WebEditorUndoTarget> m_undoTarget;
     bool m_haveUndoRedoOperations { false };
