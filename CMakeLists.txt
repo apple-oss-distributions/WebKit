@@ -1,8 +1,11 @@
 cmake_minimum_required(VERSION 3.10)
 include(WebKitCommon)
+include(target/TargetWTF)
+include(target/TargetJavaScriptCore)
 set_property(DIRECTORY . PROPERTY FOLDER "WebKitLegacy")
 
 set(WebKitLegacy_SOURCES
+    Storage/InprocessIDBServer.cpp
     Storage/StorageAreaImpl.cpp
     Storage/StorageAreaSync.cpp
     Storage/StorageNamespaceImpl.cpp
@@ -42,7 +45,9 @@ endif ()
 
 WEBKIT_FRAMEWORK(WebKitLegacy)
 
-add_dependencies(WebKitLegacy WebCore WebCorePrivateFrameworkHeaders)
+if (NOT INTERNAL_BUILD)
+    add_dependencies(WebKitLegacy WebCore WebCorePrivateFrameworkHeaders)
+endif ()
 if (TARGET WebKitLegacyGUID)
     add_dependencies(WebKitLegacy WebKitLegacyGUID)
 endif ()
@@ -58,7 +63,7 @@ if (MSVC)
         COMMAND ${PERL_EXECUTABLE} ${WEBKIT_LIBRARIES_DIR}/tools/scripts/version-stamp.pl ${WebKitLegacy_DERIVED_SOURCES_DIR} $<TARGET_FILE:WebKitLegacy>
         VERBATIM)
 
-     if (NOT WTF_PLATFORM_WIN_CAIRO)
-         add_subdirectory(win/WebKitQuartzCoreAdditions)
-     endif ()
+    if (USE_CA)
+        add_subdirectory(win/WebKitQuartzCoreAdditions)
+    endif ()
 endif ()

@@ -231,6 +231,8 @@ list(APPEND WebKitLegacy_SOURCES_WebCoreSupport
     win/WebCoreSupport/WebPlatformStrategies.h
     win/WebCoreSupport/WebPluginInfoProvider.cpp
     win/WebCoreSupport/WebPluginInfoProvider.h
+    win/WebCoreSupport/WebProgressTrackerClient.cpp
+    win/WebCoreSupport/WebProgressTrackerClient.h
     win/WebCoreSupport/WebVisitedLinkStore.cpp
     win/WebCoreSupport/WebVisitedLinkStore.h
 )
@@ -265,10 +267,6 @@ if (CMAKE_SIZEOF_VOID_P EQUAL 8)
             win/plugins/PaintHooks.asm
         )
     endif ()
-endif ()
-
-if (COMPILER_IS_GCC_OR_CLANG)
-    WEBKIT_ADD_TARGET_CXX_FLAGS(WebKitLegacy -Wno-overloaded-virtual)
 endif ()
 
 list(APPEND WebKitLegacy_SOURCES ${WebKitLegacy_INCLUDES} ${WebKitLegacy_SOURCES_Classes} ${WebKitLegacy_SOURCES_WebCoreSupport})
@@ -486,7 +484,9 @@ WEBKIT_MAKE_FORWARDING_HEADERS(WebKitLegacyGUID
     FILES ${WebKitLegacy_PUBLIC_FRAMEWORK_HEADERS}
     FLATTENED
 )
-add_dependencies(WebKitLegacyFrameworkHeaders WebCorePrivateFrameworkHeaders)
+if (NOT INTERNAL_BUILD)
+    add_dependencies(WebKitLegacyFrameworkHeaders WebCorePrivateFrameworkHeaders)
+endif ()
 
 set(WebKitLegacy_OUTPUT_NAME
     WebKit${DEBUG_SUFFIX}
