@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2010 Apple Inc. All rights reserved.
+ * Copyright (C) 2020 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -23,47 +23,21 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef MemoryMeasure_h
-#define MemoryMeasure_h
+// La Banque Postale uses a fixed list of iOS versions that support safe area insets (versions 11
+// through 13 at the time of writing). Since iOS 14 is not in this list, the app fails to apply top
+// and bottom safe area insets to its web content. Work around this by adding the 'device-ios12p'
+// class to <body> as if the iOS major version were 13 (the app currently uses 'device-ios12p' to
+// represent both iOS 12 and iOS 13). This quirk will be disabled on versions of La Banque Postale
+// that link against the iOS 14 SDK (or later).
 
-namespace WebKit {
+(() => {
+    const deviceReady = () => {
+        // Only add 'device-ios12p' if <body> exists, contains the 'device-ios' class, and doesn't
+        // contain any other 'device-ios<version>' classes.
+        const bodyClasses = Array.from(document.body?.classList || []);
+        if (bodyClasses.includes('device-ios') && !bodyClasses.some((c) => /^device-ios\d/.test(c)))
+            document.body.classList.add('device-ios12p');
+    };
 
-/*!
- * A simple class that measures the difference in the resident memory of the
- * process between its contruction and destruction. It uses the mach API -
- * task_info - to figure this out.
- */
-class MemoryMeasure {
-public:
-    MemoryMeasure()
-        : m_logString("")
-        , m_initialMemory(taskMemory())
-    {
-    }
-
-    MemoryMeasure(const char *log)
-        : m_logString(log)
-        , m_initialMemory(taskMemory())
-    {
-    }
-
-    ~MemoryMeasure();
-
-    static void enableLogging(bool enabled);
-    static bool isLoggingEnabled();
-
-private:
-    const char *m_logString;
-    long m_initialMemory;
-    static bool m_isLoggingEnabled;
-
-    /*!
-     * @return The resident memory (in bytes) consumed by the process. It uses
-     *         task_info() to get this information. If there is an error, it
-     *         returns -1.
-     */
-    long taskMemory();
-};
-
-}
-#endif
+    window.addEventListener('load', () => document.addEventListener('deviceready', deviceReady));
+})();
