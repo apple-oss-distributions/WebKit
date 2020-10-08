@@ -1,3 +1,417 @@
+2020-10-02  Alan Coon  <alancoon@apple.com>
+
+        Cherry-pick r266028. rdar://problem/69904377
+
+    Move node geometry functions from Range to RenderObject
+    https://bugs.webkit.org/show_bug.cgi?id=215677
+    
+    Reviewed by Zalan Bujtas.
+    
+    Source/WebCore:
+    
+    Moved functions that return quads and rectangles out of Range into RenderObject.
+    We could find another home for them, but for now they make sense as static member
+    functions there since RenderObject has the non-static member functions that they
+    call on multiple nodes. Mostly did not change the design of these functions much,
+    and was careful not to change behavior at all. But did change a few things:
+    
+    - Got rid of the functions that return a single unioned rectangle.
+      Instead callers call unionRect at each call site.
+    - Changed the "use selection height" boolean to a BoundingRectBehavior flag.
+    
+    * accessibility/AccessibilityRenderObject.cpp:
+    (WebCore::boundsForRects): Call unionRect(RenderObject::absoluteTextRects) instead
+    of Range::absoluteBoundingBox.
+    
+    * dom/DocumentMarkerController.cpp:
+    (WebCore::updateRenderedRectsForMarker): Instead of passing "true", pass
+    "RenderObject::BoundingRectBehavior::UseSelectionHeight".
+    
+    * dom/Range.cpp:
+    (WebCore::Range::absoluteBoundingBox const): Deleted.
+    (WebCore::Range::absoluteRectsForRangeInText const): Deleted.
+    (WebCore::Range::absoluteTextRects const): Deleted.
+    (WebCore::Range::getClientRects const): Call RenderObject::clientBorderAndTextRects.
+    (WebCore::Range::getBoundingClientRect const): Call
+    unionRect(RenderObject::clientBorderAndTextRects).
+    (WebCore::Range::borderAndTextRects const): Deleted.
+    (WebCore::Range::boundingRect const): Deleted.
+    (WebCore::Range::absoluteBoundingRect const): Deleted.
+    * dom/Range.h: Updated for above.
+    
+    * dom/SimpleRange.cpp:
+    (WebCore::IntersectingNodeIterator::IntersectingNodeIterator): Fix bug affecting
+    empty ranges by calling enforceEndInvariant.
+    (WebCore::IntersectingNodeIterator::advance): Refactor to call enforceEndInvariant.
+    (WebCore::IntersectingNodeIterator::advanceSkippingChildren): Ditto.
+    (WebCore::IntersectingNodeIterator::enforceEndInvariant): Added.
+    * dom/SimpleRange.h: Added enforceEndInvariant.
+    
+    * editing/FrameSelection.cpp:
+    (WebCore::FrameSelection::getClippedVisibleTextRectangles const): Instead of
+    passing a useSelectionHeight boolean, pass BoundingRectBehavior.
+    
+    * page/TextIndicator.cpp:
+    (WebCore::absoluteBoundingRectForRange): Call
+    unionRectIgnoringZeroRects(RenderObject::absoluteBorderAndTextRects).
+    (WebCore::initializeIndicator): Call RenderObject::absoluteTextRects.
+    
+    * platform/graphics/GeometryUtilities.cpp:
+    (WebCore::unionRectIgnoringZeroRects): Added.
+    * platform/graphics/GeometryUtilities.h: Updated for above.
+    
+    * rendering/RenderLineBreak.h: Marked a lot of functions final.
+    Added a default value for the absoluteQuads out argument.
+    
+    * rendering/RenderObject.cpp:
+    (WebCore::RenderObject::addPDFURLRect): Tweaked code style a bit.
+    (WebCore::RenderObject::absoluteTextQuads): Replaced boolean useSelectionHeight
+    argument with a BoundingRectBehavior argument. Also added a downcast so the
+    call to RenderLineBreak::absoluteQuads is a non-virtual function call.
+    (WebCore::absoluteRectsForRangeInText): Added.
+    (WebCore::RenderObject::absoluteTextRects): Replaced boolean useSelectionHeight
+    argument with a BoundingRectBehavior argument.
+    (WebCore::nodeBefore): Added.
+    (WebCore::borderAndTextRects): Added.
+    (WebCore::RenderObject::absoluteBorderAndTextRects): Added.
+    (WebCore::RenderObject::clientBorderAndTextRects): Added.
+    * rendering/RenderObject.h: Updated for above.
+    
+    Source/WebKit:
+    
+    * WebProcess/InjectedBundle/DOM/InjectedBundleRangeHandle.cpp:
+    (WebKit::InjectedBundleRangeHandle::boundingRectInWindowCoordinates const):
+    Call unionRectIgnoringZeroRects(RenderObject::absoluteBorderAndTextRects).
+    (WebKit::InjectedBundleRangeHandle::renderedImage): Call
+    unionRectIgnoringZeroRects(RenderObject::absoluteBorderAndTextRects).
+    
+    * WebProcess/WebPage/ios/WebPageIOS.mm:
+    (WebKit::WebPage::requestEvasionRectsAboveSelection): Call
+    unionRect(RenderObject::absoluteTextRects).
+    (WebKit::WebPage::requestDocumentEditingContext): Call
+    unionRect(RenderObject::absoluteTextRects).
+    
+    Source/WebKitLegacy/mac:
+    
+    * DOM/DOM.mm:
+    (-[DOMRange boundingBox]): Call unionRect(RenderObject::absoluteTextRects).
+    
+    Source/WebKitLegacy/win:
+    
+    * AccessibleTextImpl.cpp:
+    (AccessibleText::scrollSubstringTo): Call
+    unionRect(RenderObject::absoluteTextRects) instead of
+    Range::absoluteBoundingBox.
+    
+    LayoutTests:
+    
+    * fast/dom/Range/scale-page-bounding-client-rect.html: Fix this test that accidentally
+    depended on getting rects for an empty range (the contents of a div element with no
+    text inside it) to instead get rects for a non-empty element (the div element, not
+    just its contents). Test now works correctly, but results don't need to change.
+    * fast/dom/Range/scale-page-client-rects.html: Ditto.
+    
+    git-svn-id: https://svn.webkit.org/repository/webkit/trunk@266028 268f45cc-cd09-0410-ab3c-d52691b4dbfc
+
+    2020-08-19  Darin Adler  <darin@apple.com>
+
+            Move node geometry functions from Range to RenderObject
+            https://bugs.webkit.org/show_bug.cgi?id=215677
+
+            Reviewed by Zalan Bujtas.
+
+            * DOM/DOM.mm:
+            (-[DOMRange boundingBox]): Call unionRect(RenderObject::absoluteTextRects).
+
+2020-09-03  Alan Coon  <alancoon@apple.com>
+
+        Cherry-pick r266265. rdar://problem/68168939
+
+    [iOS] provide a way to get previously inserted alternatives for the selected text
+    https://bugs.webkit.org/show_bug.cgi?id=215816
+    <rdar://problem/66646042>
+    
+    Reviewed by Darin Adler.
+    
+    Source/WebCore:
+    
+    * editing/cocoa/AlternativeTextUIController.h:
+    * editing/cocoa/AlternativeTextUIController.mm:
+    (WebCore::AlternativeTextUIController::alternativesForContext):
+    Return the raw `NSTextAlternatives *` and let the caller create the `Vector<String>` if they
+    need to so that callers that don't can use the actual `NSTextAlternatives *`.
+    
+    * editing/Editor.h:
+    * editing/Editor.cpp:
+    (WebCore::Editor::applyDictationAlternative): Added.
+    (WebCore::Editor::applyDictationAlternativelternative): Deleted.
+    * page/ContextMenuController.cpp:
+    (WebCore::ContextMenuController::contextMenuItemSelected):
+    Drive-by: fix typo.
+    
+    Source/WebKit:
+    
+    * UIProcess/ios/WKContentViewInteraction.mm:
+    (-[WKContentView alternativesForSelectedText]):
+    
+    * UIProcess/WebPageProxy.h:
+    * UIProcess/Cocoa/WebPageProxyCocoa.mm:
+    (WebKit::WebPageProxy::platformDictationAlternatives): Added.
+    * UIProcess/PageClient.h:
+    * UIProcess/Cocoa/PageClientImplCocoa.h:
+    * UIProcess/Cocoa/PageClientImplCocoa.mm:
+    (WebKit::PageClientImplCocoa::dictationAlternatives):
+    (WebKit::PageClientImplCocoa::platformDictationAlternatives): Added.
+    Provide a way to get the raw `NSTextAlternatives *` for a given `WebCore::DictationContext`.
+    
+    * Shared/EditorState.h:
+    * Shared/EditorState.cpp:
+    (WebKit::EditorState::PostLayoutData::encode const):
+    (WebKit::EditorState::PostLayoutData::decode):
+    * WebProcess/WebPage/ios/WebPageIOS.mm:
+    (WebKit::WebPage::getPlatformEditorState const):
+    Include a `Vector<WebCore::DictationContext>` as part of the `EditorState` that contains all
+    of the `WebCore::DictationContext` that exist in the currently selected range (or the range
+    of the word containing the cursor if nothing is selected).
+    
+    * Platform/spi/ios/UIKitSPI.h:
+    
+    Source/WebKitLegacy/mac:
+    
+    * WebView/WebView.mm:
+    (-[WebView _dictationAlternatives:]):
+    Create a `Vector<String>` from the returned `NSTextAlternatives *` now that the member
+    `WebCore::AlternativeTextUIController::alternativesForContext` returns it.
+    
+    Tools:
+    
+    * TestWebKitAPI/Tests/WebKitCocoa/InsertTextAlternatives.mm:
+    (InsertTextAlternatives.Simple):
+    
+    * TestWebKitAPI/ios/UIKitSPI.h:
+    
+    
+    git-svn-id: https://svn.webkit.org/repository/webkit/trunk@266265 268f45cc-cd09-0410-ab3c-d52691b4dbfc
+
+    2020-08-27  Devin Rousso  <drousso@apple.com>
+
+            [iOS] provide a way to get previously inserted alternatives for the selected text
+            https://bugs.webkit.org/show_bug.cgi?id=215816
+            <rdar://problem/66646042>
+
+            Reviewed by Darin Adler.
+
+            * WebView/WebView.mm:
+            (-[WebView _dictationAlternatives:]):
+            Create a `Vector<String>` from the returned `NSTextAlternatives *` now that the member
+            `WebCore::AlternativeTextUIController::alternativesForContext` returns it.
+
+2020-09-01  Alan Coon  <alancoon@apple.com>
+
+        Cherry-pick r266143. rdar://problem/68164547
+
+    Trying to lookup when WebView is in a popover causes process to hang. Fix for Legacy WebView.
+    https://bugs.webkit.org/show_bug.cgi?id=215792
+    
+    Reviewed by Tim Horton.
+    
+    Source/WebKit:
+    
+    Update code based on Darin's suggestion for mirror fix in legacy webkit.
+    
+    * UIProcess/mac/WebContextMenuProxyMac.mm:
+    (WebKit::WebContextMenuProxyMac::getContextMenuFromItems):
+    
+    Source/WebKitLegacy/mac:
+    
+    Fix for https://bugs.webkit.org/show_bug.cgi?id=214773 also needed in legacy WebView.
+    The Lookup framework does not populate the menus that it vends with the option to 'lookup'
+    words that are selected in popovers. WebKit should follow the pattern and not put the
+    item in the menu as Lookup is not able to handle this situation. Also if Lookup is disabled
+    via defaults, we should not show it in the menu.
+    
+    * WebView/WebHTMLView.mm:
+    (customMenuFromDefaultItems):
+    
+    
+    git-svn-id: https://svn.webkit.org/repository/webkit/trunk@266143 268f45cc-cd09-0410-ab3c-d52691b4dbfc
+
+    2020-08-25  Megan Gardner  <megan_gardner@apple.com>
+
+            Trying to lookup when WebView is in a popover causes process to hang. Fix for Legacy WebView.
+            https://bugs.webkit.org/show_bug.cgi?id=215792
+
+            Reviewed by Tim Horton.
+
+            Fix for https://bugs.webkit.org/show_bug.cgi?id=214773 also needed in legacy WebView.
+            The Lookup framework does not populate the menus that it vends with the option to 'lookup'
+            words that are selected in popovers. WebKit should follow the pattern and not put the
+            item in the menu as Lookup is not able to handle this situation. Also if Lookup is disabled
+            via defaults, we should not show it in the menu.
+
+            * WebView/WebHTMLView.mm:
+            (customMenuFromDefaultItems):
+
+2020-08-17  David Kilzer  <ddkilzer@apple.com>
+
+        Clean up DragApplicationFlags after switch to OptionSet<>
+        <https://webkit.org/b/215349>
+
+        Reviewed by Darin Adler.
+
+        Change WebCore::DragApplicationFlags to an enum class.
+
+        * WebView/WebView.mm:
+        (-[WebView applicationFlags:]): Deleted.
+        (-[WebView _applicationFlagsForDrag:]):
+        - Rename -applicationFlags: to -_applicationFlagsForDrag: since
+          it's only used internally.
+        - Switch to return OptionSet<WebCore::DragApplicationFlags>.
+        (-[WebView draggingEntered:]):
+        (-[WebView draggingUpdated:]):
+        (-[WebView draggingExited:]):
+        (-[WebView performDragOperation:]):
+        - Switch to calling -_applicationFlagsForDrag:.
+
+2020-08-12  Keith Rollin  <krollin@apple.com>
+
+        Remove the need for defining USE_NEW_BUILD_SYSTEM
+        https://bugs.webkit.org/show_bug.cgi?id=215439
+
+        Reviewed by Darin Adler.
+
+        When building WebKit for XCBuild, we currently require that the
+        external build system (such as the Makefile, build-webkit, etc.)
+        defines the USE_NEW_BUILD_SYSTEM=YES build setting. This build setting
+        controls parts of our build instructions that are sensitive to when
+        XCBuild or the Legacy build system are being used. Notably, we need to
+        know when to use our custom “copy and modify” scripts with copying
+        certain header files (used with the Legacy build system) vs. using the
+        enhanced Copy Headers build phase that’s enabled with
+        APPLY_RULES_IN_COPY_HEADERS=YES (introduced with and used by XCBuild).
+        The choice of which method to copy headers is used is controlled by
+        USE_NEW_BUILD_SYSTEM.
+
+        There is no built-in build setting that we can probe to help us
+        determine which approach to take when copying and modifying headers,
+        which is why we need to define USE_NEW_BUILD_SYSTEM ourselves. But it
+        turns out that we can *detect* which build system is being used by
+        taking advantage of a subtle difference between the two systems. As
+        noted in:
+
+            https://developer.apple.com/documentation/xcode-release-notes/build-system-release-notes-for-xcode-10
+
+            “When an .xcconfig file contains multiple assignments of the same
+             build setting, later assignments using $(inherited) or
+             $(<setting_name>) will inherit from earlier assignments in the
+             .xcconfig. The legacy build system caused every use of
+             $(inherited) or $(<setting_name>) skip any other values defined
+             within the .xcconfig.”
+
+        This difference can be exploited as follows:
+
+            WK_WHICH_BUILD_SYSTEM = not_
+            WK_WHICH_BUILD_SYSTEM = $(inherited)legacy
+            WK_USE_NEW_BUILD_SYSTEM = $(WK_USE_NEW_BUILD_SYSTEM_$(WK_WHICH_BUILD_SYSTEM))
+            WK_USE_NEW_BUILD_SYSTEM_legacy = NO
+            WK_USE_NEW_BUILD_SYSTEM_not_legacy = YES
+
+        We can then use WK_USE_NEW_BUILD_SYSTEM where we used to use the
+        externally-defined USE_NEW_BUILD_SYSTEM.
+
+        * Configurations/Base.xcconfig:
+        * Configurations/WebKitLegacy.xcconfig:
+
+2020-08-05  Tim Horton  <timothy_horton@apple.com>
+
+        Remove all references to non-existent 10.16
+        https://bugs.webkit.org/show_bug.cgi?id=215202
+
+        Reviewed by Wenson Hsieh.
+
+        * Configurations/Base.xcconfig:
+        * Configurations/DebugRelease.xcconfig:
+        * Configurations/Version.xcconfig:
+        * Configurations/WebKitTargetConditionals.xcconfig:
+
+2020-08-03  Youenn Fablet  <youenn@apple.com>
+
+        Move user gesture propagation over promise behind a feature flag
+        https://bugs.webkit.org/show_bug.cgi?id=215014
+
+        Reviewed by Eric Carlson.
+
+        * WebView/WebPreferenceKeysPrivate.h:
+        * WebView/WebPreferences.mm:
+        (-[WebPreferences userGesturePromisePropagationEnabled]):
+        (-[WebPreferences setUserGesturePromisePropagationEnabled:]):
+        * WebView/WebPreferencesPrivate.h:
+        * WebView/WebView.mm:
+        (-[WebView _preferencesChanged:]):
+
+2020-08-03  Wenson Hsieh  <wenson_hsieh@apple.com>
+
+        Remove the ENABLE_DATA_INTERACTION feature flag
+        https://bugs.webkit.org/show_bug.cgi?id=215091
+
+        Reviewed by Megan Gardner.
+
+        * WebCoreSupport/WebDragClient.mm:
+        * WebView/WebView.mm:
+        * WebView/WebViewData.h:
+        * WebView/WebViewInternal.h:
+
+2020-08-02  Darin Adler  <darin@apple.com>
+
+        Remove some member functions of Range and many calls to createLiveRange
+        https://bugs.webkit.org/show_bug.cgi?id=215070
+
+        Reviewed by Sam Weinig.
+
+        * DOM/DOM.mm:
+        (-[DOMRange renderedImageForcingBlackText:renderedImageForcingBlackText:]):
+        Use makeSimpleRange.
+        (-[DOMRange textRects]): Ditto.
+
+        * DOM/DOMDocument.mm: Update includes.
+        * DOM/DOMRange.mm: Ditto.
+        * DOM/DOMRangeInternal.h: Ditto.
+        * DOM/DOMUIKitExtensions.mm: Ditto.
+        * DOM/DOMUtility.mm: Ditto.
+
+        * DOM/WebDOMOperations.mm:
+        (-[DOMRange webArchive]): Use makeSimpleRange.
+        (-[DOMRange markupString]): Ditto.
+
+        * WebView/WebFrame.mm:
+        (-[WebFrame _stringForRange:]): Use makeSimpleRange.
+        (-[WebFrame _convertToDOMRange:]): Return a SimpleRange.
+        (-[WebFrame _convertToDOMRange:rangeIsRelativeTo:]): Ditto.
+        (-[WebFrame _convertNSRangeToDOMRange:]): Update for above.
+        (-[WebFrame _convertDOMRangeToNSRange:]): Use makeSimpleRange.
+        (-[WebFrame _selectNSRange:]): Update for above.
+        (-[WebFrame selectWithoutClosingTypingNSRange:]): Ditto.
+        (-[WebFrame getDictationResultRanges:andMetadatas:]): Use makeSimpleRange.
+        (-[WebFrame dictationResultMetadataForRange:]): Ditto.
+        * WebView/WebFrameInternal.h: Update for above.
+
+        * WebView/WebHTMLView.mm:
+        (-[WebHTMLView _documentFragmentFromPasteboard:forType:inContext:subresources:]):
+        Use makeSimpleRange.
+        (-[WebHTMLView attributedSubstringFromRange:]): Use auto.
+        (-[WebHTMLView _attributedStringFromDOMRange:]): Deleted.
+        (-[WebHTMLView attributedString]): Rewrote to use SimpleRange consistently.
+        (-[WebHTMLView selectedAttributedString]): Ditto.
+
+        * WebView/WebImmediateActionController.mm:
+        (-[WebImmediateActionController _animationControllerForDataDetectedText]):
+        Use makeSimpleRange.
+        * WebView/WebTextIterator.mm:
+        (-[WebTextIterator initWithRange:]): Ditto.
+
+        * WebView/WebView.mm:
+        (-[WebView _didConcludeEditDrag]): Remove createLiveRange.
+
 2020-08-01  Darin Adler  <darin@apple.com>
 
         Remove Range::create and many more uses of live ranges

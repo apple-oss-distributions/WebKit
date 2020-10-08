@@ -1,52 +1,52 @@
-2020-08-10  Alan Coon  <alancoon@apple.com>
+2020-08-13  Tim Horton  <timothy_horton@apple.com>
 
-        Cherry-pick r265424. rdar://problem/66803405
+        macCatalyst: Granting location permission doesn't allow geolocation access
+        https://bugs.webkit.org/show_bug.cgi?id=215464
+        <rdar://problem/64719458>
 
-    REGRESSION (r265176): Cannot make or extend selections in iOS WebKitLegacy
-    https://bugs.webkit.org/show_bug.cgi?id=215319
-    <rdar://problem/66688560>
-    
-    Reviewed by Devin Rousso.
-    
-    * WebCoreSupport/WebVisiblePosition.mm:
-    (+[DOMRange rangeForFirstPosition:second:]):
-    We want to ensure that firstPosition is *before* secondPosition, so
-    the change in r265176 got the condition backwards. Swap it.
-    
-    git-svn-id: https://svn.webkit.org/repository/webkit/trunk@265424 268f45cc-cd09-0410-ab3c-d52691b4dbfc
+        Reviewed by Wenson Hsieh.
 
-    2020-08-10  Tim Horton  <timothy_horton@apple.com>
+        * Misc/WebGeolocationCoreLocationProvider.mm:
+        (-[WebGeolocationCoreLocationProvider requestGeolocationAuthorization]):
+        Un-ifdef this code that was ifdeffed in r229963 during macCatalyst
+        bring-up and doesn't need to be anymore.
 
-            REGRESSION (r265176): Cannot make or extend selections in iOS WebKitLegacy
-            https://bugs.webkit.org/show_bug.cgi?id=215319
-            <rdar://problem/66688560>
+2020-08-10  Tim Horton  <timothy_horton@apple.com>
 
-            Reviewed by Devin Rousso.
+        REGRESSION (r265176): Cannot make or extend selections in iOS WebKitLegacy 
+        https://bugs.webkit.org/show_bug.cgi?id=215319
+        <rdar://problem/66688560>
 
-            * WebCoreSupport/WebVisiblePosition.mm:
-            (+[DOMRange rangeForFirstPosition:second:]):
-            We want to ensure that firstPosition is *before* secondPosition, so
-            the change in r265176 got the condition backwards. Swap it.
+        Reviewed by Devin Rousso.
 
-2020-08-10  Alan Coon  <alancoon@apple.com>
+        * WebCoreSupport/WebVisiblePosition.mm:
+        (+[DOMRange rangeForFirstPosition:second:]):
+        We want to ensure that firstPosition is *before* secondPosition, so
+        the change in r265176 got the condition backwards. Swap it.
 
-        Cherry-pick r265255. rdar://problem/66644016
+2020-08-04  Darin Adler  <darin@apple.com>
 
-    Try to fix Catalyst build
-    https://bugs.webkit.org/show_bug.cgi?id=215133
-    rdar://66534119
-    
-    * WebCoreSupport/WebVisiblePosition.mm: Add include of SimpleRange.h.
-    
-    git-svn-id: https://svn.webkit.org/repository/webkit/trunk@265255 268f45cc-cd09-0410-ab3c-d52691b4dbfc
+        Try to fix Catalyst build
+        https://bugs.webkit.org/show_bug.cgi?id=215133
+        rdar://66534119
 
-    2020-08-04  Darin Adler  <darin@apple.com>
+        * WebCoreSupport/WebVisiblePosition.mm: Add include of SimpleRange.h.
 
-            Try to fix Catalyst build
-            https://bugs.webkit.org/show_bug.cgi?id=215133
-            rdar://66534119
+2020-08-02  Darin Adler  <darin@apple.com>
 
-            * WebCoreSupport/WebVisiblePosition.mm: Add include of SimpleRange.h.
+        Remove some member functions of Range and many calls to createLiveRange
+        https://bugs.webkit.org/show_bug.cgi?id=215070
+
+        Reviewed by Sam Weinig.
+
+        * WebCoreSupport/WebFrameIOS.mm:
+        (-[WebFrame selectionRectsForCoreRange:]): Remove createLiveRange.
+        (-[WebFrame selectionRectsForRange:]): Use makeSimpleRange.
+        * WebCoreSupport/WebVisiblePosition.mm:
+        (-[WebVisiblePosition enclosingRangeWithDictationPhraseAlternatives:]): Ditto.
+        (-[WebVisiblePosition enclosingRangeWithCorrectionIndicator]): Ditto.
+        (+[DOMRange rangeForFirstPosition:second:]): Rename firstVP/secondVP
+        to firstPosition/secondPosition.
 
 2020-08-01  Darin Adler  <darin@apple.com>
 

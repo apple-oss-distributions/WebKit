@@ -2376,7 +2376,8 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     if ([pboardType isEqualToString:WebCore::legacyStringPasteboardType()]) {
         if (!context)
             return nil;
-        return kit(createFragmentFromText(*core(context), [[pasteboard stringForType:WebCore::legacyStringPasteboardType()] precomposedStringWithCanonicalMapping]).ptr());
+        auto string = [[pasteboard stringForType:WebCore::legacyStringPasteboardType()] precomposedStringWithCanonicalMapping];
+        return kit(createFragmentFromText(makeSimpleRange(*core(context)), string).ptr());
     }
 
     return nil;
@@ -3667,8 +3668,17 @@ static RetainPtr<NSMenuItem> createMenuItem(const WebCore::HitTestResult& hitTes
 static RetainPtr<NSArray> customMenuFromDefaultItems(WebView *webView, const WebCore::ContextMenu& defaultMenu)
 {
     const auto& hitTestResult = webView.page->contextMenuController().hitTestResult();
-    auto defaultMenuItems = createMenuItems(hitTestResult, defaultMenu.items());
-
+    bool isPopover = webView.window._childWindowOrderingPriority == NSWindowChildOrderingPriorityPopover;
+    bool isLookupDisabled = [NSUserDefaults.standardUserDefaults boolForKey:@"LULookupDisabled"];
+    auto filteredItems = defaultMenu.items();
+    
+    if (isLookupDisabled || isPopover) {
+        filteredItems.removeAllMatching([] (auto& item) {
+            return item.action() == WebCore::ContextMenuItemTagLookUpInDictionary;
+        });
+    }
+    auto defaultMenuItems = createMenuItems(hitTestResult, filteredItems);
+    
     id delegate = [webView UIDelegate];
     SEL selector = @selector(webView:contextMenuItemsForElement:defaultMenuItems:);
     if (![delegate respondsToSelector:selector])
@@ -6413,7 +6423,7 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
         LOG(TextInput, "attributedSubstringFromRange:(%u, %u) -> nil", nsRange.location, nsRange.length);
         return nil;
     }
-    RefPtr<WebCore::Range> range = [frame _convertToDOMRange:nsRange];
+    auto range = [frame _convertToDOMRange:nsRange];
     if (!range) {
         LOG(TextInput, "attributedSubstringFromRange:(%u, %u) -> nil", nsRange.location, nsRange.length);
         return nil;
@@ -6981,21 +6991,6 @@ static CGImageRef selectionImage(WebCore::Frame* frame, bool forceBlackText)
 
 #if PLATFORM(MAC)
 
-- (NSAttributedString *)_attributedStringFromDOMRange:(DOMRange *)range
-{
-    if (!range)
-        return nil;
-#if !LOG_DISABLED
-    double start = CFAbsoluteTimeGetCurrent();
-#endif
-    auto result = attributedString(*core(range)).string.autorelease();
-#if !LOG_DISABLED
-    double duration = CFAbsoluteTimeGetCurrent() - start;
-    LOG(Timing, "creating attributed string from selection took %f seconds.", duration);
-#endif
-    return result;
-}
-
 - (NSAttributedString *)_legacyAttributedStringFrom:(DOMNode *)startContainer offset:(int)startOffset to:(DOMNode *)endContainer offset:(int)endOffset
 {
     if (!startContainer || !endContainer)
@@ -7006,28 +7001,26 @@ static CGImageRef selectionImage(WebCore::Frame* frame, bool forceBlackText)
 
 - (NSAttributedString *)attributedString
 {
-    DOMDocument *document = [[self _frame] DOMDocument];
+    auto document = core([[self _frame] DOMDocument]);
     if (!document)
         return [[[NSAttributedString alloc] init] autorelease];
-    if (auto attributedString = [self _attributedStringFromDOMRange:[document _documentRange]])
-        return attributedString;
-    return editingAttributedString(makeRangeSelectingNodeContents(*core(document))).string.autorelease();
+    auto range = makeRangeSelectingNodeContents(*document);
+    if (auto result = attributedString(range).string)
+        return result.autorelease();
+    return editingAttributedString(range).string.autorelease();
 }
 
 - (NSAttributedString *)selectedAttributedString
 {
-    auto attributedString = retainPtr([self _attributedStringFromDOMRange:[self _selectedRange]]);
-    if (!attributedString) {
-        auto* coreFrame = core([self _frame]);
-        if (coreFrame) {
-            auto range = coreFrame->selection().selection().toNormalizedRange();
-            if (range)
-                attributedString = editingAttributedString(*range).string;
-            else
-                attributedString = adoptNS([[NSAttributedString alloc] init]);
-        }
-    }
-    return attributedString.autorelease();
+    auto frame = core([self _frame]);
+    if (!frame)
+        return [[[NSAttributedString alloc] init] autorelease];
+    auto range = frame->selection().selection().firstRange();
+    if (!range)
+        return [[[NSAttributedString alloc] init] autorelease];
+    if (auto result = attributedString(*range).string)
+        return result.autorelease();
+    return editingAttributedString(*range).string.autorelease();
 }
 
 #endif

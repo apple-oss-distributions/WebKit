@@ -345,12 +345,9 @@
 #import <WebCore/PlaybackSessionModelMediaElement.h>
 #endif
 
-#if ENABLE(DATA_INTERACTION)
+#if PLATFORM(IOS_FAMILY)
 #import <UIKit/UIColor.h>
 #import <UIKit/UIImage.h>
-#endif
-
-#if ENABLE(DATA_INTERACTION)
 #import <pal/ios/UIKitSoftLink.h>
 #endif
 
@@ -791,7 +788,7 @@ private:
 
 } // namespace WebKit
 
-#if ENABLE(DATA_INTERACTION)
+#if PLATFORM(IOS_FAMILY) && ENABLE(DRAG_SUPPORT)
 
 @implementation WebUITextIndicatorData
 
@@ -864,7 +861,7 @@ private:
 #elif !PLATFORM(MAC)
 @implementation WebUITextIndicatorData
 @end
-#endif // ENABLE(DATA_INTERACTION)
+#endif
 
 NSString *WebElementDOMNodeKey =            @"WebElementDOMNode";
 NSString *WebElementFrameKey =              @"WebElementFrame";
@@ -2137,7 +2134,7 @@ static void WebKitInitializeGamepadProviderIfNecessary()
     };
     auto& frame = page->focusController().focusedOrMainFrame();
     if (auto range = frame.selection().selection().toNormalizedRange()) {
-        if (auto textIndicator = WebCore::TextIndicator::createWithRange(createLiveRange(*range), defaultEditDragTextIndicatorOptions, WebCore::TextIndicatorPresentationTransition::None, WebCore::FloatSize()))
+        if (auto textIndicator = WebCore::TextIndicator::createWithRange(*range, defaultEditDragTextIndicatorOptions, WebCore::TextIndicatorPresentationTransition::None, WebCore::FloatSize()))
             _private->dataOperationTextIndicator = adoptNS([[WebUITextIndicatorData alloc] initWithImage:nil textIndicatorData:textIndicator->data() scale:page->deviceScaleFactor()]);
     }
 }
@@ -3399,6 +3396,8 @@ static bool needsSelfRetainWhileLoadingQuirk()
 #if ENABLE(ENCRYPTED_MEDIA)
     RuntimeEnabledFeatures::sharedFeatures().setEncryptedMediaAPIEnabled(preferences.encryptedMediaAPIEnabled);
 #endif
+
+    RuntimeEnabledFeatures::sharedFeatures().setUserGesturePromisePropagationEnabled(preferences.userGesturePromisePropagationEnabled);
 
 #if ENABLE(PICTURE_IN_PICTURE_API)
     settings.setPictureInPictureAPIEnabled(preferences.pictureInPictureAPIEnabled);
@@ -6877,18 +6876,18 @@ static NSString * const backingPropertyOldScaleFactorKey = @"NSBackingPropertyOl
     return [documentView _shouldAutoscrollForDraggingInfo:draggingInfo];
 }
 
-- (WebCore::DragApplicationFlags)applicationFlags:(id <NSDraggingInfo>)draggingInfo
+- (OptionSet<WebCore::DragApplicationFlags>)_applicationFlagsForDrag:(id <NSDraggingInfo>)draggingInfo
 {
-    uint32_t flags = 0;
+    OptionSet<WebCore::DragApplicationFlags> flags;
     if ([NSApp modalWindow])
-        flags = WebCore::DragApplicationIsModal;
+        flags.add(WebCore::DragApplicationFlags::IsModal);
     if ([[self window] attachedSheet])
-        flags |= WebCore::DragApplicationHasAttachedSheet;
+        flags.add(WebCore::DragApplicationFlags::HasAttachedSheet);
     if ([draggingInfo draggingSource] == self)
-        flags |= WebCore::DragApplicationIsSource;
+        flags.add(WebCore::DragApplicationFlags::IsSource);
     if ([[NSApp currentEvent] modifierFlags] & NSEventModifierFlagOption)
-        flags |= WebCore::DragApplicationIsCopyKeyDown;
-    return static_cast<WebCore::DragApplicationFlags>(flags);
+        flags.add(WebCore::DragApplicationFlags::IsCopyKeyDown);
+    return flags;
 }
 
 - (OptionSet<WebCore::DragDestinationAction>)actionMaskForDraggingInfo:(id <NSDraggingInfo>)draggingInfo
@@ -6901,7 +6900,7 @@ static NSString * const backingPropertyOldScaleFactorKey = @"NSBackingPropertyOl
     WebCore::IntPoint client([draggingInfo draggingLocation]);
     WebCore::IntPoint global(WebCore::globalPoint([draggingInfo draggingLocation], [self window]));
 
-    WebCore::DragData dragData(draggingInfo, client, global, coreDragOperationMask([draggingInfo draggingSourceOperationMask]), [self applicationFlags:draggingInfo], [self actionMaskForDraggingInfo:draggingInfo]);
+    WebCore::DragData dragData(draggingInfo, client, global, coreDragOperationMask([draggingInfo draggingSourceOperationMask]), [self _applicationFlagsForDrag:draggingInfo], [self actionMaskForDraggingInfo:draggingInfo]);
     return kit(core(self)->dragController().dragEntered(dragData));
 }
 
@@ -6914,7 +6913,7 @@ static NSString * const backingPropertyOldScaleFactorKey = @"NSBackingPropertyOl
     WebCore::IntPoint client([draggingInfo draggingLocation]);
     WebCore::IntPoint global(WebCore::globalPoint([draggingInfo draggingLocation], [self window]));
 
-    WebCore::DragData dragData(draggingInfo, client, global, coreDragOperationMask([draggingInfo draggingSourceOperationMask]), [self applicationFlags:draggingInfo], [self actionMaskForDraggingInfo:draggingInfo]);
+    WebCore::DragData dragData(draggingInfo, client, global, coreDragOperationMask([draggingInfo draggingSourceOperationMask]), [self _applicationFlagsForDrag:draggingInfo], [self actionMaskForDraggingInfo:draggingInfo]);
     return kit(page->dragController().dragUpdated(dragData));
 }
 
@@ -6926,7 +6925,7 @@ static NSString * const backingPropertyOldScaleFactorKey = @"NSBackingPropertyOl
 
     WebCore::IntPoint client([draggingInfo draggingLocation]);
     WebCore::IntPoint global(WebCore::globalPoint([draggingInfo draggingLocation], [self window]));
-    WebCore::DragData dragData(draggingInfo, client, global, coreDragOperationMask([draggingInfo draggingSourceOperationMask]), [self applicationFlags:draggingInfo]);
+    WebCore::DragData dragData(draggingInfo, client, global, coreDragOperationMask([draggingInfo draggingSourceOperationMask]), [self _applicationFlagsForDrag:draggingInfo]);
     page->dragController().dragExited(dragData);
 }
 
@@ -6939,7 +6938,7 @@ static NSString * const backingPropertyOldScaleFactorKey = @"NSBackingPropertyOl
 {
     WebCore::IntPoint client([draggingInfo draggingLocation]);
     WebCore::IntPoint global(WebCore::globalPoint([draggingInfo draggingLocation], [self window]));
-    auto* dragData = new WebCore::DragData(draggingInfo, client, global, coreDragOperationMask([draggingInfo draggingSourceOperationMask]), [self applicationFlags:draggingInfo]);
+    auto* dragData = new WebCore::DragData(draggingInfo, client, global, coreDragOperationMask([draggingInfo draggingSourceOperationMask]), [self _applicationFlagsForDrag:draggingInfo]);
 
     NSArray* types = draggingInfo.draggingPasteboard.types;
     if (![types containsObject:WebArchivePboardType] && [types containsObject:WebCore::legacyFilesPromisePasteboardType()]) {
@@ -9596,7 +9595,7 @@ bool LayerFlushController::flushLayers()
 
 - (Vector<String>)_dictationAlternatives:(WebCore::DictationContext)dictationContext
 {
-    return _private->m_alternativeTextUIController->alternativesForContext(dictationContext);
+    return makeVector<String>(_private->m_alternativeTextUIController->alternativesForContext(dictationContext).alternativeStrings);
 }
 
 #if ENABLE(SERVICE_CONTROLS)

@@ -417,7 +417,7 @@ static inline SelectionDirection toSelectionDirection(WebTextAdjustmentDirection
     for (auto marker : document.markers().markersFor(*node, DocumentMarker::DictationPhraseWithAlternatives)) {
         if (marker->startOffset() <= offset && marker->endOffset() >= offset) {
             *alternatives = createNSArray(WTF::get<Vector<String>>(marker->data())).autorelease();
-            return kit(range(*node, *marker));
+            return kit(makeSimpleRange(*node, *marker));
         }
     }
     return nil;
@@ -434,7 +434,7 @@ static inline SelectionDirection toSelectionDirection(WebTextAdjustmentDirection
     auto& document = node->document();
     for (auto marker : document.markers().markersFor(*node, DocumentMarker::Spelling)) {
         if (marker->startOffset() <= offset && marker->endOffset() >= offset)
-            return kit(range(*node, *marker));
+            return kit(makeSimpleRange(*node, *marker));
     }
     return nil;
 }
@@ -476,11 +476,11 @@ static inline SelectionDirection toSelectionDirection(WebTextAdjustmentDirection
 
 + (DOMRange *)rangeForFirstPosition:(WebVisiblePosition *)first second:(WebVisiblePosition *)second
 {
-    auto firstVP = [first _visiblePosition];
-    auto secondVP = [second _visiblePosition];
-    if (secondVP < firstVP)
-        std::swap(firstVP, secondVP);
-    return kit(makeSimpleRange(firstVP, secondVP));
+    auto firstPosition = [first _visiblePosition];
+    auto secondPosition = [second _visiblePosition];
+    if (secondPosition < firstPosition)
+        std::swap(firstPosition, secondPosition);
+    return kit(makeSimpleRange(firstPosition, secondPosition));
 }
 
 @end
