@@ -158,21 +158,21 @@ using namespace WebCore;
     if (point.y < firstRect.origin.y) {
         point.y = firstRect.origin.y;
         position = [self visiblePositionForPoint:point];
-        position.setAffinity(UPSTREAM);
+        position.setAffinity(Affinity::Upstream);
     } else if (point.y >= lastRect.origin.y) {
         point.y = lastRect.origin.y;
         position = [self visiblePositionForPoint:point];
-        position.setAffinity(DOWNSTREAM);
+        position.setAffinity(Affinity::Downstream);
     } else {
         position = [self visiblePositionForPoint:point];
     }
 
     if (position == start || position < start) {
-        start.setAffinity(UPSTREAM);
+        start.setAffinity(Affinity::Upstream);
         return start.absoluteCaretBounds();
     }
     if (position > end) {
-        end.setAffinity(DOWNSTREAM);
+        end.setAffinity(Affinity::Downstream);
         return end.absoluteCaretBounds();
     }
     return position.absoluteCaretBounds();
@@ -206,10 +206,7 @@ using namespace WebCore;
 
 - (NSArray *)selectionRectsForCoreRange:(const SimpleRange&)range
 {
-    Vector<SelectionRect> rects;
-    createLiveRange(range)->collectSelectionRects(rects);
-
-    return createNSArray(rects, [] (auto& coreRect) {
+    return createNSArray(RenderObject::collectSelectionRects(range), [] (auto& coreRect) {
         auto webRect = [WebSelectionRect selectionRect];
         webRect.rect = coreRect.rect();
         webRect.writingDirection = coreRect.direction() == TextDirection::LTR ? WKWritingDirectionLeftToRight : WKWritingDirectionRightToLeft;
@@ -226,7 +223,7 @@ using namespace WebCore;
 
 - (NSArray *)selectionRectsForRange:(DOMRange *)domRange
 {
-    auto range = core(domRange);
+    auto range = makeSimpleRange(core(domRange));
     return range ? [self selectionRectsForCoreRange:*range] : nil;
 }
 
@@ -748,16 +745,15 @@ static VisiblePosition SimpleSmartExtendEnd(const VisiblePosition& start, const 
     
     Frame *frame = [self coreFrame];
     FrameSelection& frameSelection = frame->selection();
-    EAffinity affinity = frameSelection.selection().affinity();
-    VisiblePosition start(frameSelection.selection().start(), affinity);
-    VisiblePosition end(frameSelection.selection().end(), affinity);
+    auto start = frameSelection.selection().visibleStart();
+    auto end = frameSelection.selection().visibleEnd();
     VisiblePosition base(frame->rangedSelectionBase().base());  // should equal start or end
 
     // Base must equal start or end
     if (base != start && base != end)
         return;
 
-    VisiblePosition extent(frameSelection.selection().extent(), affinity);
+    auto extent = frameSelection.selection().visibleExtent();
     
     // We don't yet support smart extension for languages which
     // require context for word boundary.

@@ -31,6 +31,7 @@
 #import <JavaScriptCore/InitializeThreading.h>
 #import <WebCore/Range.h>
 #import <WebCore/TextIterator.h>
+#import <WebCore/WebCoreJITOperations.h>
 #import <wtf/MainThread.h>
 #import <wtf/RunLoop.h>
 #import <wtf/Vector.h>
@@ -49,6 +50,7 @@
 #if !PLATFORM(IOS_FAMILY)
     JSC::initialize();
     WTF::initializeMainThread();
+    WebCore::populateJITOperations();
 #endif
 }
 
@@ -72,7 +74,7 @@
     if (!range)
         return self;
 
-    _private->_textIterator = makeUnique<WebCore::TextIterator>(*core(range));
+    _private->_textIterator = makeUnique<WebCore::TextIterator>(makeSimpleRange(*core(range)));
     return self;
 }
 

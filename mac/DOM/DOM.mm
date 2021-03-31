@@ -42,6 +42,7 @@
 #import <WebCore/FocusController.h>
 #import <WebCore/FontCascade.h>
 #import <WebCore/Frame.h>
+#import <WebCore/GeometryUtilities.h>
 #import <WebCore/HTMLLinkElement.h>
 #import <WebCore/HTMLNames.h>
 #import <WebCore/HTMLParserIdioms.h>
@@ -534,8 +535,10 @@ id <DOMEventTarget> kit(EventTarget* target)
     auto textIndicator = TextIndicator::createWithRange(makeRangeSelectingNodeContents(node), options, TextIndicatorPresentationTransition::None, FloatSize(margin, margin));
 
     if (textIndicator) {
-        if (Image* image = textIndicator->contentImage())
-            *cgImage = image->nativeImage().autorelease();
+        if (Image* image = textIndicator->contentImage()) {
+            auto contentImage = image->nativeImage()->platformImage();
+            *cgImage = contentImage.autorelease();
+        }
     }
 
     if (!*cgImage) {
@@ -569,10 +572,9 @@ id <DOMEventTarget> kit(EventTarget* target)
 - (NSRect)boundingBox
 #endif
 {
-    // FIXME: The call to updateLayoutIgnorePendingStylesheets should be moved into WebCore::Range.
-    auto& range = *core(self);
-    range.ownerDocument().updateLayoutIgnorePendingStylesheets();
-    return range.absoluteBoundingBox();
+    auto range = makeSimpleRange(*core(self));
+    range.start.document().updateLayoutIgnorePendingStylesheets();
+    return unionRect(RenderObject::absoluteTextRects(range));
 }
 
 #if PLATFORM(MAC)
@@ -581,31 +583,27 @@ id <DOMEventTarget> kit(EventTarget* target)
 - (CGImageRef)renderedImageForcingBlackText:(BOOL)forceBlackText
 #endif
 {
-    auto& range = *core(self);
-    auto* frame = range.ownerDocument().frame();
+    auto range = makeSimpleRange(*core(self));
+    auto frame = makeRefPtr(range.start.document().frame());
     if (!frame)
         return nil;
 
-    Ref<Frame> protectedFrame(*frame);
+    auto renderedImage = createDragImageForRange(*frame, range, forceBlackText);
 
-    // iOS uses CGImageRef for drag images, which doesn't support separate logical/physical sizes.
 #if PLATFORM(MAC)
-    RetainPtr<NSImage> renderedImage = createDragImageForRange(*frame, range, forceBlackText);
-
+    // iOS uses CGImageRef for drag images, which doesn't support separate logical/physical sizes.
     IntSize size([renderedImage size]);
     size.scale(1 / frame->page()->deviceScaleFactor());
     [renderedImage setSize:size];
+#endif
 
     return renderedImage.autorelease();
-#else
-    return createDragImageForRange(*frame, range, forceBlackText).autorelease();
-#endif
 }
 
 - (NSArray *)textRects
 {
-    auto& range = *core(self);
-    range.ownerDocument().updateLayoutIgnorePendingStylesheets();
+    auto range = makeSimpleRange(*core(self));
+    range.start.document().updateLayoutIgnorePendingStylesheets();
     return createNSArray(RenderObject::absoluteTextRects(range)).autorelease();
 }
 

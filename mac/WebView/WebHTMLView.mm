@@ -127,6 +127,7 @@
 #import <WebCore/TextAlternativeWithRange.h>
 #import <WebCore/TextIndicator.h>
 #import <WebCore/TextUndoInsertionMarkupMac.h>
+#import <WebCore/WebCoreJITOperations.h>
 #import <WebCore/WebCoreNSFontManagerExtras.h>
 #import <WebCore/WebCoreObjCExtras.h>
 #import <WebCore/WebNSAttributedStringExtras.h>
@@ -604,6 +605,11 @@ static Optional<NSInteger> toTag(WebCore::ContextMenuAction action)
         return WebMenuItemTagDictationAlternative;
     case ContextMenuItemTagToggleVideoFullscreen:
         return WebMenuItemTagToggleVideoFullscreen;
+#if ENABLE(APP_HIGHLIGHTS)
+    case ContextMenuItemTagAddHighlightToCurrentGroup:
+    case ContextMenuItemTagAddHighlightToNewGroup:
+        return WTF::nullopt;
+#endif
     case ContextMenuItemTagShareMenu:
         return WebMenuItemTagShareMenu;
     case ContextMenuItemTagToggleVideoEnhancedFullscreen:
@@ -1033,6 +1039,7 @@ static NSControlStateValue kit(TriState state)
 
     JSC::initialize();
     WTF::initializeMainThread();
+    WebCore::populateJITOperations();
 
     if (!oldSetCursorForMouseLocationIMP) {
         Method setCursorMethod = class_getInstanceMethod([NSWindow class], @selector(_setCursorForMouseLocation:));
@@ -1185,8 +1192,10 @@ static NSControlStateValue kit(TriState state)
     if ([types containsObject:WebCore::legacyPDFPasteboardType()] && (fragment = [self _documentFragmentFromPasteboard:pasteboard forType:WebCore::legacyPDFPasteboardType() inContext:context subresources:0]))
         return fragment;
 
+ALLOW_DEPRECATED_DECLARATIONS_BEGIN
     if ([types containsObject:(NSString *)kUTTypePNG] && (fragment = [self _documentFragmentFromPasteboard:pasteboard forType:(NSString *)kUTTypePNG inContext:context subresources:0]))
         return fragment;
+ALLOW_DEPRECATED_DECLARATIONS_END
 
     if ([types containsObject:WebCore::legacyURLPasteboardType()] && (fragment = [self _documentFragmentFromPasteboard:pasteboard forType:WebCore::legacyURLPasteboardType() inContext:context subresources:0]))
         return fragment;
@@ -1960,8 +1969,10 @@ static bool mouseEventIsPartOfClickOrDrag(NSEvent *event)
 {
     static NSArray *types = nil;
     if (!types) {
+ALLOW_DEPRECATED_DECLARATIONS_BEGIN
         types = [[NSArray alloc] initWithObjects:WebArchivePboardType, WebCore::legacyHTMLPasteboardType(), WebCore::legacyFilenamesPasteboardType(), WebCore::legacyTIFFPasteboardType(), WebCore::legacyPDFPasteboardType(),
             WebCore::legacyURLPasteboardType(), WebCore::legacyRTFDPasteboardType(), WebCore::legacyRTFPasteboardType(), WebCore::legacyStringPasteboardType(), WebCore::legacyColorPasteboardType(), kUTTypePNG, nil];
+ALLOW_DEPRECATED_DECLARATIONS_END
         CFRetain(types);
     }
     return types;
@@ -2351,8 +2362,10 @@ ALLOW_DEPRECATED_DECLARATIONS_END
         return [self _web_documentFragmentFromPasteboard:pasteboard pasteboardType:WebCore::legacyTIFFPasteboardType() imageMIMEType:@"image/tiff"];
     if ([pboardType isEqualToString:WebCore::legacyPDFPasteboardType()])
         return [self _web_documentFragmentFromPasteboard:pasteboard pasteboardType:WebCore::legacyPDFPasteboardType() imageMIMEType:@"application/pdf"];
+ALLOW_DEPRECATED_DECLARATIONS_BEGIN
     if ([pboardType isEqualToString:(NSString *)kUTTypePNG])
         return [self _web_documentFragmentFromPasteboard:pasteboard pasteboardType:(NSString *)kUTTypePNG imageMIMEType:@"image/png"];
+ALLOW_DEPRECATED_DECLARATIONS_END
 
     if ([pboardType isEqualToString:WebCore::legacyURLPasteboardType()]) {
         NSURL *URL = [NSURL URLFromPasteboard:pasteboard];
@@ -2376,7 +2389,8 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     if ([pboardType isEqualToString:WebCore::legacyStringPasteboardType()]) {
         if (!context)
             return nil;
-        return kit(createFragmentFromText(*core(context), [[pasteboard stringForType:WebCore::legacyStringPasteboardType()] precomposedStringWithCanonicalMapping]).ptr());
+        auto string = [[pasteboard stringForType:WebCore::legacyStringPasteboardType()] precomposedStringWithCanonicalMapping];
+        return kit(createFragmentFromText(makeSimpleRange(*core(context)), string).ptr());
     }
 
     return nil;
@@ -2567,6 +2581,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 
     JSC::initialize();
     WTF::initializeMainThread();
+    WebCore::populateJITOperations();
 }
 
 #endif
@@ -3667,8 +3682,17 @@ static RetainPtr<NSMenuItem> createMenuItem(const WebCore::HitTestResult& hitTes
 static RetainPtr<NSArray> customMenuFromDefaultItems(WebView *webView, const WebCore::ContextMenu& defaultMenu)
 {
     const auto& hitTestResult = webView.page->contextMenuController().hitTestResult();
-    auto defaultMenuItems = createMenuItems(hitTestResult, defaultMenu.items());
-
+    bool isPopover = webView.window._childWindowOrderingPriority == NSWindowChildOrderingPriorityPopover;
+    bool isLookupDisabled = [NSUserDefaults.standardUserDefaults boolForKey:@"LULookupDisabled"];
+    auto filteredItems = defaultMenu.items();
+    
+    if (isLookupDisabled || isPopover) {
+        filteredItems.removeAllMatching([] (auto& item) {
+            return item.action() == WebCore::ContextMenuItemTagLookUpInDictionary;
+        });
+    }
+    auto defaultMenuItems = createMenuItems(hitTestResult, filteredItems);
+    
     id delegate = [webView UIDelegate];
     SEL selector = @selector(webView:contextMenuItemsForElement:defaultMenuItems:);
     if (![delegate respondsToSelector:selector])
@@ -4602,7 +4626,7 @@ static RefPtr<WebCore::KeyboardEvent> currentKeyboardEvent(WebCore::Frame* coreF
 
     if (auto* document = frame->document())
         document->setFocusedElement(0);
-    page->focusController().setInitialFocus(direction == NSSelectingNext ? WebCore::FocusDirectionForward : WebCore::FocusDirectionBackward,
+    page->focusController().setInitialFocus(direction == NSSelectingNext ? WebCore::FocusDirection::Forward : WebCore::FocusDirection::Backward,
                                              currentKeyboardEvent(frame).get());
     return YES;
 }
@@ -4641,7 +4665,7 @@ static RefPtr<WebCore::KeyboardEvent> currentKeyboardEvent(WebCore::Frame* coreF
         id nextResponder = [[self window] _newFirstResponderAfterResigning];
         bool nextResponderIsInWebView = [nextResponder isKindOfClass:[NSView class]]
             && [nextResponder isDescendantOf:[[[self _webView] mainFrame] frameView]];
-        if (!nextResponderIsInWebView)
+        if (!nextResponderIsInWebView && ![[self _webView] _isPerformingProgrammaticFocus])
             page->focusController().setFocused(false);
     }
     return resign;
@@ -6413,7 +6437,7 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
         LOG(TextInput, "attributedSubstringFromRange:(%u, %u) -> nil", nsRange.location, nsRange.length);
         return nil;
     }
-    RefPtr<WebCore::Range> range = [frame _convertToDOMRange:nsRange];
+    auto range = [frame _convertToDOMRange:nsRange];
     if (!range) {
         LOG(TextInput, "attributedSubstringFromRange:(%u, %u) -> nil", nsRange.location, nsRange.length);
         return nil;
@@ -6697,7 +6721,7 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
         WebRangeIsRelativeTo rangeIsRelativeTo = needToRemoveSoftSpace ? WebRangeIsRelativeTo::Paragraph : WebRangeIsRelativeTo::EditableRoot;
         if (auto domRange = [[self _frame] _convertToDOMRange:replacementRange rangeIsRelativeTo:rangeIsRelativeTo]) {
             WebCore::IgnoreSelectionChangeForScope selectionChange { *coreFrame };
-            coreFrame->selection().setSelection(WebCore::VisibleSelection(*domRange, WebCore::SEL_DEFAULT_AFFINITY));
+            coreFrame->selection().setSelection(WebCore::VisibleSelection(*domRange));
             replacesText = replacementRange.length;
         }
     }
@@ -6981,21 +7005,6 @@ static CGImageRef selectionImage(WebCore::Frame* frame, bool forceBlackText)
 
 #if PLATFORM(MAC)
 
-- (NSAttributedString *)_attributedStringFromDOMRange:(DOMRange *)range
-{
-    if (!range)
-        return nil;
-#if !LOG_DISABLED
-    double start = CFAbsoluteTimeGetCurrent();
-#endif
-    auto result = attributedString(*core(range)).string.autorelease();
-#if !LOG_DISABLED
-    double duration = CFAbsoluteTimeGetCurrent() - start;
-    LOG(Timing, "creating attributed string from selection took %f seconds.", duration);
-#endif
-    return result;
-}
-
 - (NSAttributedString *)_legacyAttributedStringFrom:(DOMNode *)startContainer offset:(int)startOffset to:(DOMNode *)endContainer offset:(int)endOffset
 {
     if (!startContainer || !endContainer)
@@ -7006,28 +7015,26 @@ static CGImageRef selectionImage(WebCore::Frame* frame, bool forceBlackText)
 
 - (NSAttributedString *)attributedString
 {
-    DOMDocument *document = [[self _frame] DOMDocument];
+    auto document = core([[self _frame] DOMDocument]);
     if (!document)
         return [[[NSAttributedString alloc] init] autorelease];
-    if (auto attributedString = [self _attributedStringFromDOMRange:[document _documentRange]])
-        return attributedString;
-    return editingAttributedString(makeRangeSelectingNodeContents(*core(document))).string.autorelease();
+    auto range = makeRangeSelectingNodeContents(*document);
+    if (auto result = attributedString(range).string)
+        return result.autorelease();
+    return editingAttributedString(range).string.autorelease();
 }
 
 - (NSAttributedString *)selectedAttributedString
 {
-    auto attributedString = retainPtr([self _attributedStringFromDOMRange:[self _selectedRange]]);
-    if (!attributedString) {
-        auto* coreFrame = core([self _frame]);
-        if (coreFrame) {
-            auto range = coreFrame->selection().selection().toNormalizedRange();
-            if (range)
-                attributedString = editingAttributedString(*range).string;
-            else
-                attributedString = adoptNS([[NSAttributedString alloc] init]);
-        }
-    }
-    return attributedString.autorelease();
+    auto frame = core([self _frame]);
+    if (!frame)
+        return [[[NSAttributedString alloc] init] autorelease];
+    auto range = frame->selection().selection().firstRange();
+    if (!range)
+        return [[[NSAttributedString alloc] init] autorelease];
+    if (auto result = attributedString(*range).string)
+        return result.autorelease();
+    return editingAttributedString(*range).string.autorelease();
 }
 
 #endif

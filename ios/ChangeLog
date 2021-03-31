@@ -1,52 +1,153 @@
-2020-08-10  Alan Coon  <alancoon@apple.com>
+2020-11-06  Sam Weinig  <weinig@apple.com>
 
-        Cherry-pick r265424. rdar://problem/66803405
+        Further progress towards merging Settings.yaml into WebPreferences.yaml
+        https://bugs.webkit.org/show_bug.cgi?id=218663
 
-    REGRESSION (r265176): Cannot make or extend selections in iOS WebKitLegacy
-    https://bugs.webkit.org/show_bug.cgi?id=215319
-    <rdar://problem/66688560>
-    
-    Reviewed by Devin Rousso.
-    
-    * WebCoreSupport/WebVisiblePosition.mm:
-    (+[DOMRange rangeForFirstPosition:second:]):
-    We want to ensure that firstPosition is *before* secondPosition, so
-    the change in r265176 got the condition backwards. Swap it.
-    
-    git-svn-id: https://svn.webkit.org/repository/webkit/trunk@265424 268f45cc-cd09-0410-ab3c-d52691b4dbfc
+        Reviewed by Tim Horton.
 
-    2020-08-10  Tim Horton  <timothy_horton@apple.com>
+        * Misc/WebUIKitSupport.mm:
+        (WebKitGetMinimumZoomFontSize):
+        Use generated default value macro as the one in WebCore has now been removed.
 
-            REGRESSION (r265176): Cannot make or extend selections in iOS WebKitLegacy
-            https://bugs.webkit.org/show_bug.cgi?id=215319
-            <rdar://problem/66688560>
+2020-10-06  Devin Rousso  <drousso@apple.com>
 
-            Reviewed by Devin Rousso.
+        Move platform logic for CSS `hover` and `pointer` media queries outside of WebCore
+        https://bugs.webkit.org/show_bug.cgi?id=217413
 
-            * WebCoreSupport/WebVisiblePosition.mm:
-            (+[DOMRange rangeForFirstPosition:second:]):
-            We want to ensure that firstPosition is *before* secondPosition, so
-            the change in r265176 got the condition backwards. Swap it.
+        Reviewed by Tim Horton.
 
-2020-08-10  Alan Coon  <alancoon@apple.com>
+        * WebCoreSupport/WebChromeClientIOS.h:
+        (WebChromeClientIOS::hoverSupportedByPrimaryPointingDevice const): Added.
+        (WebChromeClientIOS::pointerCharacteristicsOfPrimaryPointingDevice const): Added.
+        Mouse devices are not supported.
 
-        Cherry-pick r265255. rdar://problem/66644016
+2020-10-06  Devin Rousso  <drousso@apple.com>
 
-    Try to fix Catalyst build
-    https://bugs.webkit.org/show_bug.cgi?id=215133
-    rdar://66534119
-    
-    * WebCoreSupport/WebVisiblePosition.mm: Add include of SimpleRange.h.
-    
-    git-svn-id: https://svn.webkit.org/repository/webkit/trunk@265255 268f45cc-cd09-0410-ab3c-d52691b4dbfc
+        CSS hover and "pointer: fine" media queries do not evaluate to true with iOS 13.4 mouse support
+        https://bugs.webkit.org/show_bug.cgi?id=209292
+        <rdar://problem/60663124>
 
-    2020-08-04  Darin Adler  <darin@apple.com>
+        Reviewed by Tim Horton.
 
-            Try to fix Catalyst build
-            https://bugs.webkit.org/show_bug.cgi?id=215133
-            rdar://66534119
+        * WebCoreSupport/WebChromeClientIOS.h:
+        (WebChromeClientIOS::hoverSupportedByAnyAvailablePointingDevice const): Added.
+        (WebChromeClientIOS::pointerCharacteristicsOfAllAvailablePointingDevices const): Added.
+        Mouse devices are not supported.
 
-            * WebCoreSupport/WebVisiblePosition.mm: Add include of SimpleRange.h.
+2020-09-20  Darin Adler  <darin@apple.com>
+
+        Next step towards eliminating deprecated legacy positions
+        https://bugs.webkit.org/show_bug.cgi?id=216751
+
+        Reviewed by Sam Weinig.
+
+        * WebCoreSupport/WebVisiblePosition.mm:
+        (-[DOMNode startPosition]):
+        (-[DOMNode endPosition]):
+        Replaced calls to createLegacyEditingPosition with calls to
+        makeDeprecatedLegacyPosition or makeContainerOffsetPosition.
+
+2020-09-02  Darin Adler  <darin@apple.com>
+
+        Remove EAffinity, UPSTREAM, DOWNSTREAM, SEL_DEFAULT_AFFINITY, and VisibleSelection::selectionType
+        https://bugs.webkit.org/show_bug.cgi?id=216102
+
+        Reviewed by Sam Weinig.
+
+        * WebCoreSupport/WebFrameIOS.mm:
+        (-[WebFrame closestCaretRectInMarkedTextRangeForPoint:]): Use Affinity.
+        (-[WebFrame smartExtendRangedSelection:]): Use visibleStart/End/Extent so we don't
+        need to write explicit code to handle affinity.
+
+        * WebCoreSupport/WebVisiblePosition.mm:
+        (-[WebVisiblePosition setAffinity:]): Use Affinity.
+
+2020-09-02  Darin Adler  <darin@apple.com>
+
+        Change Affinity into an enum class
+        https://bugs.webkit.org/show_bug.cgi?id=216096
+
+        Reviewed by Wenson Hsieh.
+
+        * WebCoreSupport/WebVisiblePosition.mm:
+        (-[WebVisiblePosition positionByMovingInDirection:amount:withAffinityDownstream:]):
+        Use prefix.
+
+2020-09-01  Darin Adler  <darin@apple.com>
+
+        Remove comparePositions and make VisiblePosition improvements
+        https://bugs.webkit.org/show_bug.cgi?id=215982
+
+        Reviewed by Sam Weinig.
+
+        * WebCoreSupport/WebVisiblePosition.mm:
+        (-[WebVisiblePosition positionByMovingInDirection:amount:withAffinityDownstream:]):
+        Use Upstream instead of VP_UPSTREAM_IF_POSSIBLE. Since we were calling
+        setAffinity here, VP_UPSTREAM_IF_POSSIBLE was misleading since that function
+        does not check the validity of the affinity.
+        (-[DOMNode startPosition]): Removed unnecessary explicit VP_DEFAULT_AFFINITY.
+        (-[DOMNode endPosition]): Ditto.
+
+2020-08-17  Darin Adler  <darin@apple.com>
+
+        Create documentOrder function, start refactoring to use it instead of Range::compare functions
+        https://bugs.webkit.org/show_bug.cgi?id=215551
+
+        Reviewed by Chris Dumez.
+
+        * WebCoreSupport/WebVisiblePosition.mm:
+        (-[DOMRange startPosition]): Rewrote to not use Range::startPosition.
+        (-[DOMRange endPosition]): Rewrote to not use Range::endPosition.
+
+2020-08-13  Tim Horton  <timothy_horton@apple.com>
+
+        macCatalyst: Granting location permission doesn't allow geolocation access
+        https://bugs.webkit.org/show_bug.cgi?id=215464
+        <rdar://problem/64719458>
+
+        Reviewed by Wenson Hsieh.
+
+        * Misc/WebGeolocationCoreLocationProvider.mm:
+        (-[WebGeolocationCoreLocationProvider requestGeolocationAuthorization]):
+        Un-ifdef this code that was ifdeffed in r229963 during macCatalyst
+        bring-up and doesn't need to be anymore.
+
+2020-08-10  Tim Horton  <timothy_horton@apple.com>
+
+        REGRESSION (r265176): Cannot make or extend selections in iOS WebKitLegacy 
+        https://bugs.webkit.org/show_bug.cgi?id=215319
+        <rdar://problem/66688560>
+
+        Reviewed by Devin Rousso.
+
+        * WebCoreSupport/WebVisiblePosition.mm:
+        (+[DOMRange rangeForFirstPosition:second:]):
+        We want to ensure that firstPosition is *before* secondPosition, so
+        the change in r265176 got the condition backwards. Swap it.
+
+2020-08-04  Darin Adler  <darin@apple.com>
+
+        Try to fix Catalyst build
+        https://bugs.webkit.org/show_bug.cgi?id=215133
+        rdar://66534119
+
+        * WebCoreSupport/WebVisiblePosition.mm: Add include of SimpleRange.h.
+
+2020-08-02  Darin Adler  <darin@apple.com>
+
+        Remove some member functions of Range and many calls to createLiveRange
+        https://bugs.webkit.org/show_bug.cgi?id=215070
+
+        Reviewed by Sam Weinig.
+
+        * WebCoreSupport/WebFrameIOS.mm:
+        (-[WebFrame selectionRectsForCoreRange:]): Remove createLiveRange.
+        (-[WebFrame selectionRectsForRange:]): Use makeSimpleRange.
+        * WebCoreSupport/WebVisiblePosition.mm:
+        (-[WebVisiblePosition enclosingRangeWithDictationPhraseAlternatives:]): Ditto.
+        (-[WebVisiblePosition enclosingRangeWithCorrectionIndicator]): Ditto.
+        (+[DOMRange rangeForFirstPosition:second:]): Rename firstVP/secondVP
+        to firstPosition/secondPosition.
 
 2020-08-01  Darin Adler  <darin@apple.com>
 

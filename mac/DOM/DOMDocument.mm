@@ -76,6 +76,7 @@
 #import <WebCore/ProcessingInstruction.h>
 #import <WebCore/Range.h>
 #import <WebCore/SecurityOrigin.h>
+#import <WebCore/SimpleRange.h>
 #import <WebCore/StyleProperties.h>
 #import <WebCore/StyleSheetList.h>
 #import <WebCore/Text.h>
@@ -390,8 +391,6 @@
         return @"hidden";
     case WebCore::VisibilityState::Visible:
         return @"visible";
-    case WebCore::VisibilityState::Prerender:
-        return @"prerender";
     }
 }
 

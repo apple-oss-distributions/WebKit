@@ -100,6 +100,22 @@ SOFT_LINK_CLASS(QuickLookUI, QLPreviewMenuItem)
     _currentActionContext = nil;
 }
 
+- (BOOL)isEnabled
+{
+    return [_immediateActionRecognizer isEnabled];
+}
+
+- (void)setEnabled:(BOOL)enabled
+{
+    if (enabled == [_immediateActionRecognizer isEnabled])
+        return;
+
+    [_immediateActionRecognizer setEnabled:enabled];
+
+    if (![_immediateActionRecognizer isEnabled])
+        [self _cancelImmediateAction];
+}
+
 - (void)webView:(WebView *)webView didHandleScrollWheel:(NSEvent *)event
 {
     [_currentQLPreviewMenuItem close];
@@ -115,8 +131,10 @@ SOFT_LINK_CLASS(QuickLookUI, QLPreviewMenuItem)
 - (void)_cancelImmediateAction
 {
     // Reset the recognizer by turning it off and on again.
-    [_immediateActionRecognizer setEnabled:NO];
-    [_immediateActionRecognizer setEnabled:YES];
+    if ([_immediateActionRecognizer isEnabled]) {
+        [_immediateActionRecognizer setEnabled:NO];
+        [_immediateActionRecognizer setEnabled:YES];
+    }
 
     [self _clearImmediateActionState];
     [_webView _clearTextIndicatorWithAnimation:WebCore::TextIndicatorWindowDismissalAnimation::FadeOut];
@@ -422,7 +440,7 @@ static WebCore::IntRect elementBoundingBoxInWindowCoordinatesFromNode(WebCore::N
             detectedItem = { {
                 actionContext,
                 { }, // FIXME: Seems like an empty rect isn't really OK.
-                *core(customDataDetectorsRange)
+                makeSimpleRange(*core(customDataDetectorsRange))
             } };
         }
     }
@@ -439,7 +457,7 @@ static WebCore::IntRect elementBoundingBoxInWindowCoordinatesFromNode(WebCore::N
     if (![[getDDActionsManagerClass() sharedManager] hasActionsForResult:[detectedItem->actionContext mainResult] actionContext:detectedItem->actionContext.get()])
         return nil;
 
-    auto indicator = WebCore::TextIndicator::createWithRange(createLiveRange(detectedItem->range), { }, WebCore::TextIndicatorPresentationTransition::FadeIn);
+    auto indicator = WebCore::TextIndicator::createWithRange(detectedItem->range, { }, WebCore::TextIndicatorPresentationTransition::FadeIn);
 
     _currentActionContext = [detectedItem->actionContext contextForView:_webView altMode:YES interactionStartedHandler:^() {
     } interactionChangedHandler:^() {

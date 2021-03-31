@@ -149,9 +149,8 @@ using namespace WebCore;
 
 - (WebVisiblePosition *)positionByMovingInDirection:(WebTextAdjustmentDirection)direction amount:(UInt32)amount withAffinityDownstream:(BOOL)affinityDownstream
 {
-    VisiblePosition vp = [self _visiblePosition];
-                          
-    vp.setAffinity(affinityDownstream ? DOWNSTREAM : VP_UPSTREAM_IF_POSSIBLE);
+    auto vp = [self _visiblePosition];
+    vp.setAffinity(affinityDownstream ? Affinity::Downstream : Affinity::Upstream);
 
     switch (direction) {
         case WebTextAdjustmentForward: {
@@ -195,7 +194,6 @@ using namespace WebCore;
 }
 
 - (WebVisiblePosition *)positionByMovingInDirection:(WebTextAdjustmentDirection)direction amount:(UInt32)amount
-
 {
     return [self positionByMovingInDirection:direction amount:amount withAffinityDownstream:YES];
 }
@@ -417,7 +415,7 @@ static inline SelectionDirection toSelectionDirection(WebTextAdjustmentDirection
     for (auto marker : document.markers().markersFor(*node, DocumentMarker::DictationPhraseWithAlternatives)) {
         if (marker->startOffset() <= offset && marker->endOffset() >= offset) {
             *alternatives = createNSArray(WTF::get<Vector<String>>(marker->data())).autorelease();
-            return kit(range(*node, *marker));
+            return kit(makeSimpleRange(*node, *marker));
         }
     }
     return nil;
@@ -434,7 +432,7 @@ static inline SelectionDirection toSelectionDirection(WebTextAdjustmentDirection
     auto& document = node->document();
     for (auto marker : document.markers().markersFor(*node, DocumentMarker::Spelling)) {
         if (marker->startOffset() <= offset && marker->endOffset() >= offset)
-            return kit(range(*node, *marker));
+            return kit(makeSimpleRange(*node, *marker));
     }
     return nil;
 }
@@ -446,7 +444,7 @@ static inline SelectionDirection toSelectionDirection(WebTextAdjustmentDirection
 
 - (void)setAffinity:(NSSelectionAffinity)affinity
 {
-    reinterpret_cast<VisiblePosition *>(_internal)->setAffinity((WebCore::EAffinity)affinity);
+    reinterpret_cast<VisiblePosition *>(_internal)->setAffinity((WebCore::Affinity)affinity);
 }
 
 @end
@@ -455,14 +453,14 @@ static inline SelectionDirection toSelectionDirection(WebTextAdjustmentDirection
 
 - (WebVisiblePosition *)startPosition
 {
-    Range *range = core(self);
-    return [WebVisiblePosition _wrapVisiblePosition:VisiblePosition(range->startPosition())];
+    auto& range = *core(self);
+    return [WebVisiblePosition _wrapVisiblePosition:makeDeprecatedLegacyPosition(&range.startContainer(), range.startOffset())];
 }
 
 - (WebVisiblePosition *)endPosition
 {
-    Range *range = core(self);
-    return [WebVisiblePosition _wrapVisiblePosition:VisiblePosition(range->endPosition())];
+    auto& range = *core(self);
+    return [WebVisiblePosition _wrapVisiblePosition:makeDeprecatedLegacyPosition(&range.endContainer(), range.endOffset())];
 }
 
 - (DOMRange *)enclosingWordRange
@@ -476,11 +474,11 @@ static inline SelectionDirection toSelectionDirection(WebTextAdjustmentDirection
 
 + (DOMRange *)rangeForFirstPosition:(WebVisiblePosition *)first second:(WebVisiblePosition *)second
 {
-    auto firstVP = [first _visiblePosition];
-    auto secondVP = [second _visiblePosition];
-    if (secondVP < firstVP)
-        std::swap(firstVP, secondVP);
-    return kit(makeSimpleRange(firstVP, secondVP));
+    auto firstPosition = [first _visiblePosition];
+    auto secondPosition = [second _visiblePosition];
+    if (secondPosition < firstPosition)
+        std::swap(firstPosition, secondPosition);
+    return kit(makeSimpleRange(firstPosition, secondPosition));
 }
 
 @end
@@ -497,25 +495,19 @@ static inline SelectionDirection toSelectionDirection(WebTextAdjustmentDirection
 
 - (WebVisiblePosition *)startPosition
 {
-    // When in editable content, we need to calculate the startPosition from the beginning of the
-    // editable area.
-    Node* node = core(self);
-    if (node->isContentEditable()) {
-        VisiblePosition vp(createLegacyEditingPosition(node, 0), VP_DEFAULT_AFFINITY);
-        return [WebVisiblePosition _wrapVisiblePosition:startOfEditableContent(vp)];
-    }
+    // When in editable content, we need to calculate the startPosition from the beginning of the editable area.
+    auto& node = *core(self);
+    if (node.isContentEditable())
+        return [WebVisiblePosition _wrapVisiblePosition:startOfEditableContent(VisiblePosition(makeDeprecatedLegacyPosition(&node, 0)))];
     return [[self rangeOfContents] startPosition];
 }
 
 - (WebVisiblePosition *)endPosition
 {
-    // When in editable content, we need to calculate the endPosition from the end of the
-    // editable area.
-    Node* node = core(self);
-    if (node->isContentEditable()) {
-        VisiblePosition vp(createLegacyEditingPosition(node, 0), VP_DEFAULT_AFFINITY);
-        return [WebVisiblePosition _wrapVisiblePosition:endOfEditableContent(vp)];
-    }
+    // When in editable content, we need to calculate the endPosition from the end of the editable area.
+    auto& node = *core(self);
+    if (node.isContentEditable())
+        return [WebVisiblePosition _wrapVisiblePosition:endOfEditableContent(VisiblePosition(makeDeprecatedLegacyPosition(&node, 0)))];
     return [[self rangeOfContents] endPosition];
 }
 

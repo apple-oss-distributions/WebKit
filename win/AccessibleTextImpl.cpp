@@ -33,6 +33,7 @@
 #include <WebCore/Editor.h>
 #include <WebCore/Frame.h>
 #include <WebCore/FrameSelection.h>
+#include <WebCore/GeometryUtilities.h>
 #include <WebCore/HTMLTextFormControlElement.h>
 #include <WebCore/Node.h>
 #include <WebCore/Position.h>
@@ -465,7 +466,7 @@ HRESULT AccessibleText::scrollSubstringTo(long startIndex, long endIndex, enum I
     if (!textRange)
         return S_FALSE;
 
-    IntRect boundingBox = createLiveRange(*textRange)->absoluteBoundingBox();
+    IntRect boundingBox = unionRect(RenderObject::absoluteTextRects(*textRange));
     switch (scrollType) {
     case IA2_SCROLL_TYPE_TOP_LEFT:
         m_object->scrollToGlobalPoint(boundingBox.minXMinYCorner());
@@ -754,7 +755,6 @@ HRESULT AccessibleText::initialCheck()
 
 bool AccessibleText::isInRange(VisiblePosition& current, VisiblePositionRange& wordRange)
 {
-    ASSERT(wordRange.start.isNotNull());
-    ASSERT(wordRange.end.isNotNull());
-    return comparePositions(current.deepEquivalent(), wordRange.start) >= 0 && comparePositions(current.deepEquivalent(), wordRange.end) <= 0;
+    auto range = makeSimpleRange(wordRange);
+    return range && contains<ComposedTree>(*range, makeBoundaryPoint(current));
 }

@@ -51,7 +51,7 @@
 #import <WebCore/HTMLTextAreaElement.h>
 #import <WebCore/Image.h>
 #import <WebCore/InlineBox.h>
-#import <WebCore/Node.h>
+#import <WebCore/NodeTraversal.h>
 #import <WebCore/Range.h>
 #import <WebCore/RenderBlock.h>
 #import <WebCore/RenderBlockFlow.h>
@@ -61,6 +61,7 @@
 #import <WebCore/RenderText.h>
 #import <WebCore/RoundedRect.h>
 #import <WebCore/SharedBuffer.h>
+#import <WebCore/SimpleRange.h>
 #import <WebCore/VisiblePosition.h>
 #import <WebCore/VisibleUnits.h>
 #import <WebCore/WAKAppKitStubs.h>
@@ -123,9 +124,21 @@ using WebCore::VisiblePosition;
         range.setEnd(*end.containerNode(), end.offsetInContainerNode());
 }
 
+// FIXME: Refactor to share code with intersectingNodesWithDeprecatedZeroOffsetStartQuirk.
+static WebCore::Node* firstNodeAfter(const WebCore::BoundaryPoint& point)
+{
+    if (point.container->isCharacterDataNode())
+        return point.container.ptr();
+    if (auto child = point.container->traverseToChildAt(point.offset))
+        return child;
+    if (!point.offset)
+        return point.container.ptr();
+    return WebCore::NodeTraversal::nextSkippingChildren(point.container);
+}
+
 - (DOMNode *)firstNode
 {
-    return kit(core(self)->firstNode());
+    return kit(firstNodeAfter(makeSimpleRange(*core(self)).start));
 }
 
 @end
@@ -210,7 +223,7 @@ using WebCore::VisiblePosition;
 
 - (DOMRange *)rangeOfContainingParagraph
 {
-    VisiblePosition position(createLegacyEditingPosition(core(self), 0), WebCore::DOWNSTREAM);
+    VisiblePosition position(makeContainerOffsetPosition(core(self), 0));
     return kit(makeSimpleRange(startOfParagraph(position), endOfParagraph(position)));
 }
 

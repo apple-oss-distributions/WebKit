@@ -109,7 +109,7 @@ WebCore::FindOptions coreOptions(WebFindOptions);
 OptionSet<WebCore::LayoutMilestone> coreLayoutMilestones(WebLayoutMilestones);
 WebLayoutMilestones kitLayoutMilestones(OptionSet<WebCore::LayoutMilestone>);
 
-#if ENABLE(DATA_INTERACTION) && defined(__cplusplus)
+#if PLATFORM(IOS_FAMILY) && ENABLE(DRAG_SUPPORT) && defined(__cplusplus)
 @interface WebUITextIndicatorData (WebUITextIndicatorInternal)
 - (WebUITextIndicatorData *)initWithImage:(CGImageRef)image textIndicatorData:(const WebCore::TextIndicatorData&)indicatorData scale:(CGFloat)scale;
 - (WebUITextIndicatorData *)initWithImage:(CGImageRef)image scale:(CGFloat)scale;
@@ -275,7 +275,7 @@ WebLayoutMilestones kitLayoutMilestones(OptionSet<WebCore::LayoutMilestone>);
 #endif
 #endif
 
-#if ENABLE(DATA_INTERACTION) && defined(__cplusplus)
+#if PLATFORM(IOS_FAMILY) && ENABLE(DRAG_SUPPORT) && defined(__cplusplus)
 - (void)_startDrag:(const WebCore::DragItem&)dragItem;
 - (void)_didConcludeEditDrag;
 #endif
@@ -291,6 +291,7 @@ WebLayoutMilestones kitLayoutMilestones(OptionSet<WebCore::LayoutMilestone>);
 - (BOOL)_hasActiveVideoForControlsInterface;
 - (void)_setUpPlaybackControlsManagerForMediaElement:(NakedRef<WebCore::HTMLMediaElement>)mediaElement;
 - (void)_clearPlaybackControlsManager;
+- (void)_playbackControlsMediaEngineChanged;
 #endif
 #endif
 #endif
@@ -342,4 +343,9 @@ WebLayoutMilestones kitLayoutMilestones(OptionSet<WebCore::LayoutMilestone>);
 #if !PLATFORM(IOS_FAMILY)
 - (void)_setMainFrameIcon:(NSImage *)icon;
 #endif
+@end
+
+@interface WebView (WebViewInternalPreferencesChangedGenerated)
+// Implemented in generated file WebViewPreferencesChangedGenerated.mm
+- (void)_preferencesChangedGenerated:(WebPreferences *)preferences;
 @end
