@@ -1,6 +1,6 @@
 2021-10-11  Russell Epstein  <repstein@apple.com>
 
-        Cherry-pick r283846. rdar://problem/84117075
+        Cherry-pick r283846. rdar://problem/84117092
 
     Fix crash in NetworkProcess preconnect due to dereferencing deallocated session
     https://bugs.webkit.org/show_bug.cgi?id=231456
@@ -33,9 +33,38 @@
             * NetworkProcess/NetworkProcess.cpp:
             (WebKit::NetworkProcess::preconnectTo):
 
-2021-09-30  Alan Coon  <alancoon@apple.com>
+2021-10-04  Russell Epstein  <repstein@apple.com>
 
-        Cherry-pick r283294. rdar://problem/83733571
+        Cherry-pick r283490. rdar://problem/83856664
+
+    Vorbis decoder can't be instantiated - follow up on Bug 230742
+    https://bugs.webkit.org/show_bug.cgi?id=231154
+    rdar://problem/83825162
+    
+    Fix typo in expression.
+    
+    Reviewed by Tim Horton.
+    
+    * Scripts/process-entitlements.sh: Add missing bool keyword.
+    
+    
+    git-svn-id: https://svn.webkit.org/repository/webkit/trunk@283490 268f45cc-cd09-0410-ab3c-d52691b4dbfc
+
+    2021-10-04  Jean-Yves Avenard  <jya@apple.com>
+
+            Vorbis decoder can't be instantiated - follow up on Bug 230742
+            https://bugs.webkit.org/show_bug.cgi?id=231154
+            rdar://problem/83825162
+
+            Fix typo in expression.
+
+            Reviewed by Tim Horton.
+
+            * Scripts/process-entitlements.sh: Add missing bool keyword.
+
+2021-09-30  Russell Epstein  <repstein@apple.com>
+
+        Cherry-pick r283294. rdar://problem/83733583
 
     Add weakThis check in addition to null check added in r282881
     https://bugs.webkit.org/show_bug.cgi?id=231000
@@ -72,7 +101,56 @@
 
 2021-09-29  Alan Coon  <alancoon@apple.com>
 
-        Cherry-pick r283156. rdar://problem/83648190
+        Cherry-pick r283209. rdar://problem/83681911
+
+    Crash in WebKit::DisplayLink::displayLinkCallback()
+    https://bugs.webkit.org/show_bug.cgi?id=230917
+    <rdar://82528370>
+    
+    Reviewed by Tim Horton.
+    
+    We have evidence of a divide-by-zero crash in DisplayLink::notifyObserversDisplayWasRefreshed()
+    where m_currentUpdate.updatesPerSecond is zero. The only way I can see this happening
+    is if DisplayLink::DisplayLink() returns early, which should log. Protect against
+    this by initializing m_displayNominalFramesPerSecond to 60, and do another check,
+    with a log, in DisplayLink::addObserver() before we use m_displayNominalFramesPerSecond
+    for the first time.
+    
+    Convert the logging to RELEASE_LOG_FAULT reports.
+    
+    * UIProcess/mac/DisplayLink.cpp:
+    (WebKit::DisplayLink::DisplayLink):
+    (WebKit::DisplayLink::addObserver):
+    * UIProcess/mac/DisplayLink.h:
+    
+    
+    git-svn-id: https://svn.webkit.org/repository/webkit/trunk@283209 268f45cc-cd09-0410-ab3c-d52691b4dbfc
+
+    2021-09-28  Simon Fraser  <simon.fraser@apple.com>
+
+            Crash in WebKit::DisplayLink::displayLinkCallback()
+            https://bugs.webkit.org/show_bug.cgi?id=230917
+            <rdar://82528370>
+
+            Reviewed by Tim Horton.
+
+            We have evidence of a divide-by-zero crash in DisplayLink::notifyObserversDisplayWasRefreshed()
+            where m_currentUpdate.updatesPerSecond is zero. The only way I can see this happening
+            is if DisplayLink::DisplayLink() returns early, which should log. Protect against
+            this by initializing m_displayNominalFramesPerSecond to 60, and do another check,
+            with a log, in DisplayLink::addObserver() before we use m_displayNominalFramesPerSecond
+            for the first time.
+
+            Convert the logging to RELEASE_LOG_FAULT reports.
+
+            * UIProcess/mac/DisplayLink.cpp:
+            (WebKit::DisplayLink::DisplayLink):
+            (WebKit::DisplayLink::addObserver):
+            * UIProcess/mac/DisplayLink.h:
+
+2021-09-29  Alan Coon  <alancoon@apple.com>
+
+        Cherry-pick r283156. rdar://problem/83681765
 
     Vorbis decoder can't be instantiated - Remove workaround added in bug 228139
     https://bugs.webkit.org/show_bug.cgi?id=230742

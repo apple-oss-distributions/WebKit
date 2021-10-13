@@ -1,6 +1,6 @@
 2021-09-29  Alan Coon  <alancoon@apple.com>
 
-        Cherry-pick r283225. rdar://problem/83683557
+        Cherry-pick r283225. rdar://problem/83683566
 
     Make WebLocalizedString() thread-safe
     https://bugs.webkit.org/show_bug.cgi?id=230954
