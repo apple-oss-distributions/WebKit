@@ -44,7 +44,7 @@ WebWheelEvent::WebWheelEvent(Type type, const IntPoint& position, const IntPoint
 }
 
 #if PLATFORM(COCOA)
-WebWheelEvent::WebWheelEvent(Type type, const IntPoint& position, const IntPoint& globalPosition, const FloatSize& delta, const FloatSize& wheelTicks, Granularity granularity, bool directionInvertedFromDevice, Phase phase, Phase momentumPhase, bool hasPreciseScrollingDeltas, uint32_t scrollCount, const WebCore::FloatSize& unacceleratedScrollingDelta, OptionSet<Modifier> modifiers, WallTime timestamp)
+WebWheelEvent::WebWheelEvent(Type type, const IntPoint& position, const IntPoint& globalPosition, const FloatSize& delta, const FloatSize& wheelTicks, Granularity granularity, bool directionInvertedFromDevice, Phase phase, Phase momentumPhase, bool hasPreciseScrollingDeltas, uint32_t scrollCount, const WebCore::FloatSize& unacceleratedScrollingDelta, OptionSet<Modifier> modifiers, WallTime timestamp, WallTime ioHIDEventTimestamp, std::optional<WebCore::FloatSize> rawPlatformDelta)
     : WebEvent(type, modifiers, timestamp)
     , m_position(position)
     , m_globalPosition(globalPosition)
@@ -55,6 +55,8 @@ WebWheelEvent::WebWheelEvent(Type type, const IntPoint& position, const IntPoint
     , m_momentumPhase(momentumPhase)
     , m_directionInvertedFromDevice(directionInvertedFromDevice)
     , m_hasPreciseScrollingDeltas(hasPreciseScrollingDeltas)
+    , m_ioHIDEventTimestamp(ioHIDEventTimestamp)
+    , m_rawPlatformDelta(rawPlatformDelta)
     , m_scrollCount(scrollCount)
     , m_unacceleratedScrollingDelta(unacceleratedScrollingDelta)
 {
@@ -92,6 +94,8 @@ void WebWheelEvent::encode(IPC::Encoder& encoder) const
     encoder << m_hasPreciseScrollingDeltas;
 #endif
 #if PLATFORM(COCOA)
+    encoder << m_ioHIDEventTimestamp;
+    encoder << m_rawPlatformDelta;
     encoder << m_scrollCount;
     encoder << m_unacceleratedScrollingDelta;
 #endif
@@ -122,6 +126,10 @@ bool WebWheelEvent::decode(IPC::Decoder& decoder, WebWheelEvent& t)
         return false;
 #endif
 #if PLATFORM(COCOA)
+    if (!decoder.decode(t.m_ioHIDEventTimestamp))
+        return false;
+    if (!decoder.decode(t.m_rawPlatformDelta))
+        return false;
     if (!decoder.decode(t.m_scrollCount))
         return false;
     if (!decoder.decode(t.m_unacceleratedScrollingDelta))
