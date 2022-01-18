@@ -661,7 +661,7 @@ AccessibilityObject* AXObjectCache::getOrCreate(Widget* widget)
     // Will crash later if we have two objects for the same widget.
     ASSERT(!get(widget));
 
-    // Catch the case if an (unsupported) widget type is used. Only FrameView and ScrollBar are supported now.
+    // Ensure we weren't given an unsupported widget type.
     ASSERT(newObj);
     if (!newObj)
         return nullptr;
@@ -1299,6 +1299,17 @@ void AXObjectCache::selectedChildrenChanged(RenderObject* renderer)
     postNotification(renderer, AXSelectedChildrenChanged, PostTarget::ObservableParent);
 }
 
+void AXObjectCache::selectedStateChanged(Node* node)
+{
+    // For a table cell, post AXSelectedStateChanged on the cell itself.
+    // For any other element, post AXSelectedChildrenChanged on the parent.
+    if (nodeHasRole(node, "gridcell") || nodeHasRole(node, "cell")
+        || nodeHasRole(node, "columnheader") || nodeHasRole(node, "rowheader"))
+        postNotification(node, AXSelectedStateChanged);
+    else
+        selectedChildrenChanged(node);
+}
+
 #ifndef NDEBUG
 void AXObjectCache::showIntent(const AXTextStateChangeIntent &intent)
 {
@@ -1806,7 +1817,7 @@ void AXObjectCache::handleAttributeChange(const QualifiedName& attrName, Element
     else if (attrName == aria_checkedAttr)
         checkedStateChanged(element);
     else if (attrName == aria_selectedAttr)
-        selectedChildrenChanged(element);
+        selectedStateChanged(element);
     else if (attrName == aria_expandedAttr)
         handleAriaExpandedChange(element);
     else if (attrName == aria_hiddenAttr) {
@@ -1900,7 +1911,7 @@ VisiblePosition AXObjectCache::visiblePositionForTextMarkerData(TextMarkerData& 
         || textMarkerData.node->isPseudoElement())
         return { };
 
-    auto visiblePosition = VisiblePosition(makeContainerOffsetPosition(textMarkerData.node, textMarkerData.offset), textMarkerData.affinity);
+    auto visiblePosition = VisiblePosition({ textMarkerData.node, textMarkerData.offset, textMarkerData.anchorType }, textMarkerData.affinity);
     auto deepPosition = visiblePosition.deepEquivalent();
     if (deepPosition.isNull())
         return { };
@@ -2484,7 +2495,7 @@ std::optional<TextMarkerData> AXObjectCache::textMarkerDataForVisiblePosition(co
         return std::nullopt;
 
     Position deepPos = visiblePos.deepEquivalent();
-    Node* domNode = deepPos.deprecatedNode();
+    Node* domNode = deepPos.anchorNode();
     ASSERT(domNode);
     if (!domNode)
         return std::nullopt;
@@ -2515,6 +2526,7 @@ std::optional<TextMarkerData> AXObjectCache::textMarkerDataForVisiblePosition(co
     textMarkerData.axID = obj.get()->objectID();
     textMarkerData.node = domNode;
     textMarkerData.offset = deepPos.deprecatedEditingOffset();
+    textMarkerData.anchorType = deepPos.anchorType();
     textMarkerData.affinity = visiblePos.affinity();
 
     textMarkerData.characterOffset = characterOffset.offset;

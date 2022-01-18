@@ -59,8 +59,11 @@ void GPUProcessCreationParameters::encode(IPC::Encoder& encoder) const
     encoder << dynamicMachExtensionHandles;
 #endif
 
+    encoder << wtfLoggingChannels;
     encoder << webCoreLoggingChannels;
     encoder << webKitLoggingChannels;
+
+    encoder << applicationVisibleName;
 }
 
 bool GPUProcessCreationParameters::decode(IPC::Decoder& decoder, GPUProcessCreationParameters& result)
@@ -109,9 +112,14 @@ bool GPUProcessCreationParameters::decode(IPC::Decoder& decoder, GPUProcessCreat
     result.dynamicMachExtensionHandles = WTFMove(*dynamicMachExtensionHandles);
 #endif
 
+    if (!decoder.decode(result.wtfLoggingChannels))
+        return false;
     if (!decoder.decode(result.webCoreLoggingChannels))
         return false;
     if (!decoder.decode(result.webKitLoggingChannels))
+        return false;
+
+    if (!decoder.decode(result.applicationVisibleName))
         return false;
 
     return true;

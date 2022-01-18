@@ -388,6 +388,8 @@ public:
     RTCDataChannelRemoteManagerProxy& rtcDataChannelProxy();
 #endif
 
+    bool ftpEnabled() const { return m_ftpEnabled; }
+
 private:
     void platformInitializeNetworkProcess(const NetworkProcessCreationParameters&);
 
@@ -398,11 +400,6 @@ private:
 
     void lowMemoryHandler(Critical);
     
-    void processDidTransitionToForeground();
-    void processDidTransitionToBackground();
-    void platformProcessDidTransitionToForeground();
-    void platformProcessDidTransitionToBackground();
-
     // AuxiliaryProcess
     void initializeProcess(const AuxiliaryProcessInitializationParameters&) override;
     void initializeProcessName(const AuxiliaryProcessInitializationParameters&) override;
@@ -615,6 +612,7 @@ private:
 
     bool m_privateClickMeasurementEnabled { true };
     bool m_privateClickMeasurementDebugModeEnabled { false };
+    bool m_ftpEnabled { false };
 };
 
 } // namespace WebKit

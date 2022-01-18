@@ -283,6 +283,7 @@ JS_BINDING_IDLS := \
     $(WebCore)/Modules/mediastream/RTCRtpSender.idl \
     $(WebCore)/Modules/mediastream/RTCRtpSender+Transform.idl \
     $(WebCore)/Modules/mediastream/RTCRtpSFrameTransform.idl \
+    $(WebCore)/Modules/mediastream/RTCRtpSFrameTransformErrorEvent.idl \
     $(WebCore)/Modules/mediastream/RTCRtpScriptTransform.idl \
     $(WebCore)/Modules/mediastream/RTCRtpScriptTransformProvider.idl \
     $(WebCore)/Modules/mediastream/RTCRtpScriptTransformer.idl \
@@ -598,11 +599,11 @@ JS_BINDING_IDLS := \
     $(WebCore)/css/StyleSheetList.idl \
     $(WebCore)/css/typedom/StylePropertyMap.idl \
     $(WebCore)/css/typedom/StylePropertyMapReadOnly.idl \
-    $(WebCore)/css/typedom/TypedOMCSSImageValue.idl \
-    $(WebCore)/css/typedom/TypedOMCSSNumericValue.idl \
-    $(WebCore)/css/typedom/TypedOMCSSStyleValue.idl \
-    $(WebCore)/css/typedom/TypedOMCSSUnitValue.idl \
-    $(WebCore)/css/typedom/TypedOMCSSUnparsedValue.idl \
+    $(WebCore)/css/typedom/CSSStyleImageValue.idl \
+    $(WebCore)/css/typedom/CSSNumericValue.idl \
+    $(WebCore)/css/typedom/CSSStyleValue.idl \
+    $(WebCore)/css/typedom/CSSUnitValue.idl \
+    $(WebCore)/css/typedom/CSSUnparsedValue.idl \
     $(WebCore)/dom/AbortAlgorithm.idl \
     $(WebCore)/dom/AbortController.idl \
     $(WebCore)/dom/AbortSignal.idl \

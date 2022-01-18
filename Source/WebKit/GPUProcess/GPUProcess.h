@@ -97,6 +97,8 @@ public:
 
     void tryExitIfUnusedAndUnderMemoryPressure();
 
+    const String& applicationVisibleName() const { return m_applicationVisibleName; }
+
 private:
     void lowMemoryHandler(Critical, Synchronous);
 
@@ -119,8 +121,6 @@ private:
     void addSession(PAL::SessionID, GPUProcessSessionParameters&&);
     void removeSession(PAL::SessionID);
 
-    void processDidTransitionToForeground();
-    void processDidTransitionToBackground();
 #if ENABLE(MEDIA_STREAM)
     void setMockCaptureDevicesEnabled(bool);
     void setOrientationForMediaCapture(uint64_t orientation);
@@ -155,6 +155,10 @@ private:
 
 #if ENABLE(VORBIS)
     void setVorbisDecoderEnabled(bool);
+#endif
+
+#if ENABLE(CFPREFS_DIRECT_MODE)
+    void notifyPreferencesChanged(const String& domain, const String& key, const std::optional<String>& encodedValue);
 #endif
 
     // Connections to WebProcesses.
@@ -206,6 +210,7 @@ private:
 #if ENABLE(VORBIS)
     bool m_vorbisEnabled { false };
 #endif
+    String m_applicationVisibleName;
 };
 
 } // namespace WebKit

@@ -154,6 +154,7 @@
 #include "PathUtilities.h"
 #include "PictureInPictureSupport.h"
 #include "PlatformKeyboardEvent.h"
+#include "PlatformMediaSession.h"
 #include "PlatformMediaSessionManager.h"
 #include "PlatformScreen.h"
 #include "PlatformStrategies.h"
@@ -600,7 +601,8 @@ void Internals::resetToConsistentState(Page& page)
     WebCore::MediaRecorder::setCustomPrivateRecorderCreator(nullptr);
 #endif
 
-    HTMLCanvasElement::setMaxPixelMemoryForTesting(0); // This means use the default value.
+    HTMLCanvasElement::setMaxPixelMemoryForTesting(std::nullopt);
+    HTMLCanvasElement::setMaxCanvasAreaForTesting(std::nullopt);
     DOMWindow::overrideTransientActivationDurationForTesting(std::nullopt);
 
 #if PLATFORM(IOS)
@@ -5267,6 +5269,40 @@ bool Internals::hasLowAndHighPowerGPUs()
     return false;
 #endif
 }
+
+Internals::RequestedGPU Internals::requestedGPU(WebGLRenderingContext& context)
+{
+    UNUSED_PARAM(context);
+    if (auto optionalAttributes = context.getContextAttributes()) {
+        auto attributes = *optionalAttributes;
+        if (attributes.forceRequestForHighPerformanceGPU)
+            return RequestedGPU::HighPerformance;
+        switch (attributes.powerPreference) {
+        case GraphicsContextGLPowerPreference::Default:
+            return RequestedGPU::Default;
+        case GraphicsContextGLPowerPreference::LowPower:
+            return RequestedGPU::LowPower;
+        case GraphicsContextGLPowerPreference::HighPerformance:
+            return RequestedGPU::HighPerformance;
+        }
+    }
+
+    return RequestedGPU::Default;
+}
+
+bool Internals::requestedMetal(WebGLRenderingContext& context)
+{
+    UNUSED_PARAM(context);
+#if PLATFORM(COCOA)
+    if (auto optionalAttributes = context.getContextAttributes()) {
+        auto attributes = *optionalAttributes;
+
+        return attributes.useMetal;
+    }
+#endif
+
+    return false;
+}
 #endif
 
 void Internals::setPageVisibility(bool isVisible)
@@ -6016,6 +6052,11 @@ void Internals::setMaxCanvasPixelMemory(unsigned size)
     HTMLCanvasElement::setMaxPixelMemoryForTesting(size);
 }
 
+void Internals::setMaxCanvasArea(unsigned size)
+{
+    HTMLCanvasElement::setMaxCanvasAreaForTesting(size);
+}
+
 int Internals::processIdentifier() const
 {
     return getCurrentProcessID();
@@ -6325,6 +6366,19 @@ void Internals::loadArtworkImage(String&& url, ArtworkImagePromise&& promise)
     });
     m_artworkLoader->requestImageResource();
 }
+
+ExceptionOr<Vector<String>> Internals::platformSupportedCommands() const
+{
+    if (!contextDocument())
+        return Exception { InvalidAccessError };
+    auto commands = PlatformMediaSessionManager::sharedManager().supportedCommands();
+    Vector<String> commandStrings;
+    for (auto command : commands)
+        commandStrings.append(convertEnumerationToString(command));
+
+    return commandStrings;
+}
+
 #endif
 
 #if ENABLE(MEDIA_SESSION_COORDINATOR)
@@ -6467,5 +6521,12 @@ ExceptionOr<void> Internals::setDocumentAutoplayPolicy(Document& document, Inter
 
     return { };
 }
+
+#if ENABLE(WEBGL) && !PLATFORM(COCOA)
+bool Internals::platformSupportsMetal(bool)
+{
+    return false;
+}
+#endif
 
 } // namespace WebCore

@@ -31,6 +31,13 @@
 namespace WebKit {
 using namespace WebCore;
 
+RefPtr<SecurityOrigin> NetworkResourceLoadParameters::parentOrigin() const
+{
+    if (frameAncestorOrigins.isEmpty())
+        return nullptr;
+    return frameAncestorOrigins.first();
+}
+
 void NetworkResourceLoadParameters::encode(IPC::Encoder& encoder) const
 {
     encoder << identifier;
@@ -58,7 +65,8 @@ void NetworkResourceLoadParameters::encode(IPC::Encoder& encoder) const
             const FormDataElement& element = elements[i];
             if (auto* fileData = WTF::get_if<FormDataElement::EncodedFileData>(element.data)) {
                 const String& path = fileData->filename;
-                SandboxExtension::createHandle(path, SandboxExtension::Type::ReadOnly, requestBodySandboxExtensions[extensionIndex++]);
+                if (auto handle = SandboxExtension::createHandle(path, SandboxExtension::Type::ReadOnly))
+                    requestBodySandboxExtensions[extensionIndex++] = WTFMove(*handle);
             }
         }
         encoder << requestBodySandboxExtensions;
@@ -67,11 +75,15 @@ void NetworkResourceLoadParameters::encode(IPC::Encoder& encoder) const
     if (request.url().isLocalFile()) {
         SandboxExtension::Handle requestSandboxExtension;
 #if HAVE(AUDIT_TOKEN)
-        if (networkProcessAuditToken)
-            SandboxExtension::createHandleForReadByAuditToken(request.url().fileSystemPath(), *networkProcessAuditToken, requestSandboxExtension);
-        else
+        if (networkProcessAuditToken) {
+            if (auto handle = SandboxExtension::createHandleForReadByAuditToken(request.url().fileSystemPath(), *networkProcessAuditToken))
+                requestSandboxExtension = WTFMove(*handle);
+        } else
 #endif
-            SandboxExtension::createHandle(request.url().fileSystemPath(), SandboxExtension::Type::ReadOnly, requestSandboxExtension);
+        {
+            if (auto handle = SandboxExtension::createHandle(request.url().fileSystemPath(), SandboxExtension::Type::ReadOnly))
+                requestSandboxExtension = WTFMove(*handle);
+        }
 
         encoder << requestSandboxExtension;
     }
@@ -96,6 +108,8 @@ void NetworkResourceLoadParameters::encode(IPC::Encoder& encoder) const
         encoder << *topOrigin;
     encoder << options;
     encoder << cspResponseHeaders;
+    encoder << parentCrossOriginEmbedderPolicy;
+    encoder << crossOriginEmbedderPolicy;
     encoder << originalRequestHeaders;
 
     encoder << shouldRestrictHTTPResponseAccess;
@@ -231,6 +245,19 @@ std::optional<NetworkResourceLoadParameters> NetworkResourceLoadParameters::deco
 
     if (!decoder.decode(result.cspResponseHeaders))
         return std::nullopt;
+
+    std::optional<WebCore::CrossOriginEmbedderPolicy> parentCrossOriginEmbedderPolicy;
+    decoder >> parentCrossOriginEmbedderPolicy;
+    if (!parentCrossOriginEmbedderPolicy)
+        return std::nullopt;
+    result.parentCrossOriginEmbedderPolicy = WTFMove(*parentCrossOriginEmbedderPolicy);
+
+    std::optional<WebCore::CrossOriginEmbedderPolicy> crossOriginEmbedderPolicy;
+    decoder >> crossOriginEmbedderPolicy;
+    if (!crossOriginEmbedderPolicy)
+        return std::nullopt;
+    result.crossOriginEmbedderPolicy = WTFMove(*crossOriginEmbedderPolicy);
+
     if (!decoder.decode(result.originalRequestHeaders))
         return std::nullopt;
 

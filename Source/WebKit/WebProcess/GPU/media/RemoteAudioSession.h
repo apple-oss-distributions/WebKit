@@ -66,28 +66,41 @@ private:
 
     // AudioSession
     void setCategory(CategoryType, WebCore::RouteSharingPolicy) final;
-    void setPreferredBufferSize(size_t) final;
+    CategoryType category() const final;
+
+    WebCore::RouteSharingPolicy routeSharingPolicy() const final { return m_routeSharingPolicy; }
+    String routingContextUID() const final { return configuration().routingContextUID; }
+
+    float sampleRate() const final { return configuration().sampleRate; }
+    size_t bufferSize() const final { return configuration().bufferSize; }
+    size_t numberOfOutputChannels() const final { return configuration().numberOfOutputChannels; }
+    size_t maximumNumberOfOutputChannels() const final { return configuration().maximumNumberOfOutputChannels; }
+
     bool tryToSetActiveInternal(bool) final;
+
+    size_t preferredBufferSize() const final { return configuration().preferredBufferSize; }
+    void setPreferredBufferSize(size_t) final;
+        
+    void addConfigurationChangeObserver(ConfigurationChangeObserver&) final;
+    void removeConfigurationChangeObserver(ConfigurationChangeObserver&) final;
+
+    void setIsPlayingToBluetoothOverride(std::optional<bool>) final;
+
+    bool isMuted() const final { return configuration().isMuted; }
+
+    bool isActive() const final { return configuration().isActive; }
 
     const RemoteAudioSessionConfiguration& configuration() const;
     RemoteAudioSessionConfiguration& configuration();
     void initializeConfigurationIfNecessary();
 
-    CategoryType category() const final;
-    WebCore::RouteSharingPolicy routeSharingPolicy() const final { return m_routeSharingPolicy; }
-    String routingContextUID() const final { return configuration().routingContextUID; }
-    float sampleRate() const final { return configuration().sampleRate; }
-    size_t bufferSize() const final { return configuration().bufferSize; }
-    size_t numberOfOutputChannels() const final { return configuration().numberOfOutputChannels; }
-    size_t maximumNumberOfOutputChannels() const final { return configuration().maximumNumberOfOutputChannels; }
-    size_t preferredBufferSize() const final { return configuration().preferredBufferSize; }
-    bool isMuted() const final { return configuration().isMuted; }
-    bool isActive() const final { return configuration().isActive; }
 
     WebProcess& m_process;
 
+    WeakHashSet<ConfigurationChangeObserver> m_configurationChangeObservers;
     CategoryType m_category { CategoryType::None };
     WebCore::RouteSharingPolicy m_routeSharingPolicy { WebCore::RouteSharingPolicy::Default };
+    bool m_isPlayingToBluetoothOverrideChanged { false };
     std::optional<RemoteAudioSessionConfiguration> m_configuration;
     WeakPtr<GPUProcessConnection> m_gpuProcessConnection;
 };

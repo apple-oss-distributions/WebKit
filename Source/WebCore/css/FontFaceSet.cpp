@@ -107,23 +107,31 @@ FontFaceSet::PendingPromise::~PendingPromise() = default;
 
 bool FontFaceSet::has(FontFace& face) const
 {
+    if (face.backing().cssConnection())
+        m_backing->updateStyleIfNeeded();
     return m_backing->hasFace(face.backing());
 }
 
-size_t FontFaceSet::size() const
+size_t FontFaceSet::size()
 {
+    m_backing->updateStyleIfNeeded();
     return m_backing->faceCount();
 }
 
-FontFaceSet& FontFaceSet::add(FontFace& face)
+ExceptionOr<FontFaceSet&> FontFaceSet::add(FontFace& face)
 {
-    if (!m_backing->hasFace(face.backing()))
-        m_backing->add(face.backing());
+    if (m_backing->hasFace(face.backing()))
+        return *this;
+    if (face.backing().cssConnection())
+        return Exception(InvalidModificationError);
+    m_backing->add(face.backing());
     return *this;
 }
 
 bool FontFaceSet::remove(FontFace& face)
 {
+    if (face.backing().cssConnection())
+        return false;
     bool result = m_backing->hasFace(face.backing());
     if (result)
         m_backing->remove(face.backing());
@@ -132,12 +140,16 @@ bool FontFaceSet::remove(FontFace& face)
 
 void FontFaceSet::clear()
 {
-    while (m_backing->faceCount())
-        m_backing->remove(m_backing.get()[0]);
+    auto facesPartitionIndex = m_backing->facesPartitionIndex();
+    while (m_backing->faceCount() > facesPartitionIndex) {
+        m_backing->remove(m_backing.get()[m_backing->faceCount() - 1]);
+        ASSERT(m_backing->facesPartitionIndex() == facesPartitionIndex);
+    }
 }
 
 void FontFaceSet::load(const String& font, const String& text, LoadPromise&& promise)
 {
+    m_backing->updateStyleIfNeeded();
     auto matchingFacesResult = m_backing->matchingFacesExcludingPreinstalledFonts(font, text);
     if (matchingFacesResult.hasException()) {
         promise.reject(matchingFacesResult.releaseException());
@@ -178,11 +190,14 @@ void FontFaceSet::load(const String& font, const String& text, LoadPromise&& pro
 
 ExceptionOr<bool> FontFaceSet::check(const String& family, const String& text)
 {
+    m_backing->updateStyleIfNeeded();
     return m_backing->check(family, text);
 }
     
 auto FontFaceSet::status() const -> LoadStatus
 {
+    m_backing->updateStyleIfNeeded();
+
     switch (m_backing->status()) {
     case CSSFontFaceSet::Status::Loading:
         return LoadStatus::Loading;

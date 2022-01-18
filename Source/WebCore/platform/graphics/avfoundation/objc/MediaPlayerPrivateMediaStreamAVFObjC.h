@@ -120,7 +120,7 @@ private:
     bool hasVideo() const override;
     bool hasAudio() const override;
 
-    void setVisible(bool) final;
+    void setPageIsVisible(bool) final;
     void setVisibleForCanvas(bool) final;
     void setVisibleInViewport(bool) final;
 
@@ -263,7 +263,7 @@ private:
     std::unique_ptr<VideoLayerManagerObjC> m_videoLayerManager;
 
     // SampleBufferDisplayLayer::Client
-    void sampleBufferDisplayLayerStatusDidChange(SampleBufferDisplayLayer&) final;
+    void sampleBufferDisplayLayerStatusDidFail() final;
 
     RetainPtr<WebRootSampleBufferBoundsChangeListener> m_boundsChangeListener;
 

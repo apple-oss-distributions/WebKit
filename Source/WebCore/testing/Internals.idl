@@ -112,6 +112,12 @@ enum AutoplayPolicy {
     "Deny"
 };
 
+[Conditional=WEBGL] enum RequestedGPU {
+    "default",
+    "low-power",
+    "high-performance"
+};
+
 [
     ExportMacro=WEBCORE_TESTSUPPORT_EXPORT,
     Conditional=VIDEO,
@@ -848,6 +854,9 @@ enum AutoplayPolicy {
 
     [Conditional=WEBGL] undefined simulateEventForWebGLContext(SimulatedWebGLContextEvent event, WebGLRenderingContext context);
     [Conditional=WEBGL] boolean hasLowAndHighPowerGPUs();
+    [Conditional=WEBGL] RequestedGPU requestedGPU(WebGLRenderingContext context);
+    [Conditional=WEBGL] boolean requestedMetal(WebGLRenderingContext context);
+    [Conditional=WEBGL] boolean platformSupportsMetal(boolean isWebGL2);
 
     undefined setPageVisibility(boolean isVisible);
     undefined setPageIsFocusedAndActive(boolean isFocused);
@@ -938,6 +947,7 @@ enum AutoplayPolicy {
     undefined markContextAsInsecure();
 
     undefined setMaxCanvasPixelMemory(unsigned long size);
+    undefined setMaxCanvasArea(unsigned long size);
 
     [Conditional=VIDEO] readonly attribute NowPlayingState nowPlayingState;
 
@@ -1034,7 +1044,8 @@ enum AutoplayPolicy {
     [Conditional=MEDIA_SESSION] double currentMediaSessionPosition(MediaSession session);
     [Conditional=MEDIA_SESSION] undefined sendMediaSessionAction(MediaSession session, MediaSessionActionDetails actionDetails);
     [Conditional=MEDIA_SESSION] Promise<ImageData> loadArtworkImage(DOMString url);
-    
+    [Conditional=MEDIA_SESSION] sequence<DOMString> platformSupportedCommands();
+
     [Conditional=MEDIA_SESSION_COORDINATOR, CallWith=ScriptExecutionContext] undefined registerMockMediaSessionCoordinator(StringCallback callback);
     [Conditional=MEDIA_SESSION_COORDINATOR] undefined setMockMediaSessionCoordinatorCommandsShouldFail(boolean shouldFail);
 

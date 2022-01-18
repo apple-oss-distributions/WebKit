@@ -31,6 +31,7 @@
 #include "CSSValuePool.h"
 #include "CachedScript.h"
 #include "CommonVM.h"
+#include "CrossOriginOpenerPolicy.h"
 #include "DOMTimer.h"
 #include "DOMWindow.h"
 #include "DatabaseContext.h"

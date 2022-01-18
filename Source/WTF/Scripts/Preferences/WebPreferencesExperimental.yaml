@@ -321,6 +321,18 @@ CoreMathMLEnabled:
     WebCore:
       default: false
 
+CrossOriginEmbedderPolicyEnabled:
+  type: bool
+  humanReadableName: "Cross-Origin-Embedder-Policy (COEP) header"
+  humanReadableDescription: "Support for Cross-Origin-Embedder-Policy (COEP) header"
+  defaultValue:
+    WebKitLegacy:
+      default: false
+    WebKit:
+      default: false
+    WebCore:
+      default: false
+
 CrossOriginOpenerPolicyEnabled:
   type: bool
   humanReadableName: "Cross-Origin-Opener-Policy (COOP) header"
@@ -385,6 +397,18 @@ ExposeSpeakersEnabled:
     WebCore:
       default: false
 
+FTPEnabled:
+  type: bool
+  humanReadableName: "FTP support enabled"
+  humanReadableDescription: "FTP support enabled"
+  defaultValue:
+    WebCore:
+      default: false
+    WebKit:
+      default: false
+    WebKitLegacy:
+      default: false
+      
 # FIXME: This seems to be accidentally enabled for WebKit1 right now due to the old code using the
 # wrong preference key in some places. We should identify whether it really makes sense to keep this
 # enabled.
@@ -825,11 +849,11 @@ PerformanceNavigationTimingAPIEnabled:
   humanReadableDescription: "Enable PerformanceNavigationTiming API"
   defaultValue:
     WebKitLegacy:
-      default: false
+      default: true
     WebKit:
-      default: false
+      default: true
     WebCore:
-      default: false
+      default: true
 
 # Note: This is off by default because of privacy concerns
 # such as https://github.com/w3c/resource-timing/issues/238
@@ -1366,7 +1390,7 @@ WebRTCSocketsProxyingEnabled:
     WebKitLegacy:
       default: false
     WebKit:
-      default: false
+      default: true
     WebCore:
       default: false
 

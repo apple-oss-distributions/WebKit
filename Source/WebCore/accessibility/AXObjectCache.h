@@ -60,12 +60,15 @@ class Widget;
 
 struct TextMarkerData {
     AXID axID { 0 };
+
     Node* node { nullptr };
-    int offset { 0 };
+    unsigned offset { 0 };
+    Position::AnchorType anchorType { Position::PositionIsOffsetInAnchor };
+    Affinity affinity { Affinity::Downstream };
+
     int characterStartIndex { 0 };
     int characterOffset { 0 };
     bool ignored { false };
-    Affinity affinity { Affinity::Downstream };
 };
 
 struct CharacterOffset {
@@ -291,6 +294,7 @@ public:
         AXNewDocumentLoadComplete,
         AXPageScrolled,
         AXSelectedChildrenChanged,
+        AXSelectedStateChanged,
         AXSelectedTextChanged,
         AXValueChanged,
         AXScrolledToAnchor,
@@ -463,6 +467,7 @@ private:
     bool shouldProcessAttributeChange(const QualifiedName&, Element*);
     void selectedChildrenChanged(Node*);
     void selectedChildrenChanged(RenderObject*);
+    void selectedStateChanged(Node*);
     // Called by a node when text or a text equivalent (e.g. alt) attribute is changed.
     void textChanged(Node*);
     void handleActiveDescendantChanged(Node*);

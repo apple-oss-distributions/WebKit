@@ -51,6 +51,7 @@
 #include "GeometryUtilities.h"
 #include "HTMLAreaElement.h"
 #include "HTMLAudioElement.h"
+#include "HTMLBRElement.h"
 #include "HTMLDetailsElement.h"
 #include "HTMLFormElement.h"
 #include "HTMLFrameElementBase.h"
@@ -75,6 +76,7 @@
 #include "NodeList.h"
 #include "Page.h"
 #include "PathUtilities.h"
+#include "PluginViewBase.h"
 #include "ProgressTracker.h"
 #include "Range.h"
 #include "RenderButton.h"
@@ -530,6 +532,11 @@ bool AccessibilityRenderObject::isAttachment() const
     RenderBoxModelObject* renderer = renderBoxModelObject();
     if (!renderer)
         return false;
+
+    // Although plugins are also a type of widget, we need to treat them differently than attachments.
+    if (is<PluginViewBase>(widget()))
+        return false;
+
     // Widgets are the replaced elements that we represent to AX as attachments
     bool isWidget = renderer->isWidget();
 
@@ -1343,6 +1350,12 @@ bool AccessibilityRenderObject::computeAccessibilityIsIgnored() const
     // Allow the platform to decide if the attachment is ignored or not.
     if (isAttachment())
         return accessibilityIgnoreAttachment();
+
+#if PLATFORM(COCOA)
+    // If this widget has an underlying AX object, don't ignore it.
+    if (widget() && widget()->accessibilityObject())
+        return false;
+#endif
     
     // ignore popup menu items because AppKit does
     if (m_renderer && ancestorsOfType<RenderMenuList>(*m_renderer).first())
@@ -1604,17 +1617,12 @@ int AccessibilityRenderObject::textLength() const
 
 PlainTextRange AccessibilityRenderObject::documentBasedSelectedTextRange() const
 {
-    Node* node = m_renderer->node();
-    if (!node)
-        return PlainTextRange();
+    auto selectedVisiblePositionRange = this->selectedVisiblePositionRange();
+    if (selectedVisiblePositionRange.isNull())
+        return { };
 
-    auto visibleSelection = selection();
-    auto selectionRange = visibleSelection.firstRange();
-    if (!selectionRange || !intersects<ComposedTree>(*selectionRange, *node))
-        return PlainTextRange();
-
-    int start = indexForVisiblePosition(visibleSelection.start());
-    int end = indexForVisiblePosition(visibleSelection.end());
+    int start = indexForVisiblePosition(selectedVisiblePositionRange.start);
+    int end = indexForVisiblePosition(selectedVisiblePositionRange.end);
     return PlainTextRange(start, end - start);
 }
 
@@ -2271,6 +2279,17 @@ bool AccessibilityRenderObject::isVisiblePositionRangeInDifferentDocument(const 
     return false;
 }
 
+VisiblePositionRange AccessibilityRenderObject::selectedVisiblePositionRange() const
+{
+    if (!m_renderer)
+        return { };
+
+    auto selection = m_renderer->frame().selection().selection();
+    if (selection.isNone())
+        return { };
+    return selection;
+}
+
 void AccessibilityRenderObject::setSelectedVisiblePositionRange(const VisiblePositionRange& range) const
 {
     if (range.isNull())
@@ -2285,22 +2304,56 @@ void AccessibilityRenderObject::setSelectedVisiblePositionRange(const VisiblePos
     if (auto client = m_renderer->document().editor().client())
         client->willChangeSelectionForAccessibility();
 
-    // make selection and tell the document to use it. if it's zero length, then move to that position
-    if (range.start == range.end) {
-        setTextSelectionIntent(axObjectCache(), AXTextStateChangeTypeSelectionMove);
+    if (isNativeTextControl()) {
+        // isNativeTextControl returns true only if this->node() is<HTMLTextAreaElement> or is<HTMLInputElement>.
+        // Since both HTMLTextAreaElement and HTMLInputElement derive from HTMLTextFormControlElement, it is safe to downcast here.
+        auto* textControl = downcast<HTMLTextFormControlElement>(node());
+        int start = textControl->indexForVisiblePosition(range.start);
+        int end = textControl->indexForVisiblePosition(range.end);
 
-        auto start = range.start;
-        if (auto elementRange = this->elementRange()) {
-            if (!contains<ComposedTree>(*elementRange, makeBoundaryPoint(start)))
-                start = makeContainerOffsetPosition(elementRange->start);
+        // For ranges entirely contained in textControl, the start or end position may not be inside textControl.innerTextElement.
+        // This would cause that the above indexes will be 0, leading to an incorrect selected range
+        // (see HTMLTextFormControlElement::indexForVisiblePosition). This is
+        // the case when range is obtained from AXObjectCache::rangeForNodeContents
+        // for the HTMLTextFormControlElement.
+        // Thus, the following corrects the start and end indexes in such a case..
+        if (range.start.deepEquivalent().anchorNode() == range.end.deepEquivalent().anchorNode()
+            && range.start.deepEquivalent().anchorNode() == textControl) {
+            if (auto innerText = textControl->innerTextElement()) {
+                auto textControlRange = makeVisiblePositionRange(AXObjectCache::rangeForNodeContents(*textControl));
+                auto innerRange = makeVisiblePositionRange(AXObjectCache::rangeForNodeContents(*innerText));
+
+                if (range.start.equals(textControlRange.end))
+                    start = textControl->value().length();
+                else if (range.start <= innerRange.start)
+                    start = 0;
+
+                if (range.end >= innerRange.end
+                    || range.end.equals(textControlRange.end))
+                    end = textControl->value().length();
+            }
         }
 
-        m_renderer->frame().selection().moveTo(start, UserTriggered);
+        setTextSelectionIntent(axObjectCache(), start == end ? AXTextStateChangeTypeSelectionMove : AXTextStateChangeTypeSelectionExtend);
+        textControl->setSelectionRange(start, end);
     } else {
-        setTextSelectionIntent(axObjectCache(), AXTextStateChangeTypeSelectionExtend);
+        // Make selection and tell the document to use it. If it's zero length, then move to that position.
+        if (range.start == range.end) {
+            setTextSelectionIntent(axObjectCache(), AXTextStateChangeTypeSelectionMove);
 
-        VisibleSelection newSelection = VisibleSelection(range.start, range.end);
-        m_renderer->frame().selection().setSelection(newSelection, FrameSelection::defaultSetSelectionOptions(UserTriggered));
+            auto start = range.start;
+            if (auto elementRange = this->elementRange()) {
+                if (!contains<ComposedTree>(*elementRange, makeBoundaryPoint(start)))
+                    start = makeContainerOffsetPosition(elementRange->start);
+            }
+
+            m_renderer->frame().selection().moveTo(start, UserTriggered);
+        } else {
+            setTextSelectionIntent(axObjectCache(), AXTextStateChangeTypeSelectionExtend);
+
+            VisibleSelection newSelection = VisibleSelection(range.start, range.end);
+            m_renderer->frame().selection().setSelection(newSelection, FrameSelection::defaultSetSelectionOptions(UserTriggered));
+        }
     }
 
     clearTextSelectionIntent(axObjectCache());
@@ -2409,38 +2462,59 @@ void AccessibilityRenderObject::lineBreaks(Vector<int>& lineBreaks) const
     }
 }
 
+static bool isHardLineBreak(const VisiblePosition& position)
+{
+    if (!isEndOfLine(position))
+        return false;
+
+    auto next = position.next();
+
+    auto lineBreakRange = makeSimpleRange(position, next);
+    if (!lineBreakRange)
+        return false;
+
+    TextIterator it(*lineBreakRange);
+    if (it.atEnd())
+        return false;
+
+    if (is<HTMLBRElement>(it.node()))
+        return true;
+
+    if (it.node() != position.deepEquivalent().anchorNode())
+        return false;
+
+    return it.text().length() == 1 && it.text()[0] == '\n';
+}
+
 // Given a line number, the range of characters of the text associated with this accessibility
 // object that contains the line number.
 PlainTextRange AccessibilityRenderObject::doAXRangeForLine(unsigned lineNumber) const
 {
     if (!isTextControl())
-        return PlainTextRange();
-    
-    // iterate to the specified line
-    VisiblePosition visiblePos = visiblePositionForIndex(0);
-    VisiblePosition savedVisiblePos;
-    for (unsigned lineCount = lineNumber; lineCount; lineCount -= 1) {
-        savedVisiblePos = visiblePos;
-        visiblePos = nextLinePosition(visiblePos, 0);
-        if (visiblePos.isNull() || visiblePos == savedVisiblePos)
-            return PlainTextRange();
+        return { };
+
+    // Iterate to the specified line.
+    auto lineStart = visiblePositionForIndex(0);
+    for (unsigned lineCount = lineNumber; lineCount; --lineCount) {
+        auto nextLineStart = nextLinePosition(lineStart, 0);
+        if (nextLineStart.isNull() || nextLineStart == lineStart)
+            return { };
+        lineStart = nextLineStart;
     }
 
     // Get the end of the line based on the starting position.
-    VisiblePosition endPosition = endOfLine(visiblePos);
+    auto lineEnd = endOfLine(lineStart);
 
-    int index1 = indexForVisiblePosition(visiblePos);
-    int index2 = indexForVisiblePosition(endPosition);
-    
-    // add one to the end index for a line break not caused by soft line wrap (to match AppKit)
-    if (endPosition.affinity() == Affinity::Downstream && endPosition.next().isNotNull())
-        index2 += 1;
-    
-    // return nil rather than an zero-length range (to match AppKit)
-    if (index1 == index2)
-        return PlainTextRange();
-    
-    return PlainTextRange(index1, index2 - index1);
+    int index1 = indexForVisiblePosition(lineStart);
+    int index2 = indexForVisiblePosition(lineEnd);
+
+    if (isHardLineBreak(lineEnd))
+        ++index2;
+
+    if (index1 < 0 || index2 < 0 || index2 <= index1)
+        return { };
+
+    return { static_cast<unsigned>(index1), static_cast<unsigned>(index2 - index1) };
 }
 
 // The composed character range in the text associated with this accessibility object that

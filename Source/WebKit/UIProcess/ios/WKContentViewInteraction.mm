@@ -255,6 +255,7 @@ WKSelectionDrawingInfo::WKSelectionDrawingInfo(const EditorState& editorState)
     type = SelectionType::Range;
     auto& postLayoutData = editorState.postLayoutData();
     caretRect = postLayoutData.caretRectAtEnd;
+    caretColor = postLayoutData.caretColor;
     selectionGeometries = postLayoutData.selectionGeometries;
     selectionClipRect = postLayoutData.selectionClipRect;
 }
@@ -266,6 +267,9 @@ inline bool operator==(const WKSelectionDrawingInfo& a, const WKSelectionDrawing
 
     if (a.type == WKSelectionDrawingInfo::SelectionType::Range) {
         if (a.caretRect != b.caretRect)
+            return false;
+
+        if (a.caretColor != b.caretColor)
             return false;
 
         if (a.selectionGeometries.size() != b.selectionGeometries.size())
@@ -313,6 +317,7 @@ TextStream& operator<<(TextStream& stream, const WKSelectionDrawingInfo& info)
     TextStream::GroupScope group(stream);
     stream.dumpProperty("type", info.type);
     stream.dumpProperty("caret rect", info.caretRect);
+    stream.dumpProperty("caret color", info.caretColor);
     stream.dumpProperty("selection geometries", info.selectionGeometries);
     stream.dumpProperty("selection clip rect", info.selectionClipRect);
     return stream;
@@ -763,6 +768,39 @@ static WKDragSessionContext *ensureLocalDragSessionContext(id <UIDragSession> se
 
 @end
 
+@interface WKTargetedPreviewContainer : UIView
+- (instancetype)initWithContentView:(WKContentView *)contentView NS_DESIGNATED_INITIALIZER;
+- (instancetype)initWithFrame:(CGRect)frame NS_UNAVAILABLE;
+- (instancetype)initWithCoder:(NSCoder *)coder NS_UNAVAILABLE;
+@end
+
+@implementation WKTargetedPreviewContainer {
+    __weak WKContentView *_contentView;
+}
+
+- (instancetype)initWithContentView:(WKContentView *)contentView
+{
+    if (!(self = [super initWithFrame:CGRectZero]))
+        return nil;
+
+    _contentView = contentView;
+    return self;
+}
+
+- (void)_didRemoveSubview:(UIView *)subview
+{
+    [super _didRemoveSubview:subview];
+
+    if (self.subviews.count)
+        return;
+
+#if USE(UICONTEXTMENU)
+    [_contentView _targetedPreviewContainerDidRemoveLastSubview:self];
+#endif
+}
+
+@end
+
 @interface WKContentView (WKInteractionPrivate)
 - (void)accessibilitySpeakSelectionSetContent:(NSString *)string;
 - (NSArray *)webSelectionRectsForSelectionGeometries:(const Vector<WebCore::SelectionGeometry>&)selectionRects;
@@ -1135,7 +1173,7 @@ static WKDragSessionContext *ensureLocalDragSessionContext(id <UIDragSession> se
     _layerTreeTransactionIdAtLastInteractionStart = { };
 
 #if USE(UICONTEXTMENU)
-    [self _removeContextMenuViewIfPossible];
+    [self _removeContextMenuHintContainerIfPossible];
 #endif // USE(UICONTEXTMENU)
 
 #if ENABLE(DRAG_SUPPORT)
@@ -1638,15 +1676,6 @@ typedef NS_ENUM(NSInteger, EndEditingReason) {
     return std::nullopt;
 }
 
-inline static UIKeyModifierFlags gestureRecognizerModifierFlags(UIGestureRecognizer *recognizer)
-{
-#if HAVE(UI_GESTURE_RECOGNIZER_MODIFIER_FLAGS)
-    return recognizer.modifierFlags;
-#else
-    return [recognizer respondsToSelector:@selector(_modifierFlags)] ? [recognizer _modifierFlags] : 0;
-#endif
-}
-
 - (BOOL)_touchEventsMustRequireGestureRecognizerToFail:(UIGestureRecognizer *)gestureRecognizer
 {
     auto webView = self.webView;
@@ -1681,7 +1710,7 @@ inline static UIKeyModifierFlags gestureRecognizerModifierFlags(UIGestureRecogni
     }
 
 #if ENABLE(TOUCH_EVENTS)
-    WebKit::NativeWebTouchEvent nativeWebTouchEvent { lastTouchEvent, gestureRecognizerModifierFlags(gestureRecognizer) };
+    WebKit::NativeWebTouchEvent nativeWebTouchEvent { lastTouchEvent, gestureRecognizer.modifierFlags };
     nativeWebTouchEvent.setCanPreventNativeGestures(_touchEventsCanPreventNativeGestures || [gestureRecognizer isDefaultPrevented]);
 
     [self _handleTouchActionsForTouchEvent:nativeWebTouchEvent];
@@ -3008,7 +3037,7 @@ static inline bool isSamePair(UIGestureRecognizer *a, UIGestureRecognizer *b, UI
         break;
     case UIGestureRecognizerStateEnded:
         if (_longPressCanClick && _positionInformation.isElement) {
-            [self _attemptSyntheticClickAtLocation:gestureRecognizer.startPoint modifierFlags:gestureRecognizerModifierFlags(gestureRecognizer)];
+            [self _attemptSyntheticClickAtLocation:gestureRecognizer.startPoint modifierFlags:gestureRecognizer.modifierFlags];
             [self _finishInteraction];
         } else
             [self _cancelInteraction];
@@ -3025,14 +3054,14 @@ static inline bool isSamePair(UIGestureRecognizer *a, UIGestureRecognizer *b, UI
 
 - (void)_doubleTapRecognizedForDoubleClick:(UITapGestureRecognizer *)gestureRecognizer
 {
-    _page->handleDoubleTapForDoubleClickAtPoint(WebCore::IntPoint(gestureRecognizer.location), WebKit::webEventModifierFlags(gestureRecognizerModifierFlags(gestureRecognizer)), _layerTreeTransactionIdAtLastInteractionStart);
+    _page->handleDoubleTapForDoubleClickAtPoint(WebCore::IntPoint(gestureRecognizer.location), WebKit::webEventModifierFlags(gestureRecognizer.modifierFlags), _layerTreeTransactionIdAtLastInteractionStart);
 }
 
 - (void)_twoFingerSingleTapGestureRecognized:(UITapGestureRecognizer *)gestureRecognizer
 {
     _isTapHighlightIDValid = YES;
     _isExpectingFastSingleTapCommit = YES;
-    _page->handleTwoFingerTapAtPoint(WebCore::roundedIntPoint(gestureRecognizer.centroid), WebKit::webEventModifierFlags(gestureRecognizerModifierFlags(gestureRecognizer) | UIKeyModifierCommand), ++_latestTapID);
+    _page->handleTwoFingerTapAtPoint(WebCore::roundedIntPoint(gestureRecognizer.centroid), WebKit::webEventModifierFlags(gestureRecognizer.modifierFlags | UIKeyModifierCommand), ++_latestTapID);
 }
 
 - (void)_longPressRecognized:(UILongPressGestureRecognizer *)gestureRecognizer
@@ -3102,9 +3131,6 @@ static void cancelPotentialTapIfNecessary(WKContentView* contentView)
         if (m_commitPotentialTapPointerId != pointerId)
             _page->touchWithIdentifierWasRemoved(pointerId);
     }
-    auto actionsToPerform = std::exchange(_actionsToPerformAfterResettingSingleTapGestureRecognizer, { });
-    for (const auto& action : actionsToPerform)
-        action();
 
     if (!_isTapHighlightIDValid)
         [self _fadeTapHighlightViewIfNeeded];
@@ -3174,7 +3200,7 @@ static void cancelPotentialTapIfNecessary(WKContentView* contentView)
         pointerId = [singleTapTouchIdentifier unsignedIntValue];
         m_commitPotentialTapPointerId = pointerId;
     }
-    _page->commitPotentialTap(WebKit::webEventModifierFlags(gestureRecognizerModifierFlags(gestureRecognizer)), _layerTreeTransactionIdAtLastInteractionStart, pointerId);
+    _page->commitPotentialTap(WebKit::webEventModifierFlags(gestureRecognizer.modifierFlags), _layerTreeTransactionIdAtLastInteractionStart, pointerId);
 
     if (!_isExpectingFastSingleTapCommit)
         [self _finishInteraction];
@@ -7255,6 +7281,11 @@ static bool canUseQuickboardControllerFor(UITextContentType type)
     if (force || selectionDrawingInfo != _lastSelectionDrawingInfo) {
         LOG_WITH_STREAM(Selection, stream << "_updateChangedSelection " << selectionDrawingInfo);
 
+        if (_lastSelectionDrawingInfo.caretColor != selectionDrawingInfo.caretColor) {
+            // Force UIKit to update the background color of the selection caret to reflect the new -insertionPointColor.
+            [[_textInteractionAssistant selectionView] tintColorDidChange];
+        }
+
         _cachedSelectedTextRange = nil;
         _lastSelectionDrawingInfo = selectionDrawingInfo;
 
@@ -7746,7 +7777,7 @@ static bool canUseQuickboardControllerFor(UITextContentType type)
 
 - (void)removeContextMenuViewIfPossibleForActionSheetAssistant:(WKActionSheetAssistant *)assistant
 {
-    [self _removeContextMenuViewIfPossible];
+    [self _removeContextMenuHintContainerIfPossible];
 }
 
 - (void)actionSheetAssistantDidShowContextMenu:(WKActionSheetAssistant *)assistant
@@ -7757,6 +7788,12 @@ static bool canUseQuickboardControllerFor(UITextContentType type)
 - (void)actionSheetAssistantDidDismissContextMenu:(WKActionSheetAssistant *)assistant
 {
     [_webView _didDismissContextMenu];
+}
+
+- (void)_targetedPreviewContainerDidRemoveLastSubview:(WKTargetedPreviewContainer *)containerView
+{
+    if (_contextMenuHintContainerView == containerView)
+        [self _removeContextMenuHintContainerIfPossible];
 }
 
 #endif // USE(UICONTEXTMENU)
@@ -7847,9 +7884,9 @@ static WebCore::DataOwnerType coreDataOwnerType(_UIDataOwner platformType)
 
 #endif // HAVE(PASTEBOARD_DATA_OWNER)
 
-- (RetainPtr<UIView>)_createPreviewContainerWithLayerName:(NSString *)layerName
+- (RetainPtr<WKTargetedPreviewContainer>)_createPreviewContainerWithLayerName:(NSString *)layerName
 {
-    auto container = adoptNS([[UIView alloc] init]);
+    auto container = adoptNS([[WKTargetedPreviewContainer alloc] initWithContentView:self]);
     [container layer].anchorPoint = CGPointZero;
     [container layer].name = layerName;
     return container;
@@ -8686,7 +8723,7 @@ static RetainPtr<UITargetedPreview> createFallbackTargetedPreview(UIView *rootVi
     return _contextMenuInteractionTargetedPreview.get();
 }
 
-- (void)_removeContextMenuViewIfPossible
+- (void)_removeContextMenuHintContainerIfPossible
 {
 #if HAVE(LINK_PREVIEW)
     // If a new _contextMenuElementInfo is installed, we've started another interaction,
@@ -8702,15 +8739,26 @@ static RetainPtr<UITargetedPreview> createFallbackTargetedPreview(UIView *rootVi
     // and for the file upload panel...
     if (_fileUploadPanel)
         return;
-    
+
     // and for the date/time picker.
     if ([self dateTimeInputControl])
         return;
 
     if ([self selectControl])
         return;
-    
+
+    if ([_contextMenuHintContainerView subviews].count)
+        return;
+
     [self _removeContainerForContextMenuHintPreviews];
+}
+
+- (void)presentContextMenu:(UIContextMenuInteraction *)contextMenuInteraction atLocation:(CGPoint) location
+{
+    if (!self.window)
+        return;
+
+    [contextMenuInteraction _presentMenuAtLocation:location];
 }
 
 #endif // USE(UICONTEXTMENU)
@@ -10405,7 +10453,7 @@ static RetainPtr<NSItemProvider> createItemProvider(const WebKit::WebPageProxy& 
             [strongSelf _updateContextMenuForMachineReadableCodeForImageAnalysis:result];
 #endif // ENABLE(IMAGE_ANALYSIS_FOR_MACHINE_READABLE_CODES)
             strongSelf->_contextMenuWasTriggeredByImageAnalysisTimeout = YES;
-            [strongSelf->_contextMenuInteraction _presentMenuAtLocation:location];
+            [strongSelf presentContextMenu:strongSelf->_contextMenuInteraction.get() atLocation:location];
 #else
             UNUSED_PARAM(location);
 #endif // USE(UICONTEXTMENU)
@@ -10423,15 +10471,6 @@ static RetainPtr<NSItemProvider> createItemProvider(const WebKit::WebPageProxy& 
 @end
 
 @implementation WKContentView (WKTesting)
-
-- (void)_doAfterResettingSingleTapGesture:(dispatch_block_t)action
-{
-    if ([_singleTapGestureRecognizer state] != UIGestureRecognizerStateEnded) {
-        action();
-        return;
-    }
-    _actionsToPerformAfterResettingSingleTapGestureRecognizer.append(makeBlockPtr(action));
-}
 
 - (void)_doAfterReceivingEditDragSnapshotForTesting:(dispatch_block_t)action
 {
@@ -10657,6 +10696,11 @@ static RetainPtr<NSItemProvider> createItemProvider(const WebKit::WebPageProxy& 
     return [_dataListSuggestionsControl isShowingSuggestions];
 }
 #endif
+
+- (UIWKTextInteractionAssistant *)textInteractionAssistant
+{
+    return _textInteractionAssistant.get();
+}
 
 @end
 
@@ -11367,7 +11411,7 @@ static UIMenu *menuFromLegacyPreviewOrDefaultActions(UIViewController *previewVi
         auto strongSelf = weakSelf.get();
         if (!strongSelf)
             return;
-        [strongSelf _removeContextMenuViewIfPossible];
+        [strongSelf _removeContextMenuHintContainerIfPossible];
         [strongSelf->_webView _didDismissContextMenu];
     }];
 }

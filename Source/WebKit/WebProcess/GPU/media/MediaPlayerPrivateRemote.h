@@ -243,7 +243,7 @@ private:
     bool hasVideo() const final;
     bool hasAudio() const final;
 
-    void setVisible(bool) final;
+    void setPageIsVisible(bool) final;
 
     MediaTime durationMediaTime() const final;
     MediaTime currentMediaTime() const final;
@@ -444,6 +444,7 @@ private:
     bool m_invalid { false };
     bool m_waitingForKey { false };
     bool m_timeIsProgressing { false };
+    bool m_renderingCanBeAccelerated { false };
 };
 
 } // namespace WebKit

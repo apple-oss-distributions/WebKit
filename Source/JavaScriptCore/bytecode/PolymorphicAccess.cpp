@@ -494,6 +494,8 @@ AccessGenerationResult PolymorphicAccess::regenerate(const GCSafeConcurrentJSLoc
 #endif
     if (stubInfo.m_stubInfoGPR != InvalidGPRReg)
         allocator.lock(stubInfo.m_stubInfoGPR);
+    if (stubInfo.m_arrayProfileGPR != InvalidGPRReg)
+        allocator.lock(stubInfo.m_arrayProfileGPR);
 
     state.scratchGPR = allocator.allocateScratchGPR();
 
@@ -733,14 +735,24 @@ AccessGenerationResult PolymorphicAccess::regenerate(const GCSafeConcurrentJSLoc
         // of something that isn't patchable. The slow path will decrement "countdown" and will only
         // patch things if the countdown reaches zero. We increment the slow path count here to ensure
         // that the slow path does not try to patch.
+        if (codeBlock->useDataIC()) {
 #if CPU(X86) || CPU(X86_64)
-        jit.move(CCallHelpers::TrustedImmPtr(&stubInfo.countdown), state.scratchGPR);
-        jit.add8(CCallHelpers::TrustedImm32(1), CCallHelpers::Address(state.scratchGPR));
+            jit.add8(CCallHelpers::TrustedImm32(1), CCallHelpers::Address(stubInfo.m_stubInfoGPR, StructureStubInfo::offsetOfCountdown()));
 #else
-        jit.load8(&stubInfo.countdown, state.scratchGPR);
-        jit.add32(CCallHelpers::TrustedImm32(1), state.scratchGPR);
-        jit.store8(state.scratchGPR, &stubInfo.countdown);
+            jit.load8(CCallHelpers::Address(stubInfo.m_stubInfoGPR, StructureStubInfo::offsetOfCountdown()), state.scratchGPR);
+            jit.add32(CCallHelpers::TrustedImm32(1), state.scratchGPR);
+            jit.store8(state.scratchGPR, CCallHelpers::Address(stubInfo.m_stubInfoGPR, StructureStubInfo::offsetOfCountdown()));
 #endif
+        } else {
+#if CPU(X86) || CPU(X86_64)
+            jit.move(CCallHelpers::TrustedImmPtr(&stubInfo.countdown), state.scratchGPR);
+            jit.add8(CCallHelpers::TrustedImm32(1), CCallHelpers::Address(state.scratchGPR));
+#else
+            jit.load8(&stubInfo.countdown, state.scratchGPR);
+            jit.add32(CCallHelpers::TrustedImm32(1), state.scratchGPR);
+            jit.store8(state.scratchGPR, &stubInfo.countdown);
+#endif
+        }
     }
 
     CCallHelpers::JumpList failure;
@@ -810,6 +822,7 @@ AccessGenerationResult PolymorphicAccess::regenerate(const GCSafeConcurrentJSLoc
             stubInfo.valueGPR,
             stubInfo.regs.thisGPR,
             stubInfo.m_stubInfoGPR,
+            stubInfo.m_arrayProfileGPR,
             stubInfo.usedRegisters,
             keys,
             weakStructures,
@@ -846,7 +859,7 @@ AccessGenerationResult PolymorphicAccess::regenerate(const GCSafeConcurrentJSLoc
 
     if (codeBlock->useDataIC()) {
         if (canBeShared)
-            vm.m_sharedJITStubs->add(SharedJITStubSet::Hash::Key(stubInfo.baseGPR, stubInfo.valueGPR, stubInfo.regs.thisGPR, stubInfo.m_stubInfoGPR, stubInfo.usedRegisters, stub.get()));
+            vm.m_sharedJITStubs->add(SharedJITStubSet::Hash::Key(stubInfo.baseGPR, stubInfo.valueGPR, stubInfo.regs.thisGPR, stubInfo.m_stubInfoGPR, stubInfo.m_arrayProfileGPR, stubInfo.usedRegisters, stub.get()));
     }
 
     return finishCodeGeneration(WTFMove(stub));
@@ -1021,6 +1034,45 @@ void printInternal(PrintStream& out, AccessCase::AccessType type)
         return;
     case AccessCase::IndexedStringLoad:
         out.print("IndexedStringLoad");
+        return;
+    case AccessCase::IndexedInt32Store:
+        out.print("IndexedInt32Store");
+        return;
+    case AccessCase::IndexedDoubleStore:
+        out.print("IndexedDoubleStore");
+        return;
+    case AccessCase::IndexedContiguousStore:
+        out.print("IndexedContiguousStore");
+        return;
+    case AccessCase::IndexedArrayStorageStore:
+        out.print("IndexedArrayStorageStore");
+        return;
+    case AccessCase::IndexedTypedArrayInt8Store:
+        out.print("IndexedTypedArrayInt8Store");
+        return;
+    case AccessCase::IndexedTypedArrayUint8Store:
+        out.print("IndexedTypedArrayUint8Store");
+        return;
+    case AccessCase::IndexedTypedArrayUint8ClampedStore:
+        out.print("IndexedTypedArrayUint8ClampedStore");
+        return;
+    case AccessCase::IndexedTypedArrayInt16Store:
+        out.print("IndexedTypedArrayInt16Store");
+        return;
+    case AccessCase::IndexedTypedArrayUint16Store:
+        out.print("IndexedTypedArrayUint16Store");
+        return;
+    case AccessCase::IndexedTypedArrayInt32Store:
+        out.print("IndexedTypedArrayInt32Store");
+        return;
+    case AccessCase::IndexedTypedArrayUint32Store:
+        out.print("IndexedTypedArrayUint32Store");
+        return;
+    case AccessCase::IndexedTypedArrayFloat32Store:
+        out.print("IndexedTypedArrayFloat32Store");
+        return;
+    case AccessCase::IndexedTypedArrayFloat64Store:
+        out.print("IndexedTypedArrayFloat64Store");
         return;
     }
 

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019-2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2019-2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -532,7 +532,7 @@ void testPatchpointDoubleRegs();
 void testSpillDefSmallerThanUse();
 void testSpillUseLargerThanDef();
 void testLateRegister();
-void interpreterPrint(Vector<intptr_t>* stream, intptr_t value);
+extern "C" void interpreterPrint(Vector<intptr_t>* stream, intptr_t value);
 void testInterpreter();
 void testReduceStrengthCheckBottomUseInAnotherBlock();
 void testResetReachabilityDanglingReference();
@@ -939,7 +939,8 @@ void testMulNegArgArg(int, int);
 void testMulArgImm(int64_t, int64_t);
 void testMulImmArg(int, int);
 void testMulArgs32(int, int);
-void testMulArgs32SignExtend(int, int);
+void testMulArgs32SignExtend();
+void testMulArgs32ZeroExtend();
 void testMulImm32SignExtend(const int, int);
 void testMulLoadTwice();
 void testMulAddArgsLeft();
@@ -1166,5 +1167,10 @@ void testLoadPreIndex32();
 void testLoadPreIndex64();
 void testLoadPostIndex32();
 void testLoadPostIndex64();
+
+void testStorePreIndex32();
+void testStorePreIndex64();
+void testStorePostIndex32();
+void testStorePostIndex64();
 
 #endif // ENABLE(B3_JIT)

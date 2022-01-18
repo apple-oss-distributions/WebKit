@@ -355,6 +355,8 @@ public:
 
     WEBCORE_EXPORT void invalidateClick();
 
+    static bool scrollableAreaCanHandleEvent(const PlatformWheelEvent&, ScrollableArea&);
+
 private:
 #if ENABLE(DRAG_SUPPORT)
     static DragState& dragState();
@@ -377,7 +379,8 @@ private:
     bool handleMousePressEventTripleClick(const MouseEventWithHitTestResults&);
 
     float scrollDistance(ScrollDirection, ScrollGranularity);
-    bool handleKeyboardScrolling(KeyboardEvent&);
+    bool startKeyboardScrolling(KeyboardEvent&);
+    void stopKeyboardScrolling();
 
 #if ENABLE(DRAG_SUPPORT)
     bool handleMouseDraggedEvent(const MouseEventWithHitTestResults&, CheckDragHysteresis = ShouldCheckDragHysteresis);

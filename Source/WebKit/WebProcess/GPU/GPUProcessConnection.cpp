@@ -43,6 +43,7 @@
 #include "RemoteMediaEngineConfigurationFactory.h"
 #include "RemoteMediaPlayerManager.h"
 #include "RemoteRemoteCommandListenerMessages.h"
+#include "SampleBufferDisplayLayerManager.h"
 #include "SampleBufferDisplayLayerMessages.h"
 #include "SourceBufferPrivateRemoteMessages.h"
 #include "WebCoreArgumentCoders.h"
@@ -125,6 +126,11 @@ void GPUProcessConnection::didClose(IPC::Connection&)
 {
     auto protector = makeRef(*this);
     WebProcess::singleton().gpuProcessConnectionClosed(*this);
+
+#if ENABLE(ROUTING_ARBITRATION)
+    if (auto* arbitrator = WebProcess::singleton().supplement<AudioSessionRoutingArbitrator>())
+        arbitrator->leaveRoutingAbritration();
+#endif
 
     auto clients = m_clients;
     for (auto& client : clients)

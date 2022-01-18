@@ -1842,18 +1842,30 @@ template <typename T>
 ALWAYS_INLINE String Lexer<T>::parseCommentDirectiveValue()
 {
     skipWhitespace();
+    bool hasNonLatin1 = false;
     const T* stringStart = currentSourcePtr();
-    while (!isWhiteSpace(m_current) && !isLineTerminator(m_current) && m_current != '"' && m_current != '\'' && !atEnd())
+    while (!isWhiteSpace(m_current) && !isLineTerminator(m_current) && m_current != '"' && m_current != '\'' && !atEnd()) {
+        if (!isLatin1(m_current))
+            hasNonLatin1 = true;
         shift();
+    }
     const T* stringEnd = currentSourcePtr();
     skipWhitespace();
 
     if (!isLineTerminator(m_current) && !atEnd())
         return String();
 
-    append8(stringStart, stringEnd - stringStart);
-    String result = String(m_buffer8.data(), m_buffer8.size());
-    m_buffer8.shrink(0);
+    unsigned length = stringEnd - stringStart;
+    if (hasNonLatin1) {
+        UChar* buffer = nullptr;
+        String result = StringImpl::createUninitialized(length, buffer);
+        StringImpl::copyCharacters(buffer, stringStart, length);
+        return result;
+    }
+
+    LChar* buffer = nullptr;
+    String result = StringImpl::createUninitialized(length, buffer);
+    StringImpl::copyCharacters(buffer, stringStart, length);
     return result;
 }
 
@@ -2657,7 +2669,7 @@ JSTokenType Lexer<T>::scanRegExp(JSToken* tokenRecord, UChar patternPrefix)
     }
 
     // Normally this would not be a lex error but dealing with surrogate pairs here is annoying and it's going to be an error anyway...
-    if (UNLIKELY(!isLatin1(m_current))) {
+    if (UNLIKELY(!isLatin1(m_current) && !isWhiteSpace(m_current) && !isLineTerminator(m_current))) {
         m_buffer8.shrink(0);
         JSTokenType token = INVALID_IDENTIFIER_UNICODE_ERRORTOK;
         fillTokenInfo(tokenRecord, token, m_lineNumber, currentOffset(), currentLineStartOffset(), currentPosition());
@@ -2672,7 +2684,7 @@ JSTokenType Lexer<T>::scanRegExp(JSToken* tokenRecord, UChar patternPrefix)
     tokenData->flags = makeIdentifier(m_buffer8.data(), m_buffer8.size());
     m_buffer8.shrink(0);
 
-    // Since RegExp always ends with /, m_atLineStart always becomes false.
+    // Since RegExp always ends with / or flags (IdentifierPart), m_atLineStart always becomes false.
     m_atLineStart = false;
 
     JSTokenType token = REGEXP;

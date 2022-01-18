@@ -720,6 +720,10 @@
     )
 )
 
+(allow mach-lookup
+    (global-name "com.apple.powerlog.plxpclogger.xpc")
+)
+
 ;; Various services required by AppKit and other frameworks
 (allow mach-lookup
 #if __MAC_OS_X_VERSION_MIN_REQUIRED < 101400
@@ -933,8 +937,8 @@
             domains))
 
 ;; Media capture, microphone access
-;; FIXME: make device-microphone access gated by the "com.apple.webkit.microphone" extension.
-(allow device-microphone)
+(with-filter (extension "com.apple.webkit.microphone")
+    (allow device-microphone))
 
 ;; Media capture, camera access
 (with-filter (extension "com.apple.webkit.camera")

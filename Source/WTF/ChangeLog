@@ -1,6 +1,239 @@
-2021-08-22  Russell Epstein  <repstein@apple.com>
+2021-09-29  Alan Coon  <alancoon@apple.com>
 
-        Cherry-pick r281384. rdar://problem/82218749
+        Cherry-pick r283156. rdar://problem/83648190
+
+    Vorbis decoder can't be instantiated - Remove workaround added in bug 228139
+    https://bugs.webkit.org/show_bug.cgi?id=230742
+    rdar://83484414
+    
+    Reviewed by Eric Carlson.
+    
+    Source/WebKit:
+    
+    This is already covered by test; however this will fail on Monterey without the updated
+    CoreMedia framework.
+    
+    * Scripts/process-entitlements.sh: Add new required entitlement.
+    * WebProcess/cocoa/WebProcessCocoa.mm:
+    (WebKit::WebProcess::initializeSandbox): Only have bug workaround on BigSur and earlier.
+    
+    Source/WTF:
+    
+    * wtf/PlatformUse.h: Add USE_VORBIS_AUDIOCOMPONENT_WORKAROUND
+    
+    
+    git-svn-id: https://svn.webkit.org/repository/webkit/trunk@283156 268f45cc-cd09-0410-ab3c-d52691b4dbfc
+
+    2021-09-27  Jean-Yves Avenard  <jya@apple.com>
+
+            Vorbis decoder can't be instantiated - Remove workaround added in bug 228139
+            https://bugs.webkit.org/show_bug.cgi?id=230742
+            rdar://83484414
+
+            Reviewed by Eric Carlson.
+
+            * wtf/PlatformUse.h: Add USE_VORBIS_AUDIOCOMPONENT_WORKAROUND
+
+2021-09-23  Russell Epstein  <repstein@apple.com>
+
+        Cherry-pick r281910. rdar://problem/83429926
+
+    Add more support for JIT operation validation testing.
+    https://bugs.webkit.org/show_bug.cgi?id=229534
+    rdar://81526335
+    
+    Reviewed by Saam Barati.
+    
+    Source/bmalloc:
+    
+    * bmalloc/Gigacage.cpp:
+    (Gigacage::ensureGigacage):
+    * bmalloc/GigacageConfig.h:
+    
+    Source/JavaScriptCore:
+    
+    1. Added a JITOperationValidation.h to tidy up the code for supporting JIT
+       operation validation.
+    
+    2. Introduce a JITOperationAnnotation struct to record JIT operation function
+       pointers, with an extra pointer field for a validation test function.
+    
+    3. Changed JSC_ANNOTATE_JIT_OPERATION to capture a JITOperationAnnotation struct
+       instead of just a single operation pointer.
+    
+    4. Converted the static addPointers() function in JITOperationList.cpp into a
+       member function of JITOperationList.  This allows for the code to be more
+       terse, as well as enables the use of an inverse map mechanism on debug builds
+       only.
+    
+    5. Added more macros to help differentiate between different types of JIT
+       operation functions.
+    
+    6. Made all JIT operation functions use extern "C" linkage to make it possible to
+       write validation tests in assembly so that we can run them on a release build
+       as well without taking too much time.
+    
+    * CMakeLists.txt:
+    * JavaScriptCore.xcodeproj/project.pbxproj:
+    * assembler/JITOperationList.cpp:
+    (JSC::JITOperationList::addInverseMap):
+    (JSC::JITOperationList::addPointers):
+    (JSC::JITOperationList::populatePointersInJavaScriptCore):
+    (JSC::JITOperationList::populatePointersInJavaScriptCoreForLLInt):
+    (JSC::JITOperationList::populatePointersInEmbedder):
+    (JSC::addPointers): Deleted.
+    * assembler/JITOperationList.h:
+    (JSC::JITOperationList::map const):
+    (JSC::JITOperationList::inverseMap const):
+    (JSC::JITOperationList::assertIsJITOperation):
+    (JSC::JITOperationList::assertIsJITOperationWithvalidation):
+    * assembler/JITOperationValidation.h: Added.
+    * assembler/MacroAssemblerARM64.cpp:
+    * assembler/MacroAssemblerARM64.h:
+    * assembler/MacroAssemblerARM64E.h:
+    * assembler/MacroAssemblerARMv7.cpp:
+    * assembler/MacroAssemblerMIPS.cpp:
+    * assembler/MacroAssemblerX86Common.cpp:
+    * b3/testb3.h:
+    * b3/testb3_1.cpp:
+    * b3/testb3_5.cpp:
+    * b3/testb3_7.cpp:
+    * dfg/DFGOSRExit.h:
+    * ftl/FTLLowerDFGToB3.cpp:
+    * jit/ExecutableAllocator.cpp:
+    (JSC::initializeJITPageReservation):
+    * jit/Repatch.cpp:
+    (JSC::retagOperationWithValidation):
+    (JSC::retagCallTargetWithValidation):
+    (JSC::readPutICCallTarget):
+    * jit/ThunkGenerators.cpp:
+    * jsc.cpp:
+    * llint/LLIntData.cpp:
+    * llint/LLIntThunks.cpp:
+    * runtime/CommonSlowPaths.h:
+    * runtime/JSCPtrTag.h:
+    (JSC::tagJSCCodePtrImpl):
+    (JSC::untagJSCCodePtrImpl):
+    (JSC::isTaggedJSCCodePtrImpl):
+    * runtime/MathCommon.h:
+    * runtime/Options.cpp:
+    (JSC::canUseJITCage):
+    * tools/JSDollarVM.cpp:
+    * yarr/YarrJIT.cpp:
+    
+    Source/WebCore:
+    
+    * bindings/js/WebCoreJITOperations.cpp:
+    * bindings/scripts/CodeGeneratorJS.pm:
+    (GenerateImplementation):
+    * bindings/scripts/test/JS/JSTestDOMJIT.cpp:
+    (WebCore::JSTestDOMJITDOMConstructor::prototypeForStructure):
+    * cssjit/SelectorCompiler.cpp:
+    * testing/js/WebCoreTestSupport.cpp:
+    
+    Source/WTF:
+    
+    * wtf/PlatformCallingConventions.h:
+    * wtf/PtrTag.h:
+    (WTF::PtrTagTraits::isTagged):
+    (WTF::isTaggedNativeCodePtrImpl):
+    (WTF::isTaggedWith):
+    (WTF::assertIsTaggedWith):
+    
+    
+    
+    git-svn-id: https://svn.webkit.org/repository/webkit/trunk@281910 268f45cc-cd09-0410-ab3c-d52691b4dbfc
+
+    2021-09-02  Mark Lam  <mark.lam@apple.com>
+
+            Add more support for JIT operation validation testing.
+            https://bugs.webkit.org/show_bug.cgi?id=229534
+            rdar://81526335
+
+            Reviewed by Saam Barati.
+
+            * wtf/PlatformCallingConventions.h:
+            * wtf/PtrTag.h:
+            (WTF::PtrTagTraits::isTagged):
+            (WTF::isTaggedNativeCodePtrImpl):
+            (WTF::isTaggedWith):
+            (WTF::assertIsTaggedWith):
+
+2021-09-23  Alan Coon  <alancoon@apple.com>
+
+        Cherry-pick r282881. rdar://problem/83430003
+
+    Disable FTP.
+    <rdar://81193860> and https://bugs.webkit.org/show_bug.cgi?id=230477
+    
+    Reviewed by Geoff Garen.
+    
+    Source/WebKit:
+    
+    Covered by new API tests.
+    
+    * NetworkProcess/NetworkLoad.cpp:
+    (WebKit::NetworkLoad::start):
+    (WebKit::NetworkLoad::willPerformHTTPRedirection):
+    
+    * NetworkProcess/NetworkProcess.cpp:
+    (WebKit::NetworkProcess::initializeNetworkProcess):
+    * NetworkProcess/NetworkProcess.h:
+    (WebKit::NetworkProcess::ftpEnabled const):
+    
+    * NetworkProcess/NetworkProcessCreationParameters.cpp:
+    (WebKit::NetworkProcessCreationParameters::encode const):
+    (WebKit::NetworkProcessCreationParameters::decode):
+    * NetworkProcess/NetworkProcessCreationParameters.h:
+    
+    * UIProcess/Cocoa/WebProcessPoolCocoa.mm:
+    (WebKit::WebProcessPool::platformInitializeNetworkProcess):
+    
+    Source/WTF:
+    
+    * Scripts/Preferences/WebPreferencesExperimental.yaml:
+    
+    * wtf/URL.cpp:
+    (WTF::URL::protocolIsInFTPFamily const):
+    (WTF::protocolIsInFTPFamily):
+    * wtf/URL.h:
+    
+    Tools:
+    
+    * TestWebKitAPI/TestWebKitAPI.xcodeproj/project.pbxproj:
+    
+    * TestWebKitAPI/Tests/WebKitCocoa/BundlePageConsoleMessage.mm: Added.
+    (willAddMessageToConsoleCallback):
+    (-[BundlePageConsoleMessage webProcessPlugIn:didCreateBrowserContextController:]):
+    
+    * TestWebKitAPI/Tests/WebKitCocoa/FTP.mm: Added.
+    (TestWebKitAPI::didReceivePageMessageFromInjectedBundle):
+    (TestWebKitAPI::setInjectedBundleClient):
+    (TestWebKitAPI::TEST):
+    
+    * TestWebKitAPI/PlatformUtilities.h:
+    * TestWebKitAPI/cocoa/PlatformUtilitiesCocoa.mm:
+    (TestWebKitAPI::Util::toNS):
+    
+    git-svn-id: https://svn.webkit.org/repository/webkit/trunk@282881 268f45cc-cd09-0410-ab3c-d52691b4dbfc
+
+    2021-09-22  Brady Eidson  <beidson@apple.com>
+
+            Disable FTP.
+            <rdar://81193860> and https://bugs.webkit.org/show_bug.cgi?id=230477
+
+            Reviewed by Geoff Garen.
+
+            * Scripts/Preferences/WebPreferencesExperimental.yaml:
+
+            * wtf/URL.cpp:
+            (WTF::URL::protocolIsInFTPFamily const):
+            (WTF::protocolIsInFTPFamily):
+            * wtf/URL.h:
+
+2021-08-23  Russell Epstein  <repstein@apple.com>
+
+        Cherry-pick r281384. rdar://problem/82218757
 
     IndexedDB: crash when triggering IDBOpenRequest completion back on a worker thread
     https://bugs.webkit.org/show_bug.cgi?id=229375
@@ -36,6 +269,496 @@
             Reviewed by Brady Eidson.
 
             * wtf/CrossThreadTask.h:
+
+2021-08-18  Ryosuke Niwa  <rniwa@webkit.org>
+
+        [ iOS Debug ] 12 TestWebKitAPI.WebKitLegacy. tests are crashing
+        https://bugs.webkit.org/show_bug.cgi?id=229250
+
+        Reviewed by Wenson Hsieh.
+
+        Disable the assertion when Web Thread is enabled for now.
+
+        * wtf/CheckedRef.h:
+        (WTF::SingleThreadIntegralWrapper::assertThread const):
+
+2021-08-18  Megan Gardner  <megan_gardner@apple.com>
+
+        Remove unneeded UIKitSPI declarations
+        https://bugs.webkit.org/show_bug.cgi?id=210075
+
+        Reviewed by Wenson Hsieh.
+
+        Remove unneeded feature define.
+
+        * wtf/PlatformHave.h:
+
+2021-08-18  Xabier Rodriguez Calvar  <calvaris@igalia.com>
+
+        [GStreamer][EME] Try to parse XML init datas that could possibly come from MPD manifests
+        https://bugs.webkit.org/show_bug.cgi?id=229145
+
+        Reviewed by Alicia Boya Garcia.
+
+        * wtf/glib/GUniquePtr.h: Added deleter for GMarkupParseContext.
+
+2021-08-16  Alex Christensen  <achristensen@webkit.org>
+
+        Enable PerformanceNavigationAPI by default
+        https://bugs.webkit.org/show_bug.cgi?id=227336
+
+        Reviewed by Chris Dumez.
+
+        It passes WPT tests except the following:
+
+        navigation-timing/nav2_test_redirect_chain_xserver_partial_opt_in.html and navigation-timing/nav2_test_redirect_xserver.html pass when run from wpt.live,
+        and other browsers also don't pass when run from our local hosting infrastructure, which doesn't have a good cross-domain redirect.
+
+        nav2_test_attributes_values.html fails in Chrome and Firefox.  There's something wrong with the port detection in the test.
+
+        * Scripts/Preferences/WebPreferencesExperimental.yaml:
+
+2021-08-16  Ryosuke Niwa  <rniwa@webkit.org>
+
+        Add thread safe version of CanMakeCheckedPtr
+        https://bugs.webkit.org/show_bug.cgi?id=229018
+
+        Reviewed by Geoffrey Garen.
+
+        Introduce CanMakeThreadSafeCheckedPtr which is a thread safe version of CanMakeCheckedPtr.
+
+        * wtf/CheckedRef.h:
+        (WTF::CanMakeCheckedPtrBase): Extracted from CanMakeCheckedPtr.
+        (WTF::CanMakeCheckedPtrBase::~CanMakeCheckedPtrBase):
+        (WTF::CanMakeCheckedPtrBase::ptrCount const):
+        (WTF::SingleThreadIntegralWrapper): Added.
+        (WTF::SingleThreadIntegralWrapper::SingleThreadIntegralWrapper):
+        (WTF::SingleThreadIntegralWrapper::operator IntegralType const):
+        (WTF::SingleThreadIntegralWrapper::operator! const):
+        (WTF::SingleThreadIntegralWrapper::operator++):
+        (WTF::SingleThreadIntegralWrapper::operator--):
+        (WTF::SingleThreadIntegralWrapper::assertThread const):
+        (WTF::CanMakeCheckedPtr): Redefined using CanMakeCheckedPtrBase and SimpleNonAtomicType.
+        (WTF::CanMakeThreadSafeCheckedPtr): Added.
+
+2021-08-16  David Kilzer  <ddkilzer@apple.com>
+
+        ThreadSanitizer: ignore uninteresting data races for reference counting of static WTF::StringImpl objects
+        <https://webkit.org/b/229113>
+
+        Reviewed by Chris Dumez.
+
+        * wtf/text/StringImpl.h:
+        (WTF::StringImpl::isStatic const):
+        - Add SUPPRESS_TSAN attribute since the 0x1 bit is set at
+          construction and refcounting occurs in increments of 0x2, so
+          the static bit never changes.
+        (WTF::StringImpl::ref):
+        (WTF::StringImpl::deref):
+        - Return early for static WTF::StringImpl objects to prevent
+          TSan from reporting data races for m_refCount.
+
+2021-08-15  Miguel Gomez  <magomez@igalia.com>
+
+        [GTK][WPE] Add API to pass WebKitMemoryPressureHandler parameters to the network processes
+        https://bugs.webkit.org/show_bug.cgi?id=228227
+
+        Reviewed by Carlos Garcia Campos.
+
+        Added a new method to MemoryPressureHandler to set the configuration by copying the parameter
+        instead of moving it.
+
+        * wtf/MemoryPressureHandler.h:
+        (WTF::MemoryPressureHandler::setConfiguration):
+
+2021-08-11  Chris Dumez  <cdumez@apple.com>
+
+        Add initial support for Cross-Origin-Embedder-Policy (COEP)
+        https://bugs.webkit.org/show_bug.cgi?id=228754
+
+        Reviewed by Alex Christensen.
+
+        Add experimental feature flag for Cross-Origin-Embedder-Policy (COEP), off by default.
+
+        * Scripts/Preferences/WebPreferencesExperimental.yaml:
+
+2021-08-11  Darin Adler  <darin@apple.com>
+
+        Add deduction guide to RetainPtr, use constexpr a bit more, and streamline the implementation
+        https://bugs.webkit.org/show_bug.cgi?id=228852
+
+        Reviewed by Sam Weinig.
+
+        * wtf/RetainPtr.h: Sort includes. Made many functions constexpr including the move
+        constructors and adoptCF. Use using instead of typedef in most places. Use
+        remove_pointer_t, conditional_t, is_convertible_v, is_same_v, and other such templates
+        to simplify expressions. Initialize the m_ptr data member and use the default constructor.
+        Removed unneeded StorageType synonym for CFTypeRef. Move some inline function bodies out
+        of the class template definition. Use if constexpr to get rid of the need for the overloaded
+        autoreleaseHelper function. Added a deduction guide so we can use expressions with the
+        type RetainPtr on the left side, and an Objective-C pointer or CFTypeRef on the right side,
+        and have the appropriate RetainPtr type deduced.
+
+2021-08-11  Sihui Liu  <sihui_liu@apple.com>
+
+        Suspend WorkQueue of ResourceLoadStatistics and LocalStorage sooner
+        https://bugs.webkit.org/show_bug.cgi?id=228748
+        <rdar://problem/81626714>
+
+        Reviewed by Chris Dumez.
+
+        Add SuspendableWorkQueue that would perform suspend check before each task.
+
+        * WTF.xcodeproj/project.pbxproj:
+        * wtf/CMakeLists.txt:
+        * wtf/Forward.h:
+        * wtf/SuspendableWorkQueue.cpp: Added.
+        (WTF::SuspendableWorkQueue::create):
+        (WTF::SuspendableWorkQueue::SuspendableWorkQueue):
+        (WTF::SuspendableWorkQueue::suspend):
+        (WTF::SuspendableWorkQueue::resume):
+        (WTF::SuspendableWorkQueue::dispatch):
+        (WTF::SuspendableWorkQueue::dispatchAfter):
+        (WTF::SuspendableWorkQueue::dispatchSync):
+        (WTF::SuspendableWorkQueue::invokeAllSuspensionCompletionHandlers):
+        (WTF::SuspendableWorkQueue::suspendIfNeeded):
+        * wtf/SuspendableWorkQueue.h: Added.
+        * wtf/WorkQueue.h:
+        (): Deleted.
+
+2021-08-11  Youenn Fablet  <youenn@apple.com>
+
+        Enable WebRTC relay by default
+        https://bugs.webkit.org/show_bug.cgi?id=229000
+        <rdar://78767922>
+
+        Reviewed by Eric Carlson.
+
+        * Scripts/Preferences/WebPreferencesExperimental.yaml:
+
+2021-08-10  Peng Liu  <peng.liu6@apple.com>
+
+        Disable SYSTEM_FEATURE_FLAGS on iOS 14
+        https://bugs.webkit.org/show_bug.cgi?id=228979
+        <rdar://problem/81764452>
+
+        Reviewed by Tim Horton.
+
+        Stop using feature flags mechanism on iOS 14 to avoid some issues on iOS simulators.
+
+        * wtf/PlatformHave.h:
+
+2021-08-10  Stephan Szabo  <stephan.szabo@sony.com>
+
+        [WTF][PlayStation] REGRESSION(r280795) error: undefined symbol: WTF::logLevelString()
+        https://bugs.webkit.org/show_bug.cgi?id=228959
+
+        Reviewed by Fujii Hironori.
+
+        As per followup win fix, for declspec platforms, LoggingUnix needs
+        to include LogInitialization to get the export declaration.
+
+        * wtf/unix/LoggingUnix.cpp:
+
+2021-08-10  Keith Miller  <keith_miller@apple.com>
+
+        CallFrame::returnPC should untag the return address before passing it to ReturnAddressPtr
+        https://bugs.webkit.org/show_bug.cgi?id=228931
+
+        Reviewed by Mark Lam.
+
+        Add a new helper to untag the return pc from a stack frame.
+
+        * wtf/PtrTag.h:
+        (WTF::untagReturnPC):
+
+2021-08-09  Fujii Hironori  <Hironori.Fujii@sony.com>
+
+        [GTK][WPE] REGRESSION(r280795): MemoryPressureHandlerUnix.cpp:45:28: error: ‘LogMemoryPressure’ was not declared in this scope
+        https://bugs.webkit.org/show_bug.cgi?id=228938
+
+        Unreviewed build fix.
+
+        * wtf/unix/MemoryPressureHandlerUnix.cpp:
+
+2021-08-09  Fujii Hironori  <Hironori.Fujii@sony.com>
+
+        [WTF][Win] REGRESSION(r280795) error LNK2019: unresolved external symbol "class WTF::String __cdecl WTF::logLevelString(void)"
+        https://bugs.webkit.org/show_bug.cgi?id=228937
+        <rdar://problem/81722757>
+
+        Unresolved build fix.
+        The previous attempt (r280819) didn't actually fix the build
+        error. LoggingWin.cpp has to include LogInitialization.h.
+
+        * wtf/win/LoggingWin.cpp:
+
+2021-08-09  Fujii Hironori  <Hironori.Fujii@sony.com>
+
+        [WTF][Win] REGRESSION(r280795) error LNK2019: unresolved external symbol "class WTF::String __cdecl WTF::logLevelString(void)"
+        https://bugs.webkit.org/show_bug.cgi?id=228937
+
+        Unreviewed build fix.
+
+        > error LNK2019: unresolved external symbol "class WTF::String __cdecl WTF::logLevelString(void)" (?logLevelString@WTF@@YA?AVString@1@XZ)
+        >   referenced in function "private: void __cdecl WebKit::GPUProcessProxy::platformInitializeGPUProcessParameters(struct WebKit::GPUProcessCreationParameters &)"
+        >   (?platformInitializeGPUProcessParameters@GPUProcessProxy@WebKit@@AEAAXAEAUGPUProcessCreationParameters@2@@Z)
+        >   bin64\WebKit2.dll : fatal error LNK1120: 1 unresolved externals
+
+        * wtf/LogInitialization.h: Added WTF_EXPORT_PRIVATE for logLevelString.
+
+2021-08-09  Myles C. Maxfield  <mmaxfield@apple.com>
+
+        Create a Language log channel
+        https://bugs.webkit.org/show_bug.cgi?id=228764
+
+        Reviewed by Simon Fraser.
+
+        There have been a variety of bug reports over the past months/years about the procedure
+        by which we determine navigator.language. It's actually somewhat convoluted, so this
+        patch adds a (debug) log channel for it so we can follow what it's doing easily.
+
+        To enable all the logging, run these commands:
+
+        % defaults write com.apple.WebKit.WebContent.Development WTFLogging Language
+        % defaults write com.apple.WebKit.WebContent.Development WebKit2Logging Language
+        % defaults write com.apple.WebKit.WebContent WTFLogging Language
+        % defaults write com.apple.WebKit.WebContent WebKit2Logging Language
+        % defaults write -g WTFLogging Language
+        % defaults write -g WebKit2Logging Language
+        % defaults write /Users/$USER/Library/Containers/com.apple.Safari/Data/Library/Preferences/com.apple.Safari.plist WTFLogging Language
+        % defaults write /Users/$USER/Library/Containers/com.apple.Safari/Data/Library/Preferences/com.apple.Safari.plist WebKit2Logging Language
+
+        * wtf/Language.cpp:
+        (WTF::defaultLanguage):
+        (WTF::overrideUserPreferredLanguages):
+        (WTF::userPreferredLanguages):
+        * wtf/Logging.cpp:
+        * wtf/Logging.h:
+        * wtf/cf/LanguageCF.cpp:
+        (WTF::platformUserPreferredLanguages):
+        * wtf/cocoa/LanguageCocoa.mm:
+        (WTF::minimizedLanguagesFromLanguages):
+
+2021-08-09  Myles C. Maxfield  <mmaxfield@apple.com>
+
+        Support WTF logging channels
+        https://bugs.webkit.org/show_bug.cgi?id=228768
+
+        This patch builds on top of https://bugs.webkit.org/show_bug.cgi?id=228809, which added shared infrastructure
+        for logging. This patch simply triggers that shared infrastructure for WTF. There is no change in behavior -
+        the existing WTF logging channels currently are all implemented independently in custom ways, so this patch
+        just migrates them over to use the shared infrastructure.
+
+        Reviewed by Fujii Hironori.
+
+        * WTF.xcodeproj/project.pbxproj:
+        * wtf/Assertions.h:
+        * wtf/CMakeLists.txt:
+        * wtf/LogInitialization.cpp: Added.
+        (WTF::logChannels):
+        * wtf/LogInitialization.h: Added.
+        * wtf/Logging.cpp: Added.
+        * wtf/Logging.h: Added.
+        * wtf/MemoryPressureHandler.cpp:
+        (WTF::MemoryPressureHandler::singleton):
+        * wtf/MemoryPressureHandler.h:
+        * wtf/PlatformFTW.cmake:
+        * wtf/PlatformGTK.cmake:
+        * wtf/PlatformJSCOnly.cmake:
+        * wtf/PlatformMac.cmake:
+        * wtf/PlatformPlayStation.cmake:
+        * wtf/PlatformWPE.cmake:
+        * wtf/PlatformWin.cmake:
+        * wtf/RefCountedLeakCounter.cpp:
+        * wtf/cocoa/LoggingCocoa.mm: Copied from Source/WebKit/UIProcess/Cocoa/GPUProcessProxyCocoa.mm.
+        (WTF::logLevelString):
+        * wtf/cocoa/MachSendRight.cpp:
+        * wtf/cocoa/MainThreadCocoa.mm:
+        * wtf/cocoa/MemoryPressureHandlerCocoa.mm:
+        * wtf/unix/LoggingUnix.cpp: Added.
+        (WTF::logLevelString):
+        * wtf/win/LoggingWin.cpp: Added.
+        (WTF::logLevelString):
+
+2021-08-07  Myles C. Maxfield  <mmaxfield@apple.com>
+
+        Deduplicate logging channel algorithms
+        https://bugs.webkit.org/show_bug.cgi?id=228809
+
+        Reviewed by Fujii Hironori.
+
+        The current infrastructure (before this patch) had the following duplicated for each framework:
+          - A .cpp file declared the list of logging channels for that framework
+          - The .cpp file also had algorithms to search, modify, and initialize these logging channels
+
+        Each framework's .cpp file had duplicate algorithms. (The initialization algorithm was even
+        duplicated 3 times!)
+
+        Because the algorithms directly name their specific list of logging channels, a naive deduplication
+        would have had to add new parameters to these algorithms to pass in the appropriate framework's
+        list. That's fine, but this is exactly the sort of thing classes were designed for - classes are
+        an association of algorithms and data. The algorithms are shared but the data isn't, which really
+        just means we should have 3 instances of a shared class - one for the 3 sets of data.
+
+        So, this patch creates the LogChannels class which contains the deduplicated algorithms, and each
+        framework has a NeverDestroyed singleton instance of that class. There is a single virtual method
+        in the class, so the appropriate "default write" variable can be queried for each framework.
+
+        The instances cannot be declared in the Logging.h files in the frameworks, because certain WebKit2
+        files want to initialize all 3 instances of LogChannels, but you can't #include multiple Logging.h
+        files at the same time because their LOG_CHANNEL_PREFIX #defines will collide with each other.
+        Luckily, LogInitialization.h files exist exactly to solve this purpose, so that's where the
+        LogChannels instances are declared in. After this change, the Logging.h files are just for the
+        declarations of the logging channels themselves, and the LogInitialization.h files are for the
+        LogChannels instances which contain the searching/modifying/initializing algorithms on the list of
+        logging channels. If you just want to LOG(...) something, #include the relevant Logging.h file, and
+        if you want to search/modify/initialize across the entire list of channels, then #include the
+        relevant LogInitialization.h file.
+
+        * WTF.xcodeproj/project.pbxproj:
+        * wtf/CMakeLists.txt:
+        * wtf/LogChannels.cpp: Copied from Source/WebCore/platform/Logging.cpp.
+        (WTF::LogChannels::isLogChannelEnabled):
+        (WTF::LogChannels::setLogChannelToAccumulate):
+        (WTF::LogChannels::clearAllLogChannelsToAccumulate):
+        (WTF::LogChannels::initializeLogChannelsIfNecessary):
+        (WTF::LogChannels::getLogChannel):
+        * wtf/LogChannels.h: Copied from Source/WebCore/platform/LogInitialization.h.
+
+2021-08-07  Commit Queue  <commit-queue@webkit.org>
+
+        Unreviewed, reverting r280756.
+        https://bugs.webkit.org/show_bug.cgi?id=228897
+
+        Broke gtk build
+
+        Reverted changeset:
+
+        "Deduplicate logging channel algorithms"
+        https://bugs.webkit.org/show_bug.cgi?id=228809
+        https://commits.webkit.org/r280756
+
+2021-08-07  Myles C. Maxfield  <mmaxfield@apple.com>
+
+        Deduplicate logging channel algorithms
+        https://bugs.webkit.org/show_bug.cgi?id=228809
+
+        Reviewed by Fujii Hironori.
+
+        The current infrastructure (before this patch) had the following duplicated for each framework:
+          - A .cpp file declared the list of logging channels for that framework
+          - The .cpp file also had algorithms to search, modify, and initialize these logging channels
+
+        Each framework's .cpp file had duplicate algorithms. (The initialization algorithm was even
+        duplicated 3 times!)
+
+        Because the algorithms directly name their specific list of logging channels, a naive deduplication
+        would have had to add new parameters to these algorithms to pass in the appropriate framework's
+        list. That's fine, but this is exactly the sort of thing classes were designed for - classes are
+        an association of algorithms and data. The algorithms are shared but the data isn't, which really
+        just means we should have 3 instances of a shared class - one for the 3 sets of data.
+
+        So, this patch creates the LogChannels class which contains the deduplicated algorithms, and each
+        framework has a NeverDestroyed singleton instance of that class. There is a single virtual method
+        in the class, so the appropriate "default write" variable can be queried for each framework.
+
+        The instances cannot be declared in the Logging.h files in the frameworks, because certain WebKit2
+        files want to initialize all 3 instances of LogChannels, but you can't #include multiple Logging.h
+        files at the same time because their LOG_CHANNEL_PREFIX #defines will collide with each other.
+        Luckily, LogInitialization.h files exist exactly to solve this purpose, so that's where the
+        LogChannels instances are declared in. After this change, the Logging.h files are just for the
+        declarations of the logging channels themselves, and the LogInitialization.h files are for the
+        LogChannels instances which contain the searching/modifying/initializing algorithms on the list of
+        logging channels. If you just want to LOG(...) something, #include the relevant Logging.h file, and
+        if you want to search/modify/initialize across the entire list of channels, then #include the
+        relevant LogInitialization.h file.
+
+        * WTF.xcodeproj/project.pbxproj:
+        * wtf/CMakeLists.txt:
+        * wtf/LogChannels.cpp: Copied from Source/WebCore/platform/Logging.cpp.
+        (WTF::LogChannels::isLogChannelEnabled):
+        (WTF::LogChannels::setLogChannelToAccumulate):
+        (WTF::LogChannels::clearAllLogChannelsToAccumulate):
+        (WTF::LogChannels::initializeLogChannelsIfNecessary):
+        (WTF::LogChannels::getLogChannel):
+        * wtf/LogChannels.h: Copied from Source/WebCore/platform/LogInitialization.h.
+
+2021-08-05  Michael Catanzaro  <mcatanzaro@gnome.org>
+
+        GCC 11 builds should use -Wno-array-bounds, -Wno-nonnull
+        https://bugs.webkit.org/show_bug.cgi?id=228601
+
+        Reviewed by Carlos Garcia Campos.
+
+        * wtf/Bitmap.h:
+        (WTF::WordType>::clear):
+        * wtf/Compiler.h:
+        * wtf/Packed.h:
+        (WTF::PackedAlignedPtr::get const):
+        * wtf/RefPtr.h:
+        (WTF::DefaultRefDerefTraits::derefIfNotNull):
+
+2021-08-05  Zan Dobersek  <zdobersek@igalia.com>
+
+        Avoid reinterpret_cast alignment increase warnings with GCC on CPU(RISCV64)
+        https://bugs.webkit.org/show_bug.cgi?id=228818
+
+        Reviewed by Adrian Perez de Castro.
+
+        * wtf/StdLibExtras.h: As with 32-bit ARM and MIPS targets, RISC-V 64-bit
+        builds with GCC also spawn warnings when the use of reinterpret_cast
+        causes an increase in alignment. Workaround via reinterpret_cast_ptr is
+        thus required for CPU(RISCV64).
+
+2021-08-03  Myles C. Maxfield  <mmaxfield@apple.com>
+
+        [Cocoa] Tweak the formatting for passing NSArrays to TextStreams
+        https://bugs.webkit.org/show_bug.cgi?id=228766
+
+        Reviewed by Simon Fraser.
+
+        Instead of using -[NSArray description], which puts its output on multiple lines,
+        instead use the same formatting as WTF::Vector, which puts its output on a single line.
+
+        We can also use this opportunity to tweak the implementation of operator<<(id) to
+        allow it to be called with Core Foundation types in raw C++ code.
+
+        * wtf/text/TextStream.h:
+        * wtf/text/cocoa/TextStreamCocoa.mm:
+        (WTF::TextStream::operator<<):
+
+2021-08-03  Risul Islam  <risul_islam@apple.com>
+
+        Add functions for parsing URL query string
+        https://bugs.webkit.org/show_bug.cgi?id=228122
+
+        Reviewed by Darin Adler.
+        
+        Added parsing of URL query strings.
+        
+        * wtf/KeyValuePair.h:
+        (WTF::operator== const):
+        * wtf/URL.cpp:
+        (WTF::URL::differingQueryParameters):
+        (WTF::lengthOfURLIgnoringQueryAndFragments):
+        (WTF::URL::isEqualIgnoringQueryAndFragments):
+        (WTF::URL::removeQueryParameters):
+        * wtf/URL.h:
+
+2021-08-03  Youenn Fablet  <youenn@apple.com>
+
+        RealtimeMediaSource::audioSamplesAvailable is calling malloc as part of locking in audio thread
+        https://bugs.webkit.org/show_bug.cgi?id=228688
+
+        Reviewed by Eric Carlson.
+
+        Allow allocations in lockSlow since allocations might happen in rare case and not for each lockSlow call.
+
+        * wtf/Lock.cpp:
+        (WTF::Lock::lockSlow):
+        (WTF::Lock::unlockSlow):
+        (WTF::Lock::unlockFairlySlow):
 
 2021-08-02  Ryosuke Niwa  <rniwa@webkit.org>
 

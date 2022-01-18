@@ -55,6 +55,7 @@
 #include "FrameTree.h"
 #include "FrameView.h"
 #include "FullscreenManager.h"
+#include "HTMLDialogElement.h"
 #include "HTMLDocument.h"
 #include "HTMLFrameElement.h"
 #include "HTMLFrameSetElement.h"
@@ -68,7 +69,7 @@
 #include "ImageOverlayController.h"
 #include "InspectorInstrumentation.h"
 #include "KeyboardEvent.h"
-#include "KeyboardScroll.h"
+#include "KeyboardScrollingAnimator.h"
 #include "Logging.h"
 #include "MouseEvent.h"
 #include "MouseEventWithHitTestResults.h"
@@ -3050,14 +3051,14 @@ bool EventHandler::handleWheelEventInAppropriateEnclosingBox(Node* startNode, co
 
     RenderBox* currentEnclosingBox = &initialEnclosingBox;
     while (currentEnclosingBox) {
-        if (auto* boxLayer = currentEnclosingBox->layer() ? currentEnclosingBox->layer()->scrollableArea() : nullptr) {
+        if (auto* boxScrollableArea = currentEnclosingBox->layer() ? currentEnclosingBox->layer()->scrollableArea() : nullptr) {
             auto platformEvent = wheelEvent.underlyingPlatformEvent();
             bool scrollingWasHandled;
             if (platformEvent) {
                 auto copiedEvent = platformEvent->copyWithDeltasAndVelocity(filteredPlatformDelta.width(), filteredPlatformDelta.height(), filteredVelocity);
-                scrollingWasHandled = handleWheelEventInScrollableArea(copiedEvent, *boxLayer, eventHandling);
+                scrollingWasHandled = scrollableAreaCanHandleEvent(copiedEvent, *boxScrollableArea) && handleWheelEventInScrollableArea(copiedEvent, *boxScrollableArea, eventHandling);
             } else
-                scrollingWasHandled = didScrollInScrollableArea(*boxLayer, wheelEvent);
+                scrollingWasHandled = didScrollInScrollableArea(*boxScrollableArea, wheelEvent);
 
             if (scrollingWasHandled)
                 return true;
@@ -3067,6 +3068,23 @@ bool EventHandler::handleWheelEventInAppropriateEnclosingBox(Node* startNode, co
         if (!currentEnclosingBox || currentEnclosingBox->isRenderView())
             return false;
     }
+    return false;
+}
+
+bool EventHandler::scrollableAreaCanHandleEvent(const PlatformWheelEvent& wheelEvent, ScrollableArea& scrollableArea)
+{
+#if PLATFORM(MAC)
+    auto biasedDelta = ScrollController::wheelDeltaBiasingTowardsVertical(wheelEvent);
+#else
+    auto biasedDelta = wheelEvent.delta();
+#endif
+
+    if (biasedDelta.height() && !scrollableArea.isPinnedForScrollDeltaOnAxis(-biasedDelta.height(), ScrollEventAxis::Vertical))
+        return true;
+
+    if (biasedDelta.width() && !scrollableArea.isPinnedForScrollDeltaOnAxis(-biasedDelta.width(), ScrollEventAxis::Horizontal))
+        return true;
+
     return false;
 }
 
@@ -3510,6 +3528,13 @@ bool EventHandler::internalKeyEvent(const PlatformKeyboardEvent& initialKeyEvent
         }
     }
 
+    if (auto* activeModalDialog = m_frame.document()->activeModalDialog()) {
+        if (initialKeyEvent.type() == PlatformEvent::KeyDown && initialKeyEvent.windowsVirtualKeyCode() == VK_ESCAPE) {
+            activeModalDialog->cancel();
+            return true;
+        }
+    }
+
 #if ENABLE(FULLSCREEN_API)
     if (m_frame.document()->fullscreenManager().isFullscreen()) {
         if (initialKeyEvent.type() == PlatformEvent::KeyDown && initialKeyEvent.windowsVirtualKeyCode() == VK_ESCAPE) {
@@ -3794,6 +3819,8 @@ void EventHandler::defaultKeyboardEventHandler(KeyboardEvent& event)
             defaultTabEventHandler(event);
         else if (event.keyIdentifier() == "U+0008")
             defaultBackspaceEventHandler(event);
+        else if (event.keyIdentifier() == "PageUp" || event.keyIdentifier() == "PageDown")
+            startKeyboardScrolling(event);
         else {
             FocusDirection direction = focusDirectionForKey(event.keyIdentifier());
             if (direction != FocusDirection::None)
@@ -3809,6 +3836,8 @@ void EventHandler::defaultKeyboardEventHandler(KeyboardEvent& event)
         if (event.charCode() == ' ')
             defaultSpaceEventHandler(event);
     }
+    if (event.type() == eventNames().keyupEvent)
+        stopKeyboardScrolling();
 }
 
 #if ENABLE(DRAG_SUPPORT)
@@ -4203,7 +4232,7 @@ void EventHandler::defaultSpaceEventHandler(KeyboardEvent& event)
     if (!view)
         return;
 
-    bool defaultHandled = m_frame.settings().eventHandlerDrivenSmoothKeyboardScrollingEnabled() ? handleKeyboardScrolling(event) : view->logicalScroll(direction, ScrollByPage);
+    bool defaultHandled = m_frame.settings().eventHandlerDrivenSmoothKeyboardScrollingEnabled() ? startKeyboardScrolling(event) : view->logicalScroll(direction, ScrollByPage);
     if (defaultHandled)
         event.setDefaultHandled();
 }
@@ -4243,7 +4272,7 @@ float EventHandler::scrollDistance(ScrollDirection direction, ScrollGranularity 
             return m_frame.view()->verticalScrollbar();
         return m_frame.view()->horizontalScrollbar();
     }();
-    
+
     switch (granularity) {
     case ScrollGranularity::ScrollByLine:
         return scrollbar->lineStep();
@@ -4258,62 +4287,28 @@ float EventHandler::scrollDistance(ScrollDirection direction, ScrollGranularity 
     RELEASE_ASSERT_NOT_REACHED();
 }
 
-bool EventHandler::handleKeyboardScrolling(KeyboardEvent& event)
+void EventHandler::stopKeyboardScrolling()
 {
     Ref protectedFrame = m_frame;
-    // FIXME (bug 227459): This logic does not account for writing-mode.
+    FrameView* view = m_frame.view();
 
-    enum class Key : uint8_t { LeftArrow, RightArrow, UpArrow, DownArrow, Space };
+    KeyboardScrollingAnimator* animator = view->scrollAnimator().keyboardScrollingAnimator();
 
-    Key key;
-    if (event.keyIdentifier() == "Left")
-        key = Key::LeftArrow;
-    else if (event.keyIdentifier() == "Right")
-        key = Key::RightArrow;
-    else if (event.keyIdentifier() == "Up")
-        key = Key::UpArrow;
-    else if (event.keyIdentifier() == "Down")
-        key = Key::DownArrow;
-    else if (event.charCode() == ' ')
-        key = Key::Space;
-    else
-        return false;
+    if (animator)
+        animator->handleKeyUpEvent();
+}
 
-    auto granularity = [&] {
-        switch (key) {
-        case Key::LeftArrow:
-        case Key::RightArrow:
-            return event.altKey() ? ScrollGranularity::ScrollByPage : ScrollGranularity::ScrollByLine;
-        case Key::UpArrow:
-        case Key::DownArrow:
-            if (event.metaKey())
-                return ScrollGranularity::ScrollByDocument;
-            if (event.altKey())
-                return ScrollGranularity::ScrollByPage;
-            return ScrollGranularity::ScrollByLine;
-        case Key::Space:
-            return ScrollGranularity::ScrollByPage;
-        };
-        RELEASE_ASSERT_NOT_REACHED();
-    }();
+bool EventHandler::startKeyboardScrolling(KeyboardEvent& event)
+{
+    Ref protectedFrame = m_frame;
+    FrameView* view = m_frame.view();
 
-    auto direction = [&] {
-        switch (key) {
-        case Key::LeftArrow:
-            return ScrollDirection::ScrollLeft;
-        case Key::RightArrow:
-            return ScrollDirection::ScrollRight;
-        case Key::UpArrow:
-            return ScrollDirection::ScrollUp;
-        case Key::DownArrow:
-            return ScrollDirection::ScrollDown;
-        case Key::Space:
-            return event.shiftKey() ? ScrollDirection::ScrollUp : ScrollDirection::ScrollDown;
-        }
-        RELEASE_ASSERT_NOT_REACHED();
-    }();
+    KeyboardScrollingAnimator* animator = view->scrollAnimator().keyboardScrollingAnimator();
 
-    return EventHandler::scrollRecursively(direction, granularity, nullptr);
+    if (animator)
+        return animator->beginKeyboardScrollGesture(event);
+
+    return false;
 }
 
 void EventHandler::defaultArrowEventHandler(FocusDirection focusDirection, KeyboardEvent& event)
@@ -4322,7 +4317,7 @@ void EventHandler::defaultArrowEventHandler(FocusDirection focusDirection, Keybo
 
     if (!isSpatialNavigationEnabled(&m_frame)) {
         if (m_frame.settings().eventHandlerDrivenSmoothKeyboardScrollingEnabled())
-            handleKeyboardScrolling(event);
+            startKeyboardScrolling(event);
         return;
     }
 

@@ -86,6 +86,7 @@ void MediaSessionManagerCocoa::updateSessionState()
     int webAudioCount = 0;
     int captureCount = countActiveAudioCaptureSources();
     bool hasAudibleAudioOrVideoMediaType = false;
+    bool isPlayingAudio = false;
     forEachSession([&] (auto& session) mutable {
         auto type = session.mediaType();
         switch (type) {
@@ -101,16 +102,19 @@ void MediaSessionManagerCocoa::updateSessionState()
             ++audioCount;
             break;
         case PlatformMediaSession::MediaType::WebAudio:
-            if (session.canProduceAudio())
+            if (session.canProduceAudio()) {
                 ++webAudioCount;
+                isPlayingAudio |= session.isPlaying();
+            }
             break;
         }
 
         if (!hasAudibleAudioOrVideoMediaType) {
-            if ((type == PlatformMediaSession::MediaType::VideoAudio || type == PlatformMediaSession::MediaType::Audio) && session.canProduceAudio() && session.hasPlayedSinceLastInterruption())
+            bool isPotentiallyAudible = session.isPlayingToWirelessPlaybackTarget() || ((type == PlatformMediaSession::MediaType::VideoAudio || type == PlatformMediaSession::MediaType::Audio) && session.canProduceAudio() && session.hasPlayedSinceLastInterruption());
+            if (isPotentiallyAudible) {
                 hasAudibleAudioOrVideoMediaType = true;
-            if (session.isPlayingToWirelessPlaybackTarget())
-                hasAudibleAudioOrVideoMediaType = true;
+                isPlayingAudio |= session.isPlaying();
+            }
         }
     });
 
@@ -138,7 +142,7 @@ void MediaSessionManagerCocoa::updateSessionState()
 
     RouteSharingPolicy policy = RouteSharingPolicy::Default;
     auto category = AudioSession::CategoryType::None;
-    if (captureCount)
+    if (captureCount || (isPlayingAudio && AudioSession::sharedSession().category() == AudioSession::CategoryType::PlayAndRecord))
         category = AudioSession::CategoryType::PlayAndRecord;
     else if (hasAudibleAudioOrVideoMediaType) {
         category = AudioSession::CategoryType::MediaPlayback;
@@ -264,6 +268,11 @@ void MediaSessionManagerCocoa::removeSupportedCommand(PlatformMediaSession::Remo
     m_nowPlayingManager->removeSupportedCommand(command);
 }
 
+RemoteCommandListener::RemoteCommandsSet MediaSessionManagerCocoa::supportedCommands() const
+{
+    return m_nowPlayingManager->supportedCommands();
+}
+
 void MediaSessionManagerCocoa::clearNowPlayingInfo()
 {
     if (!isMediaRemoteFrameworkAvailable())
@@ -383,9 +392,16 @@ void MediaSessionManagerCocoa::updateNowPlayingInfo()
 
     m_haveEverRegisteredAsNowPlayingApplication = true;
 
-    if (m_nowPlayingManager->setNowPlayingInfo(*nowPlayingInfo))
-        ALWAYS_LOG(LOGIDENTIFIER, "title = \"", nowPlayingInfo->title, "\", isPlaying = ", nowPlayingInfo->isPlaying, ", duration = ", nowPlayingInfo->duration, ", now = ", nowPlayingInfo->currentTime, ", id = ", nowPlayingInfo->uniqueIdentifier.toUInt64(), ", registered = ", m_registeredAsNowPlayingApplication, ", src = \"", nowPlayingInfo->artwork ? nowPlayingInfo->artwork->src : String(), "\"");
-
+    if (m_nowPlayingManager->setNowPlayingInfo(*nowPlayingInfo)) {
+#ifdef LOG_DISABLED
+        String src = "src";
+        String title = "title";
+#else
+        String src = nowPlayingInfo->artwork ? nowPlayingInfo->artwork->src : String();
+        String title = nowPlayingInfo->title;
+#endif
+        ALWAYS_LOG(LOGIDENTIFIER, "title = \"", title, "\", isPlaying = ", nowPlayingInfo->isPlaying, ", duration = ", nowPlayingInfo->duration, ", now = ", nowPlayingInfo->currentTime, ", id = ", nowPlayingInfo->uniqueIdentifier.toUInt64(), ", registered = ", m_registeredAsNowPlayingApplication, ", src = \"", src, "\"");
+    }
     if (!m_registeredAsNowPlayingApplication) {
         m_registeredAsNowPlayingApplication = true;
         providePresentingApplicationPIDIfNecessary();

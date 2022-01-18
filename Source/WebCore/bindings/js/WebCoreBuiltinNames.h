@@ -219,6 +219,7 @@ namespace WebCore {
     macro(Request) \
     macro(Response) \
     macro(SFrameTransform) \
+    macro(SFrameTransformErrorEvent) \
     macro(ScreenLuminance) \
     macro(ServiceWorker) \
     macro(ServiceWorkerContainer) \
@@ -347,6 +348,7 @@ namespace WebCore {
     macro(inFlightWriteRequest) \
     macro(indexedDB) \
     macro(initializeWith) \
+    macro(isAbortSignal) \
     macro(isDisturbed) \
     macro(isLoading) \
     macro(isSecureContext) \

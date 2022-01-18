@@ -142,6 +142,12 @@ bool DocumentWriter::begin(const URL& urlReference, bool dispatch, Document* own
         && m_frame->document()->isSecureTransitionTo(url)
         && (m_frame->window() && !m_frame->window()->wasWrappedWithoutInitializedSecurityOrigin() && m_frame->window()->mayReuseForNavigation());
 
+    if (shouldReuseDefaultView) {
+        ASSERT(m_frame->loader().documentLoader());
+        if (auto* contentSecurityPolicy = m_frame->loader().documentLoader()->contentSecurityPolicy())
+            shouldReuseDefaultView = !(contentSecurityPolicy->sandboxFlags() & SandboxOrigin);
+    }
+
     // Temporarily extend the lifetime of the existing document so that FrameLoader::clear() doesn't destroy it as
     // we need to retain its ongoing set of upgraded requests in new navigation contexts per <http://www.w3.org/TR/upgrade-insecure-requests/>
     // and we may also need to inherit its Content Security Policy below.
@@ -175,6 +181,7 @@ bool DocumentWriter::begin(const URL& urlReference, bool dispatch, Document* own
         document->setCookieURL(ownerDocument->cookieURL());
         document->setSecurityOriginPolicy(ownerDocument->securityOriginPolicy());
         document->setStrictMixedContentMode(ownerDocument->isStrictMixedContentMode());
+        document->setCrossOriginEmbedderPolicy(ownerDocument->crossOriginEmbedderPolicy());
 
         document->setContentSecurityPolicy(makeUnique<ContentSecurityPolicy>(URL { url }, document));
         document->contentSecurityPolicy()->copyStateFrom(ownerDocument->contentSecurityPolicy());
@@ -183,6 +190,7 @@ bool DocumentWriter::begin(const URL& urlReference, bool dispatch, Document* own
         if (url.protocolIsData() || url.protocolIsBlob()) {
             document->setContentSecurityPolicy(makeUnique<ContentSecurityPolicy>(URL { url }, document));
             document->contentSecurityPolicy()->copyStateFrom(existingDocument->contentSecurityPolicy());
+            document->setCrossOriginEmbedderPolicy(existingDocument->crossOriginEmbedderPolicy());
 
             // Fix up 'self' for blob: and data:, which is inherited from its embedding document or opener.
             auto* parentFrame = m_frame->tree().parent();

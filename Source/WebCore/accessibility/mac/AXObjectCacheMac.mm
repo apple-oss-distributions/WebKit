@@ -343,6 +343,9 @@ void AXObjectCache::postPlatformNotification(AXCoreObject* obj, AXNotification n
         else
             macNotification = NSAccessibilitySelectedChildrenChangedNotification;
         break;
+    case AXSelectedStateChanged:
+        macNotification = NSAccessibilitySelectedCellsChangedNotification;
+        break;
     case AXSelectedTextChanged:
         macNotification = NSAccessibilitySelectedTextChangedNotification;
         break;
@@ -609,7 +612,7 @@ static RetainPtr<AXTextMarkerRangeRef> AXTextMarkerRange(AXTextMarkerRef startMa
     return adoptCF(AXTextMarkerRangeCreate(kCFAllocatorDefault, startMarker, endMarker));
 }
 
-static RetainPtr<AXTextMarkerRangeRef> textMarkerRangeFromMarkers(AXTextMarkerRef textMarker1, AXTextMarkerRef textMarker2)
+RetainPtr<AXTextMarkerRangeRef> textMarkerRangeFromMarkers(AXTextMarkerRef textMarker1, AXTextMarkerRef textMarker2)
 {
     if (!textMarker1 || !textMarker2)
         return nil;

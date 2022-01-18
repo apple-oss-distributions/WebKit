@@ -145,14 +145,12 @@ private:
     RefPtr<NetscapePlugInStreamLoader> m_loader;
 };
 
-IGNORE_ERRONEOUS_GCC_NULL_CHECK_WARNINGS_BEGIN
 PluginView::Stream::~Stream()
 {
     if (m_loadCallback)
         m_loadCallback({ });
     ASSERT(!m_pluginView);
 }
-IGNORE_ERRONEOUS_GCC_NULL_CHECK_WARNINGS_END
     
 void PluginView::Stream::start()
 {
@@ -547,7 +545,7 @@ id PluginView::accessibilityAssociatedPluginParentForElement(Element* element) c
     return m_plugin->accessibilityAssociatedPluginParentForElement(element);
 }
     
-NSObject *PluginView::accessibilityObject() const
+id PluginView::accessibilityObject() const
 {
     if (!m_isInitialized || !m_plugin)
         return 0;

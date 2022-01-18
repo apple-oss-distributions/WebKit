@@ -151,7 +151,7 @@ static Seconds maximumBufferingTime(CachedResource* resource)
     case CachedResource::Type::ImageResource:
         return 500_ms;
     case CachedResource::Type::MediaResource:
-        return 50_ms;
+        return WebLoaderStrategy::mediaMaximumBufferingTime;
     case CachedResource::Type::MainResource:
     case CachedResource::Type::Icon:
     case CachedResource::Type::RawResource:
@@ -276,6 +276,9 @@ static void addParametersShared(const Frame* frame, NetworkResourceLoadParameter
     if (!frame)
         return;
 
+    if (auto* document = frame->document())
+        parameters.crossOriginEmbedderPolicy = document->crossOriginEmbedderPolicy();
+
     if (auto* page = frame->page()) {
         parameters.pageHasResourceLoadClient = page->hasResourceLoadClient();
         parameters.shouldRelaxThirdPartyCookieBlocking = page->shouldRelaxThirdPartyCookieBlocking();
@@ -283,8 +286,10 @@ static void addParametersShared(const Frame* frame, NetworkResourceLoadParameter
     }
 
     if (auto* ownerElement = frame->ownerElement()) {
-        if (auto* parentFrame = ownerElement->document().frame())
+        if (auto* parentFrame = ownerElement->document().frame()) {
             parameters.parentFrameID = parentFrame->loader().frameID();
+            parameters.parentCrossOriginEmbedderPolicy = ownerElement->document().crossOriginEmbedderPolicy();
+        }
     }
 }
 
@@ -336,6 +341,9 @@ void WebLoaderStrategy::scheduleLoadFromNetworkProcess(ResourceLoader& resourceL
         if (auto* contentSecurityPolicy = document->contentSecurityPolicy())
             loadParameters.cspResponseHeaders = contentSecurityPolicy->responseHeaders();
     }
+
+    if (resourceLoader.options().crossOriginEmbedderPolicy)
+        loadParameters.crossOriginEmbedderPolicy = *resourceLoader.options().crossOriginEmbedderPolicy;
     
 #if ENABLE(APP_BOUND_DOMAINS) || ENABLE(CONTENT_EXTENSIONS)
     auto* webFrameLoaderClient = frame ? toWebFrameLoaderClient(frame->loader().client()) : nullptr;

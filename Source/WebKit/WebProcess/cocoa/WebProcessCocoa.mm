@@ -95,12 +95,12 @@
 #import <pal/spi/cocoa/LaunchServicesSPI.h>
 #import <pal/spi/cocoa/NSAccessibilitySPI.h>
 #import <pal/spi/cocoa/QuartzCoreSPI.h>
-#import <pal/spi/cocoa/VideoToolboxSPI.h>
 #import <pal/spi/cocoa/pthreadSPI.h>
 #import <pal/spi/mac/NSApplicationSPI.h>
 #import <stdio.h>
 #import <wtf/FileSystem.h>
 #import <wtf/Language.h>
+#import <wtf/LogInitialization.h>
 #import <wtf/ProcessPrivilege.h>
 #import <wtf/SoftLinking.h>
 #import <wtf/cocoa/Entitlements.h>
@@ -159,7 +159,6 @@
 
 #import <WebCore/MediaAccessibilitySoftLink.h>
 #import <pal/cf/AudioToolboxSoftLink.h>
-#import <pal/cf/VideoToolboxSoftLink.h>
 #import <pal/cocoa/AVFoundationSoftLink.h>
 #import <pal/cocoa/MediaToolboxSoftLink.h>
 
@@ -281,8 +280,9 @@ void WebProcess::platformInitializeWebProcess(WebProcessCreationParameters& para
     }
 
 #if !LOG_DISABLED || !RELEASE_LOG_DISABLED
-    WebCore::initializeLogChannelsIfNecessary(parameters.webCoreLoggingChannels);
-    WebKit::initializeLogChannelsIfNecessary(parameters.webKitLoggingChannels);
+    WTF::logChannels().initializeLogChannelsIfNecessary(parameters.wtfLoggingChannels);
+    WebCore::logChannels().initializeLogChannelsIfNecessary(parameters.webCoreLoggingChannels);
+    WebKit::logChannels().initializeLogChannelsIfNecessary(parameters.webKitLoggingChannels);
 #endif
 
     m_uiProcessBundleIdentifier = parameters.uiProcessBundleIdentifier;
@@ -300,6 +300,10 @@ void WebProcess::platformInitializeWebProcess(WebProcessCreationParameters& para
 #if PLATFORM(COCOA) && ENABLE(REMOTE_INSPECTOR)
     Inspector::RemoteInspector::setNeedMachSandboxExtension(!SandboxExtension::consumePermanently(parameters.enableRemoteWebInspectorExtensionHandle));
 #endif
+#endif
+
+#if HAVE(VIDEO_RESTRICTED_DECODING)
+    SandboxExtension::consumePermanently(parameters.videoDecoderExtensionHandles);
 #endif
 
     // Disable NSURLCache.
@@ -375,26 +379,6 @@ void WebProcess::platformInitializeWebProcess(WebProcessCreationParameters& para
 
     if (launchServicesExtension)
         launchServicesExtension->revoke();
-#endif
-
-#if PLATFORM(MAC) && HAVE(VIDEO_RESTRICTED_DECODING)
-    // Call FigPhotoSupportsHEVCHWDecode() while holding the trustd extension.
-    if (parameters.trustdAgentExtensionHandle) {
-        if (auto extension = SandboxExtension::create(WTFMove(*parameters.trustdAgentExtensionHandle))) {
-            bool ok = extension->consume();
-            // The purpose of calling this function is to initialize a static variable which needs
-            // the service com.apple.trustd.agent. And this is why we do not use its return value.
-#if HAVE(CMPHOTO_TILE_DECODER_AVAILABLE)
-            if (CMPhotoLibrary() && canLoad_CMPhoto_CMPhotoIsTileDecoderAvailable())
-                softLink_CMPhoto_CMPhotoIsTileDecoderAvailable('hvc1');
-#else
-            if (PAL::isMediaToolboxFrameworkAvailable() && PAL::canLoad_MediaToolbox_FigPhotoSupportsHEVCHWDecode())
-                PAL::softLinkMediaToolboxFigPhotoSupportsHEVCHWDecode();
-#endif
-            ok = extension->revoke();
-            ASSERT_UNUSED(ok, ok);
-        }
-    }
 #endif
 
 #if PLATFORM(MAC)
@@ -648,8 +632,6 @@ void WebProcess::platformInitializeProcess(const AuxiliaryProcessInitializationP
     // This call will not succeed if there are open WindowServer connections at this point.
     auto retval = CGSSetDenyWindowServerConnections(true);
     RELEASE_ASSERT(retval == kCGErrorSuccess);
-    // Make sure that we close any WindowServer connections after checking in with Launch Services.
-    CGSShutdownServerConnections();
 
     SwitchingGPUClient::setSingleton(WebSwitchingGPUClient::singleton());
     MainThreadSharedTimer::shouldSetupPowerObserver() = false;
@@ -716,37 +698,16 @@ RetainPtr<CFDataRef> WebProcess::sourceApplicationAuditData() const
 #endif
 }
 
-#if HAVE(VIDEO_RESTRICTED_DECODING)
-static inline void restrictImageAndVideoDecoders()
-{
-    if (!(PAL::isVideoToolboxFrameworkAvailable() && PAL::canLoad_VideoToolbox_VTRestrictVideoDecoders()))
-        return;
-
-    CMVideoCodecType allowedCodecTypeList[] = {
-        kCMVideoCodecType_H263,
-        kCMVideoCodecType_H264,
-        kCMVideoCodecType_MPEG4Video,
-        kCMVideoCodecType_HEVC,
-        kCMVideoCodecType_HEVCWithAlpha
-    };
-
-    PAL::softLinkVideoToolboxVTRestrictVideoDecoders(
-        kVTRestrictions_RunVideoDecodersInProcess |
-        kVTRestrictions_AvoidHardwareDecoders |
-        kVTRestrictions_AvoidHardwarePixelTransfer |
-        kVTRestrictions_AvoidIOSurfaceBackings,
-        allowedCodecTypeList, sizeof(allowedCodecTypeList) / sizeof(allowedCodecTypeList[0]));
-}
-#endif
-
 void WebProcess::initializeSandbox(const AuxiliaryProcessInitializationParameters& parameters, SandboxInitializationParameters& sandboxParameters)
 {
 #if PLATFORM(MAC) || PLATFORM(MACCATALYST)
     // Need to override the default, because service has a different bundle ID.
     auto webKitBundle = [NSBundle bundleWithIdentifier:@"com.apple.WebKit"];
 
+#if defined(USE_VORBIS_AUDIOCOMPONENT_WORKAROUND)
     // We need to initialize the Vorbis decoder before the sandbox gets setup; this is a one off action.
     WebCore::registerVorbisDecoderIfNeeded();
+#endif
 
     sandboxParameters.setOverrideSandboxProfilePath(makeString(String([webKitBundle resourcePath]), "/com.apple.WebProcess.sb"));
 
@@ -757,10 +718,6 @@ void WebProcess::initializeSandbox(const AuxiliaryProcessInitializationParameter
     sandboxParameters.addParameter("ENABLE_SANDBOX_MESSAGE_FILTER", enableMessageFilter ? "YES" : "NO");
 
     AuxiliaryProcess::initializeSandbox(parameters, sandboxParameters);
-#endif
-
-#if HAVE(VIDEO_RESTRICTED_DECODING)
-    restrictImageAndVideoDecoders();
 #endif
 }
 
@@ -982,11 +939,6 @@ void WebProcess::destroyRenderingResources()
 }
 
 #if PLATFORM(IOS_FAMILY)
-void WebProcess::accessibilityProcessSuspendedNotification(bool suspended)
-{
-    UIAccessibilityPostNotification(kAXPidStatusChangedNotification, @{ @"pid" : @(getpid()), @"suspended" : @(suspended) });
-}
-
 void WebProcess::userInterfaceIdiomDidChange(bool isPhoneOrWatch)
 {
     WebKit::setCurrentUserInterfaceIdiomIsPhoneOrWatch(isPhoneOrWatch);
@@ -1181,17 +1133,8 @@ static void dispatchSimulatedNotificationsForPreferenceChange(const String& key)
     }
 }
 
-static void setPreferenceValue(const String& domain, const String& key, id value)
+static void handlePreferenceChange(const String& domain, const String& key, id value)
 {
-    if (domain.isEmpty()) {
-        CFPreferencesSetValue(key.createCFString().get(), (__bridge CFPropertyListRef)value, kCFPreferencesAnyApplication, kCFPreferencesCurrentUser, kCFPreferencesAnyHost);
-#if ASSERT_ENABLED
-        id valueAfterSetting = [[NSUserDefaults standardUserDefaults] objectForKey:key];
-        ASSERT(valueAfterSetting == value || [valueAfterSetting isEqual:value] || key == "AppleLanguages");
-#endif
-    } else
-        CFPreferencesSetValue(key.createCFString().get(), (__bridge CFPropertyListRef)value, domain.createCFString().get(), kCFPreferencesCurrentUser, kCFPreferencesAnyHost);
-
     if (key == "AppleLanguages") {
         // We need to set AppleLanguages for the volatile domain, similarly to what we do in XPCServiceMain.mm.
         NSDictionary *existingArguments = [[NSUserDefaults standardUserDefaults] volatileDomainForName:NSArgumentDomain];
@@ -1221,26 +1164,20 @@ static void setPreferenceValue(const String& domain, const String& key, id value
     if (CFEqual(cfKey.get(), kAXInterfaceReduceMotionKey) || CFEqual(cfKey.get(), kAXInterfaceIncreaseContrastKey) || key == invertColorsPreferenceKey())
         [NSWorkspace _invalidateAccessibilityDisplayValues];
 #endif
+
+    dispatchSimulatedNotificationsForPreferenceChange(key);
 }
 
 void WebProcess::notifyPreferencesChanged(const String& domain, const String& key, const std::optional<String>& encodedValue)
 {
-    if (!encodedValue) {
-        setPreferenceValue(domain, key, nil);
-        dispatchSimulatedNotificationsForPreferenceChange(key);
-        return;
+    id value = nil;
+    if (encodedValue) {
+        value = decodePreferenceValue(encodedValue);
+        if (!value)
+            return;
     }
-    auto encodedData = adoptNS([[NSData alloc] initWithBase64EncodedString:*encodedValue options:0]);
-    if (!encodedData)
-        return;
-    NSError *err = nil;
-    auto classes = [NSSet setWithArray:@[[NSString class], [NSNumber class], [NSDate class], [NSDictionary class], [NSArray class], [NSData class]]];
-    id object = [NSKeyedUnarchiver unarchivedObjectOfClasses:classes fromData:encodedData.get() error:&err];
-    ASSERT(!err);
-    if (err)
-        return;
-    setPreferenceValue(domain, key, object);
-    dispatchSimulatedNotificationsForPreferenceChange(key);
+    setPreferenceValue(domain, key, value);
+    handlePreferenceChange(domain, key, value);
 }
 
 void WebProcess::unblockPreferenceService(SandboxExtension::HandleArray&& handleArray)

@@ -424,7 +424,7 @@ void DocumentLoader::notifyFinished(CachedResource& resource, const NetworkLoadM
     if (auto document = makeRefPtr(this->document())) {
         if (auto domWindow = makeRefPtr(document->domWindow())) {
             if (document->settings().performanceNavigationTimingAPIEnabled())
-                domWindow->performance().addNavigationTiming(*this, *document, resource, timing(), metrics);
+                domWindow->performance().navigationFinished(metrics);
         }
     }
 
@@ -919,6 +919,12 @@ void DocumentLoader::responseReceived(CachedResource& resource, const ResourceRe
 {
     ASSERT_UNUSED(resource, m_mainResource == &resource);
 
+    if (!response.httpHeaderField(HTTPHeaderName::ContentSecurityPolicy).isNull()) {
+        m_contentSecurityPolicy = makeUnique<ContentSecurityPolicy>(URL { response.url() }, nullptr);
+        m_contentSecurityPolicy->didReceiveHeaders(ContentSecurityPolicyResponseHeaders { response }, m_request.httpReferrer(), ContentSecurityPolicy::ReportParsingErrors::No);
+    } else
+        m_contentSecurityPolicy = nullptr;
+
 #if ENABLE(RESOURCE_LOAD_STATISTICS)
     // FIXME(218779): Remove this quirk once microsoft.com completes their login flow redesign.
     if (m_frame && m_frame->document()) {
@@ -927,7 +933,7 @@ void DocumentLoader::responseReceived(CachedResource& resource, const ResourceRe
             auto firstPartyDomain = RegistrableDomain(response.url());
             if (auto loginDomains = NetworkStorageSession::subResourceDomainsInNeedOfStorageAccessForFirstParty(firstPartyDomain)) {
                 if (!Quirks::hasStorageAccessForAllLoginDomains(*loginDomains, firstPartyDomain)) {
-                    m_frame->navigationScheduler().scheduleRedirect(document, 0, microsoftTeamsRedirectURL());
+                    m_frame->navigationScheduler().scheduleRedirect(document, 0, microsoftTeamsRedirectURL(), IsMetaRefresh::No);
                     return;
                 }
             }
@@ -1318,8 +1324,14 @@ void DocumentLoader::commitData(const uint8_t* bytes, size_t length)
         if (!isLoading())
             return;
 
-        if (auto* window = document.domWindow())
+        if (auto* window = document.domWindow()) {
             window->prewarmLocalStorageIfNecessary();
+
+            if (document.settings().performanceNavigationTimingAPIEnabled() && m_mainResource) {
+                auto* metrics = m_response.deprecatedNetworkLoadMetricsOrNull();
+                window->performance().addNavigationTiming(*this, document, *m_mainResource, timing(), metrics ? *metrics : NetworkLoadMetrics { });
+            }
+        }
 
         bool userChosen;
         String encoding;

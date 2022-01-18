@@ -49,6 +49,7 @@
 #include <WebCore/RuntimeEnabledFeatures.h>
 #include <wtf/Algorithms.h>
 #include <wtf/CallbackAggregator.h>
+#include <wtf/LogInitialization.h>
 #include <wtf/MemoryPressureHandler.h>
 #include <wtf/OptionSet.h>
 #include <wtf/ProcessPrivilege.h>
@@ -243,9 +244,12 @@ void GPUProcess::initializeGPUProcess(GPUProcessCreationParameters&& parameters)
 #endif
 
 #if !LOG_DISABLED || !RELEASE_LOG_DISABLED
-    WebCore::initializeLogChannelsIfNecessary(parameters.webCoreLoggingChannels);
-    WebKit::initializeLogChannelsIfNecessary(parameters.webKitLoggingChannels);
+    WTF::logChannels().initializeLogChannelsIfNecessary(parameters.wtfLoggingChannels);
+    WebCore::logChannels().initializeLogChannelsIfNecessary(parameters.webCoreLoggingChannels);
+    WebKit::logChannels().initializeLogChannelsIfNecessary(parameters.webKitLoggingChannels);
 #endif
+
+    m_applicationVisibleName = WTFMove(parameters.applicationVisibleName);
 
     // Match the QoS of the UIProcess since the GPU process is doing rendering on its behalf.
     WTF::Thread::setCurrentThreadIsUserInteractive(0);
@@ -272,14 +276,6 @@ void GPUProcess::processDidResume()
 }
 
 void GPUProcess::resume()
-{
-}
-
-void GPUProcess::processDidTransitionToForeground()
-{
-}
-
-void GPUProcess::processDidTransitionToBackground()
 {
 }
 

@@ -336,8 +336,10 @@ AudioSourceProvider* MediaPlayerPrivateMediaStreamAVFObjC::audioSourceProvider()
     return nullptr;
 }
 
-void MediaPlayerPrivateMediaStreamAVFObjC::sampleBufferDisplayLayerStatusDidChange(SampleBufferDisplayLayer&)
+void MediaPlayerPrivateMediaStreamAVFObjC::sampleBufferDisplayLayerStatusDidFail()
 {
+    destroyLayers();
+    updateLayersAsNeeded();
 }
 
 void MediaPlayerPrivateMediaStreamAVFObjC::applicationDidBecomeActive()
@@ -614,7 +616,7 @@ bool MediaPlayerPrivateMediaStreamAVFObjC::hasAudio() const
     return !m_audioTrackMap.isEmpty();
 }
 
-void MediaPlayerPrivateMediaStreamAVFObjC::setVisible(bool isVisible)
+void MediaPlayerPrivateMediaStreamAVFObjC::setPageIsVisible(bool isVisible)
 {
     if (m_isPageVisible == isVisible)
         return;

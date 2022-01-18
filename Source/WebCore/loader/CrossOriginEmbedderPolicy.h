@@ -44,8 +44,58 @@ struct CrossOriginEmbedderPolicy {
     String reportingEndpoint;
     CrossOriginEmbedderPolicyValue reportOnlyValue { CrossOriginEmbedderPolicyValue::UnsafeNone };
     String reportOnlyReportingEndpoint;
+
+    CrossOriginEmbedderPolicy isolatedCopy() const;
+    template<class Encoder> void encode(Encoder&) const;
+    template<class Decoder> static std::optional<CrossOriginEmbedderPolicy> decode(Decoder&);
 };
 
+inline bool operator==(const CrossOriginEmbedderPolicy& a, const CrossOriginEmbedderPolicy& b)
+{
+    return a.value == b.value && a.reportingEndpoint == b.reportingEndpoint && a.reportOnlyValue == b.reportOnlyValue && a.reportOnlyReportingEndpoint == b.reportOnlyReportingEndpoint;
+}
+
+template<class Encoder>
+void CrossOriginEmbedderPolicy::encode(Encoder& encoder) const
+{
+    encoder << value << reportingEndpoint << reportOnlyValue << reportOnlyReportingEndpoint;
+}
+
+template<class Decoder>
+std::optional<CrossOriginEmbedderPolicy> CrossOriginEmbedderPolicy::decode(Decoder& decoder)
+{
+    std::optional<CrossOriginEmbedderPolicyValue> value;
+    decoder >> value;
+    if (!value)
+        return std::nullopt;
+
+    std::optional<String> reportingEndpoint;
+    decoder >> reportingEndpoint;
+    if (!reportingEndpoint)
+        return std::nullopt;
+
+    std::optional<CrossOriginEmbedderPolicyValue> reportOnlyValue;
+    decoder >> reportOnlyValue;
+    if (!reportOnlyValue)
+        return std::nullopt;
+
+    std::optional<String> reportOnlyReportingEndpoint;
+    decoder >> reportOnlyReportingEndpoint;
+    if (!reportOnlyReportingEndpoint)
+        return std::nullopt;
+
+    return {{
+        *value,
+        WTFMove(*reportingEndpoint),
+        *reportOnlyValue,
+        WTFMove(*reportOnlyReportingEndpoint)
+    }};
+}
+
 CrossOriginEmbedderPolicy obtainCrossOriginEmbedderPolicy(const ResourceResponse&, const ScriptExecutionContext&);
+WEBCORE_EXPORT void addCrossOriginEmbedderPolicyHeaders(ResourceResponse&, const CrossOriginEmbedderPolicy&);
+
+enum class IsSecureContext : bool { No, Yes };
+WEBCORE_EXPORT CrossOriginEmbedderPolicy obtainCrossOriginEmbedderPolicy(const ResourceResponse&, IsSecureContext);
 
 } // namespace WebCore

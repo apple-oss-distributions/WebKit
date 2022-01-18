@@ -60,7 +60,7 @@ WTF_MAKE_ISO_ALLOCATED_IMPL(Performance);
 
 Performance::Performance(ScriptExecutionContext* context, MonotonicTime timeOrigin)
     : ContextDestructionObserver(context)
-    , m_resourceTimingBufferFullTimer(*this, &Performance::resourceTimingBufferFullTimerFired) // FIXME: Migrate this to the event loop as well.
+    , m_resourceTimingBufferFullTimer(*this, &Performance::resourceTimingBufferFullTimerFired) // FIXME: Migrate this to the event loop as well. https://bugs.webkit.org/show_bug.cgi?id=229044
     , m_timeOrigin(timeOrigin)
 {
     ASSERT(m_timeOrigin);
@@ -241,6 +241,14 @@ void Performance::addNavigationTiming(DocumentLoader& documentLoader, Document& 
 {
     ASSERT(document.settings().performanceNavigationTimingAPIEnabled());
     m_navigationTiming = PerformanceNavigationTiming::create(m_timeOrigin, resource, timing, metrics, document.eventTiming(), document.securityOrigin(), documentLoader.triggeringAction().type());
+}
+
+void Performance::navigationFinished(const NetworkLoadMetrics& metrics)
+{
+    if (!m_navigationTiming)
+        return;
+    m_navigationTiming->navigationFinished(metrics);
+
     queueEntry(*m_navigationTiming);
 }
 

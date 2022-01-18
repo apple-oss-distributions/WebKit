@@ -96,6 +96,7 @@
 #include <WebCore/RuntimeApplicationChecks.h>
 #include <pal/SessionID.h>
 #include <wtf/CallbackAggregator.h>
+#include <wtf/LogInitialization.h>
 #include <wtf/MainThread.h>
 #include <wtf/NeverDestroyed.h>
 #include <wtf/ProcessPrivilege.h>
@@ -251,8 +252,9 @@ WebProcessPool::WebProcessPool(API::ProcessPoolConfiguration& configuration)
     resolvePathsForSandboxExtensions();
 
 #if !LOG_DISABLED || !RELEASE_LOG_DISABLED
-    WebCore::initializeLogChannelsIfNecessary();
-    WebKit::initializeLogChannelsIfNecessary();
+    WTF::logChannels().initializeLogChannelsIfNecessary();
+    WebCore::logChannels().initializeLogChannelsIfNecessary();
+    WebKit::logChannels().initializeLogChannelsIfNecessary();
 #endif // !LOG_DISABLED || !RELEASE_LOG_DISABLED
 
 #ifndef NDEBUG
@@ -366,6 +368,7 @@ void WebProcessPool::setOverrideLanguages(Vector<String>&& languages)
 {
     m_configuration->setOverrideLanguages(WTFMove(languages));
 
+    LOG_WITH_STREAM(Language, stream << "WebProcessPool is setting OverrideLanguages: " << languages);
     sendToAllProcesses(Messages::WebProcess::UserPreferredLanguagesChanged(m_configuration->overrideLanguages()));
 #if USE(SOUP)
     for (auto networkProcess : NetworkProcessProxy::allNetworkProcesses())
@@ -670,20 +673,26 @@ WebProcessDataStoreParameters WebProcessPool::webProcessDataStoreParameters(WebP
 
     String applicationCacheDirectory = websiteDataStore.resolvedApplicationCacheDirectory();
     SandboxExtension::Handle applicationCacheDirectoryExtensionHandle;
-    if (!applicationCacheDirectory.isEmpty())
-        SandboxExtension::createHandleWithoutResolvingPath(applicationCacheDirectory, SandboxExtension::Type::ReadWrite, applicationCacheDirectoryExtensionHandle);
+    if (!applicationCacheDirectory.isEmpty()) {
+        if (auto handle = SandboxExtension::createHandleWithoutResolvingPath(applicationCacheDirectory, SandboxExtension::Type::ReadWrite))
+            applicationCacheDirectoryExtensionHandle = WTFMove(*handle);
+    }
 
     String applicationCacheFlatFileSubdirectoryName = websiteDataStore.applicationCacheFlatFileSubdirectoryName();
 
     String mediaCacheDirectory = websiteDataStore.resolvedMediaCacheDirectory();
     SandboxExtension::Handle mediaCacheDirectoryExtensionHandle;
-    if (!mediaCacheDirectory.isEmpty())
-        SandboxExtension::createHandleWithoutResolvingPath(mediaCacheDirectory, SandboxExtension::Type::ReadWrite, mediaCacheDirectoryExtensionHandle);
+    if (!mediaCacheDirectory.isEmpty()) {
+        if (auto handle = SandboxExtension::createHandleWithoutResolvingPath(mediaCacheDirectory, SandboxExtension::Type::ReadWrite))
+            mediaCacheDirectoryExtensionHandle = WTFMove(*handle);
+    }
 
     String mediaKeyStorageDirectory = websiteDataStore.resolvedMediaKeysDirectory();
     SandboxExtension::Handle mediaKeyStorageDirectoryExtensionHandle;
-    if (!mediaKeyStorageDirectory.isEmpty())
-        SandboxExtension::createHandleWithoutResolvingPath(mediaKeyStorageDirectory, SandboxExtension::Type::ReadWrite, mediaKeyStorageDirectoryExtensionHandle);
+    if (!mediaKeyStorageDirectory.isEmpty()) {
+        if (auto handle = SandboxExtension::createHandleWithoutResolvingPath(mediaKeyStorageDirectory, SandboxExtension::Type::ReadWrite))
+            mediaKeyStorageDirectoryExtensionHandle = WTFMove(*handle);
+    }
 
     String javaScriptConfigurationDirectory;
     if (!m_javaScriptConfigurationDirectory.isEmpty())
@@ -692,14 +701,18 @@ WebProcessDataStoreParameters WebProcessPool::webProcessDataStoreParameters(WebP
         javaScriptConfigurationDirectory = websiteDataStore.resolvedJavaScriptConfigurationDirectory();
 
     SandboxExtension::Handle javaScriptConfigurationDirectoryExtensionHandle;
-    if (!javaScriptConfigurationDirectory.isEmpty())
-        SandboxExtension::createHandleWithoutResolvingPath(javaScriptConfigurationDirectory, SandboxExtension::Type::ReadWrite, javaScriptConfigurationDirectoryExtensionHandle);
+    if (!javaScriptConfigurationDirectory.isEmpty()) {
+        if (auto handle = SandboxExtension::createHandleWithoutResolvingPath(javaScriptConfigurationDirectory, SandboxExtension::Type::ReadWrite))
+            javaScriptConfigurationDirectoryExtensionHandle = WTFMove(*handle);
+    }
 
 #if HAVE(ARKIT_INLINE_PREVIEW)
     auto modelElementCacheDirectory = websiteDataStore.resolvedModelElementCacheDirectory();
     SandboxExtension::Handle modelElementCacheDirectoryExtensionHandle;
-    if (!modelElementCacheDirectory.isEmpty())
-        SandboxExtension::createHandleWithoutResolvingPath(modelElementCacheDirectory, SandboxExtension::Type::ReadWrite, modelElementCacheDirectoryExtensionHandle);
+    if (!modelElementCacheDirectory.isEmpty()) {
+        if (auto handle = SandboxExtension::createHandleWithoutResolvingPath(modelElementCacheDirectory, SandboxExtension::Type::ReadWrite))
+            modelElementCacheDirectoryExtensionHandle = WTFMove(*handle);
+    }
 #endif
 
     return WebProcessDataStoreParameters {
@@ -739,12 +752,16 @@ void WebProcessPool::initializeNewWebProcess(WebProcessProxy& process, WebsiteDa
     WebProcessCreationParameters parameters;
 
     parameters.injectedBundlePath = m_resolvedPaths.injectedBundlePath;
-    if (!parameters.injectedBundlePath.isEmpty())
-        SandboxExtension::createHandleWithoutResolvingPath(parameters.injectedBundlePath, SandboxExtension::Type::ReadOnly, parameters.injectedBundlePathExtensionHandle);
+    if (!parameters.injectedBundlePath.isEmpty()) {
+        if (auto handle = SandboxExtension::createHandleWithoutResolvingPath(parameters.injectedBundlePath, SandboxExtension::Type::ReadOnly))
+            parameters.injectedBundlePathExtensionHandle = WTFMove(*handle);
+    }
 
     parameters.additionalSandboxExtensionHandles.allocate(m_resolvedPaths.additionalWebProcessSandboxExtensionPaths.size());
-    for (size_t i = 0, size = m_resolvedPaths.additionalWebProcessSandboxExtensionPaths.size(); i < size; ++i)
-        SandboxExtension::createHandleWithoutResolvingPath(m_resolvedPaths.additionalWebProcessSandboxExtensionPaths[i], SandboxExtension::Type::ReadOnly, parameters.additionalSandboxExtensionHandles[i]);
+    for (size_t i = 0, size = m_resolvedPaths.additionalWebProcessSandboxExtensionPaths.size(); i < size; ++i) {
+        if (auto handle =  SandboxExtension::createHandleWithoutResolvingPath(m_resolvedPaths.additionalWebProcessSandboxExtensionPaths[i], SandboxExtension::Type::ReadOnly))
+            parameters.additionalSandboxExtensionHandles[i] = WTFMove(*handle);
+    }
 
 #if PLATFORM(IOS_FAMILY)
     setJavaScriptConfigurationFileEnabledFromDefaults();
@@ -752,6 +769,7 @@ void WebProcessPool::initializeNewWebProcess(WebProcessProxy& process, WebsiteDa
 
     parameters.cacheModel = LegacyGlobalSettings::singleton().cacheModel();
     parameters.overrideLanguages = configuration().overrideLanguages();
+    LOG_WITH_STREAM(Language, stream << "WebProcessPool is initializing a new web process with overrideLanguages: " << parameters.overrideLanguages);
 
     parameters.urlSchemesRegisteredAsEmptyDocument = copyToVector(m_schemesToRegisterAsEmptyDocument);
     parameters.urlSchemesRegisteredAsSecure = copyToVector(LegacyGlobalSettings::singleton().schemesToRegisterAsSecure());
@@ -848,6 +866,9 @@ void WebProcessPool::prewarmProcess()
     if (m_prewarmedProcess)
         return;
 
+    if (WebProcessProxy::hasReachedProcessCountLimit())
+        return;
+
     WEBPROCESSPOOL_RELEASE_LOG(PerformanceLogging, "prewarmProcess: Prewarming a WebProcess for performance");
     createNewWebProcess(nullptr, WebProcessProxy::IsPrewarmed::Yes);
 }
@@ -897,7 +918,10 @@ void WebProcessPool::processDidFinishLaunching(WebProcessProxy& process)
         SandboxExtension::Handle sampleLogSandboxHandle;        
         WallTime now = WallTime::now();
         auto sampleLogFilePath = makeString("WebProcess", static_cast<unsigned long long>(now.secondsSinceEpoch().seconds()), "pid", process.processIdentifier());
-        sampleLogFilePath = SandboxExtension::createHandleForTemporaryFile(sampleLogFilePath, SandboxExtension::Type::ReadWrite, sampleLogSandboxHandle);
+        if (auto handleAndFilePath = SandboxExtension::createHandleForTemporaryFile(sampleLogFilePath, SandboxExtension::Type::ReadWrite)) {
+            sampleLogSandboxHandle = WTFMove(handleAndFilePath->first);
+            sampleLogFilePath = WTFMove(handleAndFilePath->second);
+        }
         
         process.send(Messages::WebProcess::StartMemorySampler(sampleLogSandboxHandle, sampleLogFilePath, m_memorySamplerInterval), 0);
     }
@@ -1156,8 +1180,10 @@ DownloadProxy& WebProcessPool::resumeDownload(WebsiteDataStore& dataStore, WebPa
     auto& downloadProxy = createDownloadProxy(dataStore, ResourceRequest(), initiatingPage, { });
 
     SandboxExtension::Handle sandboxExtensionHandle;
-    if (!path.isEmpty())
-        SandboxExtension::createHandle(path, SandboxExtension::Type::ReadWrite, sandboxExtensionHandle);
+    if (!path.isEmpty()) {
+        if (auto handle = SandboxExtension::createHandle(path, SandboxExtension::Type::ReadWrite))
+            sandboxExtensionHandle = WTFMove(*handle);
+    }
 
     dataStore.networkProcess().send(Messages::NetworkProcess::ResumeDownload(dataStore.sessionID(), downloadProxy.downloadID(), resumeData.dataReference(), path, sandboxExtensionHandle, callDownloadDidStart), 0);
     return downloadProxy;
@@ -1443,7 +1469,10 @@ void WebProcessPool::startMemorySampler(const double interval)
     SandboxExtension::Handle sampleLogSandboxHandle;    
     WallTime now = WallTime::now();
     auto sampleLogFilePath = makeString("WebProcess", static_cast<unsigned long long>(now.secondsSinceEpoch().seconds()));
-    sampleLogFilePath = SandboxExtension::createHandleForTemporaryFile(sampleLogFilePath, SandboxExtension::Type::ReadWrite, sampleLogSandboxHandle);
+    if (auto handleAndFilePath = SandboxExtension::createHandleForTemporaryFile(sampleLogFilePath, SandboxExtension::Type::ReadWrite)) {
+        sampleLogSandboxHandle = WTFMove(handleAndFilePath->first);
+        sampleLogFilePath = WTFMove(handleAndFilePath->second);
+    }
     
     sendToAllProcesses(Messages::WebProcess::StartMemorySampler(sampleLogSandboxHandle, sampleLogFilePath, interval));
 }
@@ -2009,8 +2038,12 @@ void WebProcessPool::sendResourceLoadStatisticsDataImmediately(CompletionHandler
 {
     auto callbackAggregator = CallbackAggregator::create(WTFMove(completionHandler));
 
-    for (auto& process : processes())
+    for (auto& process : processes()) {
+        if (!process->pageCount())
+            continue;
+
         process->sendWithAsyncReply(Messages::WebProcess::SendResourceLoadStatisticsDataImmediately(), [callbackAggregator] { });
+    }
 }
 #endif
 

@@ -44,14 +44,15 @@ static bool categoryCanMixWithOthers(AudioSession::CategoryType category)
 }
 
 RemoteAudioSessionProxyManager::RemoteAudioSessionProxyManager()
-    : m_session(AudioSession::create())
 {
-    m_session->addInterruptionObserver(*this);
+    AudioSession::sharedSession().addInterruptionObserver(*this);
+    AudioSession::sharedSession().addConfigurationChangeObserver(*this);
 }
 
 RemoteAudioSessionProxyManager::~RemoteAudioSessionProxyManager()
 {
-    m_session->removeInterruptionObserver(*this);
+    AudioSession::sharedSession().removeInterruptionObserver(*this);
+    AudioSession::sharedSession().removeConfigurationChangeObserver(*this);
 }
 
 void RemoteAudioSessionProxyManager::addProxy(RemoteAudioSessionProxy& proxy)
@@ -103,7 +104,7 @@ void RemoteAudioSessionProxyManager::updateCategory()
     else if (policyCounts.contains(RouteSharingPolicy::Independent))
         ASSERT_NOT_REACHED();
 
-    m_session->setCategory(category, policy);
+    AudioSession::sharedSession().setCategory(category, policy);
 }
 
 void RemoteAudioSessionProxyManager::setPreferredBufferSizeForProcess(RemoteAudioSessionProxy& proxy, size_t preferredBufferSize)
@@ -113,7 +114,7 @@ void RemoteAudioSessionProxyManager::setPreferredBufferSizeForProcess(RemoteAudi
             preferredBufferSize = otherProxy.preferredBufferSize();
     }
 
-    m_session->setPreferredBufferSize(preferredBufferSize);
+    AudioSession::sharedSession().setPreferredBufferSize(preferredBufferSize);
 }
 
 bool RemoteAudioSessionProxyManager::tryToSetActiveForProcess(RemoteAudioSessionProxy& proxy, bool active)
@@ -136,13 +137,13 @@ bool RemoteAudioSessionProxyManager::tryToSetActiveForProcess(RemoteAudioSession
         // This proxy wants to de-activate, and is the last remaining active
         // proxy. Deactivate the session, and return whether that deactivation
         // was sucessful;
-        return m_session->tryToSetActive(false);
+        return AudioSession::sharedSession().tryToSetActive(false);
     }
 
     if (active && !activeProxyCount) {
         // This proxy and only this proxy wants to become active. Activate
         // the session, and return whether that activation was successful.
-        return m_session->tryToSetActive(active);
+        return AudioSession::sharedSession().tryToSetActive(active);
     }
 
     // If this proxy is Ambient, and the session is already active, this
@@ -173,18 +174,40 @@ bool RemoteAudioSessionProxyManager::tryToSetActiveForProcess(RemoteAudioSession
 
 void RemoteAudioSessionProxyManager::beginAudioSessionInterruption()
 {
-    for (auto& proxy : m_proxies) {
+    m_proxies.forEach([](auto& proxy) {
         if (proxy.isActive())
             proxy.beginInterruption();
-    }
+    });
 }
 
 void RemoteAudioSessionProxyManager::endAudioSessionInterruption(AudioSession::MayResume mayResume)
 {
-    for (auto& proxy : m_proxies) {
+    m_proxies.forEach([mayResume](auto& proxy) {
         if (proxy.isActive())
             proxy.endInterruption(mayResume);
-    }
+    });
+}
+
+void RemoteAudioSessionProxyManager::hardwareMutedStateDidChange(const AudioSession& session)
+{
+    configurationDidChange(session);
+}
+
+void RemoteAudioSessionProxyManager::bufferSizeDidChange(const AudioSession& session)
+{
+    configurationDidChange(session);
+}
+
+void RemoteAudioSessionProxyManager::sampleRateDidChange(const AudioSession& session)
+{
+    configurationDidChange(session);
+}
+
+void RemoteAudioSessionProxyManager::configurationDidChange(const WebCore::AudioSession&)
+{
+    m_proxies.forEach([](auto& proxy) {
+        proxy.configurationChanged();
+    });
 }
 
 }

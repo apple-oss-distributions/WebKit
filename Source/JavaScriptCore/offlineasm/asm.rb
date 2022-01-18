@@ -335,10 +335,13 @@ variants = ARGV.shift.split(/[,\s]+/)
 
 $options = {}
 OptionParser.new do |opts|
-    opts.banner = "Usage: asm.rb asmFile offsetsFile outputFileName [--assembler=<ASM>]"
+    opts.banner = "Usage: asm.rb asmFile offsetsFile outputFileName [--assembler=<ASM>] [--webkit-additions-path=<path>]"
     # This option is currently only used to specify the masm assembler
     opts.on("--assembler=[ASM]", "Specify an assembler to use.") do |assembler|
         $options[:assembler] = assembler
+    end
+    opts.on("--webkit-additions-path=PATH", "WebKitAdditions path.") do |path|
+        $options[:webkit_additions_path] = path
     end
 end.parse!
 
@@ -358,7 +361,7 @@ $emitWinAsm = isMSVC ? outputFlnm.index(".asm") != nil : false
 $commentPrefix = $emitWinAsm ? ";" : "//"
 
 inputHash =
-    $commentPrefix + " offlineasm input hash: " + parseHash(asmFile) +
+    $commentPrefix + " offlineasm input hash: " + parseHash(asmFile, $options) +
     " " + Digest::SHA1.hexdigest(configurationList.map{|v| (v[0] + [v[1]]).join(' ')}.join(' ')) +
     " " + selfHash +
     " " + Digest::SHA1.hexdigest($options.has_key?(:assembler) ? $options[:assembler] : "")
@@ -387,7 +390,7 @@ File.open(outputFlnm, "w") {
 
     $asm = Assembler.new($output)
     
-    ast = parse(asmFile)
+    ast = parse(asmFile, $options)
     settingsCombinations = computeSettingsCombinations(ast)
 
     configurationList.each {

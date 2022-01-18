@@ -344,6 +344,7 @@ void NetworkProcess::initializeNetworkProcess(NetworkProcessCreationParameters&&
 
     setPrivateClickMeasurementEnabled(parameters.enablePrivateClickMeasurement);
     setPrivateClickMeasurementDebugMode(parameters.enablePrivateClickMeasurementDebugMode);
+    m_ftpEnabled = parameters.ftpEnabled;
 
     for (auto& supplement : m_supplements.values())
         supplement->initialize(parameters);
@@ -1381,6 +1382,7 @@ void NetworkProcess::preconnectTo(PAL::SessionID sessionID, WebPageProxyIdentifi
     parameters.request = ResourceRequest { url };
     parameters.request.setIsAppInitiated(lastNavigationWasAppInitiated == LastNavigationWasAppInitiated::Yes);
     parameters.request.setFirstPartyForCookies(url);
+    parameters.request.setPriority(WebCore::ResourceLoadPriority::VeryHigh);
     parameters.webPageProxyID = webPageProxyID;
     parameters.webPageID = webPageID;
     parameters.isNavigatingToAppBoundDomain = isNavigatingToAppBoundDomain;
@@ -1392,7 +1394,13 @@ void NetworkProcess::preconnectTo(PAL::SessionID sessionID, WebPageProxyIdentifi
     parameters.storedCredentialsPolicy = storedCredentialsPolicy;
     parameters.shouldPreconnectOnly = PreconnectOnly::Yes;
 
-    (new PreconnectTask(*networkSession, WTFMove(parameters), [](const WebCore::ResourceError&) { }))->start();
+    networkSession->networkLoadScheduler().startedPreconnectForMainResource(url, userAgent);
+    auto task = new PreconnectTask(*networkSession, WTFMove(parameters), [weakNetworkSession = makeWeakPtr(*networkSession), url, userAgent](const WebCore::ResourceError& error) {
+        if (weakNetworkSession)
+            weakNetworkSession->networkLoadScheduler().finishedPreconnectForMainResource(url, userAgent, error);
+    });
+    task->setTimeout(10_s);
+    task->start();
 #else
     UNUSED_PARAM(url);
     UNUSED_PARAM(userAgent);
@@ -2194,16 +2202,6 @@ void NetworkProcess::terminate()
 {
     platformTerminate();
     AuxiliaryProcess::terminate();
-}
-
-void NetworkProcess::processDidTransitionToForeground()
-{
-    platformProcessDidTransitionToForeground();
-}
-
-void NetworkProcess::processDidTransitionToBackground()
-{
-    platformProcessDidTransitionToBackground();
 }
 
 void NetworkProcess::processWillSuspendImminentlyForTestingSync(CompletionHandler<void()>&& completionHandler)

@@ -97,6 +97,7 @@ public:
     void clearMeasures(const String& measureName);
 
     void addNavigationTiming(DocumentLoader&, Document&, CachedResource&, const DocumentLoadTiming&, const NetworkLoadMetrics&);
+    void navigationFinished(const NetworkLoadMetrics&);
     void addResourceTiming(ResourceTiming&&);
 
     void reportFirstContentfulPaint();
@@ -115,6 +116,8 @@ public:
     using RefCounted::deref;
 
     void scheduleNavigationObservationTaskIfNeeded();
+
+    PerformanceNavigationTiming* navigationTiming() { return m_navigationTiming.get(); }
 
 private:
     Performance(ScriptExecutionContext*, MonotonicTime timeOrigin);

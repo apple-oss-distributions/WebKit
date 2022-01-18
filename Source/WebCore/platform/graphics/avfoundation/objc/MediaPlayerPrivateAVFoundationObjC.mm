@@ -1160,8 +1160,6 @@ ALLOW_NEW_API_WITHOUT_GUARDS_END
     }
 #endif
 
-    createVideoOutput();
-
     m_metadataCollector = adoptNS([PAL::allocAVPlayerItemMetadataCollectorInstance() initWithIdentifiers:nil classifyingLabels:nil]);
     [m_metadataCollector.get() setDelegate:m_objcObserver.get() queue:dispatch_get_main_queue()];
     [m_avPlayerItem.get() addMediaDataCollector:m_metadataCollector.get()];
@@ -2095,9 +2093,9 @@ void MediaPlayerPrivateAVFoundationObjC::tracksChanged()
     if (!m_avPlayerItem) {
         // We don't have a player item yet, so check with the asset because some assets support inspection
         // prior to becoming ready to play.
-        AVAssetTrack* firstEnabledVideoTrack = firstEnabledTrack([m_avAsset.get() tracksWithMediaCharacteristic:AVMediaCharacteristicVisual]);
+        AVAssetTrack* firstEnabledVideoTrack = firstEnabledTrack(safeAVAssetTracksForVisualMedia());
         setHasVideo(firstEnabledVideoTrack);
-        setHasAudio(firstEnabledTrack([m_avAsset.get() tracksWithMediaCharacteristic:AVMediaCharacteristicAudible]));
+        setHasAudio(firstEnabledTrack(safeAVAssetTracksForAudibleMedia()));
         auto size = firstEnabledVideoTrack ? FloatSize(CGSizeApplyAffineTransform([firstEnabledVideoTrack naturalSize], [firstEnabledVideoTrack preferredTransform])) : FloatSize();
         // For videos with rotation tag set, the transformation above might return a CGSize instance with negative width or height.
         // See https://bugs.webkit.org/show_bug.cgi?id=172648.
@@ -2176,9 +2174,12 @@ void MediaPlayerPrivateAVFoundationObjC::tracksChanged()
 
 void MediaPlayerPrivateAVFoundationObjC::updateRotationSession()
 {
+    if (!m_avAsset || assetStatus() < MediaPlayerAVAssetStatusLoaded)
+        return;
+
     AffineTransform finalTransform = m_avAsset.get().preferredTransform;
     FloatSize naturalSize;
-    if (auto* firstEnabledVideoTrack = firstEnabledTrack([m_avAsset.get() tracksWithMediaCharacteristic:AVMediaCharacteristicVisual])) {
+    if (auto* firstEnabledVideoTrack = firstEnabledTrack(safeAVAssetTracksForVisualMedia())) {
         naturalSize = FloatSize(firstEnabledVideoTrack.naturalSize);
         finalTransform *= firstEnabledVideoTrack.preferredTransform;
     }
@@ -2519,7 +2520,7 @@ void MediaPlayerPrivateAVFoundationObjC::paintWithVideoOutput(GraphicsContext& c
     if (!m_lastImage)
         return;
 
-    AVAssetTrack* firstEnabledVideoTrack = firstEnabledTrack([m_avAsset.get() tracksWithMediaCharacteristic:AVMediaCharacteristicVisual]);
+    AVAssetTrack* firstEnabledVideoTrack = firstEnabledTrack(safeAVAssetTracksForVisualMedia());
     if (!firstEnabledVideoTrack)
         return;
 
@@ -2703,6 +2704,17 @@ NSArray* MediaPlayerPrivateAVFoundationObjC::safeAVAssetTracksForAudibleMedia()
         return nil;
 
     return [m_avAsset tracksWithMediaCharacteristic:AVMediaCharacteristicAudible];
+}
+
+NSArray* MediaPlayerPrivateAVFoundationObjC::safeAVAssetTracksForVisualMedia()
+{
+    if (!m_avAsset)
+        return nil;
+
+    if ([m_avAsset.get() statusOfValueForKey:@"tracks" error:NULL] != AVKeyValueStatusLoaded)
+        return nil;
+
+    return [m_avAsset tracksWithMediaCharacteristic:AVMediaCharacteristicVisual];
 }
 
 bool MediaPlayerPrivateAVFoundationObjC::hasLoadedMediaSelectionGroups()

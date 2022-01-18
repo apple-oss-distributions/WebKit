@@ -197,7 +197,6 @@ bytecode/AdaptiveInferredPropertyValueWatchpointBase.cpp
 bytecode/ArithProfile.cpp
 bytecode/ArrayAllocationProfile.cpp
 bytecode/ArrayProfile.cpp
-bytecode/ByValInfo.cpp
 bytecode/BytecodeBasicBlock.cpp
 bytecode/BytecodeDumper.cpp
 bytecode/BytecodeGeneratorification.cpp
@@ -269,8 +268,8 @@ bytecode/ProgramCodeBlock.cpp
 bytecode/PropertyCondition.cpp
 bytecode/ProxyableAccessCase.cpp
 bytecode/PutByIdFlags.cpp
-bytecode/PutByIdStatus.cpp
-bytecode/PutByIdVariant.cpp
+bytecode/PutByStatus.cpp
+bytecode/PutByVariant.cpp
 bytecode/RecordedStatuses.cpp
 bytecode/ReduceWhitespace.cpp
 bytecode/SetPrivateBrandStatus.cpp

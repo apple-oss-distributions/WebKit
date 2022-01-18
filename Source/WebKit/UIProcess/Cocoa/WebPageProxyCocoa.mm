@@ -35,6 +35,7 @@
 #import "InsertTextOptions.h"
 #import "LoadParameters.h"
 #import "PageClient.h"
+#import "QuarantineSPI.h"
 #import "QuickLookThumbnailLoader.h"
 #import "SafeBrowsingSPI.h"
 #import "SafeBrowsingWarning.h"
@@ -89,6 +90,8 @@ SOFT_LINK_CLASS(WebContentAnalysis, WebFilterEvaluator);
 
 #define MESSAGE_CHECK(assertion) MESSAGE_CHECK_BASE(assertion, process().connection())
 #define MESSAGE_CHECK_COMPLETION(assertion, completion) MESSAGE_CHECK_COMPLETION_BASE(assertion, process().connection(), completion)
+
+#define WEBPAGEPROXY_RELEASE_LOG(channel, fmt, ...) RELEASE_LOG(channel, "%p - [pageProxyID=%llu, webPageID=%llu, PID=%i] WebPageProxy::" fmt, this, m_identifier.toUInt64(), m_webPageID.toUInt64(), m_process->processIdentifier(), ##__VA_ARGS__)
 
 namespace WebKit {
 using namespace WebCore;
@@ -177,13 +180,11 @@ void WebPageProxy::addPlatformLoadParameters(WebProcessProxy& process, LoadParam
     
 #if PLATFORM(IOS)
     if (!process.hasManagedSessionSandboxAccess() && [getWebFilterEvaluatorClass() isManagedSession]) {
-        SandboxExtension::Handle handle;
-        SandboxExtension::createHandleForMachLookup("com.apple.uikit.viewservice.com.apple.WebContentFilter.remoteUI"_s, std::nullopt, handle);
-        loadParameters.contentFilterExtensionHandle = WTFMove(handle);
+        if (auto handle = SandboxExtension::createHandleForMachLookup("com.apple.uikit.viewservice.com.apple.WebContentFilter.remoteUI"_s, std::nullopt))
+            loadParameters.contentFilterExtensionHandle = WTFMove(*handle);
 
-        SandboxExtension::Handle frontboardServiceExtensionHandle;
-        if (SandboxExtension::createHandleForMachLookup("com.apple.frontboard.systemappservices"_s, std::nullopt, frontboardServiceExtensionHandle))
-            loadParameters.frontboardServiceExtensionHandle = WTFMove(frontboardServiceExtensionHandle);
+        if (auto handle = SandboxExtension::createHandleForMachLookup("com.apple.frontboard.systemappservices"_s, std::nullopt))
+            loadParameters.frontboardServiceExtensionHandle = WTFMove(*handle);
 
         process.markHasManagedSessionSandboxAccess();
     }
@@ -199,10 +200,11 @@ void WebPageProxy::createSandboxExtensionsIfNeeded(const Vector<String>& files, 
         BOOL isDirectory;
         if ([[NSFileManager defaultManager] fileExistsAtPath:files[0] isDirectory:&isDirectory] && !isDirectory) {
             ASSERT(process().connection() && process().connection()->getAuditToken());
-            if (process().connection() && process().connection()->getAuditToken())
-                SandboxExtension::createHandleForReadByAuditToken("/", *(process().connection()->getAuditToken()), fileReadHandle);
-            else
-                SandboxExtension::createHandle("/", SandboxExtension::Type::ReadOnly, fileReadHandle);
+            if (process().connection() && process().connection()->getAuditToken()) {
+                if (auto handle = SandboxExtension::createHandleForReadByAuditToken("/", *(process().connection()->getAuditToken())))
+                    fileReadHandle = WTFMove(*handle);
+            } else if (auto handle = SandboxExtension::createHandle("/", SandboxExtension::Type::ReadOnly))
+                fileReadHandle = WTFMove(*handle);
             willAcquireUniversalFileReadSandboxExtension(m_process);
         }
     }
@@ -212,7 +214,8 @@ void WebPageProxy::createSandboxExtensionsIfNeeded(const Vector<String>& files, 
         NSString *file = files[i];
         if (![[NSFileManager defaultManager] fileExistsAtPath:file])
             continue;
-        SandboxExtension::createHandle(file, SandboxExtension::Type::ReadOnly, fileUploadHandles[i]);
+        if (auto handle = SandboxExtension::createHandle(file, SandboxExtension::Type::ReadOnly))
+            fileUploadHandles[i] = WTFMove(*handle);
     }
 }
 
@@ -598,15 +601,13 @@ void WebPageProxy::setAppHighlightsVisibility(WebCore::HighlightVisibility appHi
 
 bool WebPageProxy::appHighlightsVisibility()
 {
-    if (!m_appHighlightsObserver)
-        setUpHighlightsObserver();
     return [m_appHighlightsObserver isVisible];
 }
 
 CGRect WebPageProxy::appHighlightsOverlayRect()
 {
     if (!m_appHighlightsObserver)
-        setUpHighlightsObserver();
+        return CGRectNull;
     return [m_appHighlightsObserver visibleFrame];
 }
 
@@ -687,7 +688,8 @@ void WebPageProxy::lastNavigationWasAppInitiated(CompletionHandler<void(bool)>&&
 void WebPageProxy::grantAccessToAssetServices()
 {
     SandboxExtension::Handle mobileAssetHandleV2;
-    SandboxExtension::createHandleForMachLookup("com.apple.mobileassetd.v2"_s, std::nullopt, mobileAssetHandleV2);
+    if (auto handle = SandboxExtension::createHandleForMachLookup("com.apple.mobileassetd.v2"_s, std::nullopt))
+        mobileAssetHandleV2 = WTFMove(*handle);
     process().send(Messages::WebProcess::GrantAccessToAssetServices(mobileAssetHandleV2), 0);
 }
 
@@ -704,7 +706,8 @@ void WebPageProxy::switchFromStaticFontRegistryToUserFontRegistry()
 SandboxExtension::Handle WebPageProxy::fontdMachExtensionHandle()
 {
     SandboxExtension::Handle fontMachExtensionHandle;
-    SandboxExtension::createHandleForMachLookup("com.apple.fonts"_s, std::nullopt, fontMachExtensionHandle);
+    if (auto handle = SandboxExtension::createHandleForMachLookup("com.apple.fonts"_s, std::nullopt))
+        fontMachExtensionHandle = WTFMove(*handle);
     return fontMachExtensionHandle;
 }
 
@@ -717,6 +720,37 @@ NSDictionary *WebPageProxy::contentsOfUserInterfaceItem(NSString *userInterfaceI
 
     return nil;
 }
+
+#if PLATFORM(MAC)
+bool WebPageProxy::isQuarantinedAndNotUserApproved(const String& fileURLString)
+{
+    if (!fileURLString.endsWithIgnoringASCIICase(".webarchive"))
+        return false;
+
+    NSURL *fileURL = [NSURL URLWithString:fileURLString];
+    qtn_file_t qf = qtn_file_alloc();
+
+    int quarantineError = qtn_file_init_with_path(qf, fileURL.path.fileSystemRepresentation);
+
+    if (quarantineError == ENOENT || quarantineError == QTN_NOT_QUARANTINED)
+        return false;
+
+    if (quarantineError) {
+        // If we fail to check the quarantine status, assume the file is quarantined and not user approved to be safe.
+        WEBPAGEPROXY_RELEASE_LOG(Loading, "isQuarantinedAndNotUserApproved: failed to initialize quarantine file with path.");
+        qtn_file_free(qf);
+        return true;
+    }
+
+    uint32_t fileflags = qtn_file_get_flags(qf);
+    qtn_file_free(qf);
+
+    if (fileflags & QTN_FLAG_USER_APPROVED)
+        return false;
+
+    return true;
+}
+#endif
 
 } // namespace WebKit
 

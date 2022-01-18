@@ -413,6 +413,11 @@ macro metadata(size, opcode, dst, scratch)
     muli sizeof %opcode%::Metadata, scratch # scratch *= sizeof(Op::Metadata)
     addi scratch, dst # offset += scratch
     addp metadataTable, dst # return &metadataTable[offset]
+    # roundUpToMultipleOf(alignof(Metadata), dst)
+    const adder = (constexpr (alignof(%opcode%::Metadata))) - 1
+    const mask = ~adder
+    addp adder, dst
+    andp mask, dst
 end
 
 macro jumpImpl(dispatchIndirect, targetOffsetReg)
@@ -457,7 +462,7 @@ end
 
 macro op(l, fn)
     commonOp(l, macro () end, macro (size)
-        size(fn, macro() end, macro() end, macro(gen) gen() end)
+        size(fn, macro() break end, macro() break end, macro(gen) gen() end)
     end)
 end
 
@@ -525,6 +530,7 @@ const PayloadOffset = constexpr PayloadOffset
 # Constant for reasoning about butterflies.
 const IsArray                  = constexpr IsArray
 const IndexingShapeMask        = constexpr IndexingShapeMask
+const IndexingTypeMask         = constexpr IndexingTypeMask
 const NoIndexingShape          = constexpr NoIndexingShape
 const Int32Shape               = constexpr Int32Shape
 const DoubleShape              = constexpr DoubleShape
@@ -532,8 +538,10 @@ const ContiguousShape          = constexpr ContiguousShape
 const ArrayStorageShape        = constexpr ArrayStorageShape
 const SlowPutArrayStorageShape = constexpr SlowPutArrayStorageShape
 const CopyOnWrite              = constexpr CopyOnWrite
+const ArrayWithUndecided       = constexpr ArrayWithUndecided
 
 # Type constants.
+const StructureType = constexpr StructureType
 const StringType = constexpr StringType
 const SymbolType = constexpr SymbolType
 const ObjectType = constexpr ObjectType
@@ -1992,19 +2000,9 @@ slowPathOp(create_generator)
 slowPathOp(create_async_generator)
 slowPathOp(define_accessor_property)
 slowPathOp(define_data_property)
-slowPathOp(enumerator_generic_pname)
-slowPathOp(enumerator_structure_pname)
 slowPathOp(get_by_val_with_this)
-slowPathOp(get_direct_pname)
-slowPathOp(get_enumerable_length)
-slowPathOp(get_property_enumerator)
-slowPathOp(has_enumerable_indexed_property)
-slowPathOp(has_enumerable_property)
 
 if not JSVALUE64
-    slowPathOp(has_enumerable_structure_property)
-    slowPathOp(has_own_structure_property)
-    slowPathOp(in_structure_property)
     slowPathOp(get_prototype_of)
 end
 
@@ -2021,7 +2019,6 @@ slowPathOp(resolve_scope_for_hoisting_func_decl_in_eval)
 slowPathOp(spread)
 slowPathOp(strcat)
 slowPathOp(throw_static_error)
-slowPathOp(to_index_string)
 slowPathOp(typeof)
 slowPathOp(typeof_is_object)
 slowPathOp(typeof_is_function)
@@ -2560,3 +2557,5 @@ _wasm_trampoline_wasm_call_ref_no_tls_wide32:
     crash()
 
 end
+
+include? LowLevelInterpreterAdditions

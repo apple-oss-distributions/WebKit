@@ -65,8 +65,8 @@ ExceptionOr<void> HTMLDialogElement::showModal()
 
     m_isModal = true;
 
-    // FIXME: Only add dialog to top layer if it's not already in it. (webkit.org/b/227907)
-    document().addToTopLayer(*this);
+    if (!isInTopLayer())
+        document().addToTopLayer(*this);
 
     // FIXME: Add steps 8 & 9 from spec. (webkit.org/b/227537)
 
@@ -85,13 +85,23 @@ void HTMLDialogElement::close(const String& result)
     if (!result.isNull())
         m_returnValue = result;
 
-    // FIXME: Only remove dialog from top layer if it's inside it. (webkit.org/b/227907)
-    document().removeFromTopLayer(*this);
+    if (isInTopLayer())
+        document().removeFromTopLayer(*this);
 
     // FIXME: Add step 6 from spec. (webkit.org/b/227537)
 
     document().eventLoop().queueTask(TaskSource::UserInteraction, [protectedThis = GCReachableRef { *this }] {
         protectedThis->dispatchEvent(Event::create(eventNames().closeEvent, Event::CanBubble::No, Event::IsCancelable::No));
+    });
+}
+
+void HTMLDialogElement::cancel()
+{
+    document().eventLoop().queueTask(TaskSource::UserInteraction, [protectedThis = GCReachableRef { *this }] {
+        auto cancelEvent = Event::create(eventNames().cancelEvent, Event::CanBubble::No, Event::IsCancelable::Yes);
+        protectedThis->dispatchEvent(cancelEvent);
+        if (!cancelEvent->defaultPrevented())
+            protectedThis->close(nullString());
     });
 }
 

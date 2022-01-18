@@ -26,7 +26,7 @@
 #import "config.h"
 #import "WebPreferencesDefaultValues.h"
 
-#if PLATFORM(COCOA) && HAVE(SYSTEM_FEATURE_FLAGS)
+#if PLATFORM(COCOA)
 
 #import <Foundation/NSBundle.h>
 
@@ -38,22 +38,31 @@
 namespace WebKit {
 
 // Because of <rdar://problem/60608008>, WebKit has to parse the feature flags plist file
-bool isFeatureFlagEnabled(const String& featureName)
+bool isFeatureFlagEnabled(const char* featureName, bool defaultValue)
 {
-    static bool isWebKitBundleFromStagedFramework = [] {
-        NSBundle *webkit2Bundle = [NSBundle bundleForClass:NSClassFromString(@"WKWebView")];
-        return [webkit2Bundle.bundlePath hasPrefix:@"/Library/Apple/System/Library/StagedFrameworks/Safari/"];
+#if HAVE(SYSTEM_FEATURE_FLAGS)
+
+#if PLATFORM(MAC)
+    static bool isSystemWebKit = [] {
+        NSBundle *bundle = [NSBundle bundleForClass:NSClassFromString(@"WKWebView")];
+        return [bundle.bundlePath hasPrefix:@"/System/"];
     }();
 
-    if (!isWebKitBundleFromStagedFramework)
-        return _os_feature_enabled_impl("WebKit", (const char*)featureName.utf8().data());
+    if (isSystemWebKit)
+        return _os_feature_enabled_impl("WebKit", featureName);
 
-    static NeverDestroyed<RetainPtr<NSDictionary>> dictionary = [NSDictionary dictionaryWithContentsOfFile:@"/Library/Apple/System/Library/FeatureFlags/Domain/WebKit.plist"];
+    return defaultValue;
+#else
+    UNUSED_PARAM(defaultValue);
+    return _os_feature_enabled_impl("WebKit", featureName);
+#endif // PLATFORM(MAC)
 
-    if (![[dictionary.get() objectForKey:featureName] objectForKey:@"Enabled"])
-        return _os_feature_enabled_impl("WebKit", (const char*)featureName.characters8());
+#else
 
-    return [[[dictionary.get() objectForKey:featureName] objectForKey:@"Enabled"] isKindOfClass:[NSNumber class]] && [[[dictionary.get() objectForKey:featureName] objectForKey:@"Enabled"] boolValue];
+    UNUSED_PARAM(featureName);
+    return defaultValue;
+
+#endif // HAVE(SYSTEM_FEATURE_FLAGS)
 }
 
 } // namespace WebKit

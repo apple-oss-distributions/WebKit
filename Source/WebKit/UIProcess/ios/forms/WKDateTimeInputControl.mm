@@ -469,7 +469,7 @@ static const CGFloat kDateTimePickerControlMargin = 6;
     if (_dateTimeContextMenuInteraction) {
         [_view removeInteraction:_dateTimeContextMenuInteraction.get()];
         _dateTimeContextMenuInteraction = nil;
-        [_view _removeContextMenuViewIfPossible];
+        [_view _removeContextMenuHintContainerIfPossible];
         [_view.webView _didDismissContextMenu];
     }
 }
@@ -513,7 +513,7 @@ static const CGFloat kDateTimePickerControlMargin = 6;
     [_view.webView _didShowContextMenu];
 #elif USE(UICONTEXTMENU) && HAVE(UICONTEXTMENU_LOCATION)
     [self ensureContextMenuInteraction];
-    [_dateTimeContextMenuInteraction _presentMenuAtLocation:_interactionPoint];
+    [_view presentContextMenu:_dateTimeContextMenuInteraction.get() atLocation:_interactionPoint];
 #endif
 }
 

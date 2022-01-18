@@ -62,13 +62,14 @@ inline Structure* Structure::create(VM& vm, JSGlobalObject* globalObject, JSValu
 
     Structure* structure = new (NotNull, allocateCell<Structure>(vm.heap)) Structure(vm, globalObject, prototype, typeInfo, classInfo, indexingModeIncludingHistory, inlineCapacity);
     structure->finishCreation(vm);
+    ASSERT(structure->type() == StructureType);
     return structure;
 }
 
 inline Structure* Structure::createStructure(VM& vm)
 {
     ASSERT(!vm.structureStructure);
-    Structure* structure = new (NotNull, allocateCell<Structure>(vm.heap)) Structure(vm);
+    Structure* structure = new (NotNull, allocateCell<Structure>(vm.heap)) Structure(vm, CreatingEarlyCell);
     structure->finishCreation(vm, CreatingEarlyCell);
     return structure;
 }
@@ -341,14 +342,10 @@ inline StructureChain* Structure::prototypeChain(VM& vm, JSGlobalObject* globalO
     // We cache our prototype chain so our clients can share it.
     if (!isValid(globalObject, m_cachedPrototypeChain.get(), base)) {
         JSValue prototype = prototypeForLookup(globalObject, base);
+        const_cast<Structure*>(this)->clearCachedPrototypeChain();
         m_cachedPrototypeChain.set(vm, this, StructureChain::create(vm, prototype.isNull() ? nullptr : asObject(prototype)));
     }
     return m_cachedPrototypeChain.get();
-}
-
-inline StructureChain* Structure::prototypeChain(JSGlobalObject* globalObject, JSObject* base) const
-{
-    return prototypeChain(globalObject->vm(), globalObject, base);
 }
 
 inline bool Structure::isValid(JSGlobalObject* globalObject, StructureChain* cachedPrototypeChain, JSObject* base) const
@@ -756,6 +753,14 @@ inline Structure* StructureTransitionTable::get(UniquedStringImpl* rep, unsigned
         return (transition && transition->m_transitionPropertyName == rep && transition->transitionPropertyAttributes() == attributes && transition->transitionKind() == transitionKind) ? transition : nullptr;
     }
     return map()->get(StructureTransitionTable::Hash::Key(rep, attributes, transitionKind));
+}
+
+inline void Structure::clearCachedPrototypeChain()
+{
+    m_cachedPrototypeChain.clear();
+    if (!hasRareData())
+        return;
+    rareData()->clearCachedPropertyNameEnumerator();
 }
 
 } // namespace JSC

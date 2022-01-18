@@ -54,7 +54,8 @@ enum class AccessType : int8_t {
     GetByIdDirect,
     TryGetById,
     GetByVal,
-    Put,
+    PutById,
+    PutByVal,
     InById,
     InByVal,
     HasPrivateName,
@@ -353,6 +354,7 @@ public:
     static ptrdiff_t offsetOfCodePtr() { return OBJECT_OFFSETOF(StructureStubInfo, m_codePtr); }
     static ptrdiff_t offsetOfSlowPathStartLocation() { return OBJECT_OFFSETOF(StructureStubInfo, slowPathStartLocation); }
     static ptrdiff_t offsetOfSlowOperation() { return OBJECT_OFFSETOF(StructureStubInfo, m_slowOperation); }
+    static ptrdiff_t offsetOfCountdown() { return OBJECT_OFFSETOF(StructureStubInfo, countdown); }
 
     RegisterSet usedRegisters;
 
@@ -365,6 +367,7 @@ public:
         GPRReg brandGPR;
     } regs;
     GPRReg m_stubInfoGPR { InvalidGPRReg };
+    GPRReg m_arrayProfileGPR { InvalidGPRReg };
 #if USE(JSVALUE32_64)
     GPRReg valueTagGPR;
     // FIXME: [32-bits] Check if StructureStubInfo::baseTagGPR is used somewhere.

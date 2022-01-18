@@ -165,16 +165,23 @@ static double WebAVPlayerControllerLiveStreamSeekableTimeRangeMinimumDuration = 
 
 - (void)setDefaultPlaybackRate:(double)defaultPlaybackRate
 {
+    [self setDefaultPlaybackRate:defaultPlaybackRate fromJavaScript:NO];
+}
+
+- (void)setDefaultPlaybackRate:(double)defaultPlaybackRate fromJavaScript:(BOOL)fromJavaScript
+{
     if (defaultPlaybackRate == _defaultPlaybackRate)
         return;
 
+    [self willChangeValueForKey:@"defaultPlaybackRate"];
     _defaultPlaybackRate = defaultPlaybackRate;
+    [self didChangeValueForKey:@"defaultPlaybackRate"];
 
-    if (self.delegate && self.delegate->defaultPlaybackRate() != _defaultPlaybackRate)
+    if (!fromJavaScript && self.delegate && self.delegate->defaultPlaybackRate() != _defaultPlaybackRate)
         self.delegate->setDefaultPlaybackRate(_defaultPlaybackRate);
 
     if ([self isPlaying])
-        [self setRate:_defaultPlaybackRate];
+        [self setRate:_defaultPlaybackRate fromJavaScript:fromJavaScript];
 }
 
 - (double)rate
@@ -184,10 +191,17 @@ static double WebAVPlayerControllerLiveStreamSeekableTimeRangeMinimumDuration = 
 
 - (void)setRate:(double)rate
 {
+    [self setRate:rate fromJavaScript:NO];
+}
+
+- (void)setRate:(double)rate fromJavaScript:(BOOL)fromJavaScript
+{
     if (rate == _rate)
         return;
 
+    [self willChangeValueForKey:@"rate"];
     _rate = rate;
+    [self didChangeValueForKey:@"rate"];
 
     // AVKit doesn't have a separate variable for "paused", instead representing it by a `rate` of
     // `0`. Unfortunately, `HTMLMediaElement::play` doesn't call `HTMLMediaElement::setPlaybackRate`
@@ -201,9 +215,9 @@ static double WebAVPlayerControllerLiveStreamSeekableTimeRangeMinimumDuration = 
     // ending scanning, with the `playbackRate` being used in all other cases, including when
     // resuming after pausing. As such, WebKit should return the `playbackRate` instead of the
     // `defaultPlaybackRate` in these cases when communicating with AVKit.
-    [self setDefaultPlaybackRate:_rate];
+    [self setDefaultPlaybackRate:_rate fromJavaScript:fromJavaScript];
 
-    if (self.delegate && self.delegate->playbackRate() != _rate)
+    if (!fromJavaScript && self.delegate && self.delegate->playbackRate() != _rate)
         self.delegate->setPlaybackRate(_rate);
 }
 

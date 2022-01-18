@@ -200,7 +200,7 @@ class CallFrame;
 struct Instruction;
 
 #define JSC_DECLARE_COMMON_SLOW_PATH(name) \
-    extern "C" JSC_DECLARE_JIT_OPERATION(name, SlowPathReturnType, (CallFrame*, const Instruction*))
+    JSC_DECLARE_JIT_OPERATION(name, SlowPathReturnType, (CallFrame*, const Instruction*))
 
 #define JSC_DEFINE_COMMON_SLOW_PATH(name) \
     JSC_DEFINE_JIT_OPERATION(name, SlowPathReturnType, (CallFrame* callFrame, const Instruction* pc))
@@ -254,17 +254,11 @@ JSC_DECLARE_COMMON_SLOW_PATH(slow_path_is_constructor);
 JSC_DECLARE_COMMON_SLOW_PATH(slow_path_strcat);
 JSC_DECLARE_COMMON_SLOW_PATH(slow_path_to_primitive);
 JSC_DECLARE_COMMON_SLOW_PATH(slow_path_to_property_key);
-JSC_DECLARE_COMMON_SLOW_PATH(slow_path_get_enumerable_length);
-JSC_DECLARE_COMMON_SLOW_PATH(slow_path_has_enumerable_indexed_property);
-JSC_DECLARE_COMMON_SLOW_PATH(slow_path_has_enumerable_structure_property);
-JSC_DECLARE_COMMON_SLOW_PATH(slow_path_has_enumerable_property);
-JSC_DECLARE_COMMON_SLOW_PATH(slow_path_has_own_structure_property);
-JSC_DECLARE_COMMON_SLOW_PATH(slow_path_in_structure_property);
-JSC_DECLARE_COMMON_SLOW_PATH(slow_path_get_direct_pname);
 JSC_DECLARE_COMMON_SLOW_PATH(slow_path_get_property_enumerator);
-JSC_DECLARE_COMMON_SLOW_PATH(slow_path_enumerator_structure_pname);
-JSC_DECLARE_COMMON_SLOW_PATH(slow_path_enumerator_generic_pname);
-JSC_DECLARE_COMMON_SLOW_PATH(slow_path_to_index_string);
+JSC_DECLARE_COMMON_SLOW_PATH(slow_path_enumerator_next);
+JSC_DECLARE_COMMON_SLOW_PATH(slow_path_enumerator_get_by_val);
+JSC_DECLARE_COMMON_SLOW_PATH(slow_path_enumerator_in_by_val);
+JSC_DECLARE_COMMON_SLOW_PATH(slow_path_enumerator_has_own_property);
 JSC_DECLARE_COMMON_SLOW_PATH(slow_path_profile_type_clear_log);
 JSC_DECLARE_COMMON_SLOW_PATH(slow_path_unreachable);
 JSC_DECLARE_COMMON_SLOW_PATH(slow_path_create_lexical_environment);

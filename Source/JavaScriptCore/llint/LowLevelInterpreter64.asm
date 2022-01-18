@@ -534,6 +534,11 @@ macro loadVariable(get, fieldName, valueReg)
     loadq [cfr, valueReg, 8], valueReg
 end
 
+macro storeVariable(get, fieldName, newValueReg, scratchReg)
+    get(fieldName, scratchReg)
+    storeq newValueReg, [cfr, scratchReg, 8]
+end
+
 # Index and value must be different registers. Index may be clobbered.
 macro loadConstant(size, index, value)
     macro loadNarrow()
@@ -2067,6 +2072,19 @@ undefinedOrNullJumpOp(jundefined_or_null, OpJundefinedOrNull,
 undefinedOrNullJumpOp(jnundefined_or_null, OpJnundefinedOrNull,
     macro (value, target) bqneq value, ValueNull, target end)
 
+llintOpWithReturn(op_jeq_ptr, OpJeqPtr, macro (size, get, dispatch, return)
+    get(m_value, t0)
+    get(m_specialPointer, t1)
+    loadConstant(size, t1, t2)
+    bpeq t2, [cfr, t0, 8], .opJeqPtrTarget
+    dispatch()
+
+.opJeqPtrTarget:
+    get(m_targetLabel, t0)
+    jumpImpl(dispatchIndirect, t0)
+end)
+
+
 llintOpWithMetadata(op_jneq_ptr, OpJneqPtr, macro (size, get, dispatch, metadata, return)
     get(m_value, t0)
     get(m_specialPointer, t1)
@@ -3073,8 +3091,7 @@ llintOpWithMetadata(op_iterator_next, OpIteratorNext, macro (size, get, dispatch
 .notDone:
     macro storeValueAndDispatch(v)
         move v, t2
-        get(m_value, t1)
-        storeq t2, [cfr, t1, 8]
+        storeVariable(get, m_value, t2, t1)
         checkStackPointerAlignment(t0, 0xbaddb01e)
         dispatch()
     end
@@ -3089,6 +3106,137 @@ llintOpWithMetadata(op_iterator_next, OpIteratorNext, macro (size, get, dispatch
     dispatch()
 end)
 
+llintOpWithReturn(op_get_property_enumerator, OpGetPropertyEnumerator, macro (size, get, dispatch, return)
+    get(m_base, t1)
+    loadConstantOrVariableCell(size, t1, t0, .slowPath)
+
+    loadb JSCell::m_indexingTypeAndMisc[t0], t1
+    andi IndexingTypeMask, t1
+    bia t1, ArrayWithUndecided, .slowPath
+
+    loadStructureWithScratch(t0, t1, t2, t3)
+    loadp Structure::m_previousOrRareData[t1], t1
+    btpz t1, .slowPath
+    bbeq JSCell::m_type[t1], StructureType, .slowPath
+
+    loadp StructureRareData::m_cachedPropertyNameEnumeratorAndFlag[t1], t1
+    btpz t1, .slowPath
+    btpnz t1, (constexpr StructureRareData::cachedPropertyNameEnumeratorIsValidatedViaTraversingFlag), .slowPath
+
+    return(t1)
+
+.slowPath:
+    callSlowPath(_slow_path_get_property_enumerator)
+    dispatch()
+end)
+
+llintOp(op_enumerator_next, OpEnumeratorNext, macro (size, get, dispatch)
+    # Note: this will always call the slow path on at least the first/last execution of EnumeratorNext for any given loop.
+    # The upside this is that we don't have to record any metadata or mode information here as the slow path will do it for us when transitioning from InitMode/IndexedMode to OwnStructureMode, or from OwnStructureMode to GenericMode.
+    loadVariable(get, m_mode, t0)
+    bbneq t0, constexpr JSPropertyNameEnumerator::OwnStructureMode, .nextSlowPath
+
+    get(m_base, t1)
+    loadConstantOrVariableCell(size, t1, t0, .nextSlowPath)
+
+    loadVariable(get, m_enumerator, t1)
+    loadi JSPropertyNameEnumerator::m_cachedStructureID[t1], t2
+    bineq t2, JSCell::m_structureID[t0], .nextSlowPath
+
+    loadVariable(get, m_index, t2)
+    addq 1, t2
+    loadi JSPropertyNameEnumerator::m_endStructurePropertyIndex[t1], t3
+    biaeq t2, t3, .nextSlowPath
+
+    storeVariable(get, m_index, t2, t3)
+    loadp JSPropertyNameEnumerator::m_propertyNames[t1], t3
+    zxi2q t2, t2
+    loadp [t3, t2, PtrSize], t3
+
+    storeVariable(get, m_propertyName, t3, t2)
+    dispatch()
+
+.nextSlowPath:
+    callSlowPath(_slow_path_enumerator_next)
+    dispatch()
+end)
+
+llintOpWithMetadata(op_enumerator_get_by_val, OpEnumeratorGetByVal, macro (size, get, dispatch, metadata, return)
+    metadata(t5, t0)
+
+    loadVariable(get, m_mode, t0)
+
+    # FIXME: This should be orb but that doesn't exist for some reason... https://bugs.webkit.org/show_bug.cgi?id=229445
+    loadb OpEnumeratorGetByVal::Metadata::m_enumeratorMetadata[t5], t1
+    ori t0, t1
+    storeb t1, OpEnumeratorGetByVal::Metadata::m_enumeratorMetadata[t5]
+
+    bbneq t0, constexpr JSPropertyNameEnumerator::OwnStructureMode, .getSlowPath
+
+    get(m_base, t1)
+    loadConstantOrVariableCell(size, t1, t0, .getSlowPath)
+
+    loadVariable(get, m_enumerator, t1)
+    loadi JSPropertyNameEnumerator::m_cachedStructureID[t1], t2
+    bineq t2, JSCell::m_structureID[t0], .getSlowPath
+
+    loadVariable(get, m_index, t2)
+    loadi JSPropertyNameEnumerator::m_cachedInlineCapacity[t1], t1
+    biaeq t2, t1, .outOfLine
+
+    zxi2q t2, t2
+    loadq sizeof JSObject[t0, t2, 8], t2
+    jmp .done
+
+.outOfLine:
+    loadp JSObject::m_butterfly[t0], t0
+    subi t1, t2
+    negi t2
+    sxi2q t2, t2
+    loadq constexpr ((offsetInButterfly(firstOutOfLineOffset)) * sizeof(EncodedJSValue))[t0, t2, 8], t2
+
+.done:
+    valueProfile(OpEnumeratorGetByVal, m_profile, t5, t2)
+    return(t2)
+
+.getSlowPath:
+    callSlowPath(_slow_path_enumerator_get_by_val)
+    dispatch()
+end)
+
+macro hasPropertyImpl(opcodeStruct, size, get, dispatch, metadata, return, slowPath)
+    metadata(t5, t0)
+
+    loadVariable(get, m_mode, t0)
+    # FIXME: This should be orb but that doesn't exist for some reason... https://bugs.webkit.org/show_bug.cgi?id=229445
+    loadb %opcodeStruct%::Metadata::m_enumeratorMetadata[t5], t1
+    ori t0, t1
+    storeb t1, %opcodeStruct%::Metadata::m_enumeratorMetadata[t5]
+
+    bbneq t0, constexpr JSPropertyNameEnumerator::OwnStructureMode, .callSlowPath
+
+    get(m_base, t1)
+    loadConstantOrVariableCell(size, t1, t0, .callSlowPath)
+
+    loadVariable(get, m_enumerator, t1)
+    loadi JSPropertyNameEnumerator::m_cachedStructureID[t1], t2
+    bineq t2, JSCell::m_structureID[t0], .callSlowPath
+
+    move ValueTrue, t2
+    return(t2)
+
+.callSlowPath:
+    callSlowPath(slowPath)
+    dispatch()
+end
+
+llintOpWithMetadata(op_enumerator_in_by_val, OpEnumeratorInByVal, macro (size, get, dispatch, metadata, return)
+    hasPropertyImpl(OpEnumeratorInByVal, size, get, dispatch, metadata, return, _slow_path_enumerator_in_by_val)
+end)
+
+llintOpWithMetadata(op_enumerator_has_own_property, OpEnumeratorHasOwnProperty, macro (size, get, dispatch, metadata, return)
+    hasPropertyImpl(OpEnumeratorHasOwnProperty, size, get, dispatch, metadata, return, _slow_path_enumerator_has_own_property)
+end)
 
 llintOpWithProfile(op_get_internal_field, OpGetInternalField, macro (size, get, dispatch, return)
     loadVariable(get, m_base, t1)
@@ -3139,34 +3287,6 @@ llintOp(op_log_shadow_chicken_tail, OpLogShadowChickenTail, macro (size, get, di
 .opLogShadowChickenTailSlow:
     callSlowPath(_llint_slow_path_log_shadow_chicken_tail)
     dispatch()
-end)
-
-macro hasStructurePropertyImpl(size, get, dispatch, return, slowPathCall)
-    get(m_base, t0)
-    loadConstantOrVariable(size, t0, t1)
-    btqnz t1, notCellMask, .slowPath
-
-    loadVariable(get, m_enumerator, t0)
-    loadi JSCell::m_structureID[t1], t1
-    bineq t1, JSPropertyNameEnumerator::m_cachedStructureID[t0], .slowPath
-
-    return(ValueTrue)
-
-.slowPath:
-    callSlowPath(slowPathCall)
-    dispatch()
-end
-
-llintOpWithReturn(op_has_enumerable_structure_property, OpHasEnumerableStructureProperty, macro (size, get, dispatch, return)
-    hasStructurePropertyImpl(size, get, dispatch,  return, _slow_path_has_enumerable_structure_property)
-end)
-
-llintOpWithReturn(op_has_own_structure_property, OpHasOwnStructureProperty, macro (size, get, dispatch, return)
-    hasStructurePropertyImpl(size, get, dispatch,  return, _slow_path_has_own_structure_property)
-end)
-
-llintOpWithReturn(op_in_structure_property, OpInStructureProperty, macro (size, get, dispatch, return)
-    hasStructurePropertyImpl(size, get, dispatch,  return, _slow_path_in_structure_property)
 end)
 
 op(fuzzer_return_early_from_loop_hint, macro ()

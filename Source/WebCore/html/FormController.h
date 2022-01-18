@@ -29,6 +29,7 @@
 
 namespace WebCore {
 
+class Document;
 class FormKeyGenerator;
 class HTMLFormControlElementWithState;
 class HTMLFormElement;
@@ -42,12 +43,7 @@ public:
     FormController();
     ~FormController();
 
-    void registerFormElementWithState(HTMLFormControlElementWithState&);
-    void unregisterFormElementWithState(HTMLFormControlElementWithState&);
-
-    unsigned formElementsCharacterCount() const;
-
-    Vector<String> formElementsState() const;
+    Vector<String> formElementsState(const Document&) const;
     void setStateForNewFormElements(const Vector<String>&);
 
     void willDeleteForm(HTMLFormElement&);
@@ -58,14 +54,13 @@ public:
     WEBCORE_EXPORT static Vector<String> referencedFilePaths(const Vector<String>& stateVector);
 
 private:
-    typedef ListHashSet<RefPtr<HTMLFormControlElementWithState>> FormElementListHashSet;
-    typedef HashMap<RefPtr<AtomStringImpl>, std::unique_ptr<SavedFormState>> SavedFormStateMap;
+    using FormControlVector = Vector<std::reference_wrapper<const HTMLFormControlElementWithState>>;
+    using SavedFormStateMap = HashMap<RefPtr<AtomStringImpl>, std::unique_ptr<SavedFormState>>;
 
-    static std::unique_ptr<SavedFormStateMap> createSavedFormStateMap(const FormElementListHashSet&);
+    static std::unique_ptr<SavedFormStateMap> createSavedFormStateMap(const FormControlVector&);
     FormControlState takeStateForFormElement(const HTMLFormControlElementWithState&);
     static void formStatesFromStateVector(const Vector<String>&, SavedFormStateMap&);
 
-    FormElementListHashSet m_formElementsWithState;
     SavedFormStateMap m_savedFormStateMap;
     std::unique_ptr<FormKeyGenerator> m_formKeyGenerator;
 };

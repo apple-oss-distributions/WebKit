@@ -456,8 +456,11 @@ void WebProcess::initializeWebProcess(WebProcessCreationParameters&& parameters)
 
     setCacheModel(parameters.cacheModel);
 
-    if (!parameters.overrideLanguages.isEmpty())
+    if (!parameters.overrideLanguages.isEmpty()) {
+        LOG_WITH_STREAM(Language, stream << "Web Process initialization is setting overrideLanguages: " << parameters.overrideLanguages);
         overrideUserPreferredLanguages(parameters.overrideLanguages);
+    } else
+        LOG(Language, "Web process initialization is not setting overrideLanguages");
 
     m_textCheckerState = parameters.textCheckerState;
 
@@ -625,6 +628,8 @@ void WebProcess::setIsInProcessCache(bool isInProcessCache)
     }
 
     updateProcessName(IsInProcessInitialization::No);
+
+    IPC::AccessibilityProcessSuspendedNotification(isInProcessCache);
 #else
     UNUSED_PARAM(isInProcessCache);
 #endif
@@ -727,6 +732,7 @@ void WebProcess::setShouldUseFontSmoothing(bool useFontSmoothing)
 
 void WebProcess::userPreferredLanguagesChanged(const Vector<String>& languages) const
 {
+    LOG_WITH_STREAM(Language, stream << "The web process's userPreferredLanguagesChanged: " << languages);
     overrideUserPreferredLanguages(languages);
 }
 
@@ -1075,8 +1081,10 @@ static NetworkProcessConnectionInfo getNetworkProcessConnection(IPC::Connection&
             // Connection to UIProcess has been severed, exit cleanly.
             exit(0);
         }
-        if (!connection.sendSync(Messages::WebProcessProxy::GetNetworkProcessConnection(), Messages::WebProcessProxy::GetNetworkProcessConnection::Reply(connectionInfo), 0))
+        if (!connection.sendSync(Messages::WebProcessProxy::GetNetworkProcessConnection(), Messages::WebProcessProxy::GetNetworkProcessConnection::Reply(connectionInfo), 0)) {
+            RELEASE_LOG_ERROR(Process, "getNetworkProcessConnection: Failed to send or receive message");
             return false;
+        }
         return IPC::Connection::identifierIsValid(connectionInfo.identifier());
     };
 
@@ -1212,6 +1220,8 @@ GPUProcessConnectionInfo WebProcess::getGPUProcessConnection(IPC::Connection& co
 {
     GPUProcessConnectionParameters parameters;
     platformInitializeGPUProcessConnectionParameters(parameters);
+
+    IPC::UnboundedSynchronousIPCScope unboundedSynchronousIPCScope;
 
     GPUProcessConnectionInfo connectionInfo;
     if (!connection.sendSync(Messages::WebProcessProxy::GetGPUProcessConnection(parameters), Messages::WebProcessProxy::GetGPUProcessConnection::Reply(connectionInfo), 0)) {
@@ -1512,7 +1522,7 @@ void WebProcess::prepareToSuspend(bool isSuspensionImminent, CompletionHandler<v
     SQLiteDatabase::setIsDatabaseOpeningForbidden(true);
     if (DatabaseTracker::isInitialized())
         DatabaseTracker::singleton().closeAllDatabases(CurrentQueryBehavior::Interrupt);
-    accessibilityProcessSuspendedNotification(true);
+    IPC::AccessibilityProcessSuspendedNotification(true);
     updateFreezerStatus();
 #endif
 
@@ -1574,7 +1584,7 @@ void WebProcess::processDidResume()
 #if PLATFORM(IOS_FAMILY)
     m_webSQLiteDatabaseTracker.setIsSuspended(false);
     SQLiteDatabase::setIsDatabaseOpeningForbidden(false);
-    accessibilityProcessSuspendedNotification(false);
+    IPC::AccessibilityProcessSuspendedNotification(false);
 #endif
 
 #if ENABLE(VIDEO)

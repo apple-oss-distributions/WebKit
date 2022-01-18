@@ -598,6 +598,7 @@ set(WebCore_PRIVATE_FRAMEWORK_HEADERS
     fileapi/AsyncFileStream.h
     fileapi/Blob.h
     fileapi/BlobPropertyBag.h
+    fileapi/BlobURL.h
     fileapi/EndingType.h
     fileapi/File.h
     fileapi/FileList.h
@@ -808,6 +809,7 @@ set(WebCore_PRIVATE_FRAMEWORK_HEADERS
     loader/NetscapePlugInStreamLoader.h
     loader/PingLoader.h
     loader/PolicyChecker.h
+    loader/PolicyContainer.h
     loader/PrivateClickMeasurement.h
     loader/ProgressTracker.h
     loader/ProgressTrackerClient.h
@@ -1337,8 +1339,6 @@ set(WebCore_PRIVATE_FRAMEWORK_HEADERS
     platform/graphics/angle/ANGLEHeaders.h
     platform/graphics/angle/ExtensionsGLANGLE.h
     platform/graphics/angle/GraphicsContextGLANGLEUtilities.h
-
-    platform/graphics/cocoa/WebMAudioUtilitiesCocoa.h
 
     platform/graphics/displaylists/DisplayList.h
     platform/graphics/displaylists/DisplayListDrawGlyphsRecorder.h

@@ -31,6 +31,7 @@
 #import "APIAttachment.h"
 #import "APILegacyContextHistoryClient.h"
 #import "APINavigation.h"
+#import "APIPageConfiguration.h"
 #import "AppKitSPI.h"
 #import "CoreTextHelpers.h"
 #import "FontInfo.h"
@@ -149,10 +150,6 @@
 
 #if HAVE(TRANSLATION_UI_SERVICES)
 #import <TranslationUIServices/LTUITranslationViewController.h>
-
-@interface LTUITranslationViewController (Staging_77660675)
-@property (nonatomic, copy) void(^replacementHandler)(NSAttributedString *);
-@end
 
 SOFT_LINK_PRIVATE_FRAMEWORK_OPTIONAL(TranslationUIServices)
 SOFT_LINK_CLASS_OPTIONAL(TranslationUIServices, LTUITranslationViewController)
@@ -1051,13 +1048,18 @@ NSTouchBar *WebViewImpl::makeTouchBar()
     return m_currentTouchBar.get();
 }
 
+bool WebViewImpl::requiresUserActionForEditingControlsManager() const
+{
+    return m_page->configuration().requiresUserActionForEditingControlsManager();
+}
+
 void WebViewImpl::updateTouchBar()
 {
     if (!m_canCreateTouchBars)
         return;
 
     NSTouchBar *touchBar = nil;
-    bool userActionRequirementsHaveBeenMet = m_requiresUserActionForEditingControlsManager ? m_page->hasHadSelectionChangesFromUserInteraction() : true;
+    bool userActionRequirementsHaveBeenMet = !requiresUserActionForEditingControlsManager() || m_page->hasHadSelectionChangesFromUserInteraction();
     if (m_page->editorState().isContentEditable && !m_page->isTouchBarUpdateSupressedForHiddenContentEditable()) {
         updateTextTouchBar();
         if (userActionRequirementsHaveBeenMet)
@@ -3246,8 +3248,7 @@ bool WebViewImpl::validateUserInterfaceItem(id <NSValidatedUserInterfaceItem> it
     }
 
     if (action == @selector(toggleAutomaticSpellingCorrection:)) {
-        auto& editorState = m_page->editorState();
-        bool enable = editorState.isContentEditable && (editorState.isMissingPostLayoutData || editorState.postLayoutData().canEnableAutomaticSpellingCorrection);
+        bool enable = m_page->editorState().canEnableAutomaticSpellingCorrection;
         menuItem(item).state = TextChecker::state().isAutomaticSpellingCorrectionEnabled && enable ? NSControlStateValueOn : NSControlStateValueOff;
         return enable;
     }
@@ -3720,6 +3721,10 @@ void WebViewImpl::dismissContentRelativeChildWindowsFromViewOnly()
     [m_immediateActionController dismissContentRelativeChildWindows];
 
     m_pageClient->dismissCorrectionPanel(WebCore::ReasonForDismissingAlternativeTextIgnored);
+
+#if HAVE(TRANSLATION_UI_SERVICES) && ENABLE(CONTEXT_MENUS)
+    [std::exchange(m_lastContextMenuTranslationPopover, nil) close];
+#endif
 }
 
 void WebViewImpl::hideWordDefinitionWindow()
@@ -5779,7 +5784,7 @@ void WebViewImpl::handleContextMenuTranslation(const WebCore::TranslationContext
     auto view = m_view.get();
     auto translationViewController = adoptNS([allocLTUITranslationViewControllerInstance() init]);
     [translationViewController setText:adoptNS([[NSAttributedString alloc] initWithString:info.text]).get()];
-    if (info.mode == WebCore::TranslationContextMenuMode::Editable && [translationViewController respondsToSelector:@selector(setReplacementHandler:)]) {
+    if (info.mode == WebCore::TranslationContextMenuMode::Editable) {
         [translationViewController setIsSourceEditable:YES];
         [translationViewController setReplacementHandler:[this, weakThis = makeWeakPtr(*this)](NSAttributedString *string) {
             if (weakThis)
@@ -5805,6 +5810,7 @@ void WebViewImpl::handleContextMenuTranslation(const WebCore::TranslationContext
     else
         preferredEdge = aim > highlight ? NSRectEdgeMaxX : NSRectEdgeMinX;
 
+    m_lastContextMenuTranslationPopover = popover.get();
     [popover showRelativeToRect:info.selectionBoundsInRootView ofView:view.get() preferredEdge:preferredEdge];
 }
 

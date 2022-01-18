@@ -188,7 +188,7 @@ public:
         store32(regs.tagGPR(), bitwise_cast<void*>(bitwise_cast<uintptr_t>(address) + TagOffset));
 #endif
     }
-    
+
     void loadValue(Address address, JSValueRegs regs)
     {
 #if USE(JSVALUE64)
@@ -889,7 +889,7 @@ public:
         return branch8(
             Below, Address(cellGPR, JSCell::typeInfoTypeOffset()), TrustedImm32(ObjectType));
     }
-    
+
     // Note that first and last are inclusive.
     Jump branchIfType(GPRReg cellGPR, JSTypeRange range)
     {
@@ -934,6 +934,8 @@ public:
     Jump branchIfNotHeapBigInt(GPRReg cellGPR) { return branchIfNotType(cellGPR, HeapBigIntType); }
     Jump branchIfFunction(GPRReg cellGPR) { return branchIfType(cellGPR, JSFunctionType); }
     Jump branchIfNotFunction(GPRReg cellGPR) { return branchIfNotType(cellGPR, JSFunctionType); }
+    Jump branchIfStructure(GPRReg cellGPR) { return branchIfType(cellGPR, StructureType); }
+    Jump branchIfNotStructure(GPRReg cellGPR) { return branchIfNotType(cellGPR, StructureType); }
     
     void isEmpty(GPRReg gpr, GPRReg dst)
     {
@@ -1304,7 +1306,7 @@ public:
         boxDouble(fpr, regs.gpr(), mode);
     }
 
-    void unboxDoubleNonDestructive(JSValueRegs regs, FPRReg destFPR, GPRReg resultGPR, FPRReg)
+    void unboxDoubleNonDestructive(JSValueRegs regs, FPRReg destFPR, GPRReg resultGPR)
     {
         unboxDouble(regs.payloadGPR(), resultGPR, destFPR);
     }
@@ -1355,23 +1357,23 @@ public:
     {
         moveDoubleToInts(fpr, payloadGPR, tagGPR);
     }
-    void unboxDouble(GPRReg tagGPR, GPRReg payloadGPR, FPRReg fpr, FPRReg scratchFPR)
+    void unboxDouble(GPRReg tagGPR, GPRReg payloadGPR, FPRReg fpr)
     {
-        moveIntsToDouble(payloadGPR, tagGPR, fpr, scratchFPR);
+        moveIntsToDouble(payloadGPR, tagGPR, fpr);
     }
     
     void boxDouble(FPRReg fpr, JSValueRegs regs)
     {
         boxDouble(fpr, regs.tagGPR(), regs.payloadGPR());
     }
-    void unboxDouble(JSValueRegs regs, FPRReg fpr, FPRReg scratchFPR)
+    void unboxDouble(JSValueRegs regs, FPRReg fpr)
     {
-        unboxDouble(regs.tagGPR(), regs.payloadGPR(), fpr, scratchFPR);
+        unboxDouble(regs.tagGPR(), regs.payloadGPR(), fpr);
     }
 
-    void unboxDoubleNonDestructive(const JSValueRegs regs, FPRReg destFPR, GPRReg, FPRReg scratchFPR)
+    void unboxDoubleNonDestructive(JSValueRegs regs, FPRReg destFPR, GPRReg)
     {
-        unboxDouble(regs, destFPR, scratchFPR);
+        unboxDouble(regs, destFPR);
     }
 #endif
     

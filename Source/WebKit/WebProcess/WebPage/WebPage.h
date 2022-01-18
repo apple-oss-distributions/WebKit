@@ -930,7 +930,6 @@ public:
     void getStringSelectionForPasteboard(CompletionHandler<void(String&&)>&&);
     void getDataSelectionForPasteboard(const String pasteboardType, CompletionHandler<void(SharedMemory::IPCHandle&&)>&&);
     void shouldDelayWindowOrderingEvent(const WebKit::WebMouseEvent&, CompletionHandler<void(bool)>&&);
-    void acceptsFirstMouse(int eventNumber, const WebKit::WebMouseEvent&, CompletionHandler<void(bool)>&&);
     bool performNonEditingBehaviorForSelector(const String&, WebCore::KeyboardEvent*);
 
     void insertDictatedTextAsync(const String& text, const EditingRange& replacementRange, const Vector<WebCore::DictationAlternative>& dictationAlternativeLocations, InsertTextOptions&&);
@@ -939,6 +938,7 @@ public:
 #if PLATFORM(MAC)
     void attributedSubstringForCharacterRangeAsync(const EditingRange&, CompletionHandler<void(const WebCore::AttributedString&, const EditingRange&)>&&);
     void fontAtSelection(CompletionHandler<void(const FontInfo&, double, bool)>&&);
+    void requestAcceptsFirstMouse(int eventNumber, const WebKit::WebMouseEvent&);
 #endif
 
 #if PLATFORM(COCOA) && ENABLE(SERVICE_CONTROLS)
@@ -1494,7 +1494,7 @@ private:
     void platformReinitialize();
     void platformDetach();
     void getPlatformEditorState(WebCore::Frame&, EditorState&) const;
-    bool platformNeedsLayoutForEditorState(const WebCore::Frame&) const;
+    bool requiresPostLayoutDataForEditorState(const WebCore::Frame&) const;
     void platformWillPerformEditingCommand();
     void sendEditorStateUpdate();
     void getPlatformEditorStateCommon(const WebCore::Frame&, EditorState&) const;
@@ -1585,7 +1585,7 @@ private:
     void navigateToPDFLinkWithSimulatedClick(const String& url, WebCore::IntPoint documentPoint, WebCore::IntPoint screenPoint);
     void getPDFFirstPageSize(WebCore::FrameIdentifier, CompletionHandler<void(WebCore::FloatSize)>&&);
     void reload(uint64_t navigationID, uint32_t reloadOptions, SandboxExtension::Handle&&);
-    void goToBackForwardItem(uint64_t navigationID, const WebCore::BackForwardItemIdentifier&, WebCore::FrameLoadType, WebCore::ShouldTreatAsContinuingLoad, std::optional<WebsitePoliciesData>&&);
+    void goToBackForwardItem(uint64_t navigationID, const WebCore::BackForwardItemIdentifier&, WebCore::FrameLoadType, WebCore::ShouldTreatAsContinuingLoad, std::optional<WebsitePoliciesData>&&, bool lastNavigationWasAppInitiated);
     void tryRestoreScrollPosition();
     void setInitialFocus(bool forward, bool isKeyboardEventValid, const WebKeyboardEvent&, CompletionHandler<void()>&&);
     void updateIsInWindow(bool isInitialState = false);
@@ -1919,6 +1919,7 @@ private:
     void platformIsPlayingMediaDidChange();
 
     bool hasPendingEditorStateUpdate() const;
+    bool shouldAvoidComputingPostLayoutDataForEditorState() const;
 
     WebCore::PageIdentifier m_identifier;
 
@@ -2164,9 +2165,10 @@ private:
     std::optional<WebCore::IntSize> m_viewportSizeForCSSViewportUnits;
 
     bool m_userIsInteracting { false };
-    bool m_hasEverFocusedElementDueToUserInteractionSincePageTransition { false };
 
 #if HAVE(TOUCH_BAR)
+    bool m_hasEverFocusedElementDueToUserInteractionSincePageTransition { false };
+    bool m_requiresUserActionForEditingControlsManager { false };
     bool m_isTouchBarUpdateSupressedForHiddenContentEditable { false };
     bool m_isNeverRichlyEditableForTouchBar { false };
 #endif
@@ -2386,10 +2388,14 @@ private:
 
 #if !PLATFORM(IOS_FAMILY)
 inline void WebPage::platformWillPerformEditingCommand() { }
-inline bool WebPage::platformNeedsLayoutForEditorState(const WebCore::Frame&) const { return false; }
 inline void WebPage::didHandleOrPreventMouseDownOrMouseUpEvent() { }
+inline bool WebPage::requiresPostLayoutDataForEditorState(const WebCore::Frame&) const { return false; }
 inline void WebPage::prepareToRunModalJavaScriptDialog() { }
 inline void WebPage::platformIsPlayingMediaDidChange() { }
+#endif
+
+#if !PLATFORM(MAC)
+inline bool WebPage::shouldAvoidComputingPostLayoutDataForEditorState() const { return false; }
 #endif
 
 } // namespace WebKit

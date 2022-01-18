@@ -36,6 +36,7 @@
 #include "BlobPart.h"
 #include "BlobRegistry.h"
 #include "BlobURL.h"
+#include "CrossOriginOpenerPolicy.h"
 #include "SecurityOrigin.h"
 #include <mutex>
 #include <wtf/CrossThreadQueue.h>
@@ -99,19 +100,19 @@ static inline bool isBlobURLContainsNullOrigin(const URL& url)
     return url.string().substring(startIndex, endIndex - startIndex - 1) == "null";
 }
 
-void ThreadableBlobRegistry::registerBlobURL(SecurityOrigin* origin, const URL& url, const URL& srcURL)
+void ThreadableBlobRegistry::registerBlobURL(SecurityOrigin* origin, const PolicyContainer& policyContainer, const URL& url, const URL& srcURL)
 {
     // If the blob URL contains null origin, as in the context with unique security origin or file URL, save the mapping between url and origin so that the origin can be retrived when doing security origin check.
     if (origin && isBlobURLContainsNullOrigin(url))
         originMap()->add(url.string(), origin);
 
     if (isMainThread()) {
-        blobRegistry().registerBlobURL(url, srcURL);
+        blobRegistry().registerBlobURL(url, srcURL, policyContainer);
         return;
     }
 
-    callOnMainThread([url = url.isolatedCopy(), srcURL = srcURL.isolatedCopy()] {
-        blobRegistry().registerBlobURL(url, srcURL);
+    callOnMainThread([url = url.isolatedCopy(), srcURL = srcURL.isolatedCopy(), policyContainer = crossThreadCopy(policyContainer)] {
+        blobRegistry().registerBlobURL(url, srcURL, policyContainer);
     });
 }
 
@@ -155,12 +156,22 @@ void ThreadableBlobRegistry::unregisterBlobURL(const URL& url)
     if (isBlobURLContainsNullOrigin(url))
         originMap()->remove(url.string());
 
-    if (isMainThread()) {
+    ensureOnMainThread([url = url.isolatedCopy()] {
         blobRegistry().unregisterBlobURL(url);
-        return;
-    }
-    callOnMainThread([url = url.isolatedCopy()] {
-        blobRegistry().unregisterBlobURL(url);
+    });
+}
+
+void ThreadableBlobRegistry::registerBlobURLHandle(const URL& url)
+{
+    ensureOnMainThread([url = url.isolatedCopy()] {
+        blobRegistry().registerBlobURLHandle(url);
+    });
+}
+
+void ThreadableBlobRegistry::unregisterBlobURLHandle(const URL& url)
+{
+    ensureOnMainThread([url = url.isolatedCopy()] {
+        blobRegistry().unregisterBlobURLHandle(url);
     });
 }
 

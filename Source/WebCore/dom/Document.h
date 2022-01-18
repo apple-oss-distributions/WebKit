@@ -233,6 +233,7 @@ class VisitedLinkState;
 class WebAnimation;
 class WebGL2RenderingContext;
 class WebGLRenderingContext;
+class WhitespaceCache;
 class WindowEventLoop;
 class WindowProxy;
 class XPathEvaluator;
@@ -735,7 +736,7 @@ public:
     bool parsing() const { return m_bParsing; }
 
     bool shouldScheduleLayout() const;
-    bool isLayoutTimerActive() const;
+    bool isLayoutPending() const;
 #if !LOG_DISABLED
     Seconds timeSinceDocumentCreation() const { return MonotonicTime::now() - m_documentCreationTime; };
 #endif
@@ -891,7 +892,7 @@ public:
     // when a meta tag is encountered during document parsing, and also when a script dynamically changes or adds a meta
     // tag. This enables scripts to use meta tags to perform refreshes and set expiry dates in addition to them being
     // specified in an HTML file.
-    void processHttpEquiv(const String& equiv, const String& content, bool isInDocumentHead);
+    void processMetaHttpEquiv(const String& equiv, const String& content, bool isInDocumentHead);
 
 #if PLATFORM(IOS_FAMILY)
     void processFormatDetection(const String&);
@@ -1353,7 +1354,7 @@ public:
     bool isSameOriginAsTopDocument() const { return securityOrigin().isSameOriginAs(topOrigin()); }
     bool shouldForceNoOpenerBasedOnCOOP() const;
 
-    const CrossOriginOpenerPolicy& crossOriginOpenerPolicy() const;
+    const CrossOriginOpenerPolicy& crossOriginOpenerPolicy() const final;
     void setCrossOriginOpenerPolicy(const CrossOriginOpenerPolicy&);
 
     void willLoadScriptElement(const URL&);
@@ -1516,6 +1517,8 @@ public:
 
     HTMLDialogElement* activeModalDialog() const;
 
+    WhitespaceCache& whitespaceCache() { return m_whitespaceCache; }
+
 #if ENABLE(ATTACHMENT_ELEMENT)
     void registerAttachmentIdentifier(const String&);
     void didInsertAttachmentElement(HTMLAttachmentElement&);
@@ -1627,6 +1630,8 @@ public:
 
     String debugDescription() const;
 
+    URL fallbackBaseURL() const;
+
 protected:
     enum ConstructionFlags { Synthesized = 1, NonRenderedPlaceholder = 1 << 1 };
     WEBCORE_EXPORT Document(Frame*, const Settings&, const URL&, DocumentClassFlags = DefaultDocumentClass, unsigned constructionFlags = 0);
@@ -1653,6 +1658,8 @@ private:
 
     void createRenderTree();
     void detachParser();
+
+    DocumentEventTiming* documentEventTimingFromNavigationTiming();
 
     // ScriptExecutionContext
     CSSFontSelector* cssFontSelector() final { return m_fontSelector.ptr(); }
@@ -2024,7 +2031,7 @@ private:
 
     std::optional<WallTime> m_overrideLastModified;
 
-    HashSet<RefPtr<Element>> m_associatedFormControls;
+    WeakHashSet<Element> m_associatedFormControls;
     unsigned m_disabledFieldsetElementsCount { 0 };
 
     unsigned m_dataListElementCount { 0 };
@@ -2207,6 +2214,7 @@ private:
     UniqueRef<FrameSelection> m_selection;
 
     ListHashSet<Ref<Element>> m_topLayerElements;
+    UniqueRef<WhitespaceCache> m_whitespaceCache;
 };
 
 Element* eventTargetElementForDocument(Document*);

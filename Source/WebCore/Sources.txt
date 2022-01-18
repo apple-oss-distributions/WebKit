@@ -171,6 +171,7 @@ Modules/mediastream/RTCPeerConnectionIceEvent.cpp
 Modules/mediastream/RTCPeerConnectionIceErrorEvent.cpp
 Modules/mediastream/RTCRtpReceiver.cpp
 Modules/mediastream/RTCRtpSFrameTransform.cpp
+Modules/mediastream/RTCRtpSFrameTransformErrorEvent.cpp
 Modules/mediastream/RTCRtpSFrameTransformer.cpp
 Modules/mediastream/RTCRtpScriptTransform.cpp
 Modules/mediastream/RTCRtpScriptTransformer.cpp
@@ -323,7 +324,7 @@ Modules/webdriver/NavigatorWebDriver.cpp
 Modules/websockets/CloseEvent.cpp
 Modules/websockets/ThreadableWebSocketChannel.cpp
 Modules/websockets/ThreadableWebSocketChannelClientWrapper.cpp
-Modules/websockets/WebSocket.cpp
+Modules/websockets/WebSocket.cpp @no-unify
 Modules/websockets/WebSocketChannel.cpp
 Modules/websockets/WebSocketChannelInspector.cpp
 Modules/websockets/WebSocketDeflateFramer.cpp
@@ -526,7 +527,7 @@ bindings/js/JSTextCustom.cpp
 bindings/js/JSTextTrackCueCustom.cpp
 bindings/js/JSTrackCustom.cpp
 bindings/js/JSTreeWalkerCustom.cpp
-bindings/js/JSTypedOMCSSStyleValueCustom.cpp
+bindings/js/JSCSSStyleValueCustom.cpp
 bindings/js/JSUndoItemCustom.cpp
 bindings/js/JSWebAnimationCustom.cpp
 bindings/js/JSWebGL2RenderingContextCustom.cpp
@@ -764,11 +765,11 @@ css/parser/MediaQueryParser.cpp
 css/parser/SizesAttributeParser.cpp
 css/parser/SizesCalcParser.cpp
 css/typedom/StylePropertyMapReadOnly.cpp
-css/typedom/TypedOMCSSImageValue.cpp
-css/typedom/TypedOMCSSNumericValue.cpp
-css/typedom/TypedOMCSSStyleValue.cpp
-css/typedom/TypedOMCSSUnitValue.cpp
-css/typedom/TypedOMCSSUnparsedValue.cpp
+css/typedom/CSSStyleImageValue.cpp
+css/typedom/CSSNumericValue.cpp
+css/typedom/CSSStyleValue.cpp
+css/typedom/CSSUnitValue.cpp
+css/typedom/CSSUnparsedValue.cpp
 cssjit/SelectorCompiler.cpp
 display/compositing/DisplayLayerController.cpp
 display/css/DisplayBox.cpp
@@ -1301,6 +1302,7 @@ html/canvas/WebGLVertexArrayObjectBase.cpp
 html/canvas/WebGLVertexArrayObjectOES.cpp
 html/forms/FileIconLoader.cpp
 html/parser/CSSPreloadScanner.cpp
+html/parser/HTMLAtomStringCache.cpp
 html/parser/HTMLConstructionSite.cpp
 html/parser/HTMLDocumentParser.cpp
 html/parser/HTMLElementStack.cpp
@@ -1747,6 +1749,7 @@ platform/FileHandle.cpp
 platform/FileMonitor.cpp
 platform/FileStream.cpp
 platform/FrameRateMonitor.cpp
+platform/KeyboardScrollingAnimator.cpp
 platform/LayoutUnit.cpp
 platform/LegacySchemeRegistry.cpp
 platform/Length.cpp
@@ -1754,6 +1757,7 @@ platform/LengthBox.cpp
 platform/LengthPoint.cpp
 platform/LengthSize.cpp
 platform/LocalizedStrings.cpp
+platform/LogInitialization.cpp
 platform/Logging.cpp
 platform/LowPowerModeNotifier.cpp
 platform/MIMETypeRegistry.cpp
@@ -3324,6 +3328,7 @@ JSRTCRtpParameters.cpp
 JSRTCRtpReceiver.cpp
 JSRTCRtpRtxParameters.cpp
 JSRTCRtpSFrameTransform.cpp
+JSRTCRtpSFrameTransformErrorEvent.cpp
 JSRTCRtpScriptTransform.cpp
 JSRTCRtpScriptTransformer.cpp
 JSRTCRtpSendParameters.cpp
@@ -3581,11 +3586,11 @@ JSTransformStream.cpp
 JSTransformStreamDefaultController.cpp
 JSTransitionEvent.cpp
 JSTreeWalker.cpp
-JSTypedOMCSSImageValue.cpp
-JSTypedOMCSSNumericValue.cpp
-JSTypedOMCSSStyleValue.cpp
-JSTypedOMCSSUnitValue.cpp
-JSTypedOMCSSUnparsedValue.cpp
+JSCSSStyleImageValue.cpp
+JSCSSNumericValue.cpp
+JSCSSStyleValue.cpp
+JSCSSUnitValue.cpp
+JSCSSUnparsedValue.cpp
 JSUIEvent.cpp
 JSUIEventInit.cpp
 JSURLSearchParams.cpp

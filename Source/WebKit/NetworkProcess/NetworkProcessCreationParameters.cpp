@@ -62,6 +62,7 @@ void NetworkProcessCreationParameters::encode(IPC::Encoder& encoder) const
 #if USE(SOUP)
     encoder << cookieAcceptPolicy;
     encoder << languages;
+    encoder << memoryPressureHandlerConfiguration;
 #endif
 
     encoder << urlSchemesRegisteredAsSecure;
@@ -71,6 +72,7 @@ void NetworkProcessCreationParameters::encode(IPC::Encoder& encoder) const
 
     encoder << enablePrivateClickMeasurement;
     encoder << enablePrivateClickMeasurementDebugMode;
+    encoder << ftpEnabled;
     encoder << websiteDataStoreParameters;
 }
 
@@ -124,6 +126,12 @@ bool NetworkProcessCreationParameters::decode(IPC::Decoder& decoder, NetworkProc
         return false;
     if (!decoder.decode(result.languages))
         return false;
+
+    std::optional<std::optional<MemoryPressureHandler::Configuration>> memoryPressureHandlerConfiguration;
+    decoder >> memoryPressureHandlerConfiguration;
+    if (!memoryPressureHandlerConfiguration)
+        return false;
+    result.memoryPressureHandlerConfiguration = WTFMove(*memoryPressureHandlerConfiguration);
 #endif
 
     if (!decoder.decode(result.urlSchemesRegisteredAsSecure))
@@ -138,6 +146,8 @@ bool NetworkProcessCreationParameters::decode(IPC::Decoder& decoder, NetworkProc
     if (!decoder.decode(result.enablePrivateClickMeasurement))
         return false;
     if (!decoder.decode(result.enablePrivateClickMeasurementDebugMode))
+        return false;
+    if (!decoder.decode(result.ftpEnabled))
         return false;
 
     std::optional<Vector<WebsiteDataStoreParameters>> websiteDataStoreParameters;

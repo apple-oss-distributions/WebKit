@@ -135,6 +135,7 @@ public:
     bool protocolIsData() const { return protocolIs("data"); }
     WTF_EXPORT_PRIVATE bool protocolIsAbout() const;
     WTF_EXPORT_PRIVATE bool protocolIsJavaScript() const;
+    WTF_EXPORT_PRIVATE bool protocolIsInFTPFamily() const;
     bool protocolIsInHTTPFamily() const;
     WTF_EXPORT_PRIVATE bool isLocalFile() const;
     bool cannotBeABaseURL() const { return m_cannotBeABaseURL; }
@@ -244,6 +245,9 @@ bool operator!=(const String&, const URL&);
 
 WTF_EXPORT_PRIVATE bool equalIgnoringFragmentIdentifier(const URL&, const URL&);
 WTF_EXPORT_PRIVATE bool protocolHostAndPortAreEqual(const URL&, const URL&);
+WTF_EXPORT_PRIVATE Vector<KeyValuePair<String, String>> differingQueryParameters(const URL&, const URL&);
+WTF_EXPORT_PRIVATE bool isEqualIgnoringQueryAndFragments(const URL&, const URL&);
+WTF_EXPORT_PRIVATE void removeQueryParameters(URL&, const HashSet<String>&);
 
 WTF_EXPORT_PRIVATE const URL& aboutBlankURL();
 WTF_EXPORT_PRIVATE const URL& aboutSrcDocURL();
@@ -255,6 +259,7 @@ WTF_EXPORT_PRIVATE const URL& aboutSrcDocURL();
 
 WTF_EXPORT_PRIVATE bool protocolIs(StringView url, const char* protocol);
 WTF_EXPORT_PRIVATE bool protocolIsJavaScript(StringView url);
+WTF_EXPORT_PRIVATE bool protocolIsInFTPFamily(StringView url);
 WTF_EXPORT_PRIVATE bool protocolIsInHTTPFamily(StringView url);
 
 WTF_EXPORT_PRIVATE std::optional<uint16_t> defaultPortForProtocol(StringView protocol);

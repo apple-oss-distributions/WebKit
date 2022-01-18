@@ -473,7 +473,8 @@ ALLOW_DEPRECATED_DECLARATIONS_END
             if (!strongSelf)
                 return;
 
-            [strongSelf->_suggestionsContextMenuInteraction _presentMenuAtLocation:[[strongSelf view] lastInteractionLocation]];
+            auto view = [strongSelf view];
+            [view presentContextMenu:strongSelf->_suggestionsContextMenuInteraction.get() atLocation:[view lastInteractionLocation]];
         }];
     } else {
         [_suggestionsContextMenuInteraction updateVisibleMenuWithBlock:[&](UIMenu *visibleMenu) -> UIMenu * {
@@ -516,7 +517,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 
     [self.view removeInteraction:_suggestionsContextMenuInteraction.get()];
     _suggestionsContextMenuInteraction = nil;
-    [self.view _removeContextMenuViewIfPossible];
+    [self.view _removeContextMenuHintContainerIfPossible];
     [self.view.webView _didDismissContextMenu];
 }
 

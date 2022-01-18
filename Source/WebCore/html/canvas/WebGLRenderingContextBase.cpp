@@ -719,8 +719,7 @@ std::unique_ptr<WebGLRenderingContextBase> WebGLRenderingContextBase::create(Can
     attributes.webGLVersion = type;
 
 #if PLATFORM(COCOA)
-    if (scriptExecutionContext->settingsValues().webGLUsingMetal)
-        attributes.useMetal = true;
+    attributes.useMetal = scriptExecutionContext->settingsValues().webGLUsingMetal;
 #endif
 
     if (isPendingPolicyResolution) {
@@ -1218,11 +1217,13 @@ void WebGLRenderingContextBase::paintRenderingResultsToCanvas()
             auto& base = canvasBase();
             base.clearCopiedImage();
             m_markedCanvasDirty = false;
-            // FIXME: Remote ImageBuffers do not flush the buffers that are drawn to a buffer.
-            // Avoid leaking the WebGL content in the cases where a WebGL canvas element is drawn to a Context2D
-            // canvas element repeatedly.
-            base.buffer()->flushDrawingContext();
-            m_context->paintCompositedResultsToCanvas(*base.buffer());
+            if (auto buffer = base.buffer()) {
+                // FIXME: Remote ImageBuffers do not flush the buffers that are drawn to a buffer.
+                // Avoid leaking the WebGL content in the cases where a WebGL canvas element is drawn to a Context2D
+                // canvas element repeatedly.
+                buffer->flushDrawingContext();
+                m_context->paintCompositedResultsToCanvas(*buffer);
+            }
         }
         return;
     }
@@ -1236,11 +1237,13 @@ void WebGLRenderingContextBase::paintRenderingResultsToCanvas()
     base.clearCopiedImage();
 
     m_markedCanvasDirty = false;
-    // FIXME: Remote ImageBuffers do not flush the buffers that are drawn to a buffer.
-    // Avoid leaking the WebGL content in the cases where a WebGL canvas element is drawn to a Context2D
-    // canvas element repeatedly.
-    base.buffer()->flushDrawingContext();
-    m_context->paintRenderingResultsToCanvas(*base.buffer());
+    if (auto buffer = base.buffer()) {
+        // FIXME: Remote ImageBuffers do not flush the buffers that are drawn to a buffer.
+        // Avoid leaking the WebGL content in the cases where a WebGL canvas element is drawn to a Context2D
+        // canvas element repeatedly.
+        buffer->flushDrawingContext();
+        m_context->paintRenderingResultsToCanvas(*buffer);
+    }
 }
 
 std::optional<PixelBuffer> WebGLRenderingContextBase::paintRenderingResultsToPixelBuffer()
@@ -6307,7 +6310,6 @@ void WebGLRenderingContextBase::addContextObject(WebGLContextObject& object)
     if (m_isPendingPolicyResolution)
         return;
 
-    ASSERT(!isContextLost());
     m_contextObjects.add(&object);
 }
 
@@ -8007,6 +8009,14 @@ Lock& WebGLRenderingContextBase::objectGraphLock()
 void WebGLRenderingContextBase::prepareForDisplay()
 {
     if (!m_context)
+        return;
+
+    // If the canvas is not in the document body, then it won't be
+    // composited and thus doesn't need preparation. Unfortunately
+    // it can't tell at the time it was added to the list, since it
+    // could be inserted or removed from the document body afterwards.
+    auto canvas = htmlCanvas();
+    if (!canvas || !canvas->isInTreeScope())
         return;
 
     m_context->prepareForDisplay();

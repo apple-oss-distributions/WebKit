@@ -44,15 +44,15 @@ private:
     void addBufferSizeObserverIfNeeded() const;
 
     static OSStatus handleSampleRateChange(AudioObjectID, UInt32, const AudioObjectPropertyAddress*, void* inClientData);
+    void handleSampleRateChange() const;
     static OSStatus handleBufferSizeChange(AudioObjectID, UInt32, const AudioObjectPropertyAddress*, void* inClientData);
+    void handleBufferSizeChange() const;
 
     // AudioSession
     CategoryType category() const final { return m_category; }
     void audioOutputDeviceChanged() final;
     void setIsPlayingToBluetoothOverride(std::optional<bool>) final;
     void setCategory(CategoryType, RouteSharingPolicy) final;
-    AudioSession::CategoryType categoryOverride() const final { return m_categoryOverride; }
-    void setCategoryOverride(CategoryType) final;
     float sampleRate() const final;
     size_t bufferSize() const final;
     size_t numberOfOutputChannels() const final;
@@ -64,10 +64,11 @@ private:
     void setPreferredBufferSize(size_t) final;
     bool isMuted() const final;
     void handleMutedStateChange() final;
-    void addMutedStateObserver(MutedStateObserver*) final;
-    void removeMutedStateObserver(MutedStateObserver*) final;
+    void addConfigurationChangeObserver(ConfigurationChangeObserver&) final;
+    void removeConfigurationChangeObserver(ConfigurationChangeObserver&) final;
 
     std::optional<bool> m_lastMutedState;
+    mutable WeakHashSet<ConfigurationChangeObserver> m_configurationChangeObservers;
     AudioSession::CategoryType m_category { AudioSession::CategoryType::None };
 #if ENABLE(ROUTING_ARBITRATION)
     bool m_setupArbitrationOngoing { false };
@@ -75,7 +76,6 @@ private:
     std::optional<bool> m_playingToBluetooth;
     std::optional<bool> m_playingToBluetoothOverride;
 #endif
-    AudioSession::CategoryType m_categoryOverride { AudioSession::CategoryType::None };
     mutable bool m_hasSampleRateObserver { false };
     mutable bool m_hasBufferSizeObserver { false };
     mutable std::optional<double> m_sampleRate;

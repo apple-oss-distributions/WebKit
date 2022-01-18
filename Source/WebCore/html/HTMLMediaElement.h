@@ -128,7 +128,7 @@ class HTMLMediaElement
     , private TextTrackClient
     , private VideoTrackClient
 #if USE(AUDIO_SESSION) && PLATFORM(MAC)
-    , private AudioSession::MutedStateObserver
+    , private AudioSession::ConfigurationChangeObserver
 #endif
 #if ENABLE(ENCRYPTED_MEDIA)
     , private CDMClient
@@ -457,7 +457,7 @@ public:
     WEBCORE_EXPORT static void clearMediaCacheForOrigins(const String&, const HashSet<SecurityOriginData>&);
     static void resetMediaEngines();
 
-    bool isPlaying() const { return m_playing; }
+    bool isPlaying() const final { return m_playing; }
 
 #if ENABLE(WEB_AUDIO)
     MediaElementAudioSourceNode* audioSourceNode() { return m_audioSourceNode; }
@@ -882,7 +882,7 @@ private:
     void pageMutedStateDidChange() override;
 
 #if USE(AUDIO_SESSION) && PLATFORM(MAC)
-    void hardwareMutedStateDidChange(AudioSession*) final;
+    void hardwareMutedStateDidChange(const AudioSession&) final;
 #endif
 
     bool processingUserGestureForMedia() const;

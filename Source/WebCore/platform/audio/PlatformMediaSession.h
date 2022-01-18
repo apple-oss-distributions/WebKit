@@ -158,6 +158,7 @@ public:
 
     bool isHidden() const;
     bool isSuspended() const;
+    bool isPlaying() const;
 
     bool shouldOverrideBackgroundLoadingRestriction() const;
 
@@ -252,6 +253,7 @@ public:
 
     virtual bool canProduceAudio() const { return false; }
     virtual bool isSuspended() const { return false; };
+    virtual bool isPlaying() const { return false; };
 
     virtual bool shouldOverrideBackgroundPlaybackRestriction(PlatformMediaSession::InterruptionType) const = 0;
     virtual bool shouldOverrideBackgroundLoadingRestriction() const { return false; }
@@ -282,7 +284,7 @@ protected:
 
 String convertEnumerationToString(PlatformMediaSession::State);
 String convertEnumerationToString(PlatformMediaSession::InterruptionType);
-String convertEnumerationToString(PlatformMediaSession::RemoteControlCommandType);
+WEBCORE_EXPORT String convertEnumerationToString(PlatformMediaSession::RemoteControlCommandType);
 
 template<class Encoder> inline void PlatformMediaSession::RemoteCommandArgument::encode(Encoder& encoder) const
 {

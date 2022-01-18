@@ -208,8 +208,6 @@ void CSSFontSelector::addFontFaceRule(StyleRuleFontFace& fontFaceRule, bool isIn
         fontFace->setLoadingBehavior(*loadingBehavior);
 
     CSSFontFace::appendSources(fontFace, srcList, m_context.get(), isInitiatingElementInUserAgentShadowTree);
-    if (fontFace->computeFailureState())
-        return;
 
     if (RefPtr<CSSFontFace> existingFace = m_cssFontFaceSet->lookUpByCSSConnection(fontFaceRule)) {
         // This adoption is fairly subtle. Script can trigger a purge of m_cssFontFaceSet at any time,
@@ -269,10 +267,15 @@ void CSSFontSelector::fontModified()
         dispatchInvalidationCallbacks();
 }
 
-void CSSFontSelector::fontStyleUpdateNeeded(CSSFontFace&)
+void CSSFontSelector::updateStyleIfNeeded()
 {
     if (is<Document>(m_context.get()))
         downcast<Document>(*m_context).updateStyleIfNeeded();
+}
+
+void CSSFontSelector::updateStyleIfNeeded(CSSFontFace&)
+{
+    updateStyleIfNeeded();
 }
 
 void CSSFontSelector::fontCacheInvalidated()

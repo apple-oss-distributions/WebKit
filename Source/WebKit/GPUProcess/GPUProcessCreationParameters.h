@@ -57,8 +57,11 @@ struct GPUProcessCreationParameters {
     SandboxExtension::HandleArray dynamicMachExtensionHandles;
 #endif
 
+    String wtfLoggingChannels;
     String webCoreLoggingChannels;
     String webKitLoggingChannels;
+
+    String applicationVisibleName;
 
     void encode(IPC::Encoder&) const;
     static WARN_UNUSED_RETURN bool decode(IPC::Decoder&, GPUProcessCreationParameters&);

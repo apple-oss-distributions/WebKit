@@ -78,6 +78,10 @@
 #include "RemoteMediaSourceIdentifier.h"
 #endif
 
+#if PLATFORM(COCOA)
+#import <WebCore/VideoLayerManagerObjC.h>
+#endif
+
 namespace WebCore {
 #if !RELEASE_LOG_DISABLED
 extern WTFLogChannel LogMedia;
@@ -98,7 +102,6 @@ using namespace WebCore;
 } while (0)
 #endif
 
-#if !PLATFORM(COCOA)
 MediaPlayerPrivateRemote::MediaPlayerPrivateRemote(MediaPlayer* player, MediaPlayerEnums::MediaEngineIdentifier engineIdentifier, MediaPlayerIdentifier playerIdentifier, RemoteMediaPlayerManager& manager)
     :
 #if !RELEASE_LOG_DISABLED
@@ -108,6 +111,9 @@ MediaPlayerPrivateRemote::MediaPlayerPrivateRemote(MediaPlayer* player, MediaPla
 #endif
       m_player(makeWeakPtr(*player))
     , m_mediaResourceLoader(*player->createResourceLoader())
+#if PLATFORM(COCOA)
+    , m_videoLayerManager(makeUniqueRef<VideoLayerManagerObjC>(logger(), logIdentifier()))
+#endif
     , m_manager(manager)
     , m_remoteEngineIdentifier(engineIdentifier)
     , m_id(playerIdentifier)
@@ -117,7 +123,6 @@ MediaPlayerPrivateRemote::MediaPlayerPrivateRemote(MediaPlayer* player, MediaPla
 
     acceleratedRenderingStateChanged();
 }
-#endif
 
 MediaPlayerPrivateRemote::~MediaPlayerPrivateRemote()
 {
@@ -169,11 +174,19 @@ void MediaPlayerPrivateRemote::load(const URL& url, const ContentType& contentTy
 
         auto createExtension = [&] {
 #if HAVE(AUDIT_TOKEN)
-            if (auto auditToken = m_manager.gpuProcessConnection().auditToken())
-                return SandboxExtension::createHandleForReadByAuditToken(fileSystemPath, auditToken.value(), handle);
+            if (auto auditToken = m_manager.gpuProcessConnection().auditToken()) {
+                if (auto createdHandle = SandboxExtension::createHandleForReadByAuditToken(fileSystemPath, auditToken.value())) {
+                    handle = WTFMove(*createdHandle);
+                    return true;
+                }
+                return false;
+            }
 #endif
-
-            return SandboxExtension::createHandle(fileSystemPath, SandboxExtension::Type::ReadOnly, handle);
+            if (auto createdHandle = SandboxExtension::createHandle(fileSystemPath, SandboxExtension::Type::ReadOnly)) {
+                handle = WTFMove(*createdHandle);
+                return true;
+            }
+            return false;
         };
 
         if (!createExtension()) {
@@ -338,8 +351,12 @@ void MediaPlayerPrivateRemote::setReadyState(MediaPlayer::ReadyState readyState)
 void MediaPlayerPrivateRemote::readyStateChanged(RemoteMediaPlayerState&& state)
 {
     updateCachedState(WTFMove(state));
-    if (auto player = makeRefPtr(m_player.get()))
+    if (auto player = makeRefPtr(m_player.get())) {
         player->readyStateChanged();
+        bool renderingCanBeAccelerated = player->renderingCanBeAccelerated();
+        if (m_renderingCanBeAccelerated != renderingCanBeAccelerated)
+            acceleratedRenderingStateChanged();
+    }
 }
 
 void MediaPlayerPrivateRemote::volumeChanged(double volume)
@@ -456,8 +473,10 @@ bool MediaPlayerPrivateRemote::supportsAcceleratedRendering() const
 
 void MediaPlayerPrivateRemote::acceleratedRenderingStateChanged()
 {
-    if (auto player = makeRefPtr(m_player.get()))
-        connection().send(Messages::RemoteMediaPlayerProxy::AcceleratedRenderingStateChanged(player->renderingCanBeAccelerated()), m_id);
+    if (auto player = makeRefPtr(m_player.get())) {
+        m_renderingCanBeAccelerated = player->renderingCanBeAccelerated();
+        connection().send(Messages::RemoteMediaPlayerProxy::AcceleratedRenderingStateChanged(m_renderingCanBeAccelerated), m_id);
+    }
 }
 
 #if ENABLE(WIRELESS_PLAYBACK_TARGET)
@@ -519,9 +538,9 @@ void MediaPlayerPrivateRemote::prepareForRendering()
     connection().send(Messages::RemoteMediaPlayerProxy::PrepareForRendering(), m_id);
 }
 
-void MediaPlayerPrivateRemote::setVisible(bool visible)
+void MediaPlayerPrivateRemote::setPageIsVisible(bool visible)
 {
-    connection().send(Messages::RemoteMediaPlayerProxy::SetVisible(visible), m_id);
+    connection().send(Messages::RemoteMediaPlayerProxy::SetPageIsVisible(visible), m_id);
 }
 
 void MediaPlayerPrivateRemote::setShouldMaintainAspectRatio(bool maintainRatio)

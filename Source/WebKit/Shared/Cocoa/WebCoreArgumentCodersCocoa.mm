@@ -491,7 +491,6 @@ static RetainPtr<CTFontDescriptorRef> findFontDescriptor(const String& reference
     if (CFArrayGetCount(fontDescriptors.get()) == 1)
         return static_cast<CTFontDescriptorRef>(CFArrayGetValueAtIndex(fontDescriptors.get(), 0));
 
-    // There's supposed to only be a single item in the array, but we can be defensive here.
     for (CFIndex i = 0; i < CFArrayGetCount(fontDescriptors.get()); ++i) {
         auto fontDescriptor = static_cast<CTFontDescriptorRef>(CFArrayGetValueAtIndex(fontDescriptors.get(), i));
         auto currentPostScriptName = adoptCF(static_cast<CFStringRef>(CTFontDescriptorCopyAttribute(fontDescriptor, kCTFontNameAttribute)));
@@ -499,6 +498,27 @@ static RetainPtr<CTFontDescriptorRef> findFontDescriptor(const String& reference
             return fontDescriptor;
     }
     return nullptr;
+}
+
+static RetainPtr<CTFontRef> createCTFont(CFDictionaryRef attributes, float size, const String& referenceURL, const String& desiredPostScriptName)
+{
+    auto fontDescriptor = adoptCF(CTFontDescriptorCreateWithAttributes(attributes));
+    if (fontDescriptor) {
+        auto font = adoptCF(CTFontCreateWithFontDescriptorAndOptions(fontDescriptor.get(), size, nullptr, kCTFontOptionsSystemUIFont));
+        String actualPostScriptName(adoptCF(CTFontCopyPostScriptName(font.get())).get());
+        if (actualPostScriptName == desiredPostScriptName)
+            return font;
+    }
+
+    // CoreText couldn't round-trip the font.
+    // We can fall back to doing our best to find it ourself.
+    fontDescriptor = findFontDescriptor(referenceURL, desiredPostScriptName);
+    if (!fontDescriptor) {
+        ASSERT_NOT_REACHED();
+        fontDescriptor = adoptCF(CTFontDescriptorCreateLastResort());
+    }
+    ASSERT(fontDescriptor);
+    return adoptCF(CTFontCreateWithFontDescriptorAndOptions(fontDescriptor.get(), size, nullptr, kCTFontOptionsSystemUIFont));
 }
 
 std::optional<WebCore::FontPlatformData> ArgumentCoder<Ref<WebCore::Font>>::decodePlatformData(Decoder& decoder)
@@ -580,11 +600,9 @@ std::optional<WebCore::FontPlatformData> ArgumentCoder<Ref<WebCore::Font>>::deco
     if (!postScriptName)
         return std::nullopt;
 
-    auto fontDescriptor = findFontDescriptor(*referenceURL, *postScriptName);
-    if (!fontDescriptor)
+    auto ctFont = createCTFont(attributes->get(), *size, *referenceURL, *postScriptName);
+    if (!ctFont)
         return std::nullopt;
-    fontDescriptor = adoptCF(CTFontDescriptorCreateCopyWithAttributes(fontDescriptor.get(), attributes->get()));
-    auto ctFont = adoptCF(CTFontCreateWithFontDescriptor(fontDescriptor.get(), *size, nullptr));
 
     return WebCore::FontPlatformData(ctFont.get(), *size, *syntheticBold, *syntheticOblique, *orientation, *widthVariant, *textRenderingMode);
 }

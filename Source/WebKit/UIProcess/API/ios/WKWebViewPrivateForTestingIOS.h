@@ -43,6 +43,7 @@
 @property (nonatomic, readonly) NSArray<NSValue *> *_uiTextSelectionRects;
 @property (nonatomic, readonly) CGRect _inputViewBoundsInWindow;
 @property (nonatomic, readonly) NSString *_scrollingTreeAsText;
+@property (nonatomic, readonly) NSString *_uiViewTreeAsText;
 @property (nonatomic, readonly) NSNumber *_stableStateOverride;
 @property (nonatomic, readonly) CGRect _dragCaretRect;
 @property (nonatomic, readonly, getter=_isAnimatingDragCancel) BOOL _animatingDragCancel;
@@ -75,8 +76,6 @@
 
 - (void)applyAutocorrection:(NSString *)newString toString:(NSString *)oldString withCompletionHandler:(void (^)(void))completionHandler;
 
-- (void)_doAfterResettingSingleTapGesture:(dispatch_block_t)action;
-
 - (NSDictionary *)_propertiesOfLayerWithID:(unsigned long long)layerID;
 - (void)_simulateElementAction:(_WKElementActionType)actionType atLocation:(CGPoint)location;
 - (void)_simulateLongPressActionAtLocation:(CGPoint)location;
@@ -93,6 +92,8 @@
 #if !TARGET_OS_TV && !TARGET_OS_WATCH
 - (void)_setUIEventAttributionForTesting:(UIEventAttribution *)attribution withNonce:(NSString *)nonce;
 #endif
+
+- (NSString *)_serializedSelectionCaretBackgroundColorForTesting;
 
 @end
 

@@ -409,7 +409,6 @@ static void hardwareKeyboardAvailabilityChangedCallback(CFNotificationCenterRef,
         _contentView = adoptNS([[WKContentView alloc] initWithFrame:self.bounds page:_page.copyRef()]);
 
     _impl->setAutomaticallyAdjustsContentInsets(true);
-    _impl->setRequiresUserActionForEditingControlsManager([configuration _requiresUserActionForEditingControlsManager]);
 
     [self _setupScrollAndContentViews];
 #endif
@@ -1697,14 +1696,6 @@ static _WKSelectionAttributes selectionAttributes(const WebKit::EditorState& edi
     else
         attributes |= _WKSelectionAttributeIsCaret;
 
-    if (!editorState.isMissingPostLayoutData) {
-#if PLATFORM(IOS_FAMILY)
-        if (editorState.postLayoutData().atStartOfSentence)
-            attributes |= _WKSelectionAttributeAtStartOfSentence;
-#endif
-    } else if (previousAttributes & _WKSelectionAttributeAtStartOfSentence)
-        attributes |= _WKSelectionAttributeAtStartOfSentence;
-
     return attributes;
 }
 
@@ -2641,7 +2632,7 @@ static void convertAndAddHighlight(Vector<Ref<WebKit::SharedMemory>>& buffers, N
 - (WKNavigation *)_restoreSessionState:(_WKSessionState *)sessionState andNavigate:(BOOL)navigate
 {
     THROW_IF_SUSPENDED;
-    return wrapper(_page->restoreFromSessionState(sessionState ? sessionState->_sessionState : WebKit::SessionState { }, navigate));
+    return wrapper(_page->restoreFromSessionState(sessionState ? sessionState._sessionStateWithAppInitiatedValue : WebKit::SessionState { }, navigate));
 }
 
 - (void)_close

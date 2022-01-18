@@ -66,6 +66,10 @@
 #include <wtf/ProcessPrivilege.h>
 #include <wtf/RunLoop.h>
 
+#if OS(DARWIN)
+#include <wtf/spi/darwin/OSVariantSPI.h>
+#endif
+
 #if ENABLE(NETSCAPE_PLUGIN_API)
 #include "PluginProcessManager.h"
 #endif
@@ -1589,6 +1593,11 @@ void WebsiteDataStore::setResourceLoadStatisticsThirdPartyCNAMEDomainForTesting(
 }
 #endif // ENABLE(RESOURCE_LOAD_STATISTICS)
 
+void WebsiteDataStore::setCachedProcessSuspensionDelayForTesting(Seconds delay)
+{
+    WebProcessCache::setCachedProcessSuspensionDelayForTesting(delay);
+}
+
 void WebsiteDataStore::syncLocalStorage(CompletionHandler<void()>&& completionHandler)
 {
     networkProcess().sendWithAsyncReply(Messages::NetworkProcess::SyncLocalStorage(), WTFMove(completionHandler));
@@ -1722,21 +1731,52 @@ void WebsiteDataStore::removeMediaKeys(const String& mediaKeysStorageDirectory, 
     }
 }
 
-void WebsiteDataStore::getNetworkProcessConnection(WebProcessProxy& webProcessProxy, CompletionHandler<void(const NetworkProcessConnectionInfo&)>&& reply)
+void WebsiteDataStore::getNetworkProcessConnection(WebProcessProxy& webProcessProxy, CompletionHandler<void(const NetworkProcessConnectionInfo&)>&& reply, ShouldRetryOnFailure shouldRetryOnFailure)
 {
-    networkProcess().getNetworkProcessConnection(webProcessProxy, [weakThis = makeWeakPtr(*this), webProcessProxy = makeWeakPtr(webProcessProxy), reply = WTFMove(reply)] (auto& connectionInfo) mutable {
+    auto& networkProcessProxy = networkProcess();
+    networkProcessProxy.getNetworkProcessConnection(webProcessProxy, [weakThis = makeWeakPtr(*this), networkProcessProxy = makeWeakPtr(networkProcessProxy), webProcessProxy = makeWeakPtr(webProcessProxy), reply = WTFMove(reply), shouldRetryOnFailure] (auto& connectionInfo) mutable {
         if (UNLIKELY(!IPC::Connection::identifierIsValid(connectionInfo.identifier()))) {
+            auto logError = [networkProcessProxy, webProcessProxy]() {
+#if OS(DARWIN)
+                if (!os_variant_allows_internal_security_policies("com.apple.WebKit"))
+                    return;
+
+                if (!webProcessProxy)
+                    return;
+
+                int networkProcessIdentifier = 0;
+                String networkProcessState = "Unknown"_s;
+                if (networkProcessProxy) {
+                    networkProcessIdentifier = networkProcessProxy->processIdentifier();
+                    networkProcessState = networkProcessProxy->stateString();
+                }
+                RELEASE_LOG_ERROR(Process, "WebsiteDataStore::getNetworkProcessConnection: Failed to get connection - networkProcessProxy=%p, networkProcessIdentifier=%d, processState=%s, webProcessProxy=%p, webProcessIdentifier=%d", networkProcessProxy.get(), networkProcessIdentifier, networkProcessState.utf8().data(), webProcessProxy.get(), webProcessProxy->processIdentifier());
+                RELEASE_ASSERT_NOT_REACHED();
+#endif
+            };
+
+            if (shouldRetryOnFailure == ShouldRetryOnFailure::No || !webProcessProxy) {
+                logError();
+                reply({ });
+                return;
+            }
+
             // Retry on the next RunLoop iteration because we may be inside the WebsiteDataStore destructor.
-            RunLoop::main().dispatch([weakThis = WTFMove(weakThis), webProcessProxy = WTFMove(webProcessProxy), reply = WTFMove(reply)] () mutable {
+            RunLoop::main().dispatch([weakThis = WTFMove(weakThis), networkProcessProxy = WTFMove(networkProcessProxy), webProcessProxy = WTFMove(webProcessProxy), reply = WTFMove(reply), logError = WTFMove(logError)] () mutable {
                 if (RefPtr<WebsiteDataStore> strongThis = weakThis.get(); strongThis && webProcessProxy) {
-                    strongThis->terminateNetworkProcess();
-                    RELEASE_LOG_ERROR(Process, "getNetworkProcessConnection: Failed first attempt, retrying");
-                    strongThis->networkProcess().getNetworkProcessConnection(*webProcessProxy, WTFMove(reply));
-                } else
+                    // Terminate if it is the same network process.
+                    if (networkProcessProxy && strongThis->m_networkProcess == networkProcessProxy.get())
+                        strongThis->terminateNetworkProcess();
+                    RELEASE_LOG_ERROR(Process, "getNetworkProcessConnection: Failed to get connection to network process, will retry ...");
+                    strongThis->getNetworkProcessConnection(*webProcessProxy, WTFMove(reply), ShouldRetryOnFailure::No);
+                } else {
+                    logError();
                     reply({ });
+                }
             });
             return;
         }
+
         reply(connectionInfo);
     });
 }
@@ -1932,18 +1972,26 @@ WebsiteDataStoreParameters WebsiteDataStore::parameters()
 
     auto resourceLoadStatisticsDirectory = m_configuration->resourceLoadStatisticsDirectory();
     SandboxExtension::Handle resourceLoadStatisticsDirectoryHandle;
-    if (!resourceLoadStatisticsDirectory.isEmpty())
-        SandboxExtension::createHandleForReadWriteDirectory(resourceLoadStatisticsDirectory, resourceLoadStatisticsDirectoryHandle);
+    if (!resourceLoadStatisticsDirectory.isEmpty()) {
+        if (auto handle = SandboxExtension::createHandleForReadWriteDirectory(resourceLoadStatisticsDirectory))
+            resourceLoadStatisticsDirectoryHandle = WTFMove(*handle);
+    }
 
     auto networkCacheDirectory = resolvedNetworkCacheDirectory();
     SandboxExtension::Handle networkCacheDirectoryExtensionHandle;
-    if (!networkCacheDirectory.isEmpty())
-        SandboxExtension::createHandleForReadWriteDirectory(networkCacheDirectory, networkCacheDirectoryExtensionHandle);
+    if (!networkCacheDirectory.isEmpty()) {
+        // FIXME: SandboxExtension::createHandleForReadWriteDirectory resolves the directory, but that has already been done. Remove this duplicate work.
+        if (auto handle = SandboxExtension::createHandleForReadWriteDirectory(networkCacheDirectory))
+            networkCacheDirectoryExtensionHandle = WTFMove(*handle);
+    }
 
     auto hstsStorageDirectory = resolvedHSTSStorageDirectory();
     SandboxExtension::Handle hstsStorageDirectoryExtensionHandle;
-    if (!hstsStorageDirectory.isEmpty())
-        SandboxExtension::createHandleForReadWriteDirectory(hstsStorageDirectory, hstsStorageDirectoryExtensionHandle);
+    if (!hstsStorageDirectory.isEmpty()) {
+        // FIXME: SandboxExtension::createHandleForReadWriteDirectory resolves the directory, but that has already been done. Remove this duplicate work.
+        if (auto handle = SandboxExtension::createHandleForReadWriteDirectory(hstsStorageDirectory))
+            hstsStorageDirectoryExtensionHandle = WTFMove(*handle);
+    }
 
     bool shouldIncludeLocalhostInResourceLoadStatistics = false;
     bool enableResourceLoadStatisticsDebugMode = false;
@@ -2004,26 +2052,35 @@ WebsiteDataStoreParameters WebsiteDataStore::parameters()
     parameters.networkSessionParameters = WTFMove(networkSessionParameters);
 
     parameters.indexedDatabaseDirectory = resolvedIndexedDatabaseDirectory();
-    if (!parameters.indexedDatabaseDirectory.isEmpty())
-        SandboxExtension::createHandleForReadWriteDirectory(parameters.indexedDatabaseDirectory, parameters.indexedDatabaseDirectoryExtensionHandle);
+    if (!parameters.indexedDatabaseDirectory.isEmpty()) {
+        // FIXME: SandboxExtension::createHandleForReadWriteDirectory resolves the directory, but that has already been done. Remove this duplicate work.
+        if (auto handle =  SandboxExtension::createHandleForReadWriteDirectory(parameters.indexedDatabaseDirectory))
+            parameters.indexedDatabaseDirectoryExtensionHandle = WTFMove(*handle);
+    }
 
 #if ENABLE(SERVICE_WORKER)
     parameters.serviceWorkerRegistrationDirectory = resolvedServiceWorkerRegistrationDirectory();
-    if (!parameters.serviceWorkerRegistrationDirectory.isEmpty())
-        SandboxExtension::createHandleForReadWriteDirectory(parameters.serviceWorkerRegistrationDirectory, parameters.serviceWorkerRegistrationDirectoryExtensionHandle);
+    if (!parameters.serviceWorkerRegistrationDirectory.isEmpty()) {
+        // FIXME: SandboxExtension::createHandleForReadWriteDirectory resolves the directory, but that has already been done. Remove this duplicate work.
+        if (auto handle = SandboxExtension::createHandleForReadWriteDirectory(parameters.serviceWorkerRegistrationDirectory))
+            parameters.serviceWorkerRegistrationDirectoryExtensionHandle = WTFMove(*handle);
+    }
     parameters.serviceWorkerProcessTerminationDelayEnabled = m_configuration->serviceWorkerProcessTerminationDelayEnabled();
 #endif
 
     auto localStorageDirectory = resolvedLocalStorageDirectory();
     if (!localStorageDirectory.isEmpty()) {
         parameters.localStorageDirectory = localStorageDirectory;
-        SandboxExtension::createHandleForReadWriteDirectory(localStorageDirectory, parameters.localStorageDirectoryExtensionHandle);
+        // FIXME: SandboxExtension::createHandleForReadWriteDirectory resolves the directory, but that has already been done. Remove this duplicate work.
+        if (auto handle = SandboxExtension::createHandleForReadWriteDirectory(localStorageDirectory))
+            parameters.localStorageDirectoryExtensionHandle = WTFMove(*handle);
     }
 
     auto cacheStorageDirectory = this->cacheStorageDirectory();
     if (!cacheStorageDirectory.isEmpty()) {
         parameters.cacheStorageDirectory = cacheStorageDirectory;
-        SandboxExtension::createHandleForReadWriteDirectory(cacheStorageDirectory, parameters.cacheStorageDirectoryExtensionHandle);
+        if (auto handle = SandboxExtension::createHandleForReadWriteDirectory(cacheStorageDirectory))
+            parameters.cacheStorageDirectoryExtensionHandle = WTFMove(*handle);
     }
 
     parameters.perOriginStorageQuota = perOriginStorageQuota();

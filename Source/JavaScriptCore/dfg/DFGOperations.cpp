@@ -86,10 +86,10 @@ IGNORE_WARNINGS_BEGIN("frame-address")
 namespace JSC { namespace DFG {
 
 template<bool strict, bool direct>
-static inline void putByVal(JSGlobalObject* globalObject, VM& vm, JSValue baseValue, uint32_t index, JSValue value)
+static ALWAYS_INLINE void putByVal(JSGlobalObject* globalObject, VM& vm, JSValue baseValue, uint32_t index, JSValue value)
 {
     ASSERT(isIndex(index));
-    if (direct) {
+    if constexpr (direct) {
         RELEASE_ASSERT(baseValue.isObject());
         asObject(baseValue)->putDirectIndex(globalObject, index, value, 0, strict ? PutDirectIndexShouldThrow : PutDirectIndexShouldNotThrow);
         return;
@@ -128,7 +128,7 @@ ALWAYS_INLINE static void putByValInternal(JSGlobalObject* globalObject, VM& vm,
     RETURN_IF_EXCEPTION(scope, void());
 
     PutPropertySlot slot(baseValue, strict);
-    if (direct) {
+    if constexpr (direct) {
         RELEASE_ASSERT(baseValue.isObject());
         JSObject* baseObject = asObject(baseValue);
         if (std::optional<uint32_t> index = parseIndex(propertyName)) {
@@ -148,7 +148,7 @@ template<bool strict, bool direct>
 ALWAYS_INLINE static void putByValCellInternal(JSGlobalObject* globalObject, VM& vm, JSCell* base, PropertyName propertyName, JSValue value)
 {
     PutPropertySlot slot(base, strict);
-    if (direct) {
+    if constexpr (direct) {
         RELEASE_ASSERT(base->isObject());
         JSObject* baseObject = asObject(base);
         if (std::optional<uint32_t> index = parseIndex(propertyName)) {
@@ -2399,48 +2399,6 @@ JSC_DEFINE_JIT_OPERATION(operationEnsureArrayStorage, char*, (VM* vmPointer, JSC
     return result;
 }
 
-JSC_DEFINE_JIT_OPERATION(operationHasEnumerableProperty, EncodedJSValue, (JSGlobalObject* globalObject, EncodedJSValue encodedBaseValue, JSCell* property))
-{
-    VM& vm = globalObject->vm();
-    CallFrame* callFrame = DECLARE_CALL_FRAME(vm);
-    JITOperationPrologueCallFrameTracer tracer(vm, callFrame);
-    auto scope = DECLARE_THROW_SCOPE(vm);
-
-    JSValue baseValue = JSValue::decode(encodedBaseValue);
-    if (baseValue.isUndefinedOrNull())
-        return JSValue::encode(jsBoolean(false));
-
-    JSObject* base = baseValue.toObject(globalObject);
-    EXCEPTION_ASSERT(!scope.exception() || !base);
-    if (!base)
-        return JSValue::encode(JSValue());
-    auto propertyName = asString(property)->toIdentifier(globalObject);
-    RETURN_IF_EXCEPTION(scope, { });
-    RELEASE_AND_RETURN(scope, JSValue::encode(jsBoolean(base->hasEnumerableProperty(globalObject, propertyName))));
-}
-
-JSC_DEFINE_JIT_OPERATION(operationInStructureProperty, EncodedJSValue, (JSGlobalObject* globalObject, JSCell* base, JSString* property))
-{
-    VM& vm = globalObject->vm();
-    CallFrame* callFrame = DECLARE_CALL_FRAME(vm);
-    JITOperationPrologueCallFrameTracer tracer(vm, callFrame);
-
-    return JSValue::encode(jsBoolean(CommonSlowPaths::opInByVal(globalObject, base, property)));
-}
-
-JSC_DEFINE_JIT_OPERATION(operationHasOwnStructureProperty, EncodedJSValue, (JSGlobalObject* globalObject, JSCell* base, JSString* property))
-{
-    VM& vm = globalObject->vm();
-    CallFrame* callFrame = DECLARE_CALL_FRAME(vm);
-    JITOperationPrologueCallFrameTracer tracer(vm, callFrame);
-
-    auto scope = DECLARE_THROW_SCOPE(vm);
-    auto propertyName = property->toIdentifier(globalObject);
-    RETURN_IF_EXCEPTION(scope, { });
-    scope.release();
-    return JSValue::encode(jsBoolean(objectPrototypeHasOwnProperty(globalObject, base, propertyName)));
-}
-
 JSC_DEFINE_JIT_OPERATION(operationHasIndexedProperty, size_t, (JSGlobalObject* globalObject, JSCell* baseCell, int32_t subscript))
 {
     VM& vm = globalObject->vm();
@@ -2497,12 +2455,105 @@ JSC_DEFINE_JIT_OPERATION(operationGetPropertyEnumeratorCell, JSCell*, (JSGlobalO
     RELEASE_AND_RETURN(scope, propertyNameEnumerator(globalObject, base));
 }
 
-JSC_DEFINE_JIT_OPERATION(operationToIndexString, JSCell*, (JSGlobalObject* globalObject, int32_t index))
+JSC_DEFINE_JIT_OPERATION(operationEnumeratorNextUpdateIndexAndMode, EncodedJSValue, (JSGlobalObject* globalObject, EncodedJSValue baseValue, uint32_t index, int32_t modeNumber, JSPropertyNameEnumerator* enumerator))
 {
     VM& vm = globalObject->vm();
     CallFrame* callFrame = DECLARE_CALL_FRAME(vm);
     JITOperationPrologueCallFrameTracer tracer(vm, callFrame);
-    return jsString(vm, Identifier::from(vm, index).string());
+    auto scope = DECLARE_THROW_SCOPE(vm);
+
+    JSPropertyNameEnumerator::Flag mode = static_cast<JSPropertyNameEnumerator::Flag>(modeNumber);
+    if (JSValue::decode(baseValue).isUndefinedOrNull()) {
+        ASSERT(mode == JSPropertyNameEnumerator::InitMode);
+        ASSERT(!index);
+        ASSERT(!enumerator->sizeOfPropertyNames());
+        mode = JSPropertyNameEnumerator::GenericMode;
+    } else {
+        JSObject* base = JSValue::decode(baseValue).toObject(globalObject);
+        RETURN_IF_EXCEPTION(scope, { });
+
+        constexpr bool shouldAllocateIndexedNameString = false;
+        enumerator->computeNext(globalObject, base, index, mode, shouldAllocateIndexedNameString);
+        RETURN_IF_EXCEPTION(scope, { });
+    }
+
+#if USE(JSVALUE64)
+    JSValue result = bitwise_cast<JSValue>(static_cast<uint64_t>(mode) << 32 | index | JSValue::DoubleEncodeOffset);
+#else
+    JSValue result = JSValue(mode, index);
+#endif
+    ASSERT(result.isDouble());
+    return JSValue::encode(result);
+}
+
+JSC_DEFINE_JIT_OPERATION(operationEnumeratorNextUpdatePropertyName, JSString*, (JSGlobalObject* globalObject, uint32_t index, int32_t modeNumber, JSPropertyNameEnumerator* enumerator))
+{
+    VM& vm = globalObject->vm();
+    CallFrame* callFrame = DECLARE_CALL_FRAME(vm);
+    JITOperationPrologueCallFrameTracer tracer(vm, callFrame);
+
+    if (modeNumber == JSPropertyNameEnumerator::IndexedMode) {
+        if (index < enumerator->indexedLength())
+            return jsString(vm, Identifier::from(vm, index).string());
+        return vm.smallStrings.sentinelString();
+    }
+
+    JSString* result = enumerator->propertyNameAtIndex(index);
+    if (!result)
+        return vm.smallStrings.sentinelString();
+
+    return result;
+}
+
+JSC_DEFINE_JIT_OPERATION(operationEnumeratorRecoverNameAndGetByVal, EncodedJSValue, (JSGlobalObject* globalObject, JSCell* base, uint32_t index, JSPropertyNameEnumerator* enumerator))
+{
+    VM& vm = globalObject->vm();
+    CallFrame* callFrame = DECLARE_CALL_FRAME(vm);
+    JITOperationPrologueCallFrameTracer tracer(vm, callFrame);
+    auto scope = DECLARE_THROW_SCOPE(vm);
+
+    JSString* string = enumerator->propertyNameAtIndex(index);
+    PropertyName propertyName = string->toIdentifier(globalObject);
+    // This should only really return for TerminationException since we know string is backed by a UUID.
+    RETURN_IF_EXCEPTION(scope, { });
+    JSObject* object = base->toObject(globalObject);
+    RETURN_IF_EXCEPTION(scope, { });
+
+    RELEASE_AND_RETURN(scope, JSValue::encode(object->get(globalObject, propertyName)));
+}
+
+JSC_DEFINE_JIT_OPERATION(operationEnumeratorInByVal, EncodedJSValue, (JSGlobalObject* globalObject, EncodedJSValue baseValue, EncodedJSValue propertyNameValue, uint32_t index, int32_t modeNumber))
+{
+    VM& vm = globalObject->vm();
+    CallFrame* callFrame = DECLARE_CALL_FRAME(vm);
+    JITOperationPrologueCallFrameTracer tracer(vm, callFrame);
+    auto scope = DECLARE_THROW_SCOPE(vm);
+
+    JSValue base = JSValue::decode(baseValue);
+    RETURN_IF_EXCEPTION(scope, { });
+    if (modeNumber == JSPropertyNameEnumerator::IndexedMode && base.isObject())
+        RELEASE_AND_RETURN(scope, JSValue::encode(jsBoolean(jsCast<JSObject*>(base)->hasProperty(globalObject, index))));
+
+    JSString* propertyName = jsSecureCast<JSString*>(vm, JSValue::decode(propertyNameValue));
+    RELEASE_AND_RETURN(scope, JSValue::encode(jsBoolean(CommonSlowPaths::opInByVal(globalObject, base, propertyName))));
+}
+
+JSC_DEFINE_JIT_OPERATION(operationEnumeratorHasOwnProperty, EncodedJSValue, (JSGlobalObject* globalObject, EncodedJSValue baseValue, EncodedJSValue propertyNameValue, uint32_t index, int32_t modeNumber))
+{
+    VM& vm = globalObject->vm();
+    CallFrame* callFrame = DECLARE_CALL_FRAME(vm);
+    JITOperationPrologueCallFrameTracer tracer(vm, callFrame);
+    auto scope = DECLARE_THROW_SCOPE(vm);
+
+    JSValue base = JSValue::decode(baseValue);
+    RETURN_IF_EXCEPTION(scope, { });
+    if (modeNumber == JSPropertyNameEnumerator::IndexedMode && base.isObject())
+        RELEASE_AND_RETURN(scope, JSValue::encode(jsBoolean(jsCast<JSObject*>(base)->hasOwnProperty(globalObject, index))));
+
+    JSString* propertyName = jsSecureCast<JSString*>(vm, JSValue::decode(propertyNameValue));
+    auto identifier = propertyName->toIdentifier(globalObject);
+    RETURN_IF_EXCEPTION(scope, { });
+    RELEASE_AND_RETURN(scope, JSValue::encode(jsBoolean(objectPrototypeHasOwnProperty(globalObject, base, identifier))));
 }
 
 JSC_DEFINE_JIT_OPERATION(operationNewRegexpWithLastIndex, JSCell*, (JSGlobalObject* globalObject, JSCell* regexpPtr, EncodedJSValue encodedLastIndex))

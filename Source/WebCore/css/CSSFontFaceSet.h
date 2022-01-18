@@ -57,6 +57,9 @@ public:
     };
     void addFontEventClient(const FontEventClient&);
 
+    // Calling updateStyleIfNeeded() might delete |this|.
+    void updateStyleIfNeeded();
+
     bool hasFace(const CSSFontFace&) const;
     size_t faceCount() const { return m_faces.size(); }
     void add(CSSFontFace&);
@@ -77,11 +80,15 @@ public:
 
     bool hasActiveFontFaces() { return status() == Status::Loading; }
 
+    size_t facesPartitionIndex() const { return m_facesPartitionIndex; }
+
     ExceptionOr<Vector<std::reference_wrapper<CSSFontFace>>> matchingFacesExcludingPreinstalledFonts(const String& font, const String& text);
 
     // CSSFontFace::Client needs to be able to be held in a RefPtr.
     void ref() final { RefCounted::ref(); }
     void deref() final { RefCounted::deref(); }
+    // FIXME: Should this be implemented?
+    void updateStyleIfNeeded(CSSFontFace&) final { }
 
 private:
     CSSFontFaceSet(CSSFontSelector*);

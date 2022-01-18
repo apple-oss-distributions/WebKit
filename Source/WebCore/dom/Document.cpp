@@ -92,6 +92,7 @@
 #include "HTMLBaseElement.h"
 #include "HTMLBodyElement.h"
 #include "HTMLCanvasElement.h"
+#include "HTMLConstructionSite.h"
 #include "HTMLDialogElement.h"
 #include "HTMLDocument.h"
 #include "HTMLElementFactory.h"
@@ -160,6 +161,7 @@
 #include "PageTransitionEvent.h"
 #include "PaintWorkletGlobalScope.h"
 #include "Performance.h"
+#include "PerformanceNavigationTiming.h"
 #include "PlatformLocale.h"
 #include "PlatformMediaSessionManager.h"
 #include "PlatformScreen.h"
@@ -651,6 +653,7 @@ Document::Document(Frame* frame, const Settings& settings, const URL& url, Docum
     , m_undoManager(UndoManager::create(*this))
     , m_editor(makeUniqueRef<Editor>(*this))
     , m_selection(makeUniqueRef<FrameSelection>(this))
+    , m_whitespaceCache(makeUniqueRef<WhitespaceCache>())
 {
     addToDocumentsMap();
 
@@ -870,6 +873,8 @@ void Document::commonTeardown()
         m_timelinesController->detachFromDocument();
 
     m_timeline = nullptr;
+    m_associatedFormControls.clear();
+    m_didAssociateFormControlsTimer.stop();
 }
 
 Element* Document::elementForAccessKey(const String& key)
@@ -1372,6 +1377,17 @@ ExceptionOr<Ref<Element>> Document::createElementNS(const AtomString& namespaceU
     return createElement(parsedName, false);
 }
 
+DocumentEventTiming* Document::documentEventTimingFromNavigationTiming()
+{
+    auto* window = domWindow();
+    if (!window)
+        return nullptr;
+    auto* navigationTiming = window->performance().navigationTiming();
+    if (!navigationTiming)
+        return nullptr;
+    return &navigationTiming->documentEventTiming();
+}
+
 void Document::setReadyState(ReadyState readyState)
 {
     if (readyState == m_readyState)
@@ -1379,16 +1395,28 @@ void Document::setReadyState(ReadyState readyState)
 
     switch (readyState) {
     case Loading:
-        if (!m_eventTiming.domLoading)
-            m_eventTiming.domLoading = MonotonicTime::now();
+        if (!m_eventTiming.domLoading) {
+            auto now = MonotonicTime::now();
+            m_eventTiming.domLoading = now;
+            if (auto* eventTiming = documentEventTimingFromNavigationTiming())
+                eventTiming->domLoading = now;
+        }
         break;
     case Complete:
-        if (!m_eventTiming.domComplete)
-            m_eventTiming.domComplete = MonotonicTime::now();
+        if (!m_eventTiming.domComplete) {
+            auto now = MonotonicTime::now();
+            m_eventTiming.domComplete = now;
+            if (auto* eventTiming = documentEventTimingFromNavigationTiming())
+                eventTiming->domComplete = now;
+        }
         FALLTHROUGH;
     case Interactive:
-        if (!m_eventTiming.domInteractive)
-            m_eventTiming.domInteractive = MonotonicTime::now();
+        if (!m_eventTiming.domInteractive) {
+            auto now = MonotonicTime::now();
+            m_eventTiming.domInteractive = now;
+            if (auto* eventTiming = documentEventTimingFromNavigationTiming())
+                eventTiming->domInteractive = now;
+        }
         break;
     }
 
@@ -1909,7 +1937,7 @@ Vector<String> Document::formElementsState() const
 {
     if (!m_formController)
         return Vector<String>();
-    return m_formController->formElementsState();
+    return m_formController->formElementsState(*this);
 }
 
 void Document::setStateForNewFormElements(const Vector<String>& stateVector)
@@ -2115,6 +2143,9 @@ void Document::resolveStyle(ResolveStyleType type)
 
 void Document::updateTextRenderer(Text& text, unsigned offsetOfReplacedText, unsigned lengthOfReplacedText)
 {
+    if (!hasLivingRenderTree())
+        return;
+
     if (!m_pendingRenderTreeTextUpdate)
         m_pendingRenderTreeTextUpdate = makeUnique<Style::Update>(*this);
 
@@ -3246,7 +3277,7 @@ bool Document::shouldScheduleLayout() const
     return true;
 }
     
-bool Document::isLayoutTimerActive() const
+bool Document::isLayoutPending() const
 {
     return view() && view()->layoutContext().isLayoutPending();
 }
@@ -3404,6 +3435,30 @@ void Document::setURL(const URL& url)
     updateBaseURL();
 }
 
+// https://html.spec.whatwg.org/#fallback-base-url
+URL Document::fallbackBaseURL() const
+{
+    // The documentURI attribute is read-only from JavaScript, but writable from Objective C, so we need to retain
+    // this fallback behavior. We use a null base URL, since the documentURI attribute is an arbitrary string
+    // and DOM 3 Core does not specify how it should be resolved.
+    auto documentURL = URL({ }, documentURI());
+
+    if (documentURL.isAboutSrcDoc()) {
+        if (auto* parent = parentDocument())
+            return parent->baseURL();
+    }
+
+    if (documentURL.isAboutBlank()) {
+        auto* creator = parentDocument();
+        if (!creator && frame() && frame()->loader().opener())
+            creator = frame()->loader().opener()->document();
+        if (creator)
+            return creator->baseURL();
+    }
+
+    return documentURL;
+}
+
 void Document::updateBaseURL()
 {
     // DOM 3 Core: When the Document supports the feature "HTML" [DOM Level 2 HTML], the base URI is computed using
@@ -3413,20 +3468,8 @@ void Document::updateBaseURL()
         m_baseURL = m_baseElementURL;
     else if (!m_baseURLOverride.isEmpty())
         m_baseURL = m_baseURLOverride;
-    else {
-        // The documentURI attribute is read-only from JavaScript, but writable from Objective C, so we need to retain
-        // this fallback behavior. We use a null base URL, since the documentURI attribute is an arbitrary string
-        // and DOM 3 Core does not specify how it should be resolved.
-        m_baseURL = URL({ }, documentURI());
-
-        if (m_baseURL.isAboutBlank()) {
-            auto* creator = parentDocument();
-            if (!creator && frame() && frame()->loader().opener())
-                creator = frame()->loader().opener()->document();
-            if (creator)
-                m_baseURL = creator->baseURL();
-        }
-    }
+    else
+        m_baseURL = fallbackBaseURL();
 
     clearSelectorQueryCache();
 
@@ -3470,7 +3513,7 @@ void Document::processBaseElement()
     if (href) {
         String strippedHref = stripLeadingAndTrailingHTMLSpaces(*href);
         if (!strippedHref.isEmpty())
-            baseElementURL = URL(url(), strippedHref);
+            baseElementURL = URL(fallbackBaseURL(), strippedHref);
     }
     if (m_baseElementURL != baseElementURL && contentSecurityPolicy()->allowBaseURI(baseElementURL)) {
         if (settings().shouldRestrictBaseURLSchemes() && !SecurityPolicy::isBaseURLSchemeAllowed(baseElementURL))
@@ -3722,7 +3765,7 @@ void Document::setHasElementUsingStyleBasedEditability()
     m_hasElementUsingStyleBasedEditability = true;
 }
 
-void Document::processHttpEquiv(const String& equiv, const String& content, bool isInDocumentHead)
+void Document::processMetaHttpEquiv(const String& equiv, const String& content, bool isInDocumentHead)
 {
     ASSERT(!equiv.isNull());
     ASSERT(!content.isNull());
@@ -3767,7 +3810,7 @@ void Document::processHttpEquiv(const String& equiv, const String& content, bool
 
     case HTTPHeaderName::Refresh:
         if (frame)
-            frame->loader().scheduleRefreshIfNeeded(*this, content);
+            frame->loader().scheduleRefreshIfNeeded(*this, content, IsMetaRefresh::Yes);
         break;
 
     case HTTPHeaderName::SetCookie:
@@ -6056,15 +6099,23 @@ void Document::finishedParsing()
 
     scriptRunner().documentFinishedParsing();
 
-    if (!m_eventTiming.domContentLoadedEventStart)
-        m_eventTiming.domContentLoadedEventStart = MonotonicTime::now();
+    if (!m_eventTiming.domContentLoadedEventStart) {
+        auto now = MonotonicTime::now();
+        m_eventTiming.domContentLoadedEventStart = now;
+        if (auto* eventTiming = documentEventTimingFromNavigationTiming())
+            eventTiming->domContentLoadedEventStart = now;
+    }
 
     // FIXME: Schedule a task to fire DOMContentLoaded event instead. See webkit.org/b/82931
     eventLoop().performMicrotaskCheckpoint();
     dispatchEvent(Event::create(eventNames().DOMContentLoadedEvent, Event::CanBubble::Yes, Event::IsCancelable::No));
 
-    if (!m_eventTiming.domContentLoadedEventEnd)
-        m_eventTiming.domContentLoadedEventEnd = MonotonicTime::now();
+    if (!m_eventTiming.domContentLoadedEventEnd) {
+        auto now = MonotonicTime::now();
+        m_eventTiming.domContentLoadedEventEnd = now;
+        if (auto* eventTiming = documentEventTimingFromNavigationTiming())
+            eventTiming->domContentLoadedEventEnd = now;
+    }
 
     if (RefPtr<Frame> frame = this->frame()) {
 #if ENABLE(XSLT)
@@ -6255,6 +6306,8 @@ void Document::initSecurityContext()
 
     contentSecurityPolicy()->copyStateFrom(ownerFrame->document()->contentSecurityPolicy());
     contentSecurityPolicy()->updateSourceSelf(ownerFrame->document()->securityOrigin());
+
+    setCrossOriginEmbedderPolicy(ownerFrame->document()->crossOriginEmbedderPolicy());
 
     // https://html.spec.whatwg.org/multipage/browsers.html#creating-a-new-browsing-context (Step 12)
     // If creator is non-null and creator's origin is same origin with creator's relevant settings object's top-level origin, then set coop
@@ -7388,7 +7441,6 @@ Ref<DocumentFragment> Document::documentFragmentForInnerOuterHTML()
 
 Ref<FontFaceSet> Document::fonts()
 {
-    updateStyleIfNeeded();
     return fontSelector().fontFaceSet();
 }
     
@@ -7484,18 +7536,24 @@ void Document::didAssociateFormControl(Element& element)
     auto* page = this->page();
     if (!page || !page->chrome().client().shouldNotifyOnFormChanges())
         return;
-    m_associatedFormControls.add(&element);
-    if (!m_didAssociateFormControlsTimer.isActive())
-        m_didAssociateFormControlsTimer.startOneShot(0_s);
+
+    auto isNewEntry = m_associatedFormControls.add(&element).isNewEntry;
+    if (isNewEntry && !m_didAssociateFormControlsTimer.isActive())
+        m_didAssociateFormControlsTimer.startOneShot(isTopDocument() || hasHadUserInteraction() ? 0_s : 1_s);
 }
 
 void Document::didAssociateFormControlsTimerFired()
 {
-    auto vector = copyToVector(m_associatedFormControls);
-    m_associatedFormControls.clear();
-    if (auto* page = this->page()) {
+    Vector<RefPtr<Element>> controls;
+    controls.reserveInitialCapacity(m_associatedFormControls.computeSize());
+    for (auto& element : std::exchange(m_associatedFormControls, { })) {
+        if (element.isConnected())
+            controls.uncheckedAppend(&element);
+    }
+
+    if (auto page = this->page(); page && !controls.isEmpty()) {
         ASSERT(m_frame);
-        page->chrome().client().didAssociateFormControls(vector, *m_frame);
+        page->chrome().client().didAssociateFormControls(controls, *m_frame);
     }
 }
 
@@ -7571,7 +7629,7 @@ Element* Document::activeElement()
 bool Document::hasFocus() const
 {
     Page* page = this->page();
-    if (!page || !page->focusController().isActive())
+    if (!page || !page->focusController().isActive() || !page->focusController().isFocused())
         return false;
     if (Frame* focusedFrame = page->focusController().focusedFrame()) {
         if (focusedFrame->tree().isDescendantOf(frame()))
@@ -8878,15 +8936,8 @@ void Document::prepareCanvasesForDisplayIfNeeded()
 
     auto canvases = copyToVectorOf<Ref<HTMLCanvasElement>>(m_canvasesNeedingDisplayPreparation);
     m_canvasesNeedingDisplayPreparation.clear();
-    for (auto& canvas : canvases) {
-        // However, if they are not in the document body, then they won't
-        // be composited and thus don't need preparation. Unfortunately they
-        // can't tell at the time they were added to the list, since they
-        // could be inserted or removed from the document body afterwards.
-        if (!canvas->isInTreeScope())
-            continue;
+    for (auto& canvas : canvases)
         canvas->prepareForDisplay();
-    }
 }
 
 void Document::clearCanvasPreparation(HTMLCanvasElement& canvas)

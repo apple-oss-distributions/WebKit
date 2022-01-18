@@ -50,6 +50,11 @@ pas_allocator_counts jit_allocator_counts;
 
 void jit_heap_add_fresh_memory(pas_range range)
 {
+    static const bool verbose = false;
+
+    if (verbose)
+        pas_log("JIT heap at %p...%p\n", (void*)range.begin, (void*)range.end);
+    
     pas_heap_lock_lock();
     jit_heap_config_add_fresh_memory(range);
     pas_heap_lock_unlock();
@@ -60,14 +65,21 @@ PAS_CREATE_TRY_ALLOCATE_INTRINSIC_PRIMITIVE(
     JIT_HEAP_CONFIG,
     &jit_heap_runtime_config,
     &jit_allocator_counts,
-    pas_intrinsic_allocation_result_identity,
+    pas_allocation_result_identity,
     &jit_common_primitive_heap,
     &jit_common_primitive_heap_support,
     pas_intrinsic_heap_is_not_designated);
 
 void* jit_heap_try_allocate(size_t size)
 {
-    return jit_try_allocate_common_primitive_impl(size, 1).ptr;
+    static const bool verbose = false;
+    void* result;
+    if (verbose)
+        pas_log("going to allocate in jit\n");
+    result = (void*)jit_try_allocate_common_primitive_impl(size, 1).begin;
+    if (verbose)
+        pas_log("done allocating in jit, returning %p\n", result);
+    return result;
 }
 
 void jit_heap_shrink(void* object, size_t new_size)

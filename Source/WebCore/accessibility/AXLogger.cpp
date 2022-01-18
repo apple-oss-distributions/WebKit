@@ -36,6 +36,7 @@
 #endif
 #include "AXObjectCache.h"
 #include "FrameView.h"
+#include "LogInitialization.h"
 #include "Logging.h"
 #include <wtf/text/TextStream.h>
 
@@ -392,6 +393,9 @@ TextStream& operator<<(TextStream& stream, AXObjectCache::AXNotification notific
         break;
     case AXObjectCache::AXNotification::AXSelectedChildrenChanged:
         stream << "AXSelectedChildrenChanged";
+        break;
+    case AXObjectCache::AXNotification::AXSelectedStateChanged:
+        stream << "AXSelectedStateChanged";
         break;
     case AXObjectCache::AXNotification::AXSelectedTextChanged:
         stream << "AXSelectedTextChanged";

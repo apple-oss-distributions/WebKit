@@ -250,7 +250,7 @@ bool WebPage::isTransparentOrFullyClipped(const Element& element) const
     return renderer->hasNonEmptyVisibleRectRespectingParentFrames();
 }
 
-bool WebPage::platformNeedsLayoutForEditorState(const Frame& frame) const
+bool WebPage::requiresPostLayoutDataForEditorState(const Frame& frame) const
 {
     // If we have a composition or are using a hardware keyboard then we need to send the full
     // editor so that the UIProcess can update UI, including the position of the caret.
@@ -333,16 +333,10 @@ void WebPage::getPlatformEditorState(Frame& frame, EditorState& result) const
     }
 #endif
 
-    postLayoutData.atStartOfSentence = frame.selection().selectionAtSentenceStart();
     postLayoutData.insideFixedPosition = startNodeIsInsideFixedPosition || endNodeIsInsideFixedPosition;
     if (!selection.isNone()) {
-        if (m_focusedElement && m_focusedElement->renderer()) {
-            // FIXME: The caret color style should be computed using the selection caret's container
-            // rather than the focused element. This causes caret colors in editable children to be
-            // ignored in favor of the editing host's caret color.
-            auto& renderer = *m_focusedElement->renderer();
-            postLayoutData.caretColor = CaretBase::computeCaretColor(renderer.style(), renderer.element());
-        }
+        if (RefPtr container = selection.start().containerNode(); container && container->renderer() && selection.isContentEditable())
+            postLayoutData.caretColor = CaretBase::computeCaretColor(container->renderer()->style(), container.get());
 
         if (auto editableRootOrFormControl = makeRefPtr(enclosingTextFormControl(selection.start()) ?: selection.rootEditableElement())) {
             postLayoutData.selectionClipRect = rootViewInteractionBounds(*editableRootOrFormControl);
@@ -631,12 +625,6 @@ bool WebPage::platformCanHandleRequest(const WebCore::ResourceRequest&)
 }
 
 void WebPage::shouldDelayWindowOrderingEvent(const WebKit::WebMouseEvent&, CompletionHandler<void(bool)>&& completionHandler)
-{
-    notImplemented();
-    completionHandler(false);
-}
-
-void WebPage::acceptsFirstMouse(int, const WebKit::WebMouseEvent&, CompletionHandler<void(bool)>&& completionHandler)
 {
     notImplemented();
     completionHandler(false);

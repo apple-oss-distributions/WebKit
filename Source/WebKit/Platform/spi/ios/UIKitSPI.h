@@ -456,12 +456,6 @@ typedef NS_ENUM(NSUInteger, UIScrollPhase) {
 - (CGSize)_legacy_sizeWithFont:(UIFont *)font minFontSize:(CGFloat)minFontSize actualFontSize:(CGFloat *)actualFontSize forWidth:(CGFloat)width lineBreakMode:(NSLineBreakMode)lineBreakMode;
 @end
 
-@interface UIGestureRecognizer ()
-#if PLATFORM(IOS) && !defined(__IPHONE_13_4)
-@property (nonatomic, readonly, getter=_modifierFlags) UIKeyModifierFlags modifierFlags;
-#endif
-@end
-
 #if HAVE(UI_HOVER_EVENT_RESPONDABLE)
 
 @protocol _UIHoverEventRespondable <NSObject>
@@ -637,6 +631,7 @@ typedef NS_ENUM (NSInteger, _UIBackdropMaskViewFlags) {
 @property (nonatomic, setter=_setContinuousCornerRadius:) CGFloat _continuousCornerRadius;
 - (void)insertSubview:(UIView *)view above:(UIView *)sibling;
 - (void)viewWillMoveToSuperview:(UIView *)newSuperview;
+- (void)_didRemoveSubview:(UIView *)subview;
 - (CGSize)convertSize:(CGSize)size toView:(UIView *)view;
 - (void)_removeAllAnimations:(BOOL)includeSubviews;
 - (UIColor *)_inheritedInteractionTintColor;
@@ -697,6 +692,13 @@ typedef NS_ENUM(NSInteger, UIWKGestureType) {
 @property (nonatomic, copy) NSString *contextAfterSelection;
 @property (nonatomic, copy) NSString *markedText;
 @property (nonatomic, assign) NSRange rangeInMarkedText;
+@end
+
+@interface UITextSelectionView : UIView
+@end
+
+@interface UITextInteractionAssistant (SPI)
+@property (nonatomic, readonly) UITextSelectionView *selectionView;
 @end
 
 @interface UIWKTextInteractionAssistant : UITextInteractionAssistant <UIResponderStandardEditActions>
@@ -1102,11 +1104,14 @@ WTF_EXTERN_C_END
 
 #endif
 
+@protocol TIPreferencesControllerActions;
+
 @interface UIKeyboardPreferencesController : NSObject
 + (UIKeyboardPreferencesController *)sharedPreferencesController;
 - (void)setValue:(id)value forPreferenceKey:(NSString *)key;
 - (BOOL)boolForPreferenceKey:(NSString *)key;
 - (id)valueForPreferenceKey:(NSString *)key;
+@property (nonatomic, readonly) UIKeyboardPreferencesController<TIPreferencesControllerActions> *preferencesActions;
 @end
 
 @interface UIMenuItem (UIMenuController_SPI)

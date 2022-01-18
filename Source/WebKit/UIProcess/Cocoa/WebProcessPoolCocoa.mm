@@ -96,6 +96,10 @@
 #import <WebCore/SystemBattery.h>
 #endif
 
+#if ENABLE(GPU_PROCESS)
+#import "GPUProcessMessages.h"
+#endif
+
 #if HAVE(MEDIA_ACCESSIBILITY_FRAMEWORK)
 #include <WebCore/CaptionUserPreferencesMediaAF.h>
 #include <WebCore/MediaAccessibilitySoftLink.h>
@@ -189,7 +193,7 @@ void WebProcessPool::setMediaAccessibilityPreferences(WebProcessProxy& process)
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), [weakProcess = makeWeakPtr(process)] {
         auto captionDisplayMode = WebCore::CaptionUserPreferencesMediaAF::platformCaptionDisplayMode();
         auto preferredLanguages = WebCore::CaptionUserPreferencesMediaAF::platformPreferredLanguages();
-        callOnMainRunLoop([weakProcess, captionDisplayMode, preferredLanguages] {
+        callOnMainRunLoop([weakProcess, captionDisplayMode, preferredLanguages = WTFMove(preferredLanguages).isolatedCopy()] {
             if (weakProcess)
                 weakProcess->send(Messages::WebProcess::SetMediaAccessibilityPreferences(captionDisplayMode, preferredLanguages), 0);
         });
@@ -328,7 +332,8 @@ void WebProcessPool::platformInitializeWebProcess(const WebProcessProxy& process
 
     // FIXME: This should really be configurable; we shouldn't just blindly allow read access to the UI process bundle.
     parameters.uiProcessBundleResourcePath = m_resolvedPaths.uiProcessBundleResourcePath;
-    SandboxExtension::createHandleWithoutResolvingPath(parameters.uiProcessBundleResourcePath, SandboxExtension::Type::ReadOnly, parameters.uiProcessBundleResourcePathExtensionHandle);
+    if (auto handle = SandboxExtension::createHandleWithoutResolvingPath(parameters.uiProcessBundleResourcePath, SandboxExtension::Type::ReadOnly))
+        parameters.uiProcessBundleResourcePathExtensionHandle = WTFMove(*handle);
 
     parameters.uiProcessBundleIdentifier = applicationBundleIdentifier();
 
@@ -336,20 +341,25 @@ void WebProcessPool::platformInitializeWebProcess(const WebProcessProxy& process
     parameters.throughputQOS = webProcessThroughputQOS();
     
 #if PLATFORM(IOS_FAMILY)
-    if (!m_resolvedPaths.cookieStorageDirectory.isEmpty())
-        SandboxExtension::createHandleWithoutResolvingPath(m_resolvedPaths.cookieStorageDirectory, SandboxExtension::Type::ReadWrite, parameters.cookieStorageDirectoryExtensionHandle);
+    if (!m_resolvedPaths.cookieStorageDirectory.isEmpty()) {
+        if (auto handle = SandboxExtension::createHandleWithoutResolvingPath(m_resolvedPaths.cookieStorageDirectory, SandboxExtension::Type::ReadWrite))
+            parameters.cookieStorageDirectoryExtensionHandle = WTFMove(*handle);
+    }
 
-    if (!m_resolvedPaths.containerCachesDirectory.isEmpty())
-        SandboxExtension::createHandleWithoutResolvingPath(m_resolvedPaths.containerCachesDirectory, SandboxExtension::Type::ReadWrite, parameters.containerCachesDirectoryExtensionHandle);
+    if (!m_resolvedPaths.containerCachesDirectory.isEmpty()) {
+        if (auto handle = SandboxExtension::createHandleWithoutResolvingPath(m_resolvedPaths.containerCachesDirectory, SandboxExtension::Type::ReadWrite))
+            parameters.containerCachesDirectoryExtensionHandle = WTFMove(*handle);
+    }
 
-    if (!m_resolvedPaths.containerTemporaryDirectory.isEmpty())
-        SandboxExtension::createHandleWithoutResolvingPath(m_resolvedPaths.containerTemporaryDirectory, SandboxExtension::Type::ReadWrite, parameters.containerTemporaryDirectoryExtensionHandle);
+    if (!m_resolvedPaths.containerTemporaryDirectory.isEmpty()) {
+        if (auto handle = SandboxExtension::createHandleWithoutResolvingPath(m_resolvedPaths.containerTemporaryDirectory, SandboxExtension::Type::ReadWrite))
+            parameters.containerTemporaryDirectoryExtensionHandle = WTFMove(*handle);
+    }
 #endif
 #if PLATFORM(COCOA) && ENABLE(REMOTE_INSPECTOR)
     if (WebProcessProxy::shouldEnableRemoteInspector()) {
-        SandboxExtension::Handle enableRemoteWebInspectorExtensionHandle;
-        if (SandboxExtension::createHandleForMachLookup("com.apple.webinspector"_s, std::nullopt, enableRemoteWebInspectorExtensionHandle))
-            parameters.enableRemoteWebInspectorExtensionHandle = WTFMove(enableRemoteWebInspectorExtensionHandle);
+        if (auto handle = SandboxExtension::createHandleForMachLookup("com.apple.webinspector"_s, std::nullopt))
+            parameters.enableRemoteWebInspectorExtensionHandle = WTFMove(*handle);
     }
 #endif
 
@@ -388,14 +398,17 @@ void WebProcessPool::platformInitializeWebProcess(const WebProcessProxy& process
 #endif
 
 #if !LOG_DISABLED || !RELEASE_LOG_DISABLED
+    parameters.wtfLoggingChannels = [[NSUserDefaults standardUserDefaults] stringForKey:@"WTFLogging"];
     parameters.webCoreLoggingChannels = [[NSUserDefaults standardUserDefaults] stringForKey:@"WebCoreLogging"];
     parameters.webKitLoggingChannels = [[NSUserDefaults standardUserDefaults] stringForKey:@"WebKit2Logging"];
 #endif
 
 #if PLATFORM(MAC) || PLATFORM(MACCATALYST)
     // FIXME: Remove this and related parameter when <rdar://problem/29448368> is fixed.
-    if (isSafari && mediaDevicesEnabled && !m_defaultPageGroup->preferences().captureAudioInUIProcessEnabled() && !m_defaultPageGroup->preferences().captureAudioInGPUProcessEnabled())
-        SandboxExtension::createHandleForGenericExtension("com.apple.webkit.microphone"_s, parameters.audioCaptureExtensionHandle);
+    if (isSafari && mediaDevicesEnabled && !m_defaultPageGroup->preferences().captureAudioInUIProcessEnabled() && !m_defaultPageGroup->preferences().captureAudioInGPUProcessEnabled()) {
+        if (auto handle = SandboxExtension::createHandleForGenericExtension("com.apple.webkit.microphone"_s))
+            parameters.audioCaptureExtensionHandle = WTFMove(*handle);
+    }
 #else
     UNUSED_PARAM(mediaDevicesEnabled);
 #endif
@@ -431,9 +444,8 @@ void WebProcessPool::platformInitializeWebProcess(const WebProcessProxy& process
     parameters.systemHasAC = cachedSystemHasAC().value_or(true);
 
     if (requiresContainerManagerAccess()) {
-        SandboxExtension::Handle handle;
-        SandboxExtension::createHandleForMachLookup("com.apple.containermanagerd"_s, std::nullopt, handle);
-        parameters.containerManagerExtensionHandle = WTFMove(handle);
+        if (auto handle = SandboxExtension::createHandleForMachLookup("com.apple.containermanagerd"_s, std::nullopt))
+            parameters.containerManagerExtensionHandle = WTFMove(*handle);
     }
 
 #if PLATFORM(IOS_FAMILY)
@@ -452,22 +464,24 @@ void WebProcessPool::platformInitializeWebProcess(const WebProcessProxy& process
 
 #if PLATFORM(IOS_FAMILY) && !PLATFORM(MACCATALYST)
     if (!_MGCacheValid()) {
-        SandboxExtension::Handle handle;
-        SandboxExtension::createHandleForMachLookup("com.apple.mobilegestalt.xpc"_s, std::nullopt, handle);
-        parameters.mobileGestaltExtensionHandle = WTFMove(handle);
+        if (auto handle = SandboxExtension::createHandleForMachLookup("com.apple.mobilegestalt.xpc"_s, std::nullopt))
+            parameters.mobileGestaltExtensionHandle = WTFMove(*handle);
     }
 #endif
 
 #if PLATFORM(MAC)
-    SandboxExtension::Handle launchServicesExtensionHandle;
-    SandboxExtension::createHandleForMachLookup("com.apple.coreservices.launchservicesd"_s, std::nullopt, launchServicesExtensionHandle);
-    parameters.launchServicesExtensionHandle = WTFMove(launchServicesExtensionHandle);
+    if (auto launchServicesExtensionHandle = SandboxExtension::createHandleForMachLookup("com.apple.coreservices.launchservicesd"_s, std::nullopt))
+        parameters.launchServicesExtensionHandle = WTFMove(*launchServicesExtensionHandle);
 #endif
 
-#if PLATFORM(MAC) && HAVE(VIDEO_RESTRICTED_DECODING)
-    SandboxExtension::Handle trustdAgentExtensionHandle;
-    SandboxExtension::createHandleForMachLookup("com.apple.trustd.agent"_s, std::nullopt, trustdAgentExtensionHandle);
-    parameters.trustdAgentExtensionHandle = WTFMove(trustdAgentExtensionHandle);
+#if HAVE(VIDEO_RESTRICTED_DECODING)
+#if PLATFORM(MAC)
+    if (MacApplication::isAppleMail())
+        parameters.videoDecoderExtensionHandles = SandboxExtension::createHandlesForMachLookup({ "com.apple.coremedia.videodecoder"_s, "com.apple.trustd.agent"_s }, std::nullopt);
+#elif PLATFORM(IOS_FAMILY)
+    if (IOSApplication::isMobileMail() || IOSApplication::isMailCompositionService())
+        parameters.videoDecoderExtensionHandles = SandboxExtension::createHandlesForMachLookup({ "com.apple.coremedia.decompressionsession"_s }, std::nullopt);
+#endif
 #endif
 
 #if PLATFORM(IOS_FAMILY) && ENABLE(CFPREFS_DIRECT_MODE)
@@ -521,6 +535,8 @@ void WebProcessPool::platformInitializeNetworkProcess(NetworkProcessCreationPara
     NSString *format = @"WebKitExperimental%@";
 #endif
     parameters.enablePrivateClickMeasurementDebugMode = [defaults boolForKey:[NSString stringWithFormat:format, WebPreferencesKey::privateClickMeasurementDebugModeEnabledKey().createCFString().get()]];
+    
+    parameters.ftpEnabled = [defaults objectForKey:WebPreferencesKey::ftpEnabledKey()] && [defaults boolForKey:WebPreferencesKey::ftpEnabledKey()];
 }
 
 void WebProcessPool::platformInvalidateContext()
@@ -973,6 +989,11 @@ void WebProcessPool::notifyPreferencesChanged(const String& domain, const String
 {
     for (auto process : m_processes)
         process->send(Messages::WebProcess::NotifyPreferencesChanged(domain, key, encodedValue), 0);
+
+#if ENABLE(GPU_PROCESS)
+    if (auto* gpuProcess = GPUProcessProxy::singletonIfCreated())
+        gpuProcess->send(Messages::GPUProcess::NotifyPreferencesChanged(domain, key, encodedValue), 0);
+#endif
 }
 #endif
 

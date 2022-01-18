@@ -38,7 +38,11 @@
 #import "WebPageProxy.h"
 #import "_WKActivatedElementInfoInternal.h"
 #import "_WKTextInputContextInternal.h"
+#import <WebCore/ColorIOS.h>
+#import <WebCore/ColorSerialization.h>
 #import <WebCore/ElementContext.h>
+#import <wtf/SortedArrayMap.h>
+#import <wtf/text/TextStream.h>
 
 @implementation WKWebView (WKTestingIOS)
 
@@ -225,6 +229,84 @@
     return coordinator->scrollingTreeAsText();
 }
 
+static String allowListedClassToString(UIView *view)
+{
+    static constexpr ComparableASCIILiteral allowedClassesArray[] = {
+        "UIView",
+        "WKBackdropView",
+        "WKCompositingView",
+        "WKContentView",
+        "WKModelView",
+        "WKRemoteView",
+        "WKScrollView",
+        "WKSeparatedModelView"
+        "WKShapeView",
+        "WKSimpleBackdropView",
+        "WKTransformView",
+        "WKUIRemoteView",
+        "WKWebView",
+        "_UILayerHostView",
+    };
+    static constexpr SortedArraySet allowedClasses { allowedClassesArray };
+
+    String classString { NSStringFromClass(view.class) };
+    if (allowedClasses.contains(classString))
+        return classString;
+    
+    ASSERT(classString != "WKCompositingView");
+    return makeString("<class not in allowed list of classes>");
+}
+
+static void dumpUIView(TextStream& ts, UIView *view)
+{
+    auto rectToString = [] (auto rect) {
+        return makeString("[x: ", rect.origin.x, " y: ", rect.origin.x, " width: ", rect.size.width, " height: ", rect.size.height, "]");
+    };
+
+    auto pointToString = [] (auto point) {
+        return makeString("[x: ", point.x, " y: ", point.x, "]");
+    };
+
+
+    ts << "view [class: " << allowListedClassToString(view) << "]";
+
+    ts.dumpProperty("layer bounds", rectToString(view.layer.bounds));
+    
+    if (view.layer.position.x != 0 || view.layer.position.y != 0)
+        ts.dumpProperty("layer position", pointToString(view.layer.position));
+    
+    if (view.layer.zPosition != 0)
+        ts.dumpProperty("layer zPosition", makeString(view.layer.zPosition));
+    
+    if (view.layer.anchorPoint.x != 0.5 || view.layer.anchorPoint.y != 0.5)
+        ts.dumpProperty("layer anchorPoint", pointToString(view.layer.anchorPoint));
+    
+    if (view.layer.anchorPointZ != 0)
+        ts.dumpProperty("layer anchorPointZ", makeString(view.layer.anchorPointZ));
+
+    if (view.subviews.count > 0) {
+        TextStream::GroupScope scope(ts);
+        ts << "subviews";
+        for (UIView *subview in view.subviews) {
+            TextStream::GroupScope scope(ts);
+            dumpUIView(ts, subview);
+        }
+    }
+}
+
+- (NSString *)_uiViewTreeAsText
+{
+    TextStream ts(TextStream::LineMode::MultipleLine);
+
+    {
+        TextStream::GroupScope scope(ts);
+        ts << "UIView tree root ";
+        dumpUIView(ts, self);
+    }
+
+    return ts.release();
+}
+
 - (NSNumber *)_stableStateOverride
 {
     // For subclasses to override.
@@ -306,11 +388,6 @@
         @"opaque" : @(layer.opaque),
         @"opacity" : @(layer.opacity),
     };
-}
-
-- (void)_doAfterResettingSingleTapGesture:(dispatch_block_t)action
-{
-    [_contentView _doAfterResettingSingleTapGesture:action];
 }
 
 - (void)_doAfterReceivingEditDragSnapshotForTesting:(dispatch_block_t)action
@@ -414,6 +491,14 @@
 }
 #endif
 
+- (NSString *)_serializedSelectionCaretBackgroundColorForTesting
+{
+    UIColor *backgroundColor = [[_contentView textInteractionAssistant].selectionView valueForKeyPath:@"caretView.backgroundColor"];
+    if (!backgroundColor)
+        return nil;
+
+    return WebCore::serializationForCSS(WebCore::colorFromUIColor(backgroundColor));
+}
 
 @end
 

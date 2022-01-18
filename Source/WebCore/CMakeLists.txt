@@ -412,6 +412,7 @@ set(WebCore_NON_SVG_IDL_FILES
     Modules/mediastream/RTCRtpReceiver.idl
     Modules/mediastream/RTCRtpRtxParameters.idl
     Modules/mediastream/RTCRtpSFrameTransform.idl
+    Modules/mediastream/RTCRtpSFrameTransformErrorEvent.idl
     Modules/mediastream/RTCRtpScriptTransform.idl
     Modules/mediastream/RTCRtpScriptTransformProvider.idl
     Modules/mediastream/RTCRtpScriptTransformer.idl
@@ -713,13 +714,13 @@ set(WebCore_NON_SVG_IDL_FILES
     css/StyleSheet.idl
     css/StyleSheetList.idl
 
+    css/typedom/CSSNumericValue.idl
+    css/typedom/CSSStyleImageValue.idl
+    css/typedom/CSSStyleValue.idl
+    css/typedom/CSSUnitValue.idl
+    css/typedom/CSSUnparsedValue.idl
     css/typedom/StylePropertyMap.idl
     css/typedom/StylePropertyMapReadOnly.idl
-    css/typedom/TypedOMCSSImageValue.idl
-    css/typedom/TypedOMCSSNumericValue.idl
-    css/typedom/TypedOMCSSStyleValue.idl
-    css/typedom/TypedOMCSSUnitValue.idl
-    css/typedom/TypedOMCSSUnparsedValue.idl
 
     dom/AbortAlgorithm.idl
     dom/AbortController.idl
@@ -2198,4 +2199,11 @@ if (MSVC)
     set_target_properties(WebCore PROPERTIES
         COMPILE_PDB_NAME ${WebCore_OUTPUT_NAME}
     )
+endif ()
+
+# Special compiler flags may be used for individual files only if the file is excluded from unified
+# build.
+if (CMAKE_CXX_COMPILER_ID MATCHES "GNU")
+    # This warning cannot be suppressed with a pragma.
+    set_source_files_properties(Modules/websockets/WebSocket.cpp PROPERTIES COMPILE_FLAGS -Wno-stringop-overread)
 endif ()

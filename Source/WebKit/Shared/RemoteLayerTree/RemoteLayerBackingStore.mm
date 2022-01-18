@@ -287,11 +287,13 @@ bool RemoteLayerBackingStore::display()
 
         // FIXME: Remove this when <rdar://problem/80487697> is fixed.
         static std::optional<bool> needsMissingFlipWorkaround;
+        WebCore::GraphicsContextStateSaver workaroundStateSaver(displayListContext, false);
         if (!needsMissingFlipWorkaround) {
             id defaultValue = [[NSUserDefaults standardUserDefaults] objectForKey:@"WebKitNeedsWorkaroundFor80487697"];
             needsMissingFlipWorkaround = defaultValue ? [defaultValue boolValue] : true;
         }
         if (needsMissingFlipWorkaround.value()) {
+            workaroundStateSaver.save();
             displayListContext.scale(WebCore::FloatSize(m_scale, -m_scale));
             displayListContext.translate(0, -m_size.height());
         }
@@ -459,6 +461,7 @@ void RemoteLayerBackingStore::applyBackingStoreToLayer(CALayer *layer, LayerCont
         if (![layer isKindOfClass:[WKCompositingLayer class]])
             return;
         [layer setValue:@1 forKeyPath:WKCGDisplayListEnabledKey];
+        [layer setValue:@1 forKeyPath:WKCGDisplayListBifurcationEnabledKey];
         auto data = WTF::get<IPC::SharedBufferCopy>(*m_displayListBufferHandle).buffer()->createCFData();
         [(WKCompositingLayer *)layer _setWKContents:contents.get() withDisplayList:data.get()];
         return;
