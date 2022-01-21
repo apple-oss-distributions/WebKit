@@ -37,7 +37,6 @@
 #include <wtf/UniqueRef.h>
 
 #if PLATFORM(COCOA)
-#include "GraphicsContextGLANGLEEGLUtilities.h"
 #include "IOSurface.h"
 #endif
 
@@ -46,7 +45,7 @@
 #endif
 
 #if USE(ANGLE)
-#include "GraphicsContextGLANGLEUtilities.h"
+#include "ANGLEUtilities.h"
 #else
 #include "ANGLEWebKitBridge.h"
 #include "ExtensionsGLOpenGLCommon.h"
@@ -69,6 +68,7 @@ OBJC_CLASS CALayer;
 OBJC_CLASS WebGLLayer;
 namespace WebCore {
 class GraphicsContextGLIOSurfaceSwapChain;
+class GraphicsContextGLCVANGLE;
 }
 #endif // PLATFORM(COCOA)
 
@@ -104,7 +104,6 @@ public:
     virtual ~GraphicsContextGLOpenGL();
 
 #if PLATFORM(COCOA)
-    static Ref<GraphicsContextGLOpenGL> createShared(GraphicsContextGLOpenGL& sharedContext);
     static Ref<GraphicsContextGLOpenGL> createForGPUProcess(const GraphicsContextGLAttributes&, GraphicsContextGLIOSurfaceSwapChain*);
 
     CALayer* platformLayer() const final { return reinterpret_cast<CALayer*>(m_webGLLayer.get()); }
@@ -119,17 +118,16 @@ public:
 #if USE(ANGLE)
     static GCGLenum drawingBufferTextureTarget();
 #endif
-
-#if PLATFORM(IOS_FAMILY)
-    enum class ReleaseBehavior {
-        PreserveThreadResources,
-        ReleaseThreadResources
+    enum class ReleaseThreadResourceBehavior {
+        // Releases current context after GraphicsContextGLOpenGL calls done in the thread.
+        ReleaseCurrentContext,
+        // Releases all thread resources after GraphicsContextGLOpenGL calls done in the thread.
+        ReleaseThreadResources,
+        // Releases all global state. Should be used only after all depending objects have
+        // been released.
+        TerminateAndReleaseThreadResources
     };
-    static bool releaseCurrentContext(ReleaseBehavior);
-#endif
-#if PLATFORM(COCOA)
-    static void releaseAllResourcesIfUnused();
-#endif
+    static bool releaseThreadResources(ReleaseThreadResourceBehavior);
 
     // With multisampling on, blit from multisampleFBO to regular FBO.
     void prepareTexture();
@@ -460,13 +458,15 @@ public:
     void resetBuffersToAutoClear();
     void setBuffersToAutoClear(GCGLbitfield) final;
     GCGLbitfield getBuffersToAutoClear() const final;
-    void enablePreserveDrawingBuffer() final;
 
     void dispatchContextChangedNotification();
 
     void paintRenderingResultsToCanvas(ImageBuffer&) final;
     std::optional<PixelBuffer> paintRenderingResultsToPixelBuffer() final;
     void paintCompositedResultsToCanvas(ImageBuffer&) final;
+#if ENABLE(MEDIA_STREAM)
+    RefPtr<MediaSample> paintCompositedResultsToMediaSample() final;
+#endif
 
     std::optional<PixelBuffer> readRenderingResultsForPainting();
     std::optional<PixelBuffer> readCompositedResultsForPainting();
@@ -544,15 +544,14 @@ public:
 
 private:
 #if PLATFORM(COCOA)
-    GraphicsContextGLOpenGL(GraphicsContextGLAttributes, HostWindow*, GraphicsContextGLOpenGL* sharedContext = nullptr, GraphicsContextGLIOSurfaceSwapChain* = nullptr);
+    GraphicsContextGLOpenGL(GraphicsContextGLAttributes, HostWindow*, GraphicsContextGLIOSurfaceSwapChain* = nullptr);
 #else
-    GraphicsContextGLOpenGL(GraphicsContextGLAttributes, HostWindow*, GraphicsContextGLOpenGL* sharedContext = nullptr);
+    GraphicsContextGLOpenGL(GraphicsContextGLAttributes, HostWindow*);
 #endif
 
     // Called once by all the public entry points that eventually call OpenGL.
     // Called once by all the public entry points of ExtensionsGL that eventually call OpenGL.
     bool makeContextCurrent() WARN_UNUSED_RETURN;
-    void clearCurrentContext();
 
     // Take into account the user's requested context creation attributes,
     // in particular stencil and antialias, and determine which could or
@@ -579,17 +578,22 @@ private:
     bool reshapeDisplayBufferBacking();
     bool allocateAndBindDisplayBufferBacking();
     bool bindDisplayBufferBacking(std::unique_ptr<IOSurface> backing, void* pbuffer);
+    static bool makeCurrent(PlatformGraphicsContextGLDisplay, PlatformGraphicsContextGL);
+    friend class GraphicsContextGLCVANGLE;
 #endif
 #if USE(ANGLE)
     // Returns false if context should be lost due to timeout.
     bool waitAndUpdateOldestFrame() WARN_UNUSED_RETURN;
 #endif
+    // Platform specific behavior for releaseResources();
+    static void platformReleaseThreadResources();
+
 
 #if PLATFORM(COCOA)
     GraphicsContextGLIOSurfaceSwapChain* m_swapChain { nullptr };
     // TODO: this should be removed once the context draws to a image buffer. See https://bugs.webkit.org/show_bug.cgi?id=218179 .
     RetainPtr<WebGLLayer> m_webGLLayer;
-    ScopedEGLDefaultDisplay m_displayObj;
+    EGLDisplay m_displayObj { nullptr };
     PlatformGraphicsContextGL m_contextObj { nullptr };
     PlatformGraphicsContextGLConfig m_configObj { nullptr };
 #endif // PLATFORM(COCOA)
@@ -795,7 +799,7 @@ private:
     ScopedHighPerformanceGPURequest m_highPerformanceGPURequest;
 #endif
 #if ENABLE(VIDEO) && USE(AVFOUNDATION)
-    std::unique_ptr<GraphicsContextGLCV> m_cv;
+    std::unique_ptr<GraphicsContextGLCVANGLE> m_cv;
 #endif
 #if USE(ANGLE)
     static constexpr size_t maxPendingFrames = 3;

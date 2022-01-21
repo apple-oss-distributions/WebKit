@@ -42,6 +42,11 @@ public:
     AudioSessionIOS();
     virtual ~AudioSessionIOS();
 
+    void setHostProcessAttribution(audit_token_t) final;
+
+    using CategoryChangedObserver = WTF::Observer<void(AudioSession&, CategoryType)>;
+    WEBCORE_EXPORT static void addAudioSessionCategoryChangedObserver(const CategoryChangedObserver&);
+
 private:
     // AudioSession
     CategoryType category() const final;
