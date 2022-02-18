@@ -95,7 +95,7 @@
             * src/libANGLE/renderer/metal/IOSurfaceSurfaceMtl.mm:
             (rx::IOSurfaceSurfaceMtl::ValidateAttributes):
 
-2022-02-11  Alan Coon  <alancoon@apple.com>
+2022-02-11  Russell Epstein  <repstein@apple.com>
 
         Apply patch. rdar://problem/87136345
 
