@@ -45,6 +45,11 @@
 #include <wtf/RunLoop.h>
 #include <wtf/text/WTFString.h>
 
+#if PLATFORM(COCOA)
+#include <pal/spi/cocoa/TCCSPI.h>
+#include <wtf/OSObjectPtr.h>
+#endif
+
 namespace WebCore {
 
 class CaptureDevice;
@@ -100,6 +105,11 @@ public:
 
     WEBCORE_EXPORT static bool shouldInterruptAudioOnPageVisibilityChange();
 
+#if ENABLE(APP_PRIVACY_REPORT)
+    void setIdentity(OSObjectPtr<tcc_identity_t>&& identity) { m_identity = WTFMove(identity); }
+    OSObjectPtr<tcc_identity_t> identity() const { return m_identity; }
+#endif
+
 private:
     RealtimeMediaSourceCenter();
     friend class NeverDestroyed<RealtimeMediaSourceCenter>;
@@ -113,7 +123,7 @@ private:
         CaptureDevice device;
     };
 
-    void getDisplayMediaDevices(const MediaStreamRequest&, Vector<DeviceInfo>&, String&);
+    void getDisplayMediaDevices(const MediaStreamRequest&, String&&, Vector<DeviceInfo>&, String&);
     void getUserMediaDevices(const MediaStreamRequest&, String&&, Vector<DeviceInfo>& audioDevices, Vector<DeviceInfo>& videoDevices, String&);
     void validateRequestConstraintsAfterEnumeration(ValidConstraintsHandler&&, InvalidConstraintsHandler&&, const MediaStreamRequest&, String&&);
     void enumerateDevices(bool shouldEnumerateCamera, bool shouldEnumerateDisplay, bool shouldEnumerateMicrophone, bool shouldEnumerateSpeakers, CompletionHandler<void()>&&);
@@ -130,6 +140,10 @@ private:
     DisplayCaptureFactory* m_displayCaptureFactoryOverride { nullptr };
 
     bool m_shouldInterruptAudioOnPageVisibilityChange { false };
+
+#if ENABLE(APP_PRIVACY_REPORT)
+    OSObjectPtr<tcc_identity_t> m_identity;
+#endif
 };
 
 } // namespace WebCore

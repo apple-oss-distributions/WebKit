@@ -52,13 +52,27 @@ using WebCore::PlaybackSessionInterfaceMac;
 @synthesize allowsPictureInPicturePlayback;
 @synthesize pictureInPictureActive;
 @synthesize canTogglePictureInPicture;
-@synthesize canSeek = _canSeek;
 
 - (void)dealloc
 {
     if (_playbackSessionInterfaceMac)
         _playbackSessionInterfaceMac->setPlayBackControlsManager(nullptr);
     [super dealloc];
+}
+
+- (BOOL)canSeek
+{
+    return _canSeek;
+}
+
+- (void)setCanSeek:(BOOL)canSeek
+{
+    _canSeek = canSeek;
+}
+
++ (NSSet<NSString *> *)keyPathsForValuesAffectingContentDuration
+{
+    return [NSSet setWithObject:@"seekableTimeRanges"];
 }
 
 - (NSTimeInterval)contentDuration
@@ -68,7 +82,15 @@ using WebCore::PlaybackSessionInterfaceMac;
 
 - (void)setContentDuration:(NSTimeInterval)duration
 {
+    bool needCanSeekUpdate = std::isfinite(_contentDuration) != std::isfinite(duration);
     _contentDuration = duration;
+    // Workaround rdar://82275552. We do so by toggling the canSeek property to force
+    // a content refresh that will make the scrubber appear/disappear accordingly.
+    if (needCanSeekUpdate) {
+        bool canSeek = _canSeek;
+        self.canSeek = !canSeek;
+        self.canSeek = canSeek;
+    }
 }
 
 - (AVValueTiming *)timing
@@ -89,8 +111,7 @@ using WebCore::PlaybackSessionInterfaceMac;
 - (void)setSeekableTimeRanges:(NSArray *)timeRanges
 {
     _seekableTimeRanges = timeRanges;
-
-    _canSeek = timeRanges.count;
+    self.canSeek = timeRanges.count;
 }
 
 - (BOOL)isSeeking
@@ -123,6 +144,11 @@ using WebCore::PlaybackSessionInterfaceMac;
 {
     UNUSED_PARAM(numberOfSamples);
     completionHandler(@[ ]);
+}
+
++ (NSSet<NSString *> *)keyPathsForValuesAffectingCanBeginTouchBarScrubbing
+{
+    return [NSSet setWithObjects:@"canSeek", @"contentDuration", nil];
 }
 
 - (BOOL)canBeginTouchBarScrubbing
@@ -336,18 +362,23 @@ static RetainPtr<NSArray> mediaSelectionOptions(const Vector<MediaSelectionOptio
 
 - (void)setDefaultPlaybackRate:(double)defaultPlaybackRate
 {
+    [self setDefaultPlaybackRate:defaultPlaybackRate fromJavaScript:NO];
+}
+
+- (void)setDefaultPlaybackRate:(double)defaultPlaybackRate fromJavaScript:(BOOL)fromJavaScript
+{
     if (defaultPlaybackRate == _defaultPlaybackRate)
         return;
 
     _defaultPlaybackRate = defaultPlaybackRate;
 
-    if (_playbackSessionInterfaceMac) {
+    if (!fromJavaScript && _playbackSessionInterfaceMac) {
         if (auto* model = _playbackSessionInterfaceMac->playbackSessionModel(); model && model->defaultPlaybackRate() != _defaultPlaybackRate)
             model->setDefaultPlaybackRate(_defaultPlaybackRate);
     }
 
     if ([self isPlaying])
-        [self setRate:_defaultPlaybackRate];
+        [self setRate:_defaultPlaybackRate fromJavaScript:fromJavaScript];
 }
 
 - (float)rate
@@ -356,6 +387,11 @@ static RetainPtr<NSArray> mediaSelectionOptions(const Vector<MediaSelectionOptio
 }
 
 - (void)setRate:(float)rate
+{
+    [self setRate:rate fromJavaScript:NO];
+}
+
+- (void)setRate:(double)rate fromJavaScript:(BOOL)fromJavaScript
 {
     if (rate == _rate)
         return;
@@ -374,9 +410,9 @@ static RetainPtr<NSArray> mediaSelectionOptions(const Vector<MediaSelectionOptio
     // ending scanning, with the `playbackRate` being used in all other cases, including when
     // resuming after pausing. As such, WebKit should return the `playbackRate` instead of the
     // `defaultPlaybackRate` in these cases when communicating with AVKit.
-    [self setDefaultPlaybackRate:_rate];
+    [self setDefaultPlaybackRate:_rate fromJavaScript:fromJavaScript];
 
-    if (_playbackSessionInterfaceMac) {
+    if (!fromJavaScript && _playbackSessionInterfaceMac) {
         if (auto* model = _playbackSessionInterfaceMac->playbackSessionModel(); model && model->playbackRate() != _rate)
             model->setPlaybackRate(_rate);
     }

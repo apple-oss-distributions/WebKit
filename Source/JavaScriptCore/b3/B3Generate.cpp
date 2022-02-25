@@ -70,7 +70,7 @@ void generateToAir(Procedure& procedure)
 {
     TimingScope timingScope("generateToAir");
     
-    if (shouldDumpIR(B3Mode) && !shouldDumpIRAtEachPhase(B3Mode)) {
+    if (shouldDumpIR(procedure, B3Mode) && !shouldDumpIRAtEachPhase(B3Mode)) {
         dataLog(tierName, "Initial B3:\n");
         dataLog(procedure);
     }
@@ -118,10 +118,10 @@ void generateToAir(Procedure& procedure)
     lowerMacrosAfterOptimizations(procedure);
     legalizeMemoryOffsets(procedure);
     moveConstants(procedure);
-
     if (Options::useB3CanonicalizePrePostIncrements() && procedure.optLevel() >= 2)
         canonicalizePrePostIncrements(procedure);
     eliminateDeadCode(procedure);
+
     // FIXME: We should run pureCSE here to clean up some platform specific changes from the previous phases.
     // https://bugs.webkit.org/show_bug.cgi?id=164873
 
@@ -130,7 +130,7 @@ void generateToAir(Procedure& procedure)
     
     // If we're doing super verbose dumping, the phase scope of any phase will already do a dump.
     // Note that lowerToAir() acts like a phase in this regard.
-    if (shouldDumpIR(B3Mode) && !shouldDumpIRAtEachPhase(B3Mode)) {
+    if (shouldDumpIR(procedure, B3Mode) && !shouldDumpIRAtEachPhase(B3Mode)) {
         dataLog("B3 after ", procedure.lastPhaseName(), ", before generation:\n");
         dataLog(procedure);
     }

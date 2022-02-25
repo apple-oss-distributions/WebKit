@@ -29,6 +29,8 @@
 #if HAVE(UIKIT_WITH_MOUSE_SUPPORT) || ENABLE(HOVER_GESTURE_RECOGNIZER)
 
 #import "PrototypeToolsSPI.h"
+#import <pal/spi/cocoa/QuartzCoreSPI.h>
+#import <wtf/RetainPtr.h>
 
 @interface PTSliderRow (WebKit)
 
@@ -61,7 +63,7 @@ static void setDefaultValuesForAdditionalPlatterLayoutParameters(WKHoverPlatterP
     [super setDefaultValues];
 
     _platterEnabledForMouse = NO;
-    _platterEnabledForHover = YES;
+    _platterEnabledForHover = NO;
 
     _platterCornerRadius = 6;
     _platterPadding = 5;

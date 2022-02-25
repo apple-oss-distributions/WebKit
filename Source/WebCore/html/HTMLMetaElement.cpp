@@ -26,6 +26,7 @@
 #include "Attribute.h"
 #include "Color.h"
 #include "Document.h"
+#include "ElementInlines.h"
 #include "Frame.h"
 #include "FrameView.h"
 #include "HTMLHeadElement.h"
@@ -92,7 +93,7 @@ void HTMLMetaElement::attributeChanged(const QualifiedName& name, const AtomStri
 {
     HTMLElement::attributeChanged(name, oldValue, newValue, reason);
 
-    if (!isConnected())
+    if (!isInDocumentTree())
         return;
 
     if (name == nameAttr) {
@@ -152,8 +153,8 @@ void HTMLMetaElement::removedFromAncestor(RemovalType removalType, ContainerNode
 
 void HTMLMetaElement::process()
 {
-    // Changing a meta tag while it's not in the tree shouldn't have any effect on the document.
-    if (!isConnected())
+    // Changing a meta tag while it's not in the document tree shouldn't have any effect on the document.
+    if (!isInDocumentTree())
         return;
 
     const AtomString& contentValue = attributeWithoutSynchronization(contentAttr);
@@ -181,7 +182,7 @@ void HTMLMetaElement::process()
 
     const AtomString& httpEquivValue = attributeWithoutSynchronization(http_equivAttr);
     if (!httpEquivValue.isNull())
-        document().processHttpEquiv(httpEquivValue, contentValue, isDescendantOf(document().head()));
+        document().processMetaHttpEquiv(httpEquivValue, contentValue, isDescendantOf(document().head()));
 }
 
 const AtomString& HTMLMetaElement::content() const

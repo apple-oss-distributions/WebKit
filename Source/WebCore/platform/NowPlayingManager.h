@@ -50,6 +50,7 @@ public:
 
     void addSupportedCommand(PlatformMediaSession::RemoteControlCommandType);
     void removeSupportedCommand(PlatformMediaSession::RemoteControlCommandType);
+    RemoteCommandListener::RemoteCommandsSet supportedCommands() const;
 
     void addClient(Client&);
     void removeClient(Client&);
@@ -69,7 +70,7 @@ private:
     std::optional<NowPlayingInfo> m_nowPlayingInfo;
     struct ArtworkCache {
         String src;
-        RefPtr<SharedBuffer> imageData;
+        RefPtr<FragmentedSharedBuffer> imageData;
     };
     std::optional<ArtworkCache> m_nowPlayingInfoArtwork;
     bool m_setAsNowPlayingApplication { false };

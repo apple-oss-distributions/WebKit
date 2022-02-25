@@ -50,8 +50,8 @@ public:
     {
     }
 
-    ResourceError(const String& domain, int errorCode, const URL& failingURL, const String& localizedDescription, Type type = Type::General)
-        : ResourceErrorBase(domain, errorCode, failingURL, localizedDescription, type)
+    ResourceError(const String& domain, int errorCode, const URL& failingURL, const String& localizedDescription, Type type = Type::General, IsSanitized isSanitized = IsSanitized::No)
+        : ResourceErrorBase(domain, errorCode, failingURL, localizedDescription, type, isSanitized)
         , m_dataIsUpToDate(true)
     {
 #if PLATFORM(COCOA)
@@ -66,7 +66,7 @@ public:
     WEBCORE_EXPORT operator CFErrorRef() const;
 
 #if USE(CFURLCONNECTION)
-    ResourceError(const String& domain, int errorCode, const URL& failingURL, const String& localizedDescription, CFDataRef certificate);
+    ResourceError(const String& domain, int errorCode, const URL& failingURL, const String& localizedDescription, CFDataRef certificate, IsSanitized = IsSanitized::No);
     PCCERT_CONTEXT certificate() const;
     void setCertificate(CFDataRef);
     ResourceError(CFStreamError error);

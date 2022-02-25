@@ -29,6 +29,7 @@
 #include "CachedModuleScriptLoader.h"
 #include "CachedScript.h"
 #include "CachedScriptFetcher.h"
+#include "DocumentInlines.h"
 #include "Frame.h"
 #include "JSDOMBinding.h"
 #include "JSDOMPromiseDeferred.h"
@@ -401,7 +402,8 @@ void ScriptModuleLoader::notifyFinished(ModuleScriptLoader& moduleScriptLoader, 
 
         if (auto* parameters = loader.parameters()) {
             if (!matchIntegrityMetadata(cachedScript, parameters->integrity())) {
-                promise->reject(TypeError, makeString("Cannot load script ", integrityMismatchDescription(cachedScript, parameters->integrity())));
+                m_context.addConsoleMessage(MessageSource::Security, MessageLevel::Error, makeString("Cannot load script ", integrityMismatchDescription(cachedScript, parameters->integrity())));
+                promise->reject(TypeError, "Cannot load script due to integrity mismatch"_s);
                 return;
             }
         }

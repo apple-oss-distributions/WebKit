@@ -77,7 +77,11 @@ class JSGlobalObject;
     v(appendMemcpy, nullptr) \
     v(hostPromiseRejectionTracker, nullptr) \
     v(Set, nullptr) \
+    v(Map, nullptr) \
     v(thisTimeValue, nullptr) \
+    v(importInRealm, nullptr) \
+    v(evalInRealm, nullptr) \
+    v(moveFunctionToRealm, nullptr) \
     v(isConstructor, nullptr) \
     v(sameValue, nullptr) \
     v(regExpProtoFlagsGetter, nullptr) \
@@ -111,6 +115,8 @@ class JSGlobalObject;
     v(callFunction, nullptr) \
     v(hasOwnPropertyFunction, nullptr) \
     v(createPrivateSymbol, nullptr) \
+    v(emptyPropertyNameEnumerator, nullptr) \
+    v(sentinelString, nullptr) \
 
 
 #define DECLARE_LINK_TIME_CONSTANT(name, code) name,

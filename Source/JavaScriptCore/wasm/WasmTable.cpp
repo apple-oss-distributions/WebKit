@@ -115,13 +115,14 @@ std::optional<uint32_t> Table::grow(uint32_t delta, JSValue defaultValue)
     };
 
     if (auto* funcRefTable = asFuncrefTable()) {
-        if (!checkedGrow(funcRefTable->m_importableFunctions, [] (auto&) { }))
+        if (!checkedGrow(funcRefTable->m_importableFunctions, [](auto&) { }))
             return std::nullopt;
-        if (!checkedGrow(funcRefTable->m_instances, [] (auto&) { }))
+        if (!checkedGrow(funcRefTable->m_instances, [](auto&) { }))
             return std::nullopt;
     }
 
-    if (!checkedGrow(m_jsValues, [defaultValue] (WriteBarrier<Unknown>& slot) { slot.setStartingValue(defaultValue); }))
+    VM& vm = m_owner->vm();
+    if (!checkedGrow(m_jsValues, [&](WriteBarrier<Unknown>& slot) { slot.set(vm, m_owner, defaultValue); }))
         return std::nullopt;
 
     setLength(newLength);
@@ -178,9 +179,9 @@ DEFINE_VISIT_AGGREGATE(Table);
 Type Table::wasmType() const
 {
     if (isExternrefTable())
-        return Types::Externref;
+        return externrefType();
     ASSERT(isFuncrefTable());
-    return Types::Funcref;
+    return funcrefType();
 }
 
 FuncRefTable* Table::asFuncrefTable()

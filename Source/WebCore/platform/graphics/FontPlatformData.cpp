@@ -21,6 +21,8 @@
 #include "config.h"
 #include "FontPlatformData.h"
 
+#include <wtf/SortedArrayMap.h>
+
 namespace WebCore {
 
 FontPlatformData::FontPlatformData(WTF::HashTableDeletedValueType)
@@ -32,16 +34,15 @@ FontPlatformData::FontPlatformData()
 {
 }
 
-FontPlatformData::FontPlatformData(float size, bool syntheticBold, bool syntheticOblique, FontOrientation orientation, FontWidthVariant widthVariant, TextRenderingMode textRenderingMode, CreationData* creationData)
+FontPlatformData::FontPlatformData(float size, bool syntheticBold, bool syntheticOblique, FontOrientation orientation, FontWidthVariant widthVariant, TextRenderingMode textRenderingMode, const CreationData* creationData)
     : m_size(size)
     , m_orientation(orientation)
     , m_widthVariant(widthVariant)
     , m_textRenderingMode(textRenderingMode)
+    , m_creationData(makeOptionalFromPointer(creationData))
     , m_syntheticBold(syntheticBold)
     , m_syntheticOblique(syntheticOblique)
 {
-    if (creationData)
-        m_creationData = *creationData;
 }
 
 #if !USE(FREETYPE)
@@ -76,7 +77,7 @@ String FontPlatformData::familyName() const
 #endif
 
 #if !PLATFORM(COCOA)
-Vector<FontPlatformData::FontVariationAxis> FontPlatformData::variationAxes() const
+Vector<FontPlatformData::FontVariationAxis> FontPlatformData::variationAxes(ShouldLocalizeAxisNames) const
 {
     // FIXME: <webkit.org/b/219614> Not implemented yet.
     return { };

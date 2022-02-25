@@ -23,8 +23,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#pragma once
-
 #include "config.h"
 #include "PerformanceNavigationTiming.h"
 
@@ -139,6 +137,12 @@ double PerformanceNavigationTiming::duration() const
 {
     // https://www.w3.org/TR/navigation-timing-2/#dom-PerformanceNavigationTiming-duration
     return loadEventEnd() - startTime();
+}
+
+void PerformanceNavigationTiming::navigationFinished(const NetworkLoadMetrics& metrics)
+{
+    m_documentLoadTiming.markEndTime();
+    m_resourceTiming.networkLoadMetrics() = metrics;
 }
 
 } // namespace WebCore

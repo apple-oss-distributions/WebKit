@@ -29,6 +29,7 @@
 
 #if USE(GRAPHICS_LAYER_TEXTURE_MAPPER)
 
+#include "DrawingArea.h"
 #include "WebPage.h"
 #include <GLES2/gl2.h>
 #include <WebCore/Document.h>
@@ -87,6 +88,15 @@ bool LayerTreeHost::flushPendingLayerChanges()
 
 void LayerTreeHost::layerFlushTimerFired()
 {
+    if (m_isSuspended)
+        return;
+
+    if (m_notifyAfterScheduledLayerFlush) {
+        m_webPage.drawingArea()->layerHostDidFlushLayers();
+        m_notifyAfterScheduledLayerFlush = false;
+        return;
+    }
+
     flushAndRenderLayers();
 
     if (!enabled())
@@ -101,6 +111,8 @@ LayerTreeHost::LayerTreeHost(WebPage& webPage)
     : m_webPage(webPage)
     , m_layerFlushTimer(*this, &LayerTreeHost::layerFlushTimerFired)
 {
+    m_layerTreeContext.contextID = reinterpret_cast<uint64_t>(this);
+
     m_rootLayer = GraphicsLayer::create(nullptr, *this);
     m_rootLayer->setDrawsContent(true);
     m_rootLayer->setContentsOpaque(true);
@@ -128,8 +140,9 @@ void LayerTreeHost::setLayerFlushSchedulingEnabled(bool)
 {
 }
 
-void LayerTreeHost::setShouldNotifyAfterNextScheduledLayerFlush(bool)
+void LayerTreeHost::setShouldNotifyAfterNextScheduledLayerFlush(bool notifyAfterScheduledLayerFlush)
 {
+    m_notifyAfterScheduledLayerFlush = notifyAfterScheduledLayerFlush;
 }
 
 void LayerTreeHost::scheduleLayerFlush()
@@ -228,10 +241,12 @@ void LayerTreeHost::sizeDidChange(const WebCore::IntSize& newSize)
 
 void LayerTreeHost::pauseRendering()
 {
+    m_isSuspended = true;
 }
 
 void LayerTreeHost::resumeRendering()
 {
+    m_isSuspended = false;
 }
 
 WebCore::GraphicsLayerFactory* LayerTreeHost::graphicsLayerFactory()

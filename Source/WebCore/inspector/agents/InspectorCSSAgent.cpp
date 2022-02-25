@@ -449,6 +449,8 @@ static std::optional<Protocol::CSS::PseudoId> protocolValueForPseudoId(PseudoId 
         return Protocol::CSS::PseudoId::FirstLetter;
     case PseudoId::Marker:
         return Protocol::CSS::PseudoId::Marker;
+    case PseudoId::Backdrop:
+        return Protocol::CSS::PseudoId::Backdrop;
     case PseudoId::Before:
         return Protocol::CSS::PseudoId::Before;
     case PseudoId::After:
@@ -573,7 +575,7 @@ Protocol::ErrorStringOr<Ref<JSON::ArrayOf<Protocol::CSS::CSSComputedStylePropert
 static Ref<Protocol::CSS::Font> buildObjectForFont(const Font& font)
 {
     auto resultVariationAxes = JSON::ArrayOf<Protocol::CSS::FontVariationAxis>::create();
-    for (auto& variationAxis : font.platformData().variationAxes()) {
+    for (auto& variationAxis : font.platformData().variationAxes(ShouldLocalizeAxisNames::Yes)) {
         auto axis = Protocol::CSS::FontVariationAxis::create()
             .setTag(variationAxis.tag())
             .setMinimumValue(variationAxis.minimumValue())
@@ -895,7 +897,7 @@ Protocol::ErrorStringOr<Ref<JSON::ArrayOf<String>>> InspectorCSSAgent::getSuppor
 {
     auto fontFamilyNames = JSON::ArrayOf<String>::create();
 
-    Vector<String> systemFontFamilies = FontCache::singleton().systemFontFamilies();
+    Vector<String> systemFontFamilies = FontCache::forCurrentThread().systemFontFamilies();
     for (const auto& familyName : systemFontFamilies)
         fontFamilyNames->addItem(familyName);
 

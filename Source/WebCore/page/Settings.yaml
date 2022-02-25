@@ -269,6 +269,7 @@ IsAccessibilityIsolatedTreeEnabled:
   type: bool
   defaultValue:
     WebCore:
+      USE(ATSPI): true
       default: false
 
 IsPerActivityStateCPUUsageMeasurementEnabled:
@@ -441,12 +442,7 @@ PrivateClickMeasurementFraudPreventionEnabled:
   type: bool
   defaultValue:
     WebCore:
-      default: false
-
-QuickTimePluginReplacementEnabled:
-  type: bool
-  defaultValue:
-    WebCore:
+      "HAVE(RSA_BSSA)": true
       default: false
 
 RepaintOutsideLayoutEnabled:
@@ -632,12 +628,6 @@ WebRTCEncryptionEnabled:
       default: true
 
 WebkitImageReadyEventEnabled:
-  type: bool
-  defaultValue:
-    WebCore:
-      default: false
-
-YouTubeFlashPluginReplacementEnabled:
   type: bool
   defaultValue:
     WebCore:

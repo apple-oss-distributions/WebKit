@@ -48,6 +48,12 @@ OBJC_CLASS UIScreen;
 typedef struct CGColorSpace *CGColorSpaceRef;
 #endif
 
+// X11 headers define a bunch of macros with common terms, interfering with WebCore and WTF enum values.
+// As a workaround, we explicitly undef them here.
+#if defined(None)
+#undef None
+#endif
+
 namespace WebCore {
 
 class DestinationColorSpace;
@@ -117,6 +123,7 @@ NSScreen *screen(PlatformDisplayID);
 
 FloatRect screenRectForDisplay(PlatformDisplayID);
 WEBCORE_EXPORT FloatRect screenRectForPrimaryScreen();
+WEBCORE_EXPORT FloatRect availableScreenRect(NSScreen *);
 
 WEBCORE_EXPORT FloatRect toUserSpace(const NSRect&, NSWindow *destination);
 WEBCORE_EXPORT FloatRect toUserSpaceForPrimaryScreen(const NSRect&);
@@ -132,6 +139,8 @@ uint32_t displayMaskForDisplay(PlatformDisplayID);
 IORegistryGPUID primaryGPUID();
 IORegistryGPUID gpuIDForDisplay(PlatformDisplayID);
 IORegistryGPUID gpuIDForDisplayMask(uint32_t);
+
+WEBCORE_EXPORT FloatRect safeScreenFrame(NSScreen *);
 
 #endif // !PLATFORM(MAC)
 

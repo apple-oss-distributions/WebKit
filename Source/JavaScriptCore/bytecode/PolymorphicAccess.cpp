@@ -73,7 +73,7 @@ void AccessGenerationState::succeed()
 {
     restoreScratch();
     if (jit->codeBlock()->useDataIC())
-        jit->ret();
+        jit->farJump(CCallHelpers::Address(stubInfo->m_stubInfoGPR, StructureStubInfo::offsetOfDoneLocation()), JSInternalPtrTag);
     else
         success.append(jit->jump());
 }
@@ -110,6 +110,8 @@ const RegisterSet& AccessGenerationState::calculateLiveRegistersForCallAndExcept
             RELEASE_ASSERT(JITCode::isOptimizingJIT(jit->codeBlock()->jitType()));
 
         m_liveRegistersForCall = RegisterSet(m_liveRegistersToPreserveAtExceptionHandlingCallSite, allocator->usedRegisters());
+        if (jit->codeBlock()->useDataIC())
+            m_liveRegistersForCall.add(stubInfo->m_stubInfoGPR);
         m_liveRegistersForCall.exclude(calleeSaveRegisters());
     }
     return m_liveRegistersForCall;
@@ -128,11 +130,12 @@ auto AccessGenerationState::preserveLiveRegistersToStackForCall(const RegisterSe
     };
 }
 
-auto AccessGenerationState::preserveLiveRegistersToStackForCallWithoutExceptions(const RegisterSet& extra) -> SpillState
+auto AccessGenerationState::preserveLiveRegistersToStackForCallWithoutExceptions() -> SpillState
 {
     RegisterSet liveRegisters = allocator->usedRegisters();
+    if (jit->codeBlock()->useDataIC())
+        liveRegisters.add(stubInfo->m_stubInfoGPR);
     liveRegisters.exclude(calleeSaveRegisters());
-    liveRegisters.merge(extra);
 
     constexpr unsigned extraStackPadding = 0;
     unsigned numberOfStackBytesUsedForRegisterPreservation = ScratchRegisterAllocator::preserveRegistersToStackForCall(*jit, liveRegisters, extraStackPadding);
@@ -248,6 +251,22 @@ void AccessGenerationState::emitExplicitExceptionHandler()
         jit->jumpToExceptionHandler(m_vm);
 #endif
     }
+}
+
+ScratchRegisterAllocator AccessGenerationState::makeDefaultScratchAllocator(GPRReg extraToLock)
+{
+    ScratchRegisterAllocator allocator(stubInfo->usedRegisters);
+    allocator.lock(stubInfo->baseRegs());
+    allocator.lock(valueRegs);
+    allocator.lock(u.thisGPR);
+#if USE(JSVALUE32_64)
+    allocator.lock(stubInfo->v.thisTagGPR);
+#endif
+    allocator.lock(stubInfo->m_stubInfoGPR);
+    allocator.lock(stubInfo->m_arrayProfileGPR);
+    allocator.lock(extraToLock);
+
+    return allocator;
 }
 
 PolymorphicAccess::PolymorphicAccess() { }
@@ -480,21 +499,8 @@ AccessGenerationResult PolymorphicAccess::regenerate(const GCSafeConcurrentJSLoc
     }
     m_list.resize(dstIndex);
 
-    ScratchRegisterAllocator allocator(stubInfo.usedRegisters);
+    auto allocator = state.makeDefaultScratchAllocator();
     state.allocator = &allocator;
-    allocator.lock(state.baseGPR);
-    if (state.u.thisGPR != InvalidGPRReg)
-        allocator.lock(state.u.thisGPR);
-    if (state.valueRegs)
-        allocator.lock(state.valueRegs);
-#if USE(JSVALUE32_64)
-    allocator.lock(stubInfo.baseTagGPR);
-    if (stubInfo.v.thisTagGPR != InvalidGPRReg)
-        allocator.lock(stubInfo.v.thisTagGPR);
-#endif
-    if (stubInfo.m_stubInfoGPR != InvalidGPRReg)
-        allocator.lock(stubInfo.m_stubInfoGPR);
-
     state.scratchGPR = allocator.allocateScratchGPR();
 
     for (auto& accessCase : cases) {
@@ -594,16 +600,11 @@ AccessGenerationResult PolymorphicAccess::regenerate(const GCSafeConcurrentJSLoc
     CCallHelpers jit(codeBlock);
     state.jit = &jit;
 
-    if (codeBlock->useDataIC()) {
-        if (state.m_doesJSGetterSetterCalls) {
-            // We have no guarantee that stack-pointer is the expected one. This is not a problem if we do not have JS getter / setter calls since stack-pointer is
-            // a callee-save register in the C calling convension. However, our JS executable call does not save stack-pointer. So we are adjusting stack-pointer after
-            // JS getter / setter calls. But this could be different from the initial stack-pointer, and makes PAC tagging broken.
-            // To ensure PAC-tagging work, we first adjust stack-pointer to the appropriate one.
-            jit.addPtr(CCallHelpers::TrustedImm32(codeBlock->stackPointerOffset() * sizeof(Register)), GPRInfo::callFrameRegister, CCallHelpers::stackPointerRegister);
-            jit.tagReturnAddress();
-        } else
-            jit.tagReturnAddress();
+    if (!canBeShared && ASSERT_ENABLED) {
+        jit.addPtr(CCallHelpers::TrustedImm32(codeBlock->stackPointerOffset() * sizeof(Register)), GPRInfo::callFrameRegister, jit.scratchRegister());
+        auto ok = jit.branchPtr(CCallHelpers::Equal, CCallHelpers::stackPointerRegister, jit.scratchRegister());
+        jit.breakpoint();
+        ok.link(&jit);
     }
 
     state.preservedReusedRegisterState =
@@ -733,14 +734,24 @@ AccessGenerationResult PolymorphicAccess::regenerate(const GCSafeConcurrentJSLoc
         // of something that isn't patchable. The slow path will decrement "countdown" and will only
         // patch things if the countdown reaches zero. We increment the slow path count here to ensure
         // that the slow path does not try to patch.
+        if (codeBlock->useDataIC()) {
 #if CPU(X86) || CPU(X86_64)
-        jit.move(CCallHelpers::TrustedImmPtr(&stubInfo.countdown), state.scratchGPR);
-        jit.add8(CCallHelpers::TrustedImm32(1), CCallHelpers::Address(state.scratchGPR));
+            jit.add8(CCallHelpers::TrustedImm32(1), CCallHelpers::Address(stubInfo.m_stubInfoGPR, StructureStubInfo::offsetOfCountdown()));
 #else
-        jit.load8(&stubInfo.countdown, state.scratchGPR);
-        jit.add32(CCallHelpers::TrustedImm32(1), state.scratchGPR);
-        jit.store8(state.scratchGPR, &stubInfo.countdown);
+            jit.load8(CCallHelpers::Address(stubInfo.m_stubInfoGPR, StructureStubInfo::offsetOfCountdown()), state.scratchGPR);
+            jit.add32(CCallHelpers::TrustedImm32(1), state.scratchGPR);
+            jit.store8(state.scratchGPR, CCallHelpers::Address(stubInfo.m_stubInfoGPR, StructureStubInfo::offsetOfCountdown()));
 #endif
+        } else {
+#if CPU(X86) || CPU(X86_64)
+            jit.move(CCallHelpers::TrustedImmPtr(&stubInfo.countdown), state.scratchGPR);
+            jit.add8(CCallHelpers::TrustedImm32(1), CCallHelpers::Address(state.scratchGPR));
+#else
+            jit.load8(&stubInfo.countdown, state.scratchGPR);
+            jit.add32(CCallHelpers::TrustedImm32(1), state.scratchGPR);
+            jit.store8(state.scratchGPR, &stubInfo.countdown);
+#endif
+        }
     }
 
     CCallHelpers::JumpList failure;
@@ -810,6 +821,7 @@ AccessGenerationResult PolymorphicAccess::regenerate(const GCSafeConcurrentJSLoc
             stubInfo.valueGPR,
             stubInfo.regs.thisGPR,
             stubInfo.m_stubInfoGPR,
+            stubInfo.m_arrayProfileGPR,
             stubInfo.usedRegisters,
             keys,
             weakStructures,
@@ -846,7 +858,7 @@ AccessGenerationResult PolymorphicAccess::regenerate(const GCSafeConcurrentJSLoc
 
     if (codeBlock->useDataIC()) {
         if (canBeShared)
-            vm.m_sharedJITStubs->add(SharedJITStubSet::Hash::Key(stubInfo.baseGPR, stubInfo.valueGPR, stubInfo.regs.thisGPR, stubInfo.m_stubInfoGPR, stubInfo.usedRegisters, stub.get()));
+            vm.m_sharedJITStubs->add(SharedJITStubSet::Hash::Key(stubInfo.baseGPR, stubInfo.valueGPR, stubInfo.regs.thisGPR, stubInfo.m_stubInfoGPR, stubInfo.m_arrayProfileGPR, stubInfo.usedRegisters, stub.get()));
     }
 
     return finishCodeGeneration(WTFMove(stub));
@@ -1021,6 +1033,45 @@ void printInternal(PrintStream& out, AccessCase::AccessType type)
         return;
     case AccessCase::IndexedStringLoad:
         out.print("IndexedStringLoad");
+        return;
+    case AccessCase::IndexedInt32Store:
+        out.print("IndexedInt32Store");
+        return;
+    case AccessCase::IndexedDoubleStore:
+        out.print("IndexedDoubleStore");
+        return;
+    case AccessCase::IndexedContiguousStore:
+        out.print("IndexedContiguousStore");
+        return;
+    case AccessCase::IndexedArrayStorageStore:
+        out.print("IndexedArrayStorageStore");
+        return;
+    case AccessCase::IndexedTypedArrayInt8Store:
+        out.print("IndexedTypedArrayInt8Store");
+        return;
+    case AccessCase::IndexedTypedArrayUint8Store:
+        out.print("IndexedTypedArrayUint8Store");
+        return;
+    case AccessCase::IndexedTypedArrayUint8ClampedStore:
+        out.print("IndexedTypedArrayUint8ClampedStore");
+        return;
+    case AccessCase::IndexedTypedArrayInt16Store:
+        out.print("IndexedTypedArrayInt16Store");
+        return;
+    case AccessCase::IndexedTypedArrayUint16Store:
+        out.print("IndexedTypedArrayUint16Store");
+        return;
+    case AccessCase::IndexedTypedArrayInt32Store:
+        out.print("IndexedTypedArrayInt32Store");
+        return;
+    case AccessCase::IndexedTypedArrayUint32Store:
+        out.print("IndexedTypedArrayUint32Store");
+        return;
+    case AccessCase::IndexedTypedArrayFloat32Store:
+        out.print("IndexedTypedArrayFloat32Store");
+        return;
+    case AccessCase::IndexedTypedArrayFloat64Store:
+        out.print("IndexedTypedArrayFloat64Store");
         return;
     }
 

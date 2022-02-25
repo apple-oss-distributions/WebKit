@@ -52,7 +52,7 @@ void ServiceWorkerSoftUpdateLoader::start(NetworkSession* session, ServiceWorker
 ServiceWorkerSoftUpdateLoader::ServiceWorkerSoftUpdateLoader(NetworkSession& session, ServiceWorkerJobData&& jobData, bool shouldRefreshCache, ResourceRequest&& request, Handler&& completionHandler)
     : m_completionHandler(WTFMove(completionHandler))
     , m_jobData(WTFMove(jobData))
-    , m_session(makeWeakPtr(session))
+    , m_session(session)
 {
     ASSERT(!request.isConditional());
 
@@ -60,7 +60,7 @@ ServiceWorkerSoftUpdateLoader::ServiceWorkerSoftUpdateLoader(NetworkSession& ses
         // We set cache policy to disable speculative loading/async revalidation from the cache.
         request.setCachePolicy(ResourceRequestCachePolicy::ReturnCacheDataDontLoad);
 
-        session.cache()->retrieve(request, NetworkCache::GlobalFrameID { }, NavigatingToAppBoundDomain::No, [this, weakThis = makeWeakPtr(*this), request, shouldRefreshCache](auto&& entry, auto&&) mutable {
+        session.cache()->retrieve(request, NetworkCache::GlobalFrameID { }, NavigatingToAppBoundDomain::No, [this, weakThis = WeakPtr { *this }, request, shouldRefreshCache](auto&& entry, auto&&) mutable {
             if (!weakThis)
                 return;
             if (!m_session) {
@@ -115,7 +115,7 @@ void ServiceWorkerSoftUpdateLoader::loadWithCacheEntry(NetworkCache::Entry& entr
     }
 
     if (entry.buffer())
-        didReceiveBuffer(makeRef(*entry.buffer()), 0);
+        didReceiveBuffer(*entry.buffer(), 0);
     didFinishLoading({ });
 }
 
@@ -169,13 +169,15 @@ ResourceError ServiceWorkerSoftUpdateLoader::processResponse(const ResourceRespo
         return error;
 
     m_contentSecurityPolicy = ContentSecurityPolicyResponseHeaders { response };
+    // Service workers are always secure contexts.
+    m_crossOriginEmbedderPolicy = obtainCrossOriginEmbedderPolicy(response, nullptr);
     m_referrerPolicy = response.httpHeaderField(HTTPHeaderName::ReferrerPolicy);
     m_responseEncoding = response.textEncodingName();
 
     return { };
 }
 
-void ServiceWorkerSoftUpdateLoader::didReceiveBuffer(Ref<SharedBuffer>&& buffer, int reportedEncodedDataLength)
+void ServiceWorkerSoftUpdateLoader::didReceiveBuffer(const WebCore::FragmentedSharedBuffer& buffer, int reportedEncodedDataLength)
 {
     if (!m_decoder) {
         if (!m_responseEncoding.isEmpty())
@@ -184,15 +186,17 @@ void ServiceWorkerSoftUpdateLoader::didReceiveBuffer(Ref<SharedBuffer>&& buffer,
             m_decoder = TextResourceDecoder::create("text/javascript"_s, "UTF-8");
     }
 
-    if (auto size = buffer->size())
-        m_script.append(m_decoder->decode(buffer->data(), size));
+    buffer.forEachSegment([&](auto& segment) {
+        if (segment.size())
+            m_script.append(m_decoder->decode(segment.data(), segment.size()));
+    });
 }
 
 void ServiceWorkerSoftUpdateLoader::didFinishLoading(const WebCore::NetworkLoadMetrics&)
 {
     if (m_decoder)
         m_script.append(m_decoder->flush());
-    m_completionHandler({ m_jobData.identifier(), m_jobData.registrationKey(), ScriptBuffer { m_script.toString() }, m_certificateInfo, m_contentSecurityPolicy, m_referrerPolicy, { } });
+    m_completionHandler({ m_jobData.identifier(), m_jobData.registrationKey(), ScriptBuffer { m_script.toString() }, m_certificateInfo, m_contentSecurityPolicy, m_crossOriginEmbedderPolicy, m_referrerPolicy, { } });
     didComplete();
 }
 

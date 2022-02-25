@@ -66,13 +66,20 @@ typedef NS_ENUM(NSInteger, WKMediaPlaybackState) {
     WKMediaPlaybackStatePlaying,
     WKMediaPlaybackStatePaused,
     WKMediaPlaybackStateSuspended
-} WK_API_AVAILABLE(macos(12.0), ios(15.0));
+} WK_API_AVAILABLE(macos(11.3), ios(14.5));
 
 typedef NS_ENUM(NSInteger, WKMediaCaptureState) {
     WKMediaCaptureStateNone,
     WKMediaCaptureStateActive,
     WKMediaCaptureStateMuted,
 } WK_API_AVAILABLE(macos(12.0), ios(15.0));
+
+typedef NS_ENUM(NSInteger, WKFullscreenState) {
+    WKFullscreenStateNotInFullscreen,
+    WKFullscreenStateEnteringFullscreen,
+    WKFullscreenStateInFullscreen,
+    WKFullscreenStateExitingFullscreen,
+} NS_SWIFT_NAME(WKWebView.FullscreenState) WK_API_AVAILABLE(macos(WK_MAC_TBA), ios(WK_IOS_TBA));
 
 /*! @abstract A copy of the configuration with which the web view was
  initialized. */
@@ -508,16 +515,16 @@ The uniform type identifier kUTTypeWebArchive can be used get the related pasteb
 /* @abstract Begins a download in the context of the currently displayed webpage as if the WKNavigationDelegate turned a navigation into a download instead
  @param request The request specifying the URL to download.
  @param completionHandler A block called when the download has started.
- @discussion The download needs its delegate to be set in the completionHandler to receive updates about its progress.
+ @discussion The download needs its delegate to be set in the completionHandler to receive updates about its progress.
  */
-- (void)startDownloadUsingRequest:(NSURLRequest *)request completionHandler:(void(^)(WKDownload *))completionHandler WK_API_AVAILABLE(macos(12.0), ios(15.0));
+- (void)startDownloadUsingRequest:(NSURLRequest *)request completionHandler:(void(^)(WKDownload *))completionHandler WK_API_AVAILABLE(macos(11.3), ios(14.5));
 
 /* @abstract Resumes a download that failed or was canceled.
  @param resumeData Data from a WKDownloadDelegate's didFailWithError or a WKDownload's cancel completionHandler.
  @param completionHandler A block called when the download has resumed.
  @discussion The download needs its delegate to be set in the completionHandler to receive updates about its progress.
  */
-- (void)resumeDownloadFromResumeData:(NSData *)resumeData completionHandler:(void(^)(WKDownload *))completionHandler WK_API_AVAILABLE(macos(12.0), ios(15.0));
+- (void)resumeDownloadFromResumeData:(NSData *)resumeData completionHandler:(void(^)(WKDownload *))completionHandler WK_API_AVAILABLE(macos(11.3), ios(14.5));
 
 /* @abstract The media type for the WKWebView
  @discussion The value of mediaType will override the normal value of the CSS media property.
@@ -603,6 +610,16 @@ The uniform type identifier kUTTypeWebArchive can be used get the related pasteb
 #else
 @property (nonatomic, null_resettable, copy) NSColor *underPageBackgroundColor WK_API_AVAILABLE(macos(12.0));
 #endif
+
+/*! @abstract A WKWebView's fullscreen state.
+ @discussion @link WKWebView @link is key-value observing (KVO) compliant for this property. When an element
+ in the WKWebView enters fullscreen, WebKit will replace the WKWebView in the application view hierarchy with
+ a "placeholder" view, and move the WKWebView into a fullscreen window. When the element exits fullscreen later,
+ the WKWebView will be moved back into the application view hierarchy. An application may need to adjust/restore
+ its native UI components when the fullscreen state changes. The application should observe the fullscreenState
+ property of WKWebView in order to receive notifications regarding the fullscreen state change.
+ */
+@property (nonatomic, readonly) WKFullscreenState fullscreenState WK_API_AVAILABLE(macos(WK_MAC_TBA), ios(WK_IOS_TBA));
 
 @end
 

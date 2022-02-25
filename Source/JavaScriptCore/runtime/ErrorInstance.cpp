@@ -40,6 +40,9 @@ ErrorInstance::ErrorInstance(VM& vm, Structure* structure, ErrorType errorType)
     , m_outOfMemoryError(false)
     , m_errorInfoMaterialized(false)
     , m_nativeGetterTypeError(false)
+#if ENABLE(WEBASSEMBLY)
+    , m_catchableFromWasm(true)
+#endif // ENABLE(WEBASSEMBLY)
 {
 }
 
@@ -126,7 +129,7 @@ void ErrorInstance::finishCreation(VM& vm, JSGlobalObject* globalObject, const S
         Locker locker { cellLock() };
         m_stackTrace = WTFMove(stackTrace);
     }
-    vm.heap.writeBarrier(this);
+    vm.writeBarrier(this);
 
     String messageWithSource = message;
     if (m_stackTrace && !m_stackTrace->isEmpty() && hasSourceAppender()) {

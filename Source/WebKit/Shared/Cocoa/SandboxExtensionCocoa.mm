@@ -115,6 +115,9 @@ private:
         case SandboxExtension::Type::ReadByProcess:
             if (!auditToken)
                 return nullptr;
+#if PLATFORM(MAC)
+            extensionFlags |= SANDBOX_EXTENSION_USER_INTENT;
+#endif
             return sandbox_extension_issue_file_to_process(APP_SANDBOX_READ, path, extensionFlags, *auditToken);
         }
     }
@@ -164,77 +167,12 @@ auto SandboxExtension::Handle::decode(IPC::Decoder& decoder) -> std::optional<Ha
     if (!decoder.decode(dataReference))
         return std::nullopt;
 
-    if (dataReference.isEmpty())
+    if (dataReference.empty())
         return {{ }};
 
     Handle handle;
     handle.m_sandboxExtension = makeUnique<SandboxExtensionImpl>(reinterpret_cast<const char*>(dataReference.data()), dataReference.size());
     return WTFMove(handle);
-}
-
-SandboxExtension::HandleArray::HandleArray()
-{
-}
-
-SandboxExtension::HandleArray::~HandleArray()
-{
-}
-
-void SandboxExtension::HandleArray::allocate(size_t size)
-{
-    if (!size)
-        return;
-
-    ASSERT(m_data.isEmpty());
-
-    m_data.resize(size);
-}
-
-void SandboxExtension::HandleArray::append(Handle&& handle)
-{
-    m_data.append(WTFMove(handle));
-}
-
-SandboxExtension::Handle& SandboxExtension::HandleArray::operator[](size_t i)
-{
-    RELEASE_ASSERT_WITH_SECURITY_IMPLICATION(i < m_data.size());
-    return m_data[i];
-}
-
-const SandboxExtension::Handle& SandboxExtension::HandleArray::operator[](size_t i) const
-{
-    RELEASE_ASSERT_WITH_SECURITY_IMPLICATION(i < m_data.size());
-    return m_data[i];
-}
-
-size_t SandboxExtension::HandleArray::size() const
-{
-    return m_data.size();
-}
-
-void SandboxExtension::HandleArray::encode(IPC::Encoder& encoder) const
-{
-    encoder << static_cast<uint64_t>(size());
-    for (auto& handle : m_data)
-        encoder << handle;
-}
-
-std::optional<SandboxExtension::HandleArray> SandboxExtension::HandleArray::decode(IPC::Decoder& decoder)
-{
-    std::optional<uint64_t> size;
-    decoder >> size;
-    if (!size)
-        return std::nullopt;
-
-    SandboxExtension::HandleArray handles;
-    for (size_t i = 0; i < *size; ++i) {
-        std::optional<SandboxExtension::Handle> handle;
-        decoder >> handle;
-        if (!handle)
-            return std::nullopt;
-        handles.append(WTFMove(*handle));
-    }
-    return WTFMove(handles);
 }
 
 RefPtr<SandboxExtension> SandboxExtension::create(Handle&& handle)
@@ -276,73 +214,65 @@ String resolvePathForSandboxExtension(const String& path)
     return resolvedPath;
 }
 
-bool SandboxExtension::createHandleWithoutResolvingPath(const String& path, Type type, Handle& handle)
+auto SandboxExtension::createHandleWithoutResolvingPath(const String& path, Type type) -> std::optional<Handle>
 {
+    Handle handle;
     ASSERT(!handle.m_sandboxExtension);
 
-    handle.m_sandboxExtension = SandboxExtensionImpl::create(path.utf8().data(), type, std::nullopt, SandboxExtension::Flags::DoNotCanonicalize);
+    handle.m_sandboxExtension = SandboxExtensionImpl::create(path.utf8().data(), type, std::nullopt, Flags::DoNotCanonicalize);
     if (!handle.m_sandboxExtension) {
         LOG_ERROR("Could not create a sandbox extension for '%s'", path.utf8().data());
-        return false;
+        return std::nullopt;
     }
-    return true;
+    return WTFMove(handle);
 }
 
-bool SandboxExtension::createHandle(const String& path, Type type, Handle& handle)
+auto SandboxExtension::createHandle(const String& path, Type type) -> std::optional<Handle>
 {
-    ASSERT(!handle.m_sandboxExtension);
-
-    return createHandleWithoutResolvingPath(resolvePathForSandboxExtension(path), type, handle);
+    return createHandleWithoutResolvingPath(resolvePathForSandboxExtension(path), type);
 }
 
-template <typename T>
-static SandboxExtension::HandleArray createHandlesForResources(const Vector<T>& resources, Function<bool(const T&, SandboxExtension::Handle& handle)>&& createFunction)
+template<typename Collection, typename Function> static Vector<SandboxExtension::Handle> createHandlesForResources(const Collection& resources, const Function& createFunction)
 {
-    SandboxExtension::HandleArray handleArray;
-
-    if (resources.size() > 0)
-        handleArray.allocate(resources.size());
-
-    size_t currentHandle = 0;
+    Vector<SandboxExtension::Handle> handleArray;
+    handleArray.reserveInitialCapacity(std::size(resources));
     for (const auto& resource : resources) {
-        if (!createFunction(resource, handleArray[currentHandle]))
-            continue;
-        ++currentHandle;
+        if (auto handle = createFunction(resource))
+            handleArray.uncheckedAppend(WTFMove(*handle));
     }
-    
     return handleArray;
 }
 
-SandboxExtension::HandleArray SandboxExtension::createReadOnlyHandlesForFiles(ASCIILiteral logLabel, const Vector<String>& paths)
+auto SandboxExtension::createReadOnlyHandlesForFiles(ASCIILiteral logLabel, const Vector<String>& paths) -> Vector<Handle>
 {
-    return createHandlesForResources(paths, Function<bool(const String&, Handle&)>([&logLabel] (const String& path, Handle& handle) {
-        if (!SandboxExtension::createHandle(path, SandboxExtension::Type::ReadOnly, handle)) {
+    return createHandlesForResources(paths, [&logLabel] (const String& path) {
+        auto handle = createHandle(path, Type::ReadOnly);
+        if (!handle) {
             // This can legitimately fail if a directory containing the file is deleted after the file was chosen.
             // We also have reports of cases where this likely fails for some unknown reason, <rdar://problem/10156710>.
             WTFLogAlways("%s: could not create a sandbox extension for '%s'\n", logLabel.characters(), path.utf8().data());
             ASSERT_NOT_REACHED();
-            return false;
         }
-        return true;
-    }));
+        return handle;
+    });
 }
 
-bool SandboxExtension::createHandleForReadWriteDirectory(const String& path, SandboxExtension::Handle& handle)
+auto SandboxExtension::createHandleForReadWriteDirectory(const String& path) -> std::optional<Handle>
 {
     String resolvedPath = resolveAndCreateReadWriteDirectoryForSandboxExtension(path);
     if (resolvedPath.isNull())
-        return false;
-
-    return SandboxExtension::createHandleWithoutResolvingPath(resolvedPath, SandboxExtension::Type::ReadWrite, handle);
+        return std::nullopt;
+    return createHandleWithoutResolvingPath(resolvedPath, Type::ReadWrite);
 }
 
-String SandboxExtension::createHandleForTemporaryFile(const String& prefix, Type type, Handle& handle)
+auto SandboxExtension::createHandleForTemporaryFile(const String& prefix, Type type) -> std::optional<std::pair<Handle, String>>
 {
+    Handle handle;
     ASSERT(!handle.m_sandboxExtension);
     
     Vector<char> path(PATH_MAX);
     if (!confstr(_CS_DARWIN_USER_TEMP_DIR, path.data(), path.size()))
-        return String();
+        return std::nullopt;
     
     // Shrink the vector.   
     path.shrink(strlen(path.data()));
@@ -360,83 +290,88 @@ String SandboxExtension::createHandleForTemporaryFile(const String& prefix, Type
 
     if (!handle.m_sandboxExtension) {
         WTFLogAlways("Could not create a sandbox extension for temporary file '%s'", path.data());
-        return String();
+        return std::nullopt;
     }
-    return String(path.data());
+    return {{ WTFMove(handle), String(path.data()) }};
 }
 
-bool SandboxExtension::createHandleForGenericExtension(ASCIILiteral extensionClass, Handle& handle)
+auto SandboxExtension::createHandleForGenericExtension(ASCIILiteral extensionClass) -> std::optional<Handle>
 {
+    Handle handle;
     ASSERT(!handle.m_sandboxExtension);
 
     handle.m_sandboxExtension = SandboxExtensionImpl::create(extensionClass.characters(), Type::Generic);
     if (!handle.m_sandboxExtension) {
         WTFLogAlways("Could not create a '%s' sandbox extension", extensionClass.characters());
-        return false;
+        return std::nullopt;
     }
     
-    return true;
+    return WTFMove(handle);
 }
 
-bool SandboxExtension::createHandleForMachLookup(ASCIILiteral service, std::optional<audit_token_t> auditToken, Handle& handle, OptionSet<Flags> flags)
+auto SandboxExtension::createHandleForMachLookup(ASCIILiteral service, std::optional<audit_token_t> auditToken, OptionSet<Flags> flags) -> std::optional<Handle>
 {
+    Handle handle;
     ASSERT(!handle.m_sandboxExtension);
     
     handle.m_sandboxExtension = SandboxExtensionImpl::create(service.characters(), Type::Mach, auditToken, flags);
     if (!handle.m_sandboxExtension) {
         WTFLogAlways("Could not create a '%s' sandbox extension", service.characters());
-        return false;
+        return std::nullopt;
     }
     
-    return true;
+    return WTFMove(handle);
 }
 
-SandboxExtension::HandleArray SandboxExtension::createHandlesForMachLookup(const Vector<ASCIILiteral>& services, std::optional<audit_token_t> auditToken, OptionSet<Flags> flags)
+auto SandboxExtension::createHandlesForMachLookup(Span<const ASCIILiteral> services, std::optional<audit_token_t> auditToken, OptionSet<Flags> flags) -> Vector<Handle>
 {
-    return createHandlesForResources(services, Function<bool(const ASCIILiteral&, Handle&)>([auditToken, flags] (const ASCIILiteral& service, Handle& handle) {
-        if (!SandboxExtension::createHandleForMachLookup(service, auditToken, handle, flags)) {
-            ASSERT_NOT_REACHED();
-            return false;
-        }
-        return true;
-    }));
+    return createHandlesForResources(services, [auditToken, flags] (ASCIILiteral service) -> std::optional<Handle> {
+        auto handle = createHandleForMachLookup(service, auditToken, flags);
+        ASSERT(handle);
+        return handle;
+    });
 }
 
-bool SandboxExtension::createHandleForReadByAuditToken(const String& path, audit_token_t auditToken, Handle& handle)
+auto SandboxExtension::createHandlesForMachLookup(std::initializer_list<const ASCIILiteral> services, std::optional<audit_token_t> auditToken, OptionSet<Flags> flags) -> Vector<Handle>
 {
+    return createHandlesForMachLookup(Span { services.begin(), services.size() }, auditToken, flags);
+}
+
+auto SandboxExtension::createHandleForReadByAuditToken(const String& path, audit_token_t auditToken) -> std::optional<Handle>
+{
+    Handle handle;
     ASSERT(!handle.m_sandboxExtension);
 
     handle.m_sandboxExtension = SandboxExtensionImpl::create(path.utf8().data(), Type::ReadByProcess, auditToken);
     if (!handle.m_sandboxExtension) {
         LOG_ERROR("Could not create a sandbox extension for '%s'", path.utf8().data());
-        return false;
+        return std::nullopt;
     }
     
-    return true;
+    return WTFMove(handle);
 }
 
-bool SandboxExtension::createHandleForIOKitClassExtension(ASCIILiteral ioKitClass, std::optional<audit_token_t> auditToken, Handle& handle, OptionSet<Flags> flags)
+auto SandboxExtension::createHandleForIOKitClassExtension(ASCIILiteral ioKitClass, std::optional<audit_token_t> auditToken, OptionSet<Flags> flags) -> std::optional<Handle>
 {
+    Handle handle;
     ASSERT(!handle.m_sandboxExtension);
 
     handle.m_sandboxExtension = SandboxExtensionImpl::create(ioKitClass.characters(), Type::IOKit, auditToken);
     if (!handle.m_sandboxExtension) {
         LOG_ERROR("Could not create a sandbox extension for '%s'", ioKitClass.characters());
-        return false;
+        return std::nullopt;
     }
 
-    return true;
+    return WTFMove(handle);
 }
 
-SandboxExtension::HandleArray SandboxExtension::createHandlesForIOKitClassExtensions(const Vector<ASCIILiteral>& iokitClasses, std::optional<audit_token_t> auditToken, OptionSet<Flags> flags)
+auto SandboxExtension::createHandlesForIOKitClassExtensions(Span<const ASCIILiteral> iokitClasses, std::optional<audit_token_t> auditToken, OptionSet<Flags> flags) -> Vector<Handle>
 {
-    return createHandlesForResources(iokitClasses, Function<bool(const ASCIILiteral&, Handle&)>([auditToken, flags] (const ASCIILiteral& iokitClass, Handle& handle) {
-        if (!SandboxExtension::createHandleForIOKitClassExtension(iokitClass, auditToken, handle, flags)) {
-            ASSERT_NOT_REACHED();
-            return false;
-        }
-        return true;
-    }));
+    return createHandlesForResources(iokitClasses, [auditToken, flags] (ASCIILiteral iokitClass) {
+        auto handle = createHandleForIOKitClassExtension(iokitClass, auditToken, flags);
+        ASSERT(handle);
+        return handle;
+    });
 }
 
 SandboxExtension::SandboxExtension(const Handle& handle)
@@ -498,14 +433,14 @@ bool SandboxExtension::consumePermanently(const Handle& handle)
     return result;
 }
 
-bool SandboxExtension::consumePermanently(const HandleArray& handleArray)
+bool SandboxExtension::consumePermanently(const Vector<Handle>& handleArray)
 {
     bool allSucceeded = true;
     for (auto& handle : handleArray) {
         if (!handle.m_sandboxExtension)
             continue;
 
-        bool ok = SandboxExtension::consumePermanently(handle);
+        bool ok = consumePermanently(handle);
         ASSERT(ok);
         allSucceeded &= ok;
     }

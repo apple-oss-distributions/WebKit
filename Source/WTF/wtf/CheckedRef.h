@@ -25,9 +25,14 @@
 
 #pragma once
 
+#include <atomic>
 #include <wtf/Forward.h>
 #include <wtf/HashTraits.h>
 #include <wtf/RawPtrTraits.h>
+
+#if ASSERT_ENABLED
+#include <wtf/Threading.h>
+#endif
 
 namespace WTF {
 
@@ -220,18 +225,84 @@ template<typename P> struct PtrHash<CheckedRef<P>> : PtrHashBase<CheckedRef<P>, 
 
 template<typename P> struct DefaultHash<CheckedRef<P>> : PtrHash<CheckedRef<P>> { };
 
-class CanMakeCheckedPtr {
+template <typename StorageType, typename PtrCounterType> class CanMakeCheckedPtrBase {
 public:
-    ~CanMakeCheckedPtr() { RELEASE_ASSERT(!m_count); }
+    ~CanMakeCheckedPtrBase() { RELEASE_ASSERT(!m_count); }
 
-    uint16_t ptrCount() const { return m_count; }
-    void incrementPtrCount() { ++m_count; }
-    void decrementPtrCount() { ASSERT(m_count); --m_count; }
+    PtrCounterType ptrCount() const { return m_count; }
+    void incrementPtrCount() const { ++m_count; }
+    void decrementPtrCount() const { ASSERT(m_count); --m_count; }
+
 private:
-    uint16_t m_count { 0 };
+    mutable StorageType m_count { 0 };
 };
+
+template <typename IntegralType>
+class SingleThreadIntegralWrapper {
+public:
+    SingleThreadIntegralWrapper(IntegralType);
+
+    operator IntegralType() const;
+    bool operator!() const;
+    SingleThreadIntegralWrapper& operator++();
+    SingleThreadIntegralWrapper& operator--();
+
+private:
+#if ASSERT_ENABLED && !USE(WEB_THREAD)
+    void assertThread() const { ASSERT(m_thread.ptr() == &Thread::current()); }
+#else
+    constexpr void assertThread() const { }
+#endif
+
+    IntegralType m_value;
+#if ASSERT_ENABLED && !USE(WEB_THREAD)
+    Ref<Thread> m_thread;
+#endif
+};
+
+template <typename IntegralType>
+inline SingleThreadIntegralWrapper<IntegralType>::SingleThreadIntegralWrapper(IntegralType value)
+    : m_value { value }
+#if ASSERT_ENABLED && !USE(WEB_THREAD)
+    , m_thread { Thread::current() }
+#endif
+{ }
+
+template <typename IntegralType>
+inline SingleThreadIntegralWrapper<IntegralType>::operator IntegralType() const
+{
+    assertThread();
+    return m_value;
+}
+
+template <typename IntegralType>
+inline bool SingleThreadIntegralWrapper<IntegralType>::operator!() const
+{
+    assertThread();
+    return !m_value;
+}
+
+template <typename IntegralType>
+inline SingleThreadIntegralWrapper<IntegralType>& SingleThreadIntegralWrapper<IntegralType>::operator++()
+{
+    assertThread();
+    m_value++;
+    return *this;
+}
+
+template <typename IntegralType>
+inline SingleThreadIntegralWrapper<IntegralType>& SingleThreadIntegralWrapper<IntegralType>::operator--()
+{
+    assertThread();
+    m_value--;
+    return *this;
+}
+
+using CanMakeCheckedPtr = CanMakeCheckedPtrBase<SingleThreadIntegralWrapper<uint16_t>, uint16_t>;
+using CanMakeThreadSafeCheckedPtr = CanMakeCheckedPtrBase<std::atomic<uint16_t>, uint16_t>;
 
 } // namespace WTF
 
 using WTF::CanMakeCheckedPtr;
+using WTF::CanMakeThreadSafeCheckedPtr;
 using WTF::CheckedRef;

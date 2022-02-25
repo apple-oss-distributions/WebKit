@@ -28,6 +28,7 @@
 
 #include "CertificateInfo.h"
 #include "ContentSecurityPolicyResponseHeaders.h"
+#include "CrossOriginEmbedderPolicy.h"
 #include "FetchOptions.h"
 #include "ResourceError.h"
 #include "ResourceRequest.h"
@@ -66,6 +67,7 @@ public:
     const ScriptBuffer& script() { return m_script; }
     const ContentSecurityPolicyResponseHeaders& contentSecurityPolicy() const { return m_contentSecurityPolicy; }
     const String& referrerPolicy() const { return m_referrerPolicy; }
+    const CrossOriginEmbedderPolicy& crossOriginEmbedderPolicy() const { return m_crossOriginEmbedderPolicy; }
     const URL& url() const { return m_url; }
     const URL& responseURL() const;
     ResourceResponse::Source responseSource() const { return m_responseSource; }
@@ -73,12 +75,12 @@ public:
     const CertificateInfo& certificateInfo() const { return m_certificateInfo; }
     const String& responseMIMEType() const { return m_responseMIMEType; }
     bool failed() const { return m_failed; }
-    unsigned long identifier() const { return m_identifier; }
+    ResourceLoaderIdentifier identifier() const { return m_identifier; }
     const ResourceError& error() const { return m_error; }
 
-    void didReceiveResponse(unsigned long identifier, const ResourceResponse&) override;
-    void didReceiveData(const uint8_t* data, int dataLength) override;
-    void didFinishLoading(unsigned long identifier) override;
+    void didReceiveResponse(ResourceLoaderIdentifier, const ResourceResponse&) override;
+    void didReceiveData(const SharedBuffer&) override;
+    void didFinishLoading(ResourceLoaderIdentifier) override;
     void didFail(const ResourceError&) override;
 
     void cancel();
@@ -86,7 +88,7 @@ public:
     WEBCORE_EXPORT static ResourceError validateWorkerResponse(const ResourceResponse&, FetchOptions::Destination);
 
 private:
-    friend class WTF::RefCounted<WorkerScriptLoader>;
+    friend class RefCounted<WorkerScriptLoader>;
     friend struct std::default_delete<WorkerScriptLoader>;
 
     WorkerScriptLoader();
@@ -107,10 +109,12 @@ private:
     FetchOptions::Destination m_destination;
     ContentSecurityPolicyResponseHeaders m_contentSecurityPolicy;
     String m_referrerPolicy;
-    unsigned long m_identifier { 0 };
+    CrossOriginEmbedderPolicy m_crossOriginEmbedderPolicy;
+    ResourceLoaderIdentifier m_identifier;
     bool m_failed { false };
     bool m_finishing { false };
     bool m_isRedirected { false };
+    bool m_isCOEPEnabled { false };
     ResourceResponse::Source m_responseSource { ResourceResponse::Source::Unknown };
     ResourceError m_error;
 };

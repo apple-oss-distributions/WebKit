@@ -48,15 +48,20 @@ ImageDrawResult SVGImageForContainer::draw(GraphicsContext& context, const Float
     return m_image->drawForContainer(context, m_containerSize, m_containerZoom, m_initialFragmentURL, dstRect, srcRect, options);
 }
 
+ImageDrawResult SVGImageForContainer::drawForCanvas(GraphicsContext& context, const FloatRect& dstRect, const FloatRect& srcRect, const ImagePaintingOptions& options, DestinationColorSpace canvasColorSpace)
+{
+    return m_image->drawForCanvasForContainer(context, m_containerSize, m_containerZoom, m_initialFragmentURL, dstRect, srcRect, options, canvasColorSpace);
+}
+
 void SVGImageForContainer::drawPattern(GraphicsContext& context, const FloatRect& dstRect, const FloatRect& srcRect, const AffineTransform& patternTransform,
     const FloatPoint& phase, const FloatSize& spacing, const ImagePaintingOptions& options)
 {
     m_image->drawPatternForContainer(context, m_containerSize, m_containerZoom, m_initialFragmentURL, srcRect, patternTransform, phase, spacing, dstRect, options);
 }
 
-RefPtr<NativeImage> SVGImageForContainer::nativeImageForCurrentFrame(const GraphicsContext* targetContext)
+RefPtr<NativeImage> SVGImageForContainer::nativeImageForCurrentFrame()
 {
-    return m_image->nativeImageForCurrentFrame(targetContext);
+    return m_image->nativeImageForCurrentFrame();
 }
 
 } // namespace WebCore

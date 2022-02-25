@@ -30,14 +30,13 @@
 #import <mach/task_info.h>
 #import <malloc/malloc.h>
 #import <notify.h>
+#import <wtf/Logging.h>
 #import <wtf/ResourceUsage.h>
 #import <wtf/spi/darwin/DispatchSPI.h>
 
 #define ENABLE_FMW_FOOTPRINT_COMPARISON 0
 
 extern "C" void cache_simulate_memory_warning_event(uint64_t);
-
-#define LOG_CHANNEL_PREFIX Log
 
 namespace WTF {
 
@@ -79,21 +78,23 @@ void MemoryPressureHandler::install()
             switch (status) {
             // VM pressure events.
             case DISPATCH_MEMORYPRESSURE_NORMAL:
-                setUnderMemoryPressure(false);
+                setMemoryPressureStatus(MemoryPressureStatus::Normal);
                 break;
             case DISPATCH_MEMORYPRESSURE_WARN:
-                setUnderMemoryPressure(false);
+                setMemoryPressureStatus(MemoryPressureStatus::SystemWarning);
                 respondToMemoryPressure(Critical::No);
                 break;
             case DISPATCH_MEMORYPRESSURE_CRITICAL:
-                setUnderMemoryPressure(true);
+                setMemoryPressureStatus(MemoryPressureStatus::SystemCritical);
                 respondToMemoryPressure(Critical::Yes);
                 break;
             // Process memory limit events.
             case DISPATCH_MEMORYPRESSURE_PROC_LIMIT_WARN:
+                setMemoryPressureStatus(MemoryPressureStatus::ProcessLimitWarning);
                 respondToMemoryPressure(Critical::No);
                 break;
             case DISPATCH_MEMORYPRESSURE_PROC_LIMIT_CRITICAL:
+                setMemoryPressureStatus(MemoryPressureStatus::ProcessLimitCritical);
                 respondToMemoryPressure(Critical::Yes);
                 break;
             }

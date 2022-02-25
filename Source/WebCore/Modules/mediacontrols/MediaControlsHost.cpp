@@ -61,11 +61,11 @@
 #include "VTTCue.h"
 #include "VoidCallback.h"
 #include <JavaScriptCore/JSCJSValueInlines.h>
-#include <wtf/CompletionHandler.h>
+#include <variant>
+#include <wtf/Function.h>
 #include <wtf/JSONValues.h>
 #include <wtf/Scope.h>
 #include <wtf/UUID.h>
-#include <wtf/Variant.h>
 
 #if USE(APPLE_INTERNAL_SDK)
 #include <WebKitAdditions/MediaControlsHostAdditions.h>
@@ -103,7 +103,7 @@ Ref<MediaControlsHost> MediaControlsHost::create(HTMLMediaElement& mediaElement)
 }
 
 MediaControlsHost::MediaControlsHost(HTMLMediaElement& mediaElement)
-    : m_mediaElement(makeWeakPtr(mediaElement))
+    : m_mediaElement(mediaElement)
 {
 }
 
@@ -131,6 +131,12 @@ String MediaControlsHost::layoutTraitsClassName() const
     return nullString();
 #endif
 #endif
+}
+
+const AtomString& MediaControlsHost::mediaControlsContainerClassName() const
+{
+    static MainThreadNeverDestroyed<const AtomString> className("media-controls-container", AtomString::ConstructFromLiteral);
+    return className;
 }
 
 Vector<RefPtr<TextTrack>> MediaControlsHost::sortedTrackListForMenu(TextTrackList& trackList)
@@ -166,7 +172,7 @@ String MediaControlsHost::displayNameForTrack(const std::optional<TextOrAudioTra
     if (!page)
         return emptyString();
 
-    return WTF::visit([page] (auto& track) {
+    return std::visit([page] (auto& track) {
         return page->group().ensureCaptionPreferences().displayNameForTrack(track.get());
     }, track.value());
 }
@@ -365,13 +371,13 @@ String MediaControlsHost::formattedStringForDuration(double durationInSeconds)
 #if ENABLE(CONTEXT_MENUS) && USE(ACCESSIBILITY_CONTEXT_MENUS)
 class MediaControlsContextMenuProvider final : public ContextMenuProvider {
 public:
-    static Ref<MediaControlsContextMenuProvider> create(Vector<ContextMenuItem>&& items, CompletionHandler<void(uint64_t)>&& callback)
+    static Ref<MediaControlsContextMenuProvider> create(Vector<ContextMenuItem>&& items, Function<void(uint64_t)>&& callback)
     {
         return adoptRef(*new MediaControlsContextMenuProvider(WTFMove(items), WTFMove(callback)));
     }
 
 private:
-    MediaControlsContextMenuProvider(Vector<ContextMenuItem>&& items, CompletionHandler<void(uint64_t)>&& callback)
+    MediaControlsContextMenuProvider(Vector<ContextMenuItem>&& items, Function<void(uint64_t)>&& callback)
         : m_items(WTFMove(items))
         , m_callback(WTFMove(callback))
     {
@@ -390,8 +396,10 @@ private:
 
     void didDismissContextMenu() override
     {
-        if (m_callback)
+        if (!m_didDismiss) {
+            m_didDismiss = true;
             m_callback(ContextMenuItemTagNoAction);
+        }
     }
 
     void contextMenuItemSelected(ContextMenuAction action, const String&) override
@@ -401,8 +409,7 @@ private:
 
     void contextMenuCleared() override
     {
-        if (m_callback)
-            m_callback(ContextMenuItemTagNoAction);
+        didDismissContextMenu();
         m_items.clear();
     }
 
@@ -412,7 +419,8 @@ private:
     }
 
     Vector<ContextMenuItem> m_items;
-    CompletionHandler<void(uint64_t)> m_callback;
+    Function<void(uint64_t)> m_callback;
+    bool m_didDismiss { false };
 };
 
 class MediaControlsContextMenuEventListener final : public EventListener {
@@ -464,13 +472,6 @@ bool MediaControlsHost::showMediaControlsContextMenu(HTMLElement& target, String
     if (m_showMediaControlsContextMenuCallback)
         return false;
 
-    m_showMediaControlsContextMenuCallback = WTFMove(callback);
-
-    auto invokeCallbackAtScopeExit = makeScopeExit([&, protectedThis = makeRef(*this)] {
-        if (m_showMediaControlsContextMenuCallback)
-            std::exchange(m_showMediaControlsContextMenuCallback, nullptr)->handleEvent();
-    });
-
     if (!m_mediaElement)
         return false;
 
@@ -510,7 +511,7 @@ bool MediaControlsHost::showMediaControlsContextMenu(HTMLElement& target, String
         x2_0,
     };
 
-    using MenuData = Variant<
+    using MenuData = std::variant<
 #if ENABLE(VIDEO_PRESENTATION_MODE)
         PictureInPictureTag,
 #endif // ENABLE(VIDEO_PRESENTATION_MODE)
@@ -605,7 +606,7 @@ bool MediaControlsHost::showMediaControlsContextMenu(HTMLElement& target, String
                             continue;
 
                         auto& vttCue = downcast<VTTCue>(*cue);
-                        chapterMenuItems.append(createMenuItem(makeRefPtr(vttCue), vttCue.text()));
+                        chapterMenuItems.append(createMenuItem(RefPtr { &vttCue }, vttCue.text()));
                     }
                 }
 
@@ -655,14 +656,24 @@ bool MediaControlsHost::showMediaControlsContextMenu(HTMLElement& target, String
 
     ASSERT(!idMap.isEmpty());
 
-    auto handleItemSelected = [weakMediaElement = makeWeakPtr(mediaElement), idMap = WTFMove(idMap), invokeCallbackAtScopeExit = WTFMove(invokeCallbackAtScopeExit)] (MenuItemIdentifier selectedItemID) {
+    m_showMediaControlsContextMenuCallback = WTFMove(callback);
+
+    auto handleItemSelected = [weakThis = WeakPtr { *this }, idMap = WTFMove(idMap)] (MenuItemIdentifier selectedItemID) {
+        if (!weakThis)
+            return;
+        Ref strongThis = *weakThis;
+
+        auto invokeCallbackAtScopeExit = makeScopeExit([strongThis] {
+            if (auto showMediaControlsContextMenuCallback = std::exchange(strongThis->m_showMediaControlsContextMenuCallback, nullptr))
+                showMediaControlsContextMenuCallback->handleEvent();
+        });
+
         if (selectedItemID == invalidMenuItemIdentifier)
             return;
 
-        if (!weakMediaElement)
+        if (!strongThis->m_mediaElement)
             return;
-
-        auto& mediaElement = *weakMediaElement;
+        auto& mediaElement = *strongThis->m_mediaElement;
 
         UserGestureIndicator gestureIndicator(ProcessingUserGesture, &mediaElement.document());
 
@@ -676,13 +687,13 @@ bool MediaControlsHost::showMediaControlsContextMenu(HTMLElement& target, String
 #endif // ENABLE(VIDEO_PRESENTATION_MODE)
             [&] (RefPtr<AudioTrack>& selectedAudioTrack) {
                 for (auto& track : idMap.values()) {
-                    if (auto* audioTrack = WTF::get_if<RefPtr<AudioTrack>>(track))
+                    if (auto* audioTrack = std::get_if<RefPtr<AudioTrack>>(&track))
                         (*audioTrack)->setEnabled(*audioTrack == selectedAudioTrack);
                 }
             },
             [&] (RefPtr<TextTrack>& selectedTextTrack) {
                 for (auto& track : idMap.values()) {
-                    if (auto* textTrack = WTF::get_if<RefPtr<TextTrack>>(track))
+                    if (auto* textTrack = std::get_if<RefPtr<TextTrack>>(&track))
                         (*textTrack)->setMode(TextTrack::Mode::Disabled);
                 }
                 mediaElement.setSelectedTextTrack(selectedTextTrack.get());

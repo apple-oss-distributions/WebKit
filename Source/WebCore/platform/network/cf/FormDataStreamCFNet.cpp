@@ -137,7 +137,7 @@ static bool advanceCurrentStream(FormStreamFields* form)
     // Create the new stream.
     FormDataElement& nextInput = form->remainingElements.last();
 
-    bool success = switchOn(nextInput.data,
+    bool success = WTF::switchOn(nextInput.data,
         [form] (Vector<uint8_t>& bytes) {
             size_t size = bytes.size();
             MallocPtr<uint8_t, WTF::VectorMalloc> data = bytes.releaseBuffer();
@@ -170,7 +170,9 @@ static bool advanceCurrentStream(FormStreamFields* form)
     if (!success)
         return false;
 
-    form->remainingElements.removeLast();
+    callOnMainThread([lastElement = form->remainingElements.takeLast()] {
+        // Ensure FormDataElement destructor happens on main thread.
+    });
 
     // Set up the callback.
     CFStreamClientContext context = { 0, form, 0, 0, 0 };
@@ -178,9 +180,8 @@ static bool advanceCurrentStream(FormStreamFields* form)
         formEventCallback, &context);
 
     // Schedule with the current set of run loops.
-    SchedulePairHashSet::iterator end = form->scheduledRunLoopPairs.end();
-    for (SchedulePairHashSet::iterator it = form->scheduledRunLoopPairs.begin(); it != end; ++it)
-        CFReadStreamScheduleWithRunLoop(form->currentStream.get(), (*it)->runLoop(), (*it)->mode());
+    for (auto& pair : form->scheduledRunLoopPairs)
+        CFReadStreamScheduleWithRunLoop(form->currentStream.get(), pair->runLoop(), pair->mode());
 
     return true;
 }
@@ -382,6 +383,7 @@ RetainPtr<CFReadStreamRef> createHTTPBodyCFReadStream(FormData& formData)
             return blobRegistry().blobRegistryImpl()->blobSize(url);
         });
     }
+    ASSERT(isMainThread());
     FormCreationContext* formContext = new FormCreationContext { WTFMove(dataForUpload), length };
     CFReadStreamCallBacksV1 callBacks = { 1, formCreate, formFinalize, nullptr, formOpen, nullptr, formRead, nullptr, formCanRead, formClose, formCopyProperty, nullptr, nullptr, formSchedule, formUnschedule };
     return adoptCF(CFReadStreamCreate(nullptr, static_cast<const void*>(&callBacks), formContext));
@@ -395,7 +397,7 @@ void setHTTPBody(CFMutableURLRequestRef request, FormData* formData)
     // Handle the common special case of one piece of form data, with no files.
     auto& elements = formData->elements();
     if (elements.size() == 1 && !formData->alwaysStream()) {
-        if (auto* vector = WTF::get_if<Vector<uint8_t>>(elements[0].data)) {
+        if (auto* vector = std::get_if<Vector<uint8_t>>(&elements[0].data)) {
             auto data = adoptCF(CFDataCreate(nullptr, vector->data(), vector->size()));
             CFURLRequestSetHTTPRequestBody(request, data.get());
             return;

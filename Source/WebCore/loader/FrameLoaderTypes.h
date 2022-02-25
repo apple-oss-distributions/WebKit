@@ -69,6 +69,7 @@ enum class FrameLoadType : uint8_t {
     ReloadExpiredOnly
 };
 
+enum class IsMetaRefresh : bool { No, Yes };
 enum class WillContinueLoading : bool { No, Yes };
 
 class PolicyCheckIdentifier {
@@ -164,6 +165,12 @@ enum class UnloadEventPolicy {
     None,
     UnloadOnly,
     UnloadAndPageHide
+};
+
+enum class BrowsingContextGroupSwitchDecision : uint8_t {
+    StayInGroup,
+    NewSharedGroup,
+    NewIsolatedGroup,
 };
 
 // Passed to FrameLoader::urlSelected() and ScriptController::executeIfJavaScriptURL()
@@ -272,6 +279,15 @@ template<> struct EnumTraits<WebCore::PolicyAction> {
         WebCore::PolicyAction::Download,
         WebCore::PolicyAction::Ignore,
         WebCore::PolicyAction::StopAllLoads
+    >;
+};
+
+template<> struct EnumTraits<WebCore::BrowsingContextGroupSwitchDecision> {
+    using values = EnumValues<
+        WebCore::BrowsingContextGroupSwitchDecision,
+        WebCore::BrowsingContextGroupSwitchDecision::StayInGroup,
+        WebCore::BrowsingContextGroupSwitchDecision::NewSharedGroup,
+        WebCore::BrowsingContextGroupSwitchDecision::NewIsolatedGroup
     >;
 };
 

@@ -28,9 +28,11 @@
 #include "HTMLParserScheduler.h"
 
 #include "Document.h"
+#include "Frame.h"
 #include "FrameView.h"
 #include "HTMLDocumentParser.h"
 #include "Page.h"
+#include "ScriptController.h"
 #include "ScriptElement.h"
 
 namespace WebCore {
@@ -91,7 +93,7 @@ void HTMLParserScheduler::continueNextChunkTimerFired()
 
     // FIXME: The timer class should handle timer priorities instead of this code.
     // If a layout is scheduled, wait again to let the layout timer run first.
-    if (m_parser.document()->isLayoutTimerActive()) {
+    if (m_parser.document()->isLayoutPending()) {
         m_continueNextChunkTimer.startOneShot(0_s);
         return;
     }
@@ -107,6 +109,9 @@ bool HTMLParserScheduler::shouldYieldBeforeExecutingScript(const ScriptElement* 
     session.didSeeScript = true;
 
     if (!document->body())
+        return false;
+
+    if (!document->frame() || !document->frame()->script().canExecuteScripts(NotAboutToExecuteScript))
         return false;
 
     if (!document->haveStylesheetsLoaded())

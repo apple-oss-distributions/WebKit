@@ -47,6 +47,7 @@ WebProcessCreationParameters::~WebProcessCreationParameters()
 
 void WebProcessCreationParameters::encode(IPC::Encoder& encoder) const
 {
+    encoder << auxiliaryProcessParameters;
     encoder << injectedBundlePath;
     encoder << injectedBundlePathExtensionHandle;
     encoder << additionalSandboxExtensionHandles;
@@ -59,8 +60,6 @@ void WebProcessCreationParameters::encode(IPC::Encoder& encoder) const
 #if PLATFORM(COCOA) && ENABLE(REMOTE_INSPECTOR)
     encoder << enableRemoteWebInspectorExtensionHandle;
 #endif
-    encoder << webCoreLoggingChannels;
-    encoder << webKitLoggingChannels;
 #if ENABLE(MEDIA_STREAM)
     encoder << audioCaptureExtensionHandle;
 #endif
@@ -121,6 +120,8 @@ void WebProcessCreationParameters::encode(IPC::Encoder& encoder) const
     encoder << memoryCacheDisabled;
     encoder << attrStyleEnabled;
     encoder << shouldThrowExceptionForGlobalConstantRedeclaration;
+    encoder << crossOriginMode;
+    encoder << isCaptivePortalModeEnabled;
 
 #if ENABLE(SERVICE_CONTROLS)
     encoder << hasImageServices;
@@ -136,7 +137,7 @@ void WebProcessCreationParameters::encode(IPC::Encoder& encoder) const
     encoder << waylandCompositorDisplayName;
 #endif
 
-#if ENABLE(RESOURCE_LOAD_STATISTICS) && !RELEASE_LOG_DISABLED
+#if ENABLE(INTELLIGENT_TRACKING_PREVENTION) && !RELEASE_LOG_DISABLED
     encoder << shouldLogUserInteraction;
 #endif
 
@@ -161,17 +162,14 @@ void WebProcessCreationParameters::encode(IPC::Encoder& encoder) const
     encoder << compilerServiceExtensionHandles;
 #endif
 
-    encoder << containerManagerExtensionHandle;
     encoder << mobileGestaltExtensionHandle;
     encoder << launchServicesExtensionHandle;
 
-#if PLATFORM(MAC) && HAVE(VIDEO_RESTRICTED_DECODING)
-    encoder << trustdAgentExtensionHandle;
+#if HAVE(VIDEO_RESTRICTED_DECODING)
+    encoder << videoDecoderExtensionHandles;
 #endif
 
-    encoder << diagnosticsExtensionHandles;
 #if PLATFORM(IOS_FAMILY)
-    encoder << dynamicMachExtensionHandles;
     encoder << dynamicIOKitExtensionHandles;
 #endif
 
@@ -181,7 +179,7 @@ void WebProcessCreationParameters::encode(IPC::Encoder& encoder) const
 #endif
 
 #if PLATFORM(IOS_FAMILY)
-    encoder << currentUserInterfaceIdiomIsPhoneOrWatch;
+    encoder << currentUserInterfaceIdiomIsSmallScreen;
     encoder << supportsPictureInPicture;
     encoder << cssValueToSystemColorMap;
     encoder << focusRingColor;
@@ -212,10 +210,21 @@ void WebProcessCreationParameters::encode(IPC::Encoder& encoder) const
 #if PLATFORM(GTK) || PLATFORM(WPE)
     encoder << memoryPressureHandlerConfiguration;
 #endif
+
+#if USE(GLIB)
+    encoder << applicationID;
+    encoder << applicationName;
+#endif
+
+#if USE(ATSPI)
+    encoder << accessibilityBusAddress;
+#endif
 }
 
 bool WebProcessCreationParameters::decode(IPC::Decoder& decoder, WebProcessCreationParameters& parameters)
 {
+    if (!decoder.decode(parameters.auxiliaryProcessParameters))
+        return false;
     if (!decoder.decode(parameters.injectedBundlePath))
         return false;
     
@@ -225,7 +234,7 @@ bool WebProcessCreationParameters::decode(IPC::Decoder& decoder, WebProcessCreat
         return false;
     parameters.injectedBundlePathExtensionHandle = WTFMove(*injectedBundlePathExtensionHandle);
 
-    std::optional<SandboxExtension::HandleArray> additionalSandboxExtensionHandles;
+    std::optional<Vector<SandboxExtension::Handle>> additionalSandboxExtensionHandles;
     decoder >> additionalSandboxExtensionHandles;
     if (!additionalSandboxExtensionHandles)
         return false;
@@ -261,14 +270,7 @@ bool WebProcessCreationParameters::decode(IPC::Decoder& decoder, WebProcessCreat
         return false;
     parameters.enableRemoteWebInspectorExtensionHandle = WTFMove(*enableRemoteWebInspectorExtensionHandle);
 #endif
-
-    if (!decoder.decode(parameters.webCoreLoggingChannels))
-        return false;
-    if (!decoder.decode(parameters.webKitLoggingChannels))
-        return false;
-
 #if ENABLE(MEDIA_STREAM)
-
     std::optional<SandboxExtension::Handle> audioCaptureExtensionHandle;
     decoder >> audioCaptureExtensionHandle;
     if (!audioCaptureExtensionHandle)
@@ -386,6 +388,10 @@ bool WebProcessCreationParameters::decode(IPC::Decoder& decoder, WebProcessCreat
         return false;
     if (!decoder.decode(parameters.shouldThrowExceptionForGlobalConstantRedeclaration))
         return false;
+    if (!decoder.decode(parameters.crossOriginMode))
+        return false;
+    if (!decoder.decode(parameters.isCaptivePortalModeEnabled))
+        return false;
 
 #if ENABLE(SERVICE_CONTROLS)
     if (!decoder.decode(parameters.hasImageServices))
@@ -406,7 +412,7 @@ bool WebProcessCreationParameters::decode(IPC::Decoder& decoder, WebProcessCreat
         return false;
 #endif
 
-#if ENABLE(RESOURCE_LOAD_STATISTICS) && !RELEASE_LOG_DISABLED
+#if ENABLE(INTELLIGENT_TRACKING_PREVENTION) && !RELEASE_LOG_DISABLED
     if (!decoder.decode(parameters.shouldLogUserInteraction))
         return false;
 #endif
@@ -443,18 +449,12 @@ bool WebProcessCreationParameters::decode(IPC::Decoder& decoder, WebProcessCreat
     parameters.websiteDataStoreParameters = WTFMove(*websiteDataStoreParameters);
 
 #if PLATFORM(IOS)
-    std::optional<SandboxExtension::HandleArray> compilerServiceExtensionHandles;
+    std::optional<Vector<SandboxExtension::Handle>> compilerServiceExtensionHandles;
     decoder >> compilerServiceExtensionHandles;
     if (!compilerServiceExtensionHandles)
         return false;
     parameters.compilerServiceExtensionHandles = WTFMove(*compilerServiceExtensionHandles);
 #endif
-
-    std::optional<std::optional<SandboxExtension::Handle>> containerManagerExtensionHandle;
-    decoder >> containerManagerExtensionHandle;
-    if (!containerManagerExtensionHandle)
-        return false;
-    parameters.containerManagerExtensionHandle = WTFMove(*containerManagerExtensionHandle);
 
     std::optional<std::optional<SandboxExtension::Handle>> mobileGestaltExtensionHandle;
     decoder >> mobileGestaltExtensionHandle;
@@ -468,28 +468,16 @@ bool WebProcessCreationParameters::decode(IPC::Decoder& decoder, WebProcessCreat
         return false;
     parameters.launchServicesExtensionHandle = WTFMove(*launchServicesExtensionHandle);
 
-#if PLATFORM(MAC) && HAVE(VIDEO_RESTRICTED_DECODING)
-    std::optional<std::optional<SandboxExtension::Handle>> trustdAgentExtensionHandle;
-    decoder >> trustdAgentExtensionHandle;
-    if (!trustdAgentExtensionHandle)
+#if HAVE(VIDEO_RESTRICTED_DECODING)
+    std::optional<Vector<SandboxExtension::Handle>> videoDecoderExtensionHandles;
+    decoder >> videoDecoderExtensionHandles;
+    if (!videoDecoderExtensionHandles)
         return false;
-    parameters.trustdAgentExtensionHandle = WTFMove(*trustdAgentExtensionHandle);
+    parameters.videoDecoderExtensionHandles = WTFMove(*videoDecoderExtensionHandles);
 #endif
 
-    std::optional<SandboxExtension::HandleArray> diagnosticsExtensionHandles;
-    decoder >> diagnosticsExtensionHandles;
-    if (!diagnosticsExtensionHandles)
-        return false;
-    parameters.diagnosticsExtensionHandles = WTFMove(*diagnosticsExtensionHandles);
-
 #if PLATFORM(IOS_FAMILY)
-    std::optional<SandboxExtension::HandleArray> dynamicMachExtensionHandles;
-    decoder >> dynamicMachExtensionHandles;
-    if (!dynamicMachExtensionHandles)
-        return false;
-    parameters.dynamicMachExtensionHandles = WTFMove(*dynamicMachExtensionHandles);
-
-    std::optional<SandboxExtension::HandleArray> dynamicIOKitExtensionHandles;
+    std::optional<Vector<SandboxExtension::Handle>> dynamicIOKitExtensionHandles;
     decoder >> dynamicIOKitExtensionHandles;
     if (!dynamicIOKitExtensionHandles)
         return false;
@@ -511,7 +499,7 @@ bool WebProcessCreationParameters::decode(IPC::Decoder& decoder, WebProcessCreat
 #endif
 
 #if PLATFORM(IOS_FAMILY)
-    if (!decoder.decode(parameters.currentUserInterfaceIdiomIsPhoneOrWatch))
+    if (!decoder.decode(parameters.currentUserInterfaceIdiomIsSmallScreen))
         return false;
 
     if (!decoder.decode(parameters.supportsPictureInPicture))
@@ -538,7 +526,7 @@ bool WebProcessCreationParameters::decode(IPC::Decoder& decoder, WebProcessCreat
 
 #if PLATFORM(COCOA)
 #if ENABLE(CFPREFS_DIRECT_MODE)
-    std::optional<std::optional<SandboxExtension::HandleArray>> preferencesExtensionHandles;
+    std::optional<std::optional<Vector<SandboxExtension::Handle>>> preferencesExtensionHandles;
     decoder >> preferencesExtensionHandles;
     if (!preferencesExtensionHandles)
         return false;
@@ -579,6 +567,21 @@ bool WebProcessCreationParameters::decode(IPC::Decoder& decoder, WebProcessCreat
     if (!memoryPressureHandlerConfiguration)
         return false;
     parameters.memoryPressureHandlerConfiguration = WTFMove(*memoryPressureHandlerConfiguration);
+#endif
+
+#if USE(GLIB)
+    if (!decoder.decode(parameters.applicationID))
+        return false;
+    if (!decoder.decode(parameters.applicationName))
+        return false;
+#endif
+
+#if USE(ATSPI)
+    std::optional<String> accessibilityBusAddress;
+    decoder >> accessibilityBusAddress;
+    if (!accessibilityBusAddress)
+        return false;
+    parameters.accessibilityBusAddress = WTFMove(*accessibilityBusAddress);
 #endif
 
     return true;

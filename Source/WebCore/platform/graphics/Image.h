@@ -70,7 +70,7 @@ class AffineTransform;
 class FloatPoint;
 class FloatSize;
 class GraphicsContext;
-class SharedBuffer;
+class FragmentedSharedBuffer;
 struct Length;
 
 // This class gets notified when an image creates or destroys decoded frames and when it advances animation frames.
@@ -124,7 +124,7 @@ public:
     virtual std::optional<IntPoint> hotSpot() const { return std::nullopt; }
     virtual ImageOrientation orientation() const { return ImageOrientation::FromImage; }
 
-    WEBCORE_EXPORT EncodedDataStatus setData(RefPtr<SharedBuffer>&& data, bool allDataReceived);
+    WEBCORE_EXPORT EncodedDataStatus setData(RefPtr<FragmentedSharedBuffer>&& data, bool allDataReceived);
     virtual EncodedDataStatus dataChanged(bool /*allDataReceived*/) { return EncodedDataStatus::Unknown; }
 
     virtual String uti() const { return String(); } // null string if unknown
@@ -133,8 +133,10 @@ public:
 
     virtual void destroyDecodedData(bool destroyAll = true) = 0;
 
-    SharedBuffer* data() { return m_encodedImageData.get(); }
-    const SharedBuffer* data() const { return m_encodedImageData.get(); }
+    FragmentedSharedBuffer* data() { return m_encodedImageData.get(); }
+    const FragmentedSharedBuffer* data() const { return m_encodedImageData.get(); }
+
+    virtual DestinationColorSpace colorSpace();
 
     // Animation begins whenever someone draws the image, so startAnimation() is not normally called.
     // It will automatically pause once all observers no longer want to render the image anywhere.
@@ -154,10 +156,10 @@ public:
 
     enum TileRule { StretchTile, RoundTile, SpaceTile, RepeatTile };
 
-    virtual RefPtr<NativeImage> nativeImage(const GraphicsContext* = nullptr) { return nullptr; }
-    virtual RefPtr<NativeImage> nativeImageForCurrentFrame(const GraphicsContext* = nullptr) { return nullptr; }
-    virtual RefPtr<NativeImage> preTransformedNativeImageForCurrentFrame(bool = true, const GraphicsContext* = nullptr) { return nullptr; }
-    virtual RefPtr<NativeImage> nativeImageOfSize(const IntSize&, const GraphicsContext* = nullptr) { return nullptr; }
+    virtual RefPtr<NativeImage> nativeImage() { return nullptr; }
+    virtual RefPtr<NativeImage> nativeImageForCurrentFrame() { return nullptr; }
+    virtual RefPtr<NativeImage> preTransformedNativeImageForCurrentFrame(bool = true) { return nullptr; }
+    virtual RefPtr<NativeImage> nativeImageOfSize(const IntSize&) { return nullptr; }
 
     // Accessors for native image formats.
 
@@ -199,6 +201,7 @@ protected:
     virtual void drawFrameMatchingSourceSize(GraphicsContext&, const FloatRect& dstRect, const IntSize& srcSize, CompositeOperator) { }
 #endif
     virtual ImageDrawResult draw(GraphicsContext&, const FloatRect& dstRect, const FloatRect& srcRect, const ImagePaintingOptions& = { }) = 0;
+    virtual ImageDrawResult drawForCanvas(GraphicsContext&, const FloatRect& dstRect, const FloatRect& srcRect, const ImagePaintingOptions&, DestinationColorSpace canvasColorSpace);
     ImageDrawResult drawTiled(GraphicsContext&, const FloatRect& dstRect, const FloatPoint& srcPoint, const FloatSize& tileSize, const FloatSize& spacing, const ImagePaintingOptions& = { });
     ImageDrawResult drawTiled(GraphicsContext&, const FloatRect& dstRect, const FloatRect& srcRect, const FloatSize& tileScaleFactor, TileRule hRule, TileRule vRule, const ImagePaintingOptions& = { });
 
@@ -206,7 +209,7 @@ protected:
     virtual Color singlePixelSolidColor() const { return Color(); }
 
 private:
-    RefPtr<SharedBuffer> m_encodedImageData;
+    RefPtr<FragmentedSharedBuffer> m_encodedImageData;
     ImageObserver* m_imageObserver;
     std::unique_ptr<Timer> m_animationStartTimer;
 };

@@ -59,6 +59,7 @@ public:
     WEBCORE_EXPORT IntSize size() const;
     bool hasAlpha() const;
     Color singlePixelSolidColor() const;
+    WEBCORE_EXPORT DestinationColorSpace colorSpace() const;
 
     void addObserver(Observer& observer) { m_observers.add(&observer); }
     void removeObserver(Observer& observer) { m_observers.remove(&observer); }
@@ -73,7 +74,5 @@ private:
     HashSet<Observer*> m_observers;
     RenderingResourceIdentifier m_renderingResourceIdentifier;
 };
-
-using NativeImageHashMap = HashMap<RenderingResourceIdentifier, Ref<NativeImage>>;
 
 } // namespace WebCore

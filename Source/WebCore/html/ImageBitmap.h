@@ -28,6 +28,7 @@
 #include "IDLTypes.h"
 #include "ImageBitmapBacking.h"
 #include "ScriptWrappable.h"
+#include <atomic>
 #include <wtf/RefCounted.h>
 
 namespace JSC {
@@ -52,7 +53,7 @@ class OffscreenCanvas;
 #endif
 class PendingImageBitmap;
 class ScriptExecutionContext;
-class TypedOMCSSImageValue;
+class CSSStyleImageValue;
 struct ImageBitmapOptions;
 
 template<typename IDLType> class DOMPromiseDeferred;
@@ -60,7 +61,7 @@ template<typename IDLType> class DOMPromiseDeferred;
 class ImageBitmap final : public ScriptWrappable, public RefCounted<ImageBitmap> {
     WTF_MAKE_ISO_ALLOCATED(ImageBitmap);
 public:
-    using Source = Variant<
+    using Source = std::variant<
         RefPtr<HTMLImageElement>,
 #if ENABLE(VIDEO)
         RefPtr<HTMLVideoElement>,
@@ -71,7 +72,7 @@ public:
         RefPtr<OffscreenCanvas>,
 #endif
 #if ENABLE(CSS_TYPED_OM)
-        RefPtr<TypedOMCSSImageValue>,
+        RefPtr<CSSStyleImageValue>,
 #endif
         RefPtr<Blob>,
         RefPtr<ImageData>
@@ -82,9 +83,9 @@ public:
     static void createPromise(ScriptExecutionContext&, Source&&, ImageBitmapOptions&&, Promise&&);
     static void createPromise(ScriptExecutionContext&, Source&&, ImageBitmapOptions&&, int sx, int sy, int sw, int sh, Promise&&);
 
-    static RefPtr<ImageBuffer> createImageBuffer(ScriptExecutionContext&, const FloatSize&, RenderingMode, float resolutionScale = 1);
+    static RefPtr<ImageBuffer> createImageBuffer(ScriptExecutionContext&, const FloatSize&, RenderingMode, DestinationColorSpace, float resolutionScale = 1);
 
-    static Ref<ImageBitmap> create(ScriptExecutionContext&, const IntSize&);
+    static Ref<ImageBitmap> create(ScriptExecutionContext&, const IntSize&, DestinationColorSpace);
     static Ref<ImageBitmap> create(std::optional<ImageBitmapBacking>&&);
 
     ~ImageBitmap();
@@ -108,6 +109,7 @@ public:
 
     static Vector<std::optional<ImageBitmapBacking>> detachBitmaps(Vector<RefPtr<ImageBitmap>>&&);
 
+    size_t memoryCost() const;
 private:
     friend class ImageBitmapImageObserver;
     friend class PendingImageBitmap;
@@ -128,10 +130,12 @@ private:
     static void createPromise(ScriptExecutionContext&, CanvasBase&, ImageBitmapOptions&&, std::optional<IntRect>, Promise&&);
     static void createPromise(ScriptExecutionContext&, RefPtr<Blob>&, ImageBitmapOptions&&, std::optional<IntRect>, Promise&&);
     static void createPromise(ScriptExecutionContext&, RefPtr<ImageData>&, ImageBitmapOptions&&, std::optional<IntRect>, Promise&&);
-    static void createPromise(ScriptExecutionContext&, RefPtr<TypedOMCSSImageValue>&, ImageBitmapOptions&&, std::optional<IntRect>, Promise&&);
+    static void createPromise(ScriptExecutionContext&, RefPtr<CSSStyleImageValue>&, ImageBitmapOptions&&, std::optional<IntRect>, Promise&&);
     static void createFromBuffer(ScriptExecutionContext&, Ref<ArrayBuffer>&&, String mimeType, long long expectedContentLength, const URL&, ImageBitmapOptions&&, std::optional<IntRect>, Promise&&);
+    void updateMemoryCost();
 
     std::optional<ImageBitmapBacking> m_backingStore;
+    std::atomic<size_t> m_memoryCost { 0 };
 };
 
 }

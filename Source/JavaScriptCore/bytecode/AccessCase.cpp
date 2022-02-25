@@ -99,6 +99,19 @@ Ref<AccessCase> AccessCase::create(VM& vm, JSCell* owner, AccessType type, Cache
     case IndexedTypedArrayFloat32Load:
     case IndexedTypedArrayFloat64Load:
     case IndexedStringLoad:
+    case IndexedInt32Store:
+    case IndexedDoubleStore:
+    case IndexedContiguousStore:
+    case IndexedArrayStorageStore:
+    case IndexedTypedArrayInt8Store:
+    case IndexedTypedArrayUint8Store:
+    case IndexedTypedArrayUint8ClampedStore:
+    case IndexedTypedArrayInt16Store:
+    case IndexedTypedArrayUint16Store:
+    case IndexedTypedArrayInt32Store:
+    case IndexedTypedArrayUint32Store:
+    case IndexedTypedArrayFloat32Store:
+    case IndexedTypedArrayFloat64Store:
         RELEASE_ASSERT(!prototypeAccessChain);
         break;
     default:
@@ -110,16 +123,50 @@ Ref<AccessCase> AccessCase::create(VM& vm, JSCell* owner, AccessType type, Cache
 
 RefPtr<AccessCase> AccessCase::createTransition(
     VM& vm, JSCell* owner, CacheableIdentifier identifier, PropertyOffset offset, Structure* oldStructure, Structure* newStructure,
-    const ObjectPropertyConditionSet& conditionSet, RefPtr<PolyProtoAccessChain>&& prototypeAccessChain)
+    const ObjectPropertyConditionSet& conditionSet, RefPtr<PolyProtoAccessChain>&& prototypeAccessChain, const StructureStubInfo& stubInfo)
 {
     RELEASE_ASSERT(oldStructure == newStructure->previousID());
 
     // Skip optimizing the case where we need a realloc, if we don't have
     // enough registers to make it happen.
-    if (GPRInfo::numberOfRegisters < 6
-        && oldStructure->outOfLineCapacity() != newStructure->outOfLineCapacity()
-        && oldStructure->outOfLineCapacity()) {
-        return nullptr;
+    if (oldStructure->outOfLineCapacity() != newStructure->outOfLineCapacity()) {
+        // In 64 bits jsc uses 1 register for value, and it uses 2 registers in 32 bits
+        size_t requiredRegisters = 1; // stubInfo.valueRegs()
+#if USE(JSVALUE32_64)
+        ++requiredRegisters;
+#endif
+
+        // 1 register for the property in 64 bits
+        ++requiredRegisters;
+#if USE(JSVALUE32_64)
+        // In 32 bits, jsc uses may use one extra register, if it is not a Cell
+        if (stubInfo.propertyRegs().tagGPR() != InvalidGPRReg)
+            ++requiredRegisters;
+#endif
+
+        // 1 register for the base in 64 bits
+        ++requiredRegisters;
+#if USE(JSVALUE32_64)
+        // In 32 bits, jsc uses may use one extra register, if it is not a Cell
+        if (stubInfo.baseRegs().tagGPR() != InvalidGPRReg)
+            ++requiredRegisters;
+#endif
+
+        if (stubInfo.m_stubInfoGPR != InvalidGPRReg)
+            ++requiredRegisters;
+        if (stubInfo.m_arrayProfileGPR != InvalidGPRReg)
+            ++requiredRegisters;
+
+        // One extra register for scratchGPR
+        ++requiredRegisters;
+
+        // Check if we have enough registers when reallocating
+        if (oldStructure->outOfLineCapacity() && GPRInfo::numberOfRegisters < requiredRegisters)
+            return nullptr;
+
+        // If we are (re)allocating inline, jsc needs two extra scratchGPRs
+        if (!oldStructure->couldHaveIndexingHeader() && GPRInfo::numberOfRegisters < (requiredRegisters + 2))
+            return nullptr;
     }
 
     return adoptRef(*new AccessCase(vm, owner, Transition, identifier, offset, newStructure, conditionSet, WTFMove(prototypeAccessChain)));
@@ -155,15 +202,15 @@ RefPtr<AccessCase> AccessCase::fromStructureStubInfo(
     switch (stubInfo.cacheType()) {
     case CacheType::GetByIdSelf:
         RELEASE_ASSERT(stubInfo.hasConstantIdentifier);
-        return ProxyableAccessCase::create(vm, owner, Load, identifier, stubInfo.u.byIdSelf.offset, stubInfo.m_inlineAccessBaseStructure.get());
+        return ProxyableAccessCase::create(vm, owner, Load, identifier, stubInfo.byIdSelfOffset, stubInfo.inlineAccessBaseStructure(vm));
 
     case CacheType::PutByIdReplace:
         RELEASE_ASSERT(stubInfo.hasConstantIdentifier);
-        return AccessCase::create(vm, owner, Replace, identifier, stubInfo.u.byIdSelf.offset, stubInfo.m_inlineAccessBaseStructure.get());
+        return AccessCase::create(vm, owner, Replace, identifier, stubInfo.byIdSelfOffset, stubInfo.inlineAccessBaseStructure(vm));
 
     case CacheType::InByIdSelf:
         RELEASE_ASSERT(stubInfo.hasConstantIdentifier);
-        return AccessCase::create(vm, owner, InHit, identifier, stubInfo.u.byIdSelf.offset, stubInfo.m_inlineAccessBaseStructure.get());
+        return AccessCase::create(vm, owner, InHit, identifier, stubInfo.byIdSelfOffset, stubInfo.inlineAccessBaseStructure(vm));
 
     case CacheType::ArrayLength:
         RELEASE_ASSERT(stubInfo.hasConstantIdentifier);
@@ -272,6 +319,19 @@ bool AccessCase::guardedByStructureCheckSkippingConstantIdentifierCheck() const
     case IndexedTypedArrayFloat32Load:
     case IndexedTypedArrayFloat64Load:
     case IndexedStringLoad:
+    case IndexedInt32Store:
+    case IndexedDoubleStore:
+    case IndexedContiguousStore:
+    case IndexedArrayStorageStore:
+    case IndexedTypedArrayInt8Store:
+    case IndexedTypedArrayUint8Store:
+    case IndexedTypedArrayUint8ClampedStore:
+    case IndexedTypedArrayInt16Store:
+    case IndexedTypedArrayUint16Store:
+    case IndexedTypedArrayInt32Store:
+    case IndexedTypedArrayUint32Store:
+    case IndexedTypedArrayFloat32Store:
+    case IndexedTypedArrayFloat64Store:
         return false;
     default:
         return true;
@@ -326,6 +386,19 @@ bool AccessCase::requiresIdentifierNameMatch() const
     case IndexedTypedArrayFloat32Load:
     case IndexedTypedArrayFloat64Load:
     case IndexedStringLoad:
+    case IndexedInt32Store:
+    case IndexedDoubleStore:
+    case IndexedContiguousStore:
+    case IndexedArrayStorageStore:
+    case IndexedTypedArrayInt8Store:
+    case IndexedTypedArrayUint8Store:
+    case IndexedTypedArrayUint8ClampedStore:
+    case IndexedTypedArrayInt16Store:
+    case IndexedTypedArrayUint16Store:
+    case IndexedTypedArrayInt32Store:
+    case IndexedTypedArrayUint32Store:
+    case IndexedTypedArrayFloat32Store:
+    case IndexedTypedArrayFloat64Store:
         return false;
     }
     RELEASE_ASSERT_NOT_REACHED();
@@ -378,6 +451,19 @@ bool AccessCase::requiresInt32PropertyCheck() const
     case IndexedTypedArrayFloat32Load:
     case IndexedTypedArrayFloat64Load:
     case IndexedStringLoad:
+    case IndexedInt32Store:
+    case IndexedDoubleStore:
+    case IndexedContiguousStore:
+    case IndexedArrayStorageStore:
+    case IndexedTypedArrayInt8Store:
+    case IndexedTypedArrayUint8Store:
+    case IndexedTypedArrayUint8ClampedStore:
+    case IndexedTypedArrayInt16Store:
+    case IndexedTypedArrayUint16Store:
+    case IndexedTypedArrayInt32Store:
+    case IndexedTypedArrayUint32Store:
+    case IndexedTypedArrayFloat32Store:
+    case IndexedTypedArrayFloat64Store:
         return true;
     }
     RELEASE_ASSERT_NOT_REACHED();
@@ -400,7 +486,6 @@ bool AccessCase::needsScratchFPR() const
     case CustomAccessorGetter:
     case CustomValueSetter:
     case CustomAccessorSetter:
-    case IntrinsicGetter:
     case InHit:
     case InMiss:
     case CheckPrivateBrand:
@@ -425,11 +510,26 @@ bool AccessCase::needsScratchFPR() const
     case IndexedTypedArrayUint16Load:
     case IndexedTypedArrayInt32Load:
     case IndexedStringLoad:
+    case IndexedInt32Store:
+    case IndexedContiguousStore:
+    case IndexedArrayStorageStore:
+    case IndexedTypedArrayInt8Store:
+    case IndexedTypedArrayUint8Store:
+    case IndexedTypedArrayUint8ClampedStore:
+    case IndexedTypedArrayInt16Store:
+    case IndexedTypedArrayUint16Store:
+    case IndexedTypedArrayInt32Store:
         return false;
     case IndexedDoubleLoad:
     case IndexedTypedArrayFloat32Load:
     case IndexedTypedArrayFloat64Load:
     case IndexedTypedArrayUint32Load:
+    case IndexedDoubleStore:
+    case IndexedTypedArrayUint32Store:
+    case IndexedTypedArrayFloat32Store:
+    case IndexedTypedArrayFloat64Store:
+    // Used by TypedArrayLength/TypedArrayByteOffset in the process of boxing their result as a double
+    case IntrinsicGetter:
         return true;
     }
     RELEASE_ASSERT_NOT_REACHED();
@@ -515,6 +615,19 @@ void AccessCase::forEachDependentCell(VM& vm, const Functor& functor) const
     case IndexedTypedArrayFloat32Load:
     case IndexedTypedArrayFloat64Load:
     case IndexedStringLoad:
+    case IndexedInt32Store:
+    case IndexedDoubleStore:
+    case IndexedContiguousStore:
+    case IndexedArrayStorageStore:
+    case IndexedTypedArrayInt8Store:
+    case IndexedTypedArrayUint8Store:
+    case IndexedTypedArrayUint8ClampedStore:
+    case IndexedTypedArrayInt16Store:
+    case IndexedTypedArrayUint16Store:
+    case IndexedTypedArrayInt32Store:
+    case IndexedTypedArrayUint32Store:
+    case IndexedTypedArrayFloat32Store:
+    case IndexedTypedArrayFloat64Store:
         break;
     }
 }
@@ -569,6 +682,19 @@ bool AccessCase::doesCalls(VM& vm, Vector<JSCell*>* cellsToMarkIfDoesCalls) cons
     case IndexedTypedArrayFloat32Load:
     case IndexedTypedArrayFloat64Load:
     case IndexedStringLoad:
+    case IndexedInt32Store:
+    case IndexedDoubleStore:
+    case IndexedContiguousStore:
+    case IndexedArrayStorageStore:
+    case IndexedTypedArrayInt8Store:
+    case IndexedTypedArrayUint8Store:
+    case IndexedTypedArrayUint8ClampedStore:
+    case IndexedTypedArrayInt16Store:
+    case IndexedTypedArrayUint16Store:
+    case IndexedTypedArrayInt32Store:
+    case IndexedTypedArrayUint32Store:
+    case IndexedTypedArrayFloat32Store:
+    case IndexedTypedArrayFloat64Store:
         doesCalls = false;
         break;
     case Replace:
@@ -650,6 +776,19 @@ bool AccessCase::canReplace(const AccessCase& other) const
     case IndexedTypedArrayFloat32Load:
     case IndexedTypedArrayFloat64Load:
     case IndexedStringLoad:
+    case IndexedInt32Store:
+    case IndexedDoubleStore:
+    case IndexedContiguousStore:
+    case IndexedArrayStorageStore:
+    case IndexedTypedArrayInt8Store:
+    case IndexedTypedArrayUint8Store:
+    case IndexedTypedArrayUint8ClampedStore:
+    case IndexedTypedArrayInt16Store:
+    case IndexedTypedArrayUint16Store:
+    case IndexedTypedArrayInt32Store:
+    case IndexedTypedArrayUint32Store:
+    case IndexedTypedArrayFloat32Store:
+    case IndexedTypedArrayFloat64Store:
         return other.type() == type();
 
     case ModuleNamespaceLoad: {
@@ -715,8 +854,9 @@ bool AccessCase::canReplace(const AccessCase& other) const
 
 void AccessCase::dump(PrintStream& out) const
 {
-    out.print("\n", m_type, ":(");
+    out.print("\n", m_type, ": {");
 
+    Indenter indent;
     CommaPrinter comma;
 
     out.print(comma, m_state);
@@ -725,21 +865,25 @@ void AccessCase::dump(PrintStream& out) const
     if (isValidOffset(m_offset))
         out.print(comma, "offset = ", m_offset);
 
+    ++indent;
+
     if (m_polyProtoAccessChain) {
-        out.print(comma, "prototype access chain = ");
+        out.print("\n", indent, "prototype access chain = ");
         m_polyProtoAccessChain->dump(structure(), out);
     } else {
         if (m_type == Transition || m_type == Delete || m_type == SetPrivateBrand)
-            out.print(comma, "structure = ", pointerDump(structure()), " -> ", pointerDump(newStructure()));
+            out.print("\n", indent, "from structure = ", pointerDump(structure()),
+                "\n", indent, "to structure = ", pointerDump(newStructure()));
         else if (m_structure)
-            out.print(comma, "structure = ", pointerDump(m_structure.get()));
+            out.print("\n", indent, "structure = ", pointerDump(m_structure.get()));
     }
 
     if (!m_conditionSet.isEmpty())
-        out.print(comma, "conditions = ", m_conditionSet);
+        out.print("\n", indent, "conditions = ", m_conditionSet);
 
-    dumpImpl(out, comma);
-    out.print(")");
+    dumpImpl(out, comma, indent);
+
+    out.print("}");
 }
 
 bool AccessCase::visitWeak(VM& vm) const
@@ -955,13 +1099,7 @@ void AccessCase::generateWithGuard(
         jit.load8(CCallHelpers::Address(baseGPR, JSCell::typeInfoTypeOffset()), scratchGPR);
         fallThrough.append(jit.branch32(CCallHelpers::NotEqual, scratchGPR, CCallHelpers::TrustedImm32(ScopedArgumentsType)));
 
-        ScratchRegisterAllocator allocator(stubInfo.usedRegisters);
-        allocator.lock(stubInfo.baseRegs());
-        allocator.lock(valueRegs);
-        allocator.lock(stubInfo.propertyRegs());
-        if (stubInfo.m_stubInfoGPR != InvalidGPRReg)
-            allocator.lock(stubInfo.m_stubInfoGPR);
-        allocator.lock(scratchGPR);
+        auto allocator = state.makeDefaultScratchAllocator(scratchGPR);
         
         GPRReg scratch2GPR = allocator.allocateScratchGPR();
         GPRReg scratch3GPR = allocator.allocateScratchGPR();
@@ -1047,28 +1185,31 @@ void AccessCase::generateWithGuard(
 
         GPRReg propertyGPR = state.u.propertyGPR;
 
-        
         jit.load8(CCallHelpers::Address(baseGPR, JSCell::typeInfoTypeOffset()), scratchGPR);
         fallThrough.append(jit.branch32(CCallHelpers::NotEqual, scratchGPR, CCallHelpers::TrustedImm32(typeForTypedArrayType(type))));
 
-        jit.load32(CCallHelpers::Address(baseGPR, JSArrayBufferView::offsetOfLength()), scratchGPR);
-        state.failAndRepatch.append(jit.branch32(CCallHelpers::AboveOrEqual, propertyGPR, scratchGPR));
+        CCallHelpers::Address addressOfLength = CCallHelpers::Address(baseGPR, JSArrayBufferView::offsetOfLength());
+        jit.signExtend32ToPtr(propertyGPR, scratchGPR);
+#if USE(LARGE_TYPED_ARRAYS)
+        // The length is a size_t, so either 32 or 64 bits depending on the platform.
+        state.failAndRepatch.append(jit.branch64(CCallHelpers::AboveOrEqual, scratchGPR, addressOfLength));
+#else
+        state.failAndRepatch.append(jit.branch32(CCallHelpers::AboveOrEqual, propertyGPR, addressOfLength));
+#endif
 
-        ScratchRegisterAllocator allocator(stubInfo.usedRegisters);
-        allocator.lock(stubInfo.baseRegs());
-        allocator.lock(valueRegs);
-        allocator.lock(stubInfo.propertyRegs());
-        if (stubInfo.m_stubInfoGPR != InvalidGPRReg)
-            allocator.lock(stubInfo.m_stubInfoGPR);
-        allocator.lock(scratchGPR);
+        auto allocator = state.makeDefaultScratchAllocator(scratchGPR);
         GPRReg scratch2GPR = allocator.allocateScratchGPR();
 
         ScratchRegisterAllocator::PreservedState preservedState = allocator.preserveReusedRegistersByPushing(
             jit, ScratchRegisterAllocator::ExtraStackSpace::NoExtraSpace);
 
+#if USE(LARGE_TYPED_ARRAYS)
+        jit.load64(addressOfLength, scratchGPR);
+#else
+        jit.load32(addressOfLength, scratchGPR);
+#endif
         jit.loadPtr(CCallHelpers::Address(baseGPR, JSArrayBufferView::offsetOfVector()), scratch2GPR);
         jit.cageConditionallyAndUntag(Gigacage::Primitive, scratch2GPR, scratchGPR, scratchGPR, false);
-
         jit.signExtend32ToPtr(propertyGPR, scratchGPR);
         if (isInt(type)) {
             switch (elementSize(type)) {
@@ -1139,13 +1280,7 @@ void AccessCase::generateWithGuard(
 
         fallThrough.append(jit.branchIfNotString(baseGPR));
 
-        ScratchRegisterAllocator allocator(stubInfo.usedRegisters);
-        allocator.lock(stubInfo.baseRegs());
-        allocator.lock(valueRegs);
-        allocator.lock(stubInfo.propertyRegs());
-        if (stubInfo.m_stubInfoGPR != InvalidGPRReg)
-            allocator.lock(stubInfo.m_stubInfoGPR);
-        allocator.lock(scratchGPR);
+        auto allocator = state.makeDefaultScratchAllocator(scratchGPR);
         GPRReg scratch2GPR = allocator.allocateScratchGPR();
 
         CCallHelpers::JumpList failAndIgnore;
@@ -1199,16 +1334,8 @@ void AccessCase::generateWithGuard(
         jit.load8(CCallHelpers::Address(baseGPR, JSCell::indexingTypeAndMiscOffset()), scratchGPR);
         jit.and32(CCallHelpers::TrustedImm32(IndexingShapeMask), scratchGPR);
 
-        CCallHelpers::Jump isOutOfBounds;
-        CCallHelpers::Jump isEmpty;
+        auto allocator = state.makeDefaultScratchAllocator(scratchGPR);
 
-        ScratchRegisterAllocator allocator(stubInfo.usedRegisters);
-        allocator.lock(stubInfo.baseRegs());
-        allocator.lock(valueRegs);
-        allocator.lock(stubInfo.propertyRegs());
-        if (stubInfo.m_stubInfoGPR != InvalidGPRReg)
-            allocator.lock(stubInfo.m_stubInfoGPR);
-        allocator.lock(scratchGPR);
         GPRReg scratch2GPR = allocator.allocateScratchGPR();
 #if USE(JSVALUE32_64)
         GPRReg scratch3GPR = allocator.allocateScratchGPR();
@@ -1227,16 +1354,16 @@ void AccessCase::generateWithGuard(
             preserveReusedRegisters();
 
             jit.loadPtr(CCallHelpers::Address(baseGPR, JSObject::butterflyOffset()), scratchGPR);
-            isOutOfBounds = jit.branch32(CCallHelpers::AboveOrEqual, propertyGPR, CCallHelpers::Address(scratchGPR, ArrayStorage::vectorLengthOffset()));
+            failAndIgnore.append(jit.branch32(CCallHelpers::AboveOrEqual, propertyGPR, CCallHelpers::Address(scratchGPR, ArrayStorage::vectorLengthOffset())));
 
             jit.zeroExtend32ToWord(propertyGPR, scratch2GPR);
 #if USE(JSVALUE64)
             jit.loadValue(CCallHelpers::BaseIndex(scratchGPR, scratch2GPR, CCallHelpers::TimesEight, ArrayStorage::vectorOffset()), JSValueRegs(scratchGPR));
-            isEmpty = jit.branchIfEmpty(scratchGPR);
+            failAndIgnore.append(jit.branchIfEmpty(scratchGPR));
             jit.move(scratchGPR, valueRegs.payloadGPR());
 #else
             jit.loadValue(CCallHelpers::BaseIndex(scratchGPR, scratch2GPR, CCallHelpers::TimesEight, ArrayStorage::vectorOffset()), JSValueRegs(scratch3GPR, scratchGPR));
-            isEmpty = jit.branchIfEmpty(scratch3GPR);
+            failAndIgnore.append(jit.branchIfEmpty(scratch3GPR));
             jit.move(scratchGPR, valueRegs.payloadGPR());
             jit.move(scratch3GPR, valueRegs.tagGPR());
 #endif
@@ -1262,21 +1389,21 @@ void AccessCase::generateWithGuard(
             preserveReusedRegisters();
 
             jit.loadPtr(CCallHelpers::Address(baseGPR, JSObject::butterflyOffset()), scratchGPR);
-            isOutOfBounds = jit.branch32(CCallHelpers::AboveOrEqual, propertyGPR, CCallHelpers::Address(scratchGPR, Butterfly::offsetOfPublicLength()));
+            failAndIgnore.append(jit.branch32(CCallHelpers::AboveOrEqual, propertyGPR, CCallHelpers::Address(scratchGPR, Butterfly::offsetOfPublicLength())));
             jit.zeroExtend32ToWord(propertyGPR, scratch2GPR);
             if (m_type == IndexedDoubleLoad) {
                 RELEASE_ASSERT(state.scratchFPR != InvalidFPRReg);
                 jit.loadDouble(CCallHelpers::BaseIndex(scratchGPR, scratch2GPR, CCallHelpers::TimesEight), state.scratchFPR);
-                isEmpty = jit.branchIfNaN(state.scratchFPR);
+                failAndIgnore.append(jit.branchIfNaN(state.scratchFPR));
                 jit.boxDouble(state.scratchFPR, valueRegs);
             } else {
 #if USE(JSVALUE64)
                 jit.loadValue(CCallHelpers::BaseIndex(scratchGPR, scratch2GPR, CCallHelpers::TimesEight), JSValueRegs(scratchGPR));
-                isEmpty = jit.branchIfEmpty(scratchGPR);
+                failAndIgnore.append(jit.branchIfEmpty(scratchGPR));
                 jit.move(scratchGPR, valueRegs.payloadGPR());
 #else
                 jit.loadValue(CCallHelpers::BaseIndex(scratchGPR, scratch2GPR, CCallHelpers::TimesEight), JSValueRegs(scratch3GPR, scratchGPR));
-                isEmpty = jit.branchIfEmpty(scratch3GPR);
+                failAndIgnore.append(jit.branchIfEmpty(scratch3GPR));
                 jit.move(scratchGPR, valueRegs.payloadGPR());
                 jit.move(scratch3GPR, valueRegs.tagGPR());
 #endif
@@ -1286,16 +1413,270 @@ void AccessCase::generateWithGuard(
         allocator.restoreReusedRegistersByPopping(jit, preservedState);
         state.succeed();
 
-        if (allocator.didReuseRegisters()) {
-            isOutOfBounds.link(&jit);
-            isEmpty.link(&jit);
+        if (allocator.didReuseRegisters() && !failAndIgnore.empty()) {
+            failAndIgnore.link(&jit);
             allocator.restoreReusedRegistersByPopping(jit, preservedState);
             state.failAndIgnore.append(jit.jump());
+        } else
+            state.failAndIgnore.append(failAndIgnore);
+        return;
+    }
+
+    case IndexedInt32Store:
+    case IndexedDoubleStore:
+    case IndexedContiguousStore:
+    case IndexedArrayStorageStore: {
+        ASSERT(!viaProxy());
+        GPRReg propertyGPR = state.u.propertyGPR;
+
+        // int32 check done in polymorphic access.
+        jit.load8(CCallHelpers::Address(baseGPR, JSCell::indexingTypeAndMiscOffset()), scratchGPR);
+        fallThrough.append(jit.branchTest32(CCallHelpers::NonZero, scratchGPR, CCallHelpers::TrustedImm32(CopyOnWrite)));
+        jit.and32(CCallHelpers::TrustedImm32(IndexingShapeMask), scratchGPR);
+
+        CCallHelpers::JumpList isOutOfBounds;
+
+        auto allocator = state.makeDefaultScratchAllocator(scratchGPR);
+        GPRReg scratch2GPR = allocator.allocateScratchGPR();
+        ScratchRegisterAllocator::PreservedState preservedState;
+
+        CCallHelpers::JumpList failAndIgnore;
+        CCallHelpers::JumpList failAndRepatch;
+        auto preserveReusedRegisters = [&] {
+            preservedState = allocator.preserveReusedRegistersByPushing(jit, ScratchRegisterAllocator::ExtraStackSpace::NoExtraSpace);
+        };
+
+        CCallHelpers::Label storeResult;
+        if (m_type == IndexedArrayStorageStore) {
+            fallThrough.append(jit.branch32(CCallHelpers::NotEqual, scratchGPR, CCallHelpers::TrustedImm32(ArrayStorageShape)));
+
+            preserveReusedRegisters();
+
+            jit.loadPtr(CCallHelpers::Address(baseGPR, JSObject::butterflyOffset()), scratchGPR);
+            failAndIgnore.append(jit.branch32(CCallHelpers::AboveOrEqual, propertyGPR, CCallHelpers::Address(scratchGPR, ArrayStorage::vectorLengthOffset())));
+
+            jit.zeroExtend32ToWord(propertyGPR, scratch2GPR);
+
+#if USE(JSVALUE64)
+            isOutOfBounds.append(jit.branchTest64(CCallHelpers::Zero, CCallHelpers::BaseIndex(scratchGPR, scratch2GPR, CCallHelpers::TimesEight, ArrayStorage::vectorOffset())));
+#else
+            isOutOfBounds.append(jit.branch32(CCallHelpers::Equal, CCallHelpers::BaseIndex(scratchGPR, scratch2GPR, CCallHelpers::TimesEight, ArrayStorage::vectorOffset() + JSValue::offsetOfTag()), CCallHelpers::TrustedImm32(JSValue::EmptyValueTag)));
+#endif
+
+            storeResult = jit.label();
+            jit.storeValue(valueRegs, CCallHelpers::BaseIndex(scratchGPR, scratch2GPR, CCallHelpers::TimesEight, ArrayStorage::vectorOffset()));
         } else {
-            state.failAndIgnore.append(isOutOfBounds);
-            state.failAndIgnore.append(isEmpty);
+            IndexingType expectedShape;
+            switch (m_type) {
+            case IndexedInt32Store:
+                expectedShape = Int32Shape;
+                break;
+            case IndexedDoubleStore:
+                expectedShape = DoubleShape;
+                break;
+            case IndexedContiguousStore:
+                expectedShape = ContiguousShape;
+                break;
+            default:
+                RELEASE_ASSERT_NOT_REACHED();
+                break;
+            }
+
+            fallThrough.append(jit.branch32(CCallHelpers::NotEqual, scratchGPR, CCallHelpers::TrustedImm32(expectedShape)));
+
+            preserveReusedRegisters();
+
+            jit.loadPtr(CCallHelpers::Address(baseGPR, JSObject::butterflyOffset()), scratchGPR);
+            isOutOfBounds.append(jit.branch32(CCallHelpers::AboveOrEqual, propertyGPR, CCallHelpers::Address(scratchGPR, Butterfly::offsetOfPublicLength())));
+            storeResult = jit.label();
+            switch (m_type) {
+            case IndexedDoubleStore: {
+                RELEASE_ASSERT(state.scratchFPR != InvalidFPRReg);
+                auto notInt = jit.branchIfNotInt32(valueRegs);
+                jit.convertInt32ToDouble(valueRegs.payloadGPR(), state.scratchFPR);
+                auto ready = jit.jump();
+                notInt.link(&jit);
+#if USE(JSVALUE64)
+                jit.unboxDoubleWithoutAssertions(valueRegs.payloadGPR(), scratch2GPR, state.scratchFPR);
+#else
+                jit.unboxDouble(valueRegs, state.scratchFPR);
+#endif
+                failAndRepatch.append(jit.branchIfNaN(state.scratchFPR));
+                ready.link(&jit);
+
+                jit.zeroExtend32ToWord(propertyGPR, scratch2GPR);
+                jit.storeDouble(state.scratchFPR, CCallHelpers::BaseIndex(scratchGPR, scratch2GPR, CCallHelpers::TimesEight));
+                break;
+            }
+            case IndexedInt32Store:
+                jit.zeroExtend32ToWord(propertyGPR, scratch2GPR);
+                failAndRepatch.append(jit.branchIfNotInt32(valueRegs));
+                jit.storeValue(valueRegs, CCallHelpers::BaseIndex(scratchGPR, scratch2GPR, CCallHelpers::TimesEight));
+                break;
+            case IndexedContiguousStore:
+                jit.zeroExtend32ToWord(propertyGPR, scratch2GPR);
+                jit.storeValue(valueRegs, CCallHelpers::BaseIndex(scratchGPR, scratch2GPR, CCallHelpers::TimesEight));
+                // WriteBarrier must be emitted in the embedder side.
+                break;
+            default:
+                RELEASE_ASSERT_NOT_REACHED();
+                break;
+            }
         }
 
+        allocator.restoreReusedRegistersByPopping(jit, preservedState);
+        state.succeed();
+
+        if (m_type == IndexedArrayStorageStore) {
+            isOutOfBounds.link(&jit);
+            if (stubInfo.m_arrayProfileGPR != InvalidGPRReg)
+                jit.store8(CCallHelpers::TrustedImm32(1), CCallHelpers::Address(stubInfo.m_arrayProfileGPR, ArrayProfile::offsetOfMayStoreToHole()));
+            jit.add32(CCallHelpers::TrustedImm32(1), CCallHelpers::Address(scratchGPR, ArrayStorage::numValuesInVectorOffset()));
+            jit.branch32(CCallHelpers::Below, scratch2GPR, CCallHelpers::Address(scratchGPR, ArrayStorage::lengthOffset())).linkTo(storeResult, &jit);
+
+            jit.add32(CCallHelpers::TrustedImm32(1), scratch2GPR);
+            jit.store32(scratch2GPR, CCallHelpers::Address(scratchGPR, ArrayStorage::lengthOffset()));
+            jit.sub32(CCallHelpers::TrustedImm32(1), scratch2GPR);
+            jit.jump().linkTo(storeResult, &jit);
+        } else {
+            isOutOfBounds.link(&jit);
+            failAndIgnore.append(jit.branch32(CCallHelpers::AboveOrEqual, propertyGPR, CCallHelpers::Address(scratchGPR, Butterfly::offsetOfVectorLength())));
+            if (stubInfo.m_arrayProfileGPR != InvalidGPRReg)
+                jit.store8(CCallHelpers::TrustedImm32(1), CCallHelpers::Address(stubInfo.m_arrayProfileGPR, ArrayProfile::offsetOfMayStoreToHole()));
+            jit.add32(CCallHelpers::TrustedImm32(1), propertyGPR, scratch2GPR);
+            jit.store32(scratch2GPR, CCallHelpers::Address(scratchGPR, Butterfly::offsetOfPublicLength()));
+            jit.jump().linkTo(storeResult, &jit);
+
+        }
+
+        if (allocator.didReuseRegisters()) {
+            if (!failAndIgnore.empty()) {
+                failAndIgnore.link(&jit);
+                allocator.restoreReusedRegistersByPopping(jit, preservedState);
+                state.failAndIgnore.append(jit.jump());
+            }
+            if (!failAndRepatch.empty()) {
+                failAndRepatch.link(&jit);
+                allocator.restoreReusedRegistersByPopping(jit, preservedState);
+                state.failAndRepatch.append(jit.jump());
+            }
+        } else {
+            state.failAndIgnore.append(failAndIgnore);
+            state.failAndRepatch.append(failAndRepatch);
+        }
+        return;
+    }
+
+    case IndexedTypedArrayInt8Store:
+    case IndexedTypedArrayUint8Store:
+    case IndexedTypedArrayUint8ClampedStore:
+    case IndexedTypedArrayInt16Store:
+    case IndexedTypedArrayUint16Store:
+    case IndexedTypedArrayInt32Store:
+    case IndexedTypedArrayUint32Store:
+    case IndexedTypedArrayFloat32Store:
+    case IndexedTypedArrayFloat64Store: {
+        ASSERT(!viaProxy());
+        // This code is written such that the result could alias with the base or the property.
+
+        TypedArrayType type = toTypedArrayType(m_type);
+
+        GPRReg propertyGPR = state.u.propertyGPR;
+
+        jit.load8(CCallHelpers::Address(baseGPR, JSCell::typeInfoTypeOffset()), scratchGPR);
+        fallThrough.append(jit.branch32(CCallHelpers::NotEqual, scratchGPR, CCallHelpers::TrustedImm32(typeForTypedArrayType(type))));
+
+        if (isInt(type))
+            state.failAndRepatch.append(jit.branchIfNotInt32(valueRegs));
+        else {
+            ASSERT(isFloat(type));
+            RELEASE_ASSERT(state.scratchFPR != InvalidFPRReg);
+            auto doubleCase = jit.branchIfNotInt32(valueRegs);
+            jit.convertInt32ToDouble(valueRegs.payloadGPR(), state.scratchFPR);
+            auto ready = jit.jump();
+            doubleCase.link(&jit);
+#if USE(JSVALUE64)
+            state.failAndRepatch.append(jit.branchIfNotNumber(valueRegs.payloadGPR()));
+            jit.unboxDoubleWithoutAssertions(valueRegs.payloadGPR(), scratchGPR, state.scratchFPR);
+#else
+            state.failAndRepatch.append(jit.branch32(CCallHelpers::Above, valueRegs.tagGPR(), CCallHelpers::TrustedImm32(JSValue::LowestTag)));
+            jit.unboxDouble(valueRegs, state.scratchFPR);
+#endif
+            ready.link(&jit);
+        }
+
+        CCallHelpers::Address addressOfLength = CCallHelpers::Address(baseGPR, JSArrayBufferView::offsetOfLength());
+        jit.signExtend32ToPtr(propertyGPR, scratchGPR);
+#if USE(LARGE_TYPED_ARRAYS)
+        // The length is a UCPURegister, so either 32 or 64 bits depending on the platform.
+        state.failAndRepatch.append(jit.branch64(CCallHelpers::AboveOrEqual, scratchGPR, addressOfLength));
+#else
+        state.failAndRepatch.append(jit.branch32(CCallHelpers::AboveOrEqual, propertyGPR, addressOfLength));
+#endif
+
+        auto allocator = state.makeDefaultScratchAllocator(scratchGPR);
+        GPRReg scratch2GPR = allocator.allocateScratchGPR();
+
+        ScratchRegisterAllocator::PreservedState preservedState = allocator.preserveReusedRegistersByPushing(
+            jit, ScratchRegisterAllocator::ExtraStackSpace::NoExtraSpace);
+
+#if USE(LARGE_TYPED_ARRAYS)
+        jit.load64(addressOfLength, scratchGPR);
+#else
+        jit.load32(addressOfLength, scratchGPR);
+#endif
+        jit.loadPtr(CCallHelpers::Address(baseGPR, JSArrayBufferView::offsetOfVector()), scratch2GPR);
+        jit.cageConditionallyAndUntag(Gigacage::Primitive, scratch2GPR, scratchGPR, scratchGPR, false);
+        jit.signExtend32ToPtr(propertyGPR, scratchGPR);
+        if (isInt(type)) {
+            if (isClamped(type)) {
+                ASSERT(elementSize(type) == 1);
+                ASSERT(!JSC::isSigned(type));
+                jit.getEffectiveAddress(CCallHelpers::BaseIndex(scratch2GPR, scratchGPR, CCallHelpers::TimesOne), scratch2GPR);
+                jit.move(valueRegs.payloadGPR(), scratchGPR);
+                auto inBounds = jit.branch32(CCallHelpers::BelowOrEqual, scratchGPR, CCallHelpers::TrustedImm32(0xff));
+                auto tooBig = jit.branch32(CCallHelpers::GreaterThan, scratchGPR, CCallHelpers::TrustedImm32(0xff));
+                jit.xor32(scratchGPR, scratchGPR);
+                auto clamped = jit.jump();
+                tooBig.link(&jit);
+                jit.move(CCallHelpers::TrustedImm32(0xff), scratchGPR);
+                clamped.link(&jit);
+                inBounds.link(&jit);
+                jit.store8(scratchGPR, CCallHelpers::Address(scratch2GPR));
+            } else {
+                switch (elementSize(type)) {
+                case 1:
+                    jit.store8(valueRegs.payloadGPR(), CCallHelpers::BaseIndex(scratch2GPR, scratchGPR, CCallHelpers::TimesOne));
+                    break;
+                case 2:
+                    jit.store16(valueRegs.payloadGPR(), CCallHelpers::BaseIndex(scratch2GPR, scratchGPR, CCallHelpers::TimesTwo));
+                    break;
+                case 4:
+                    jit.store32(valueRegs.payloadGPR(), CCallHelpers::BaseIndex(scratch2GPR, scratchGPR, CCallHelpers::TimesFour));
+                    break;
+                default:
+                    CRASH();
+                }
+            }
+        } else {
+            ASSERT(isFloat(type));
+            RELEASE_ASSERT(state.scratchFPR != InvalidFPRReg);
+            switch (elementSize(type)) {
+            case 4:
+                jit.convertDoubleToFloat(state.scratchFPR, state.scratchFPR);
+                jit.storeFloat(state.scratchFPR, CCallHelpers::BaseIndex(scratch2GPR, scratchGPR, CCallHelpers::TimesFour));
+                break;
+            case 8: {
+                jit.storeDouble(state.scratchFPR, CCallHelpers::BaseIndex(scratch2GPR, scratchGPR, CCallHelpers::TimesEight));
+                break;
+            }
+            default:
+                CRASH();
+            }
+        }
+
+        allocator.restoreReusedRegistersByPopping(jit, preservedState);
+        state.succeed();
         return;
     }
 
@@ -1316,13 +1697,7 @@ void AccessCase::generateWithGuard(
         
         GPRReg valueGPR = valueRegs.payloadGPR();
         
-        ScratchRegisterAllocator allocator(stubInfo.usedRegisters);
-        allocator.lock(stubInfo.baseRegs());
-        allocator.lock(valueRegs);
-        allocator.lock(stubInfo.propertyRegs());
-        if (stubInfo.m_stubInfoGPR != InvalidGPRReg)
-            allocator.lock(stubInfo.m_stubInfoGPR);
-        allocator.lock(scratchGPR);
+        auto allocator = state.makeDefaultScratchAllocator(scratchGPR);
         
         GPRReg scratch2GPR = allocator.allocateScratchGPR();
         
@@ -1545,13 +1920,15 @@ void AccessCase::generateImpl(AccessGenerationState& state)
                 CCallHelpers::Address(storageGPR, offsetRelativeToBase(m_offset)), loadedValueGPR);
 #else
             if (m_type == Load || m_type == GetGetter) {
+                jit.loadValue(
+                    CCallHelpers::Address(storageGPR, offsetRelativeToBase(m_offset)),
+                    JSValueRegs { valueRegs.tagGPR(), loadedValueGPR });
+
+            } else {
                 jit.load32(
-                    CCallHelpers::Address(storageGPR, offsetRelativeToBase(m_offset) + TagOffset),
-                    valueRegs.tagGPR());
+                    CCallHelpers::Address(storageGPR, offsetRelativeToBase(m_offset) + PayloadOffset),
+                    loadedValueGPR);
             }
-            jit.load32(
-                CCallHelpers::Address(storageGPR, offsetRelativeToBase(m_offset) + PayloadOffset),
-                loadedValueGPR);
 #endif
         }
 
@@ -1579,14 +1956,10 @@ void AccessCase::generateImpl(AccessGenerationState& state)
         // Stuff for custom getters/setters.
         CCallHelpers::Call operationCall;
 
+
         // This also does the necessary calculations of whether or not we're an
         // exception handling call site.
-        RegisterSet extraRegistersToPreserve;
-#if CPU(ARM64)
-        if (codeBlock->useDataIC())
-            extraRegistersToPreserve.set(ARM64Registers::lr);
-#endif
-        AccessGenerationState::SpillState spillState = state.preserveLiveRegistersToStackForCall(extraRegistersToPreserve);
+        AccessGenerationState::SpillState spillState = state.preserveLiveRegistersToStackForCall();
 
         auto restoreLiveRegistersFromStackForCall = [&](AccessGenerationState::SpillState& spillState, bool callHasReturnValue) {
             RegisterSet dontRestore;
@@ -1626,7 +1999,7 @@ void AccessCase::generateImpl(AccessGenerationState& state)
             state.setSpillStateForJSGetterSetter(spillState);
 
             RELEASE_ASSERT(!access.callLinkInfo());
-            CallLinkInfo* callLinkInfo = state.m_callLinkInfos.add(stubInfo.codeOrigin);
+            auto* callLinkInfo = state.m_callLinkInfos.add(stubInfo.codeOrigin);
             access.m_callLinkInfo = callLinkInfo;
 
             // FIXME: If we generated a polymorphic call stub that jumped back to the getter
@@ -1673,8 +2046,7 @@ void AccessCase::generateImpl(AccessGenerationState& state)
             ASSERT(!(numberOfRegsForCall % stackAlignmentRegisters()));
             unsigned numberOfBytesForCall = numberOfRegsForCall * sizeof(Register) - sizeof(CallerFrameAndPC);
 
-            unsigned alignedNumberOfBytesForCall =
-            WTF::roundUpToMultipleOf(stackAlignmentBytes(), numberOfBytesForCall);
+            unsigned alignedNumberOfBytesForCall = WTF::roundUpToMultipleOf(stackAlignmentBytes(), numberOfBytesForCall);
 
             jit.subPtr(
                 CCallHelpers::TrustedImm32(alignedNumberOfBytesForCall),
@@ -1732,6 +2104,7 @@ void AccessCase::generateImpl(AccessGenerationState& state)
 
             int stackPointerOffset = (codeBlock->stackPointerOffset() * sizeof(Register)) - state.preservedReusedRegisterState.numberOfBytesPreserved - spillState.numberOfStackBytesUsedForRegisterPreservation;
             jit.addPtr(CCallHelpers::TrustedImm32(stackPointerOffset), GPRInfo::callFrameRegister, CCallHelpers::stackPointerRegister);
+
             bool callHasReturnValue = isGetter();
             restoreLiveRegistersFromStackForCall(spillState, callHasReturnValue);
 
@@ -1858,12 +2231,7 @@ void AccessCase::generateImpl(AccessGenerationState& state)
 
             jit.loadPtr(CCallHelpers::Address(baseGPR, JSProxy::targetOffset()), scratchGPR);
 
-            RegisterSet extraRegistersToPreserve;
-#if CPU(ARM64)
-            if (codeBlock->useDataIC())
-                extraRegistersToPreserve.set(ARM64Registers::lr);
-#endif
-            auto spillState = state.preserveLiveRegistersToStackForCallWithoutExceptions(extraRegistersToPreserve);
+            auto spillState = state.preserveLiveRegistersToStackForCallWithoutExceptions();
 
             jit.setupArguments<decltype(operationWriteBarrierSlowPath)>(CCallHelpers::TrustedImmPtr(&vm), scratchGPR);
             jit.prepareCallOperation(vm);
@@ -1882,7 +2250,7 @@ void AccessCase::generateImpl(AccessGenerationState& state)
 
     case Transition: {
         ASSERT(!viaProxy());
-        // AccessCase::transition() should have returned null if this wasn't true.
+        // AccessCase::createTransition() should have returned null if this wasn't true.
         RELEASE_ASSERT(GPRInfo::numberOfRegisters >= 6 || !structure()->outOfLineCapacity() || structure()->outOfLineCapacity() == newStructure()->outOfLineCapacity());
 
         // NOTE: This logic is duplicated in AccessCase::doesCalls(). It's important that doesCalls() knows
@@ -1891,12 +2259,7 @@ void AccessCase::generateImpl(AccessGenerationState& state)
         bool reallocating = allocating && structure()->outOfLineCapacity();
         bool allocatingInline = allocating && !structure()->couldHaveIndexingHeader();
 
-        ScratchRegisterAllocator allocator(stubInfo.usedRegisters);
-        allocator.lock(stubInfo.baseRegs());
-        allocator.lock(valueRegs);
-        if (stubInfo.m_stubInfoGPR != InvalidGPRReg)
-            allocator.lock(stubInfo.m_stubInfoGPR);
-        allocator.lock(scratchGPR);
+        auto allocator = state.makeDefaultScratchAllocator(scratchGPR);
 
         GPRReg scratchGPR2 = InvalidGPRReg;
         GPRReg scratchGPR3 = InvalidGPRReg;
@@ -1916,7 +2279,7 @@ void AccessCase::generateImpl(AccessGenerationState& state)
             size_t newSize = newStructure()->outOfLineCapacity() * sizeof(JSValue);
 
             if (allocatingInline) {
-                Allocator allocator = vm.jsValueGigacageAuxiliarySpace.allocatorFor(newSize, AllocatorForMode::AllocatorIfExists);
+                Allocator allocator = vm.jsValueGigacageAuxiliarySpace().allocatorForNonInline(newSize, AllocatorForMode::AllocatorIfExists);
 
                 jit.emitAllocate(scratchGPR, JITAllocator::constant(allocator), scratchGPR2, scratchGPR3, slowPath);
                 jit.addPtr(CCallHelpers::TrustedImm32(newSize + sizeof(IndexingHeader)), scratchGPR);
@@ -1954,10 +2317,6 @@ void AccessCase::generateImpl(AccessGenerationState& state)
                 RegisterSet extraRegistersToPreserve;
                 extraRegistersToPreserve.set(baseGPR);
                 extraRegistersToPreserve.set(valueRegs);
-#if CPU(ARM64)
-                if (codeBlock->useDataIC())
-                    extraRegistersToPreserve.set(ARM64Registers::lr);
-#endif
                 AccessGenerationState::SpillState spillState = state.preserveLiveRegistersToStackForCall(extraRegistersToPreserve);
                 
                 jit.store32(
@@ -2052,21 +2411,11 @@ void AccessCase::generateImpl(AccessGenerationState& state)
     }
 
     case Delete: {
-        ScratchRegisterAllocator allocator(stubInfo.usedRegisters);
-        allocator.lock(stubInfo.baseRegs());
-        allocator.lock(valueRegs);
-        allocator.lock(baseGPR);
-        if (stubInfo.m_stubInfoGPR != InvalidGPRReg)
-            allocator.lock(stubInfo.m_stubInfoGPR);
-        allocator.lock(scratchGPR);
         ASSERT(structure()->transitionWatchpointSetHasBeenInvalidated());
         ASSERT(newStructure()->transitionKind() == TransitionKind::PropertyDeletion);
         ASSERT(baseGPR != scratchGPR);
         ASSERT(!valueRegs.uses(baseGPR));
         ASSERT(!valueRegs.uses(scratchGPR));
-
-        ScratchRegisterAllocator::PreservedState preservedState =
-            allocator.preserveReusedRegistersByPushing(jit, ScratchRegisterAllocator::ExtraStackSpace::NoExtraSpace);
 
         jit.moveValue(JSValue(), valueRegs);
 
@@ -2091,7 +2440,6 @@ void AccessCase::generateImpl(AccessGenerationState& state)
 
         jit.move(MacroAssembler::TrustedImm32(true), valueRegs.payloadGPR());
 
-        allocator.restoreReusedRegistersByPopping(jit, preservedState);
         state.succeed();
         return;
     }
@@ -2183,6 +2531,19 @@ void AccessCase::generateImpl(AccessGenerationState& state)
     case IndexedTypedArrayFloat64Load:
     case IndexedStringLoad:
     case CheckPrivateBrand:
+    case IndexedInt32Store:
+    case IndexedDoubleStore:
+    case IndexedContiguousStore:
+    case IndexedArrayStorageStore:
+    case IndexedTypedArrayInt8Store:
+    case IndexedTypedArrayUint8Store:
+    case IndexedTypedArrayUint8ClampedStore:
+    case IndexedTypedArrayInt16Store:
+    case IndexedTypedArrayUint16Store:
+    case IndexedTypedArrayInt32Store:
+    case IndexedTypedArrayUint32Store:
+    case IndexedTypedArrayFloat32Store:
+    case IndexedTypedArrayFloat64Store:
         // These need to be handled by generateWithGuard(), since the guard is part of the
         // algorithm. We can be sure that nobody will call generate() directly for these since they
         // are not guarded by structure checks.
@@ -2196,22 +2557,31 @@ TypedArrayType AccessCase::toTypedArrayType(AccessType accessType)
 {
     switch (accessType) {
     case IndexedTypedArrayInt8Load:
+    case IndexedTypedArrayInt8Store:
         return TypeInt8;
     case IndexedTypedArrayUint8Load:
+    case IndexedTypedArrayUint8Store:
         return TypeUint8;
     case IndexedTypedArrayUint8ClampedLoad:
+    case IndexedTypedArrayUint8ClampedStore:
         return TypeUint8Clamped;
     case IndexedTypedArrayInt16Load:
+    case IndexedTypedArrayInt16Store:
         return TypeInt16;
     case IndexedTypedArrayUint16Load:
+    case IndexedTypedArrayUint16Store:
         return TypeUint16;
     case IndexedTypedArrayInt32Load:
+    case IndexedTypedArrayInt32Store:
         return TypeInt32;
     case IndexedTypedArrayUint32Load:
+    case IndexedTypedArrayUint32Store:
         return TypeUint32;
     case IndexedTypedArrayFloat32Load:
+    case IndexedTypedArrayFloat32Store:
         return TypeFloat32;
     case IndexedTypedArrayFloat64Load:
+    case IndexedTypedArrayFloat64Store:
         return TypeFloat64;
     default:
         RELEASE_ASSERT_NOT_REACHED();
@@ -2284,6 +2654,19 @@ bool AccessCase::canBeShared(const AccessCase& lhs, const AccessCase& rhs)
     case IndexedTypedArrayUint32Load:
     case IndexedTypedArrayFloat32Load:
     case IndexedTypedArrayFloat64Load:
+    case IndexedInt32Store:
+    case IndexedDoubleStore:
+    case IndexedContiguousStore:
+    case IndexedArrayStorageStore:
+    case IndexedTypedArrayInt8Store:
+    case IndexedTypedArrayUint8Store:
+    case IndexedTypedArrayUint8ClampedStore:
+    case IndexedTypedArrayInt16Store:
+    case IndexedTypedArrayUint16Store:
+    case IndexedTypedArrayInt32Store:
+    case IndexedTypedArrayUint32Store:
+    case IndexedTypedArrayFloat32Store:
+    case IndexedTypedArrayFloat64Store:
     case IndexedStringLoad:
     case InstanceOfGeneric:
         return true;

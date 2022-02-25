@@ -41,6 +41,7 @@
 #include "JSCustomElementInterface.h"
 #include "LocalizedStrings.h"
 #include "NotImplemented.h"
+#include "SVGElementTypeHelpers.h"
 #include "SVGScriptElement.h"
 #include "XLinkNames.h"
 #include "XMLNSNames.h"
@@ -542,7 +543,7 @@ static MemoryCompactLookupOnlyRobinHoodHashMap<AtomString, QualifiedName> create
     addNamesWithPrefix(map, xlinkName, XLinkNames::getXLinkAttrs(), XLinkNames::XLinkAttrsCount);
     addNamesWithPrefix(map, xmlAtom(), XMLNames::getXMLAttrs(), XMLNames::XMLAttrsCount);
 
-    map.add(WTF::xmlnsAtom(), XMLNSNames::xmlnsAttr);
+    map.add(xmlnsAtom(), XMLNSNames::xmlnsAttr);
     map.add("xmlns:xlink", QualifiedName(xmlnsAtom(), xlinkName, XMLNSNames::xmlnsNamespaceURI));
 
     return map;
@@ -611,6 +612,7 @@ void HTMLTreeBuilder::processStartTagForInBody(AtomHTMLToken&& token)
         || token.name() == blockquoteTag
         || token.name() == centerTag
         || token.name() == detailsTag
+        || token.name() == dialogTag
         || token.name() == dirTag
         || token.name() == divTag
         || token.name() == dlTag
@@ -1724,6 +1726,7 @@ void HTMLTreeBuilder::processEndTagForInBody(AtomHTMLToken&& token)
         || token.name() == buttonTag
         || token.name() == centerTag
         || token.name() == detailsTag
+        || token.name() == dialogTag
         || token.name() == dirTag
         || token.name() == divTag
         || token.name() == dlTag
@@ -2206,7 +2209,7 @@ void HTMLTreeBuilder::insertPhoneNumberLink(const String& string)
 
     processStartTag(WTFMove(aStartToken));
     m_tree.executeQueuedTasks();
-    m_tree.insertTextNode(string);
+    m_tree.insertTextNode(string, NotAllWhitespace);
     processEndTag(WTFMove(aEndToken));
 }
 
@@ -2215,7 +2218,7 @@ void HTMLTreeBuilder::insertPhoneNumberLink(const String& string)
 // 2. Wraps the phone number in a tel: link.
 // 3. Goes back to step 1 if a phone number is found in the rest of the string.
 // 4. Appends the rest of the string as a text node.
-void HTMLTreeBuilder::linkifyPhoneNumbers(const String& string)
+void HTMLTreeBuilder::linkifyPhoneNumbers(const String& string, WhitespaceMode whitespaceMode)
 {
     ASSERT(TelephoneNumberDetector::isSupported());
 
@@ -2238,7 +2241,7 @@ void HTMLTreeBuilder::linkifyPhoneNumbers(const String& string)
 
         ASSERT(scannerPosition + relativeEndPosition < length);
 
-        m_tree.insertTextNode(string.substring(scannerPosition, relativeStartPosition));
+        m_tree.insertTextNode(string.substring(scannerPosition, relativeStartPosition), whitespaceMode);
         insertPhoneNumberLink(string.substring(scannerPosition + relativeStartPosition, relativeEndPosition - relativeStartPosition + 1));
 
         scannerPosition += relativeEndPosition + 1;
@@ -2248,10 +2251,10 @@ void HTMLTreeBuilder::linkifyPhoneNumbers(const String& string)
     if (scannerPosition > 0) {
         if (scannerPosition < length) {
             String after = string.substring(scannerPosition, length - scannerPosition);
-            m_tree.insertTextNode(after);
+            m_tree.insertTextNode(after, whitespaceMode);
         }
     } else
-        m_tree.insertTextNode(string);
+        m_tree.insertTextNode(string, whitespaceMode);
 }
 
 // Looks at the ancestors of the element to determine whether we're inside an element which disallows parsing phone numbers.
@@ -2430,14 +2433,15 @@ ReprocessBuffer:
 void HTMLTreeBuilder::processCharacterBufferForInBody(ExternalCharacterTokenBuffer& buffer)
 {
     m_tree.reconstructTheActiveFormattingElements();
+    auto whitespaceMode = buffer.isAll8BitData() ? WhitespaceUnknown : NotAllWhitespace;
     String characters = buffer.takeRemaining();
 #if ENABLE(TELEPHONE_NUMBER_DETECTION) && PLATFORM(IOS_FAMILY)
     if (!isParsingFragment() && m_tree.isTelephoneNumberParsingEnabled() && shouldParseTelephoneNumbersInNode(m_tree.currentNode()) && TelephoneNumberDetector::isSupported())
-        linkifyPhoneNumbers(characters);
+        linkifyPhoneNumbers(characters, whitespaceMode);
     else
-        m_tree.insertTextNode(characters);
+        m_tree.insertTextNode(characters, whitespaceMode);
 #else
-    m_tree.insertTextNode(characters);
+    m_tree.insertTextNode(characters, whitespaceMode);
 #endif
     if (m_framesetOk && !isAllWhitespaceOrReplacementCharacters(characters))
         m_framesetOk = false;

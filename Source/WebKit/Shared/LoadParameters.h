@@ -26,12 +26,14 @@
 #pragma once
 
 #include "DataReference.h"
+#include "NetworkResourceLoadIdentifier.h"
 #include "PolicyDecision.h"
 #include "SandboxExtension.h"
 #include "UserData.h"
 #include "WebsitePoliciesData.h"
 #include <WebCore/FrameLoaderTypes.h>
 #include <WebCore/ResourceRequest.h>
+#include <WebCore/ShouldTreatAsContinuingLoad.h>
 #include <WebCore/SubstituteData.h>
 
 OBJC_CLASS NSDictionary;
@@ -39,6 +41,10 @@ OBJC_CLASS NSDictionary;
 namespace IPC {
 class Decoder;
 class Encoder;
+}
+
+namespace WebCore {
+typedef int SandboxFlags;
 }
 
 namespace WebKit {
@@ -66,17 +72,20 @@ struct LoadParameters {
     std::optional<WebsitePoliciesData> websitePolicies;
 
     WebCore::ShouldOpenExternalURLsPolicy shouldOpenExternalURLsPolicy { WebCore::ShouldOpenExternalURLsPolicy::ShouldNotAllow };
-    bool shouldTreatAsContinuingLoad { false };
+    WebCore::ShouldTreatAsContinuingLoad shouldTreatAsContinuingLoad { WebCore::ShouldTreatAsContinuingLoad::No };
     UserData userData;
     WebCore::LockHistory lockHistory { WebCore::LockHistory::No };
     WebCore::LockBackForwardList lockBackForwardList { WebCore::LockBackForwardList::No };
     WebCore::SubstituteData::SessionHistoryVisibility sessionHistoryVisibility { WebCore::SubstituteData::SessionHistoryVisibility::Visible };
     String clientRedirectSourceForHistory;
+    WebCore::SandboxFlags effectiveSandboxFlags { 0 };
     std::optional<NavigatingToAppBoundDomain> isNavigatingToAppBoundDomain;
+    std::optional<NetworkResourceLoadIdentifier> existingNetworkResourceLoadIdentifierToResume;
+    bool isServiceWorkerLoad { false };
 
 #if PLATFORM(COCOA)
     RetainPtr<NSDictionary> dataDetectionContext;
-    SandboxExtension::HandleArray networkExtensionSandboxExtensionHandles;
+    Vector<SandboxExtension::Handle> networkExtensionSandboxExtensionHandles;
 #endif
 #if PLATFORM(IOS)
     std::optional<SandboxExtension::Handle> contentFilterExtensionHandle;

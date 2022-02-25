@@ -701,7 +701,7 @@ static const float GroupOptionTextColorAlpha = 0.5;
 
     [_view removeInteraction:_selectContextMenuInteraction.get()];
     _selectContextMenuInteraction = nil;
-    [_view _removeContextMenuViewIfPossible];
+    [_view _removeContextMenuHintContainerIfPossible];
     [_view.webView _didDismissContextMenu];
 }
 
@@ -717,7 +717,7 @@ static const float GroupOptionTextColorAlpha = 0.5;
 - (void)showSelectPicker
 {
     [self ensureContextMenuInteraction];
-    [_selectContextMenuInteraction _presentMenuAtLocation:_interactionPoint];
+    [_view presentContextMenu:_selectContextMenuInteraction.get() atLocation:_interactionPoint];
 }
 
 #endif // USE(UICONTEXTMENU)
@@ -1176,7 +1176,7 @@ static NSString *optionCellReuseIdentifier = @"WKSelectPickerTableViewCell";
 
 - (void)configurePresentation
 {
-    if (WebKit::currentUserInterfaceIdiomIsPhoneOrWatch()) {
+    if (WebKit::currentUserInterfaceIdiomIsSmallScreen()) {
         [[_navigationController navigationBar] setBarTintColor:UIColor.systemGroupedBackgroundColor];
 
         UIPresentationController *presentationController = [_navigationController presentationController];

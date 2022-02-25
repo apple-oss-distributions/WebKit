@@ -30,6 +30,7 @@
 
 #include <malloc.h>
 #include <unistd.h>
+#include <wtf/Logging.h>
 #include <wtf/MainThread.h>
 #include <wtf/MemoryFootprint.h>
 #include <wtf/text/WTFString.h>
@@ -41,8 +42,6 @@
 #include <sys/types.h>
 #include <sys/user.h>
 #endif
-
-#define LOG_CHANNEL_PREFIX Log
 
 namespace WTF {
 
@@ -67,7 +66,7 @@ void MemoryPressureHandler::triggerMemoryPressureEvent(bool isCritical)
     if (ReliefLogger::loggingEnabled())
         LOG(MemoryPressure, "Got memory pressure notification (%s)", isCritical ? "critical" : "non-critical");
 
-    setUnderMemoryPressure(true);
+    setMemoryPressureStatus(MemoryPressureStatus::SystemCritical);
 
     ensureOnMainThread([this, isCritical] {
         respondToMemoryPressure(isCritical ? Critical::Yes : Critical::No);
@@ -76,7 +75,7 @@ void MemoryPressureHandler::triggerMemoryPressureEvent(bool isCritical)
     if (ReliefLogger::loggingEnabled() && isUnderMemoryPressure())
         LOG(MemoryPressure, "System is no longer under memory pressure.");
 
-    setUnderMemoryPressure(false);
+    setMemoryPressureStatus(MemoryPressureStatus::Normal);
 }
 
 void MemoryPressureHandler::install()

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2020-2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -28,7 +28,6 @@
 #import "WebKitVersionChecks.h"
 #import <Foundation/NSBundle.h>
 #import <WebCore/RuntimeApplicationChecks.h>
-#import <WebCore/VersionChecks.h>
 #import <mach-o/dyld.h>
 #import <pal/spi/cf/CFUtilitiesSPI.h>
 #import <pal/spi/cocoa/FeatureFlagsSPI.h>
@@ -42,22 +41,31 @@
 
 namespace WebKit {
 
-#if PLATFORM(COCOA) && HAVE(SYSTEM_FEATURE_FLAGS)
+#if PLATFORM(COCOA)
 
 // Because of <rdar://problem/60608008>, WebKit has to parse the feature flags plist file
-bool isFeatureFlagEnabled(const String& featureName)
+bool isFeatureFlagEnabled(const char* featureName, bool defaultValue)
 {
-    BOOL isWebKitBundleFromStagedFramework = [[[NSBundle mainBundle] bundlePath] hasPrefix:@"/Library/Apple/System/Library/StagedFrameworks/WebKit"];
+#if HAVE(SYSTEM_FEATURE_FLAGS)
 
-    if (!isWebKitBundleFromStagedFramework)
-        return _os_feature_enabled_impl("WebKit", (const char*)featureName.utf8().data());
+#if PLATFORM(MAC)
+    static bool isSystemWebKit = [] {
+        auto *bundle = [NSBundle bundleForClass:NSClassFromString(@"WebResource")];
+        return [bundle.bundlePath hasPrefix:@"/System/"];
+    }();
 
-    static NeverDestroyed<RetainPtr<NSDictionary>> dictionary = [NSDictionary dictionaryWithContentsOfFile:@"/Library/Apple/System/Library/FeatureFlags/Domain/WebKit.plist"];
+    return isSystemWebKit ? _os_feature_enabled_impl("WebKit", featureName) : defaultValue;
+#else
+    UNUSED_PARAM(defaultValue);
+    return _os_feature_enabled_impl("WebKit", featureName);
+#endif // PLATFORM(MAC)
 
-    if (![[dictionary.get() objectForKey:featureName] objectForKey:@"Enabled"])
-        return _os_feature_enabled_impl("WebKit", (const char*)featureName.characters8());
+#else
 
-    return [[[dictionary.get() objectForKey:featureName] objectForKey:@"Enabled"] isKindOfClass:[NSNumber class]] && [[[dictionary.get() objectForKey:featureName] objectForKey:@"Enabled"] boolValue];
+    UNUSED_PARAM(featureName);
+    return defaultValue;
+
+#endif // HAVE(SYSTEM_FEATURE_FLAGS)
 }
 
 #endif
@@ -66,11 +74,7 @@ bool isFeatureFlagEnabled(const String& featureName)
 
 bool defaultIncrementalPDFEnabled()
 {
-#if HAVE(SYSTEM_FEATURE_FLAGS)
-    return isFeatureFlagEnabled("incremental_pdf");
-#endif
-
-    return false;
+    return isFeatureFlagEnabled("incremental_pdf", false);
 }
 
 #endif
@@ -79,7 +83,7 @@ bool defaultIncrementalPDFEnabled()
 
 bool defaultWebXREnabled()
 {
-    return false;
+    return isFeatureFlagEnabled("WebXR", false);
 }
 
 #endif // ENABLE(WEBXR)
@@ -88,47 +92,47 @@ bool defaultWebXREnabled()
 
 bool defaultAllowsInlineMediaPlayback()
 {
-    return WebCore::deviceClass() == MGDeviceClassiPad;
+    return !WebCore::deviceClassIsSmallScreen();
 }
 
 bool defaultAllowsInlineMediaPlaybackAfterFullscreen()
 {
-    return WebCore::deviceClass() != MGDeviceClassiPad;
+    return WebCore::deviceClassIsSmallScreen();
 }
 
 bool defaultAllowsPictureInPictureMediaPlayback()
 {
-    static bool shouldAllowPictureInPictureMediaPlayback = dyld_get_program_sdk_version() >= DYLD_IOS_VERSION_9_0;
+    static bool shouldAllowPictureInPictureMediaPlayback = linkedOnOrAfter(SDKVersion::FirstWithPictureInPictureMediaPlayback);
     return shouldAllowPictureInPictureMediaPlayback;
 }
 
 bool defaultJavaScriptCanOpenWindowsAutomatically()
 {
-    static bool shouldAllowWindowOpenWithoutUserGesture = WebCore::IOSApplication::isTheSecretSocietyHiddenMystery() && dyld_get_program_sdk_version() < DYLD_IOS_VERSION_10_0;
+    static bool shouldAllowWindowOpenWithoutUserGesture = WebCore::IOSApplication::isTheSecretSocietyHiddenMystery() && !linkedOnOrAfter(SDKVersion::FirstWithoutTheSecretSocietyHiddenMysteryWindowOpenQuirk);
     return shouldAllowWindowOpenWithoutUserGesture;
 }
 
 bool defaultInlineMediaPlaybackRequiresPlaysInlineAttribute()
 {
-    return WebCore::deviceClass() != MGDeviceClassiPad;
+    return WebCore::deviceClassIsSmallScreen();
 }
 
 bool defaultPassiveTouchListenersAsDefaultOnDocument()
 {
-    static bool result = linkedOnOrAfter(WebCore::SDKVersion::FirstThatDefaultsToPassiveTouchListenersOnDocument);
+    static bool result = linkedOnOrAfter(SDKVersion::FirstThatDefaultsToPassiveTouchListenersOnDocument);
     return result;
 }
 
 bool defaultRequiresUserGestureToLoadVideo()
 {
-    static bool shouldRequireUserGestureToLoadVideo = dyld_get_program_sdk_version() >= DYLD_IOS_VERSION_10_0;
+    static bool shouldRequireUserGestureToLoadVideo = linkedOnOrAfter(SDKVersion::FirstThatRequiresUserGestureToLoadVideo);
     return shouldRequireUserGestureToLoadVideo;
 }
 
 bool defaultWebSQLEnabled()
 {
     // For backward compatibility, keep WebSQL working until apps are rebuilt with the iOS 14 SDK.
-    static bool webSQLEnabled = dyld_get_program_sdk_version() < DYLD_IOS_VERSION_14_0;
+    static bool webSQLEnabled = !linkedOnOrAfter(SDKVersion::FirstWithWebSQLDisabledByDefaultInLegacyWebKit);
     return webSQLEnabled;
 }
 
@@ -185,6 +189,12 @@ bool defaultNeedsAdobeFrameReloadingQuirk()
     return needsQuirk;
 }
 
+bool defaultScrollAnimatorEnabled()
+{
+    static bool enabled = [[NSUserDefaults standardUserDefaults] boolForKey:@"NSScrollAnimationEnabled"];
+    return enabled;
+}
+
 bool defaultTreatsAnyTextCSSLinkAsStylesheet()
 {
     static bool needsQuirk = !WebKitLinkedOnOrAfter(WEBKIT_FIRST_VERSION_WITHOUT_LINK_ELEMENT_TEXT_CSS_QUIRK)
@@ -217,7 +227,7 @@ bool defaultAttachmentElementEnabled()
 
 bool defaultShouldRestrictBaseURLSchemes()
 {
-    static bool shouldRestrictBaseURLSchemes = linkedOnOrAfter(WebCore::SDKVersion::FirstThatRestrictsBaseURLSchemes);
+    static bool shouldRestrictBaseURLSchemes = linkedOnOrAfter(SDKVersion::FirstThatRestrictsBaseURLSchemes);
     return shouldRestrictBaseURLSchemes;
 }
 
@@ -246,11 +256,7 @@ bool defaultAllowRunningOfInsecureContent()
 
 bool defaultShouldConvertInvalidURLsToBlank()
 {
-#if PLATFORM(IOS_FAMILY)
-    static bool shouldConvertInvalidURLsToBlank = dyld_get_program_sdk_version() >= DYLD_IOS_VERSION_10_0;
-#else
-    static bool shouldConvertInvalidURLsToBlank = dyld_get_program_sdk_version() >= DYLD_MACOSX_VERSION_10_12;
-#endif
+    static bool shouldConvertInvalidURLsToBlank = linkedOnOrAfter(SDKVersion::FirstThatConvertsInvalidURLsToBlank);
     return shouldConvertInvalidURLsToBlank;
 }
 
@@ -258,14 +264,23 @@ bool defaultShouldConvertInvalidURLsToBlank()
 
 bool defaultPassiveWheelListenersAsDefaultOnDocument()
 {
-    static bool result = linkedOnOrAfter(WebCore::SDKVersion::FirstThatDefaultsToPassiveWheelListenersOnDocument);
+    static bool result = linkedOnOrAfter(SDKVersion::FirstThatDefaultsToPassiveWheelListenersOnDocument);
     return result;
 }
 
 bool defaultWheelEventGesturesBecomeNonBlocking()
 {
-    static bool result = linkedOnOrAfter(WebCore::SDKVersion::FirstThatAllowsWheelEventGesturesToBecomeNonBlocking);
+    static bool result = linkedOnOrAfter(SDKVersion::FirstThatAllowsWheelEventGesturesToBecomeNonBlocking);
     return result;
+}
+
+#endif
+
+#if ENABLE(MEDIA_SOURCE) && PLATFORM(IOS_FAMILY)
+
+bool defaultMediaSourceEnabled()
+{
+    return !WebCore::deviceClassIsSmallScreen();
 }
 
 #endif
@@ -274,42 +289,21 @@ bool defaultWheelEventGesturesBecomeNonBlocking()
 
 bool defaultWebMParserEnabled()
 {
-#if HAVE(SYSTEM_FEATURE_FLAGS)
-    return isFeatureFlagEnabled("webm_parser");
-#endif
-
-    return true;
+    return isFeatureFlagEnabled("webm_parser", true);
 }
 
-bool defaultWebMWebAudioEnabled()
-{
-#if HAVE(SYSTEM_FEATURE_FLAGS)
-    return isFeatureFlagEnabled("webm_webaudio");
 #endif
-
-    return false;
-}
-
-#endif // ENABLE(MEDIA_SOURCE)
 
 #if ENABLE(VP9)
 
 bool defaultVP8DecoderEnabled()
 {
-#if HAVE(SYSTEM_FEATURE_FLAGS)
-    return isFeatureFlagEnabled("vp8_decoder");
-#endif
-
-    return false;
+    return isFeatureFlagEnabled("vp8_decoder", true);
 }
 
 bool defaultVP9DecoderEnabled()
 {
-#if HAVE(SYSTEM_FEATURE_FLAGS)
-    return isFeatureFlagEnabled("vp9_decoder");
-#endif
-
-    return true;
+    return isFeatureFlagEnabled("vp9_decoder", true);
 }
 
 #endif // ENABLE(VP9)

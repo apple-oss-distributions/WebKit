@@ -190,23 +190,6 @@ static LSAppLink *appLinkForURL(NSURL *url)
     return [self superviewForSheet];
 }
 
-- (_WKElementAction *)_elementActionForDDAction:(DDAction *)action
-{
-#if PLATFORM(IOS) && !PLATFORM(MACCATALYST)
-    auto retainedSelf = retainPtr(self);
-    _WKElementAction *elementAction = [_WKElementAction elementActionWithTitle:action.localizedName actionHandler:^(_WKActivatedElementInfo *actionInfo) {
-        retainedSelf->_isPresentingDDUserInterface = action.hasUserInterface;
-        [[getDDDetectionControllerClass() sharedController] performAction:action fromAlertController:retainedSelf->_interactionSheet.get() interactionDelegate:retainedSelf.get()];
-    }];
-    elementAction.dismissalHandler = ^BOOL {
-        return !action.hasUserInterface;
-    };
-    return elementAction;
-#else
-    return nil;
-#endif
-}
-
 static const CGFloat presentationElementRectPadding = 15;
 
 - (CGRect)presentationRectForElementUsingClosestIndicatedRect
@@ -519,7 +502,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     if (!externalApplicationName)
         return YES;
 
-    NSString *openInExternalApplicationTitle = [NSString stringWithFormat:WEB_UI_STRING("Open in “%@”", "Title for Open in External Application Link action button"), externalApplicationName];
+    NSString *openInExternalApplicationTitle = [NSString stringWithFormat:WEB_UI_NSSTRING(@"Open in “%@”", "Title for Open in External Application Link action button"), externalApplicationName];
     _WKElementAction *openInExternalApplicationAction = [_WKElementAction _elementActionWithType:_WKElementActionTypeOpenInExternalApplication title:openInExternalApplicationTitle actionHandler:^(_WKActivatedElementInfo *) {
 #if HAVE(APP_LINKS_WITH_ISENABLED)
         appLink.enabled = YES;
@@ -734,6 +717,23 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 
 #endif // USE(UICONTEXTMENU)
 
+#if ENABLE(DATA_DETECTION)
+
+- (_WKElementAction *)_elementActionForDDAction:(DDAction *)action
+{
+    auto retainedSelf = retainPtr(self);
+    _WKElementAction *elementAction = [_WKElementAction elementActionWithTitle:action.localizedName actionHandler:^(_WKActivatedElementInfo *actionInfo) {
+        retainedSelf->_isPresentingDDUserInterface = action.hasUserInterface;
+        [[getDDDetectionControllerClass() sharedController] performAction:action fromAlertController:retainedSelf->_interactionSheet.get() interactionDelegate:retainedSelf.get()];
+    }];
+    elementAction.dismissalHandler = ^BOOL {
+        return !action.hasUserInterface;
+    };
+    return elementAction;
+}
+
+#endif // ENABLE(DATA_DETECTION)
+
 - (void)showDataDetectorsUIForPositionInformation:(const WebKit::InteractionInformationAtPosition&)positionInformation
 {
 #if ENABLE(DATA_DETECTION)
@@ -770,7 +770,8 @@ ALLOW_DEPRECATED_DECLARATIONS_END
         return;
     
 #if USE(UICONTEXTMENU) && HAVE(UICONTEXTMENU_LOCATION)
-    [self._ensureDataDetectorContextMenuInteraction _presentMenuAtLocation:_positionInformation->request.point];
+    if ([_view window])
+        [self._ensureDataDetectorContextMenuInteraction _presentMenuAtLocation:_positionInformation->request.point];
 #else
     NSMutableArray *elementActions = [NSMutableArray array];
     for (NSUInteger actionNumber = 0; actionNumber < [dataDetectorsActions count]; actionNumber++) {
@@ -831,7 +832,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
         items = WTFMove(items[0].children);
     }
 
-    if (items.isEmpty()) {
+    if (![_view window] || items.isEmpty()) {
         completionHandler(WebCore::MediaControlsContextMenuItem::invalidID);
         return;
     }

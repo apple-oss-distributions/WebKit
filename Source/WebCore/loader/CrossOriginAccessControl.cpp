@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008 Apple Inc. All Rights Reserved.
+ * Copyright (C) 2008-2021 Apple Inc. All Rights Reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -28,7 +28,9 @@
 #include "CrossOriginAccessControl.h"
 
 #include "CachedResourceRequest.h"
+#include "CrossOriginEmbedderPolicy.h"
 #include "CrossOriginPreflightResultCache.h"
+#include "DocumentLoader.h"
 #include "HTTPHeaderNames.h"
 #include "HTTPParsers.h"
 #include "LegacySchemeRegistry.h"
@@ -138,6 +140,9 @@ CachedResourceRequest createPotentialAccessControlRequest(ResourceRequest&& requ
         }
     }
 
+    if (auto* documentLoader = document.loader())
+        request.setIsAppInitiated(documentLoader->lastNavigationWasAppInitiated());
+
     if (crossOriginAttribute.isNull()) {
         CachedResourceRequest cachedRequest { WTFMove(request), WTFMove(options) };
         cachedRequest.setOrigin(document.securityOrigin());
@@ -188,6 +193,8 @@ OptionSet<HTTPHeadersToKeepFromCleaning> httpHeadersToKeepFromCleaning(const HTT
         headersToKeep.add(HTTPHeadersToKeepFromCleaning::UserAgent);
     if (headers.contains(HTTPHeaderName::AcceptEncoding))
         headersToKeep.add(HTTPHeadersToKeepFromCleaning::AcceptEncoding);
+    if (headers.contains(HTTPHeaderName::CacheControl))
+        headersToKeep.add(HTTPHeadersToKeepFromCleaning::CacheControl);
     return headersToKeep;
 }
 
@@ -207,6 +214,8 @@ void cleanHTTPRequestHeadersForAccessControl(ResourceRequest& request, OptionSet
         request.clearHTTPUserAgent();
     if (!headersToKeep.contains(HTTPHeadersToKeepFromCleaning::AcceptEncoding))
         request.clearHTTPAcceptEncoding();
+    if (!headersToKeep.contains(HTTPHeadersToKeepFromCleaning::CacheControl))
+        request.removeHTTPHeaderField(HTTPHeaderName::CacheControl);
 }
 
 CrossOriginAccessControlCheckDisabler& CrossOriginAccessControlCheckDisabler::singleton()
@@ -245,7 +254,7 @@ Expected<void, String> passesAccessControlCheck(const ResourceResponse& response
             return makeUnexpected("Cannot use wildcard in Access-Control-Allow-Origin when credentials flag is true."_s);
         if (accessControlOriginString.find(',') != notFound)
             return makeUnexpected("Access-Control-Allow-Origin cannot contain more than one origin."_s);
-        return makeUnexpected(makeString("Origin ", securityOriginString, " is not allowed by Access-Control-Allow-Origin."));
+        return makeUnexpected(makeString("Origin ", securityOriginString, " is not allowed by Access-Control-Allow-Origin.", " Status code: ", response.httpStatusCode()));
     }
 
     if (storedCredentialsPolicy == StoredCredentialsPolicy::Use) {
@@ -260,7 +269,7 @@ Expected<void, String> passesAccessControlCheck(const ResourceResponse& response
 Expected<void, String> validatePreflightResponse(PAL::SessionID sessionID, const ResourceRequest& request, const ResourceResponse& response, StoredCredentialsPolicy storedCredentialsPolicy, const SecurityOrigin& securityOrigin, const CrossOriginAccessControlCheckDisabler* checkDisabler)
 {
     if (!response.isSuccessful())
-        return makeUnexpected("Preflight response is not successful"_s);
+        return makeUnexpected(makeString("Preflight response is not successful. Status code: ", response.httpStatusCode()));
 
     auto accessControlCheckResult = passesAccessControlCheck(response, storedCredentialsPolicy, securityOrigin, checkDisabler);
     if (!accessControlCheckResult)
@@ -280,12 +289,20 @@ Expected<void, String> validatePreflightResponse(PAL::SessionID sessionID, const
     return { };
 }
 
-static inline bool shouldCrossOriginResourcePolicyCancelLoad(const SecurityOrigin& origin, const ResourceResponse& response)
+// https://fetch.spec.whatwg.org/#cross-origin-resource-policy-internal-check
+static inline bool shouldCrossOriginResourcePolicyCancelLoad(CrossOriginEmbedderPolicyValue coep, const SecurityOrigin& origin, const ResourceResponse& response, ForNavigation forNavigation)
 {
-    if (origin.canRequest(response.url()))
+    if (forNavigation == ForNavigation::Yes && coep != CrossOriginEmbedderPolicyValue::RequireCORP)
+        return false;
+
+    if (response.isNull() || origin.canRequest(response.url()))
         return false;
 
     auto policy = parseCrossOriginResourcePolicyHeader(response.httpHeaderField(HTTPHeaderName::CrossOriginResourcePolicy));
+
+    // https://fetch.spec.whatwg.org/#cross-origin-resource-policy-internal-check (step 4).
+    if ((policy == CrossOriginResourcePolicy::None || policy == CrossOriginResourcePolicy::Invalid) && coep == CrossOriginEmbedderPolicyValue::RequireCORP)
+        return true;
 
     if (policy == CrossOriginResourcePolicy::SameOrigin)
         return true;
@@ -304,9 +321,9 @@ static inline bool shouldCrossOriginResourcePolicyCancelLoad(const SecurityOrigi
     return false;
 }
 
-std::optional<ResourceError> validateCrossOriginResourcePolicy(const SecurityOrigin& origin, const URL& requestURL, const ResourceResponse& response)
+std::optional<ResourceError> validateCrossOriginResourcePolicy(CrossOriginEmbedderPolicyValue coep, const SecurityOrigin& origin, const URL& requestURL, const ResourceResponse& response, ForNavigation forNavigation)
 {
-    if (shouldCrossOriginResourcePolicyCancelLoad(origin, response))
+    if (shouldCrossOriginResourcePolicyCancelLoad(coep, origin, response, forNavigation))
         return ResourceError { errorDomainWebKitInternal, 0, requestURL, makeString("Cancelled load to ", response.url().stringCenterEllipsizedToLength(), " because it violates the resource's Cross-Origin-Resource-Policy response header."), ResourceError::Type::AccessControl };
     return std::nullopt;
 }

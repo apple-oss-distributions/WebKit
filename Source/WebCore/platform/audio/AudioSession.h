@@ -91,15 +91,17 @@ public:
     virtual size_t preferredBufferSize() const;
     virtual void setPreferredBufferSize(size_t);
 
-    class MutedStateObserver {
+    class ConfigurationChangeObserver : public CanMakeWeakPtr<ConfigurationChangeObserver> {
     public:
-        virtual ~MutedStateObserver() = default;
+        virtual ~ConfigurationChangeObserver() = default;
 
-        virtual void hardwareMutedStateDidChange(AudioSession*) = 0;
+        virtual void hardwareMutedStateDidChange(const AudioSession&) = 0;
+        virtual void bufferSizeDidChange(const AudioSession&) { }
+        virtual void sampleRateDidChange(const AudioSession&) { }
     };
 
-    virtual void addMutedStateObserver(MutedStateObserver*) { }
-    virtual void removeMutedStateObserver(MutedStateObserver*) { }
+    virtual void addConfigurationChangeObserver(ConfigurationChangeObserver&);
+    virtual void removeConfigurationChangeObserver(ConfigurationChangeObserver&);
 
     virtual void audioOutputDeviceChanged();
     virtual void setIsPlayingToBluetoothOverride(std::optional<bool>);
@@ -128,24 +130,25 @@ public:
     static bool shouldManageAudioSessionCategory() { return s_shouldManageAudioSessionCategory; }
     static void setShouldManageAudioSessionCategory(bool flag) { s_shouldManageAudioSessionCategory = flag; }
 
+    virtual void setHostProcessAttribution(audit_token_t) { };
+    virtual void setPresentingProcesses(Vector<audit_token_t>&&) { };
+
 protected:
     friend class NeverDestroyed<AudioSession>;
     AudioSession();
 
     virtual bool tryToSetActiveInternal(bool);
 
-    HashSet<MutedStateObserver*> m_observers;
-#if PLATFORM(IOS_FAMILY)
     WeakHashSet<InterruptionObserver> m_interruptionObservers;
-#endif
 
     WeakPtr<AudioSessionRoutingArbitrationClient> m_routingArbitrationClient;
+    AudioSession::CategoryType m_categoryOverride { AudioSession::CategoryType::None };
     bool m_active { false }; // Used only for testing.
 
     static bool s_shouldManageAudioSessionCategory;
 };
 
-class WEBCORE_EXPORT AudioSessionRoutingArbitrationClient {
+class WEBCORE_EXPORT AudioSessionRoutingArbitrationClient : public CanMakeWeakPtr<AudioSessionRoutingArbitrationClient> {
 public:
     virtual ~AudioSessionRoutingArbitrationClient() = default;
 

@@ -32,9 +32,9 @@
 #include "ParseInt.h"
 #include <limits.h>
 #include <string.h>
+#include <variant>
 #include <wtf/Assertions.h>
 #include <wtf/HexNumber.h>
-#include <wtf/Variant.h>
 #include <wtf/dtoa.h>
 
 namespace JSC {
@@ -1550,7 +1550,7 @@ ALWAYS_INLINE auto Lexer<T>::parseHex() -> std::optional<NumberParseResult>
     } while (isASCIIHexDigitOrSeparator(m_current) && maximumDigits >= 0);
 
     if (LIKELY(maximumDigits >= 0 && m_current != 'n'))
-        return NumberParseResult { hexValue };
+        return NumberParseResult { static_cast<double>(hexValue) };
 
     // No more place in the hexValue buffer.
     // The values are shifted out and placed into the m_buffer8 vector.
@@ -1609,7 +1609,7 @@ ALWAYS_INLINE auto Lexer<T>::parseBinary() -> std::optional<NumberParseResult>
     } while (isASCIIBinaryDigitOrSeparator(m_current) && digit >= 0);
 
     if (LIKELY(!isASCIIDigitOrSeparator(m_current) && digit >= 0 && m_current != 'n'))
-        return NumberParseResult { binaryValue };
+        return NumberParseResult { static_cast<double>(binaryValue) };
 
     for (int i = maximumDigits - 1; i > digit; --i)
         record8(digits[i]);
@@ -1665,7 +1665,7 @@ ALWAYS_INLINE auto Lexer<T>::parseOctal() -> std::optional<NumberParseResult>
     } while (isASCIIOctalDigitOrSeparator(m_current) && digit >= 0);
 
     if (LIKELY(!isASCIIDigitOrSeparator(m_current) && digit >= 0 && m_current != 'n'))
-        return NumberParseResult { octalValue };
+        return NumberParseResult { static_cast<double>(octalValue) };
 
     for (int i = maximumDigits - 1; i > digit; --i)
          record8(digits[i]);
@@ -1724,7 +1724,7 @@ ALWAYS_INLINE auto Lexer<T>::parseDecimal() -> std::optional<NumberParseResult>
         } while (isASCIIDigitOrSeparator(m_current) && digit >= 0);
 
         if (digit >= 0 && m_current != '.' && !isASCIIAlphaCaselessEqual(m_current, 'e') && m_current != 'n')
-            return NumberParseResult { decimalValue };
+            return NumberParseResult { static_cast<double>(decimalValue) };
 
         for (int i = maximumDigits - 1; i > digit; --i)
             record8(digits[i]);
@@ -1842,18 +1842,30 @@ template <typename T>
 ALWAYS_INLINE String Lexer<T>::parseCommentDirectiveValue()
 {
     skipWhitespace();
+    bool hasNonLatin1 = false;
     const T* stringStart = currentSourcePtr();
-    while (!isWhiteSpace(m_current) && !isLineTerminator(m_current) && m_current != '"' && m_current != '\'' && !atEnd())
+    while (!isWhiteSpace(m_current) && !isLineTerminator(m_current) && m_current != '"' && m_current != '\'' && !atEnd()) {
+        if (!isLatin1(m_current))
+            hasNonLatin1 = true;
         shift();
+    }
     const T* stringEnd = currentSourcePtr();
     skipWhitespace();
 
     if (!isLineTerminator(m_current) && !atEnd())
         return String();
 
-    append8(stringStart, stringEnd - stringStart);
-    String result = String(m_buffer8.data(), m_buffer8.size());
-    m_buffer8.shrink(0);
+    unsigned length = stringEnd - stringStart;
+    if (hasNonLatin1) {
+        UChar* buffer = nullptr;
+        String result = StringImpl::createUninitialized(length, buffer);
+        StringImpl::copyCharacters(buffer, stringStart, length);
+        return result;
+    }
+
+    LChar* buffer = nullptr;
+    String result = StringImpl::createUninitialized(length, buffer);
+    StringImpl::copyCharacters(buffer, stringStart, length);
     return result;
 }
 
@@ -2285,12 +2297,12 @@ start:
             auto parseNumberResult = parseHex();
             if (!parseNumberResult)
                 tokenData->doubleValue = 0;
-            else if (WTF::holds_alternative<double>(*parseNumberResult))
-                tokenData->doubleValue = WTF::get<double>(*parseNumberResult);
+            else if (std::holds_alternative<double>(*parseNumberResult))
+                tokenData->doubleValue = std::get<double>(*parseNumberResult);
             else {
                 token = BIGINT;
                 shift();
-                tokenData->bigIntString = WTF::get<const Identifier*>(*parseNumberResult);
+                tokenData->bigIntString = std::get<const Identifier*>(*parseNumberResult);
                 tokenData->radix = 16;
             }
 
@@ -2324,12 +2336,12 @@ start:
             auto parseNumberResult = parseBinary();
             if (!parseNumberResult)
                 tokenData->doubleValue = 0;
-            else if (WTF::holds_alternative<double>(*parseNumberResult))
-                tokenData->doubleValue = WTF::get<double>(*parseNumberResult);
+            else if (std::holds_alternative<double>(*parseNumberResult))
+                tokenData->doubleValue = std::get<double>(*parseNumberResult);
             else {
                 token = BIGINT;
                 shift();
-                tokenData->bigIntString = WTF::get<const Identifier*>(*parseNumberResult);
+                tokenData->bigIntString = std::get<const Identifier*>(*parseNumberResult);
                 tokenData->radix = 2;
             }
 
@@ -2364,12 +2376,12 @@ start:
             auto parseNumberResult = parseOctal();
             if (!parseNumberResult)
                 tokenData->doubleValue = 0;
-            else if (WTF::holds_alternative<double>(*parseNumberResult))
-                tokenData->doubleValue = WTF::get<double>(*parseNumberResult);
+            else if (std::holds_alternative<double>(*parseNumberResult))
+                tokenData->doubleValue = std::get<double>(*parseNumberResult);
             else {
                 token = BIGINT;
                 shift();
-                tokenData->bigIntString = WTF::get<const Identifier*>(*parseNumberResult);
+                tokenData->bigIntString = std::get<const Identifier*>(*parseNumberResult);
                 tokenData->radix = 8;
             }
 
@@ -2405,8 +2417,8 @@ start:
         }
         if (isASCIIOctalDigit(m_current)) {
             auto parseNumberResult = parseOctal();
-            if (parseNumberResult && WTF::holds_alternative<double>(*parseNumberResult)) {
-                tokenData->doubleValue = WTF::get<double>(*parseNumberResult);
+            if (parseNumberResult && std::holds_alternative<double>(*parseNumberResult)) {
+                tokenData->doubleValue = std::get<double>(*parseNumberResult);
                 token = tokenTypeForIntegerLikeToken(tokenData->doubleValue);
             }
         }
@@ -2415,13 +2427,13 @@ start:
         if (LIKELY(token != INTEGER && token != DOUBLE)) {
             auto parseNumberResult = parseDecimal();
             if (parseNumberResult) {
-                if (WTF::holds_alternative<double>(*parseNumberResult)) {
-                    tokenData->doubleValue = WTF::get<double>(*parseNumberResult);
+                if (std::holds_alternative<double>(*parseNumberResult)) {
+                    tokenData->doubleValue = std::get<double>(*parseNumberResult);
                     token = tokenTypeForIntegerLikeToken(tokenData->doubleValue);
                 } else {
                     token = BIGINT;
                     shift();
-                    tokenData->bigIntString = WTF::get<const Identifier*>(*parseNumberResult);
+                    tokenData->bigIntString = std::get<const Identifier*>(*parseNumberResult);
                     tokenData->radix = 10;
                 }
             } else {
@@ -2505,7 +2517,7 @@ start:
             goto inSingleLineComment;
         }
         // Otherwise, it could be a valid PrivateName.
-        if (Options::usePrivateClassFields() && (isSingleCharacterIdentStart(next) || next == '\\')) {
+        if (isSingleCharacterIdentStart(next) || next == '\\') {
             lexerFlags.remove(LexerFlags::DontBuildKeywords);
             goto parseIdent;
         }
@@ -2657,7 +2669,7 @@ JSTokenType Lexer<T>::scanRegExp(JSToken* tokenRecord, UChar patternPrefix)
     }
 
     // Normally this would not be a lex error but dealing with surrogate pairs here is annoying and it's going to be an error anyway...
-    if (UNLIKELY(!isLatin1(m_current))) {
+    if (UNLIKELY(!isLatin1(m_current) && !isWhiteSpace(m_current) && !isLineTerminator(m_current))) {
         m_buffer8.shrink(0);
         JSTokenType token = INVALID_IDENTIFIER_UNICODE_ERRORTOK;
         fillTokenInfo(tokenRecord, token, m_lineNumber, currentOffset(), currentLineStartOffset(), currentPosition());
@@ -2672,7 +2684,7 @@ JSTokenType Lexer<T>::scanRegExp(JSToken* tokenRecord, UChar patternPrefix)
     tokenData->flags = makeIdentifier(m_buffer8.data(), m_buffer8.size());
     m_buffer8.shrink(0);
 
-    // Since RegExp always ends with /, m_atLineStart always becomes false.
+    // Since RegExp always ends with / or flags (IdentifierPart), m_atLineStart always becomes false.
     m_atLineStart = false;
 
     JSTokenType token = REGEXP;

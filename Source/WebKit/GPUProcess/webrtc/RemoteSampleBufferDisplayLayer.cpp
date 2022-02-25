@@ -53,7 +53,7 @@ RemoteSampleBufferDisplayLayer::RemoteSampleBufferDisplayLayer(SampleBufferDispl
 
 void RemoteSampleBufferDisplayLayer::initialize(bool hideRootLayer, IntSize size, LayerInitializationCallback&& callback)
 {
-    m_sampleBufferDisplayLayer->initialize(hideRootLayer, size, [this, weakThis = makeWeakPtr(this), callback = WTFMove(callback)](bool didSucceed) mutable {
+    m_sampleBufferDisplayLayer->initialize(hideRootLayer, size, [this, weakThis = WeakPtr { *this }, callback = WTFMove(callback)](bool didSucceed) mutable {
         if (!weakThis || !didSucceed)
             return callback({ });
         m_layerHostingContext = LayerHostingContext::createForExternalHostingProcess();
@@ -142,7 +142,7 @@ IPC::Connection* RemoteSampleBufferDisplayLayer::messageSenderConnection() const
     return m_connection.ptr();
 }
 
-void RemoteSampleBufferDisplayLayer::sampleBufferDisplayLayerStatusDidChange(WebCore::SampleBufferDisplayLayer&)
+void RemoteSampleBufferDisplayLayer::sampleBufferDisplayLayerStatusDidFail()
 {
     send(Messages::SampleBufferDisplayLayer::SetDidFail { m_sampleBufferDisplayLayer->didFail() });
 }

@@ -35,8 +35,8 @@
 #include "FetchResponse.h"
 #include "MIMETypeRegistry.h"
 #include "ResourceRequest.h"
+#include "ScriptExecutionContextIdentifier.h"
 #include "ServiceWorker.h"
-#include "ServiceWorkerClientIdentifier.h"
 #include "ServiceWorkerGlobalScope.h"
 #include "ServiceWorkerThread.h"
 #include "WorkerGlobalScope.h"
@@ -46,20 +46,20 @@ namespace WebCore {
 namespace ServiceWorkerFetch {
 
 // https://fetch.spec.whatwg.org/#http-fetch step 3.3
-static inline std::optional<ResourceError> validateResponse(const ResourceResponse& response, FetchOptions::Mode mode, FetchOptions::Redirect redirect)
+static inline ResourceError validateResponse(const ResourceResponse& response, FetchOptions::Mode mode, FetchOptions::Redirect redirect)
 {
     if (response.type() == ResourceResponse::Type::Error)
-        return ResourceError { errorDomainWebKitInternal, 0, response.url(), "Response served by service worker is an error"_s, ResourceError::Type::General };
+        return ResourceError { errorDomainWebKitInternal, 0, response.url(), "Response served by service worker is an error"_s, ResourceError::Type::General, ResourceError::IsSanitized::Yes };
 
     if (mode != FetchOptions::Mode::NoCors && response.tainting() == ResourceResponse::Tainting::Opaque)
-        return ResourceError { errorDomainWebKitInternal, 0, response.url(), "Response served by service worker is opaque"_s, ResourceError::Type::AccessControl };
+        return ResourceError { errorDomainWebKitInternal, 0, response.url(), "Response served by service worker is opaque"_s, ResourceError::Type::AccessControl, ResourceError::IsSanitized::Yes };
 
     // Navigate mode induces manual redirect.
     if (redirect != FetchOptions::Redirect::Manual && mode != FetchOptions::Mode::Navigate && response.tainting() == ResourceResponse::Tainting::Opaqueredirect)
-        return ResourceError { errorDomainWebKitInternal, 0, response.url(), "Response served by service worker is opaque redirect"_s, ResourceError::Type::AccessControl };
+        return ResourceError { errorDomainWebKitInternal, 0, response.url(), "Response served by service worker is opaque redirect"_s, ResourceError::Type::AccessControl, ResourceError::IsSanitized::Yes };
 
     if ((redirect != FetchOptions::Redirect::Follow || mode == FetchOptions::Mode::Navigate) && response.isRedirected())
-        return ResourceError { errorDomainWebKitInternal, 0, response.url(), "Response served by service worker has redirections"_s, ResourceError::Type::AccessControl };
+        return ResourceError { errorDomainWebKitInternal, 0, response.url(), "Response served by service worker has redirections"_s, ResourceError::Type::AccessControl, ResourceError::IsSanitized::Yes };
 
     return { };
 }
@@ -84,8 +84,8 @@ static void processResponse(Ref<Client>&& client, Expected<Ref<FetchResponse>, s
     }
 
     auto resourceResponse = response->resourceResponse();
-    if (auto error = validateResponse(resourceResponse, mode, redirect)) {
-        client->didFail(error.value());
+    if (auto error = validateResponse(resourceResponse, mode, redirect); !error.isNull()) {
+        client->didFail(error);
         return;
     }
 
@@ -115,7 +115,8 @@ static void processResponse(Ref<Client>&& client, Expected<Ref<FetchResponse>, s
     if (response->isBodyReceivedByChunk()) {
         response->consumeBodyReceivedByChunk([client = WTFMove(client)] (auto&& result) mutable {
             if (result.hasException()) {
-                client->didFail(FetchEvent::createResponseError(URL { }, result.exception().message()));
+                auto error = FetchEvent::createResponseError(URL { }, result.exception().message(), ResourceError::IsSanitized::Yes);
+                client->didFail(error);
                 return;
             }
 
@@ -138,7 +139,7 @@ static void processResponse(Ref<Client>&& client, Expected<Ref<FetchResponse>, s
     });
 }
 
-void dispatchFetchEvent(Ref<Client>&& client, ServiceWorkerGlobalScope& globalScope, std::optional<ServiceWorkerClientIdentifier> clientId, ResourceRequest&& request, String&& referrer, FetchOptions&& options)
+void dispatchFetchEvent(Ref<Client>&& client, ServiceWorkerGlobalScope& globalScope, std::optional<ScriptExecutionContextIdentifier> clientId, ResourceRequest&& request, String&& referrer, FetchOptions&& options, FetchIdentifier fetchIdentifier, bool isServiceWorkerNavigationPreloadEnabled)
 {
     auto requestHeaders = FetchHeaders::create(FetchHeaders::Guard::Immutable, HTTPHeaderMap { request.httpHeaderFields() });
 
@@ -167,6 +168,10 @@ void dispatchFetchEvent(Ref<Client>&& client, ServiceWorkerGlobalScope& globalSc
     URL requestURL = request.url();
     auto fetchRequest = FetchRequest::create(globalScope, WTFMove(body), WTFMove(requestHeaders),  WTFMove(request), WTFMove(options), WTFMove(referrer));
 
+    // If service worker navigation preload is not enabled, we do not want to reuse any preload directly.
+    if (!isServiceWorkerNavigationPreloadEnabled)
+        fetchRequest->setNavigationPreloadIdentifier(fetchIdentifier);
+
     FetchEvent::Init init;
     init.request = WTFMove(fetchRequest);
     if (isNavigation) {
@@ -178,6 +183,9 @@ void dispatchFetchEvent(Ref<Client>&& client, ServiceWorkerGlobalScope& globalSc
     init.cancelable = true;
     auto event = FetchEvent::create(eventNames().fetchEvent, WTFMove(init), Event::IsTrusted::Yes);
 
+    if (isServiceWorkerNavigationPreloadEnabled)
+        event->setNavigationPreloadIdentifier(fetchIdentifier);
+
     CertificateInfo certificateInfo = globalScope.certificateInfo();
 
     event->onResponse([client, mode, redirect, requestURL, certificateInfo = WTFMove(certificateInfo)] (auto&& result) mutable {
@@ -188,7 +196,8 @@ void dispatchFetchEvent(Ref<Client>&& client, ServiceWorkerGlobalScope& globalSc
 
     if (!event->respondWithEntered()) {
         if (event->defaultPrevented()) {
-            client->didFail(ResourceError { errorDomainWebKitInternal, 0, requestURL, "Fetch event was canceled"_s });
+            ResourceError error { errorDomainWebKitInternal, 0, requestURL, "Fetch event was canceled"_s, ResourceError::Type::General, ResourceError::IsSanitized::Yes };
+            client->didFail(error);
             return;
         }
         client->didNotHandle();

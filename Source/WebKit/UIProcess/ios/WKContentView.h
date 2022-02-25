@@ -71,6 +71,7 @@ enum class ViewStabilityFlag : uint8_t;
 @property (nonatomic, readonly, getter=isResigningFirstResponder) BOOL resigningFirstResponder;
 @property (nonatomic) BOOL sizeChangedSinceLastVisibleContentRectUpdate;
 @property (nonatomic, readonly) UIInterfaceOrientation interfaceOrientation;
+@property (nonatomic, readonly) NSUndoManager *undoManagerForWebView;
 
 - (instancetype)initWithFrame:(CGRect)frame processPool:(NakedRef<WebKit::WebProcessPool>)processPool configuration:(Ref<API::PageConfiguration>&&)configuration webView:(WKWebView *)webView;
 
@@ -112,6 +113,7 @@ enum class ViewStabilityFlag : uint8_t;
 #endif // HAVE(VISIBILITY_PROPAGATION_VIEW)
 
 - (void)_setAcceleratedCompositingRootView:(UIView *)rootView;
+- (void)_removeTemporaryDirectoriesWhenDeallocated:(Vector<RetainPtr<NSURL>>&&)urls;
 
 - (void)_showInspectorHighlight:(const WebCore::InspectorOverlay::Highlight&)highlight;
 - (void)_hideInspectorHighlight;

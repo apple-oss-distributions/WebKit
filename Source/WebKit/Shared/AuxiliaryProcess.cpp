@@ -26,6 +26,7 @@
 #include "config.h"
 #include "AuxiliaryProcess.h"
 
+#include "AuxiliaryProcessCreationParameters.h"
 #include "ContentWorldShared.h"
 #include "LogInitialization.h"
 #include "Logging.h"
@@ -33,6 +34,7 @@
 #include "WebPageProxyIdentifier.h"
 #include <WebCore/LogInitialization.h>
 #include <pal/SessionID.h>
+#include <wtf/LogInitialization.h>
 
 #if !OS(WINDOWS)
 #include <unistd.h>
@@ -76,14 +78,15 @@ void AuxiliaryProcess::initialize(const AuxiliaryProcessInitializationParameters
     m_priorityBoostMessage = parameters.priorityBoostMessage;
 #endif
 
-    initializeProcess(parameters);
-
     SandboxInitializationParameters sandboxParameters;
     initializeSandbox(parameters, sandboxParameters);
 
+    initializeProcess(parameters);
+
 #if !LOG_DISABLED || !RELEASE_LOG_DISABLED
-    WebCore::initializeLogChannelsIfNecessary();
-    WebKit::initializeLogChannelsIfNecessary();
+    WTF::logChannels().initializeLogChannelsIfNecessary();
+    WebCore::logChannels().initializeLogChannelsIfNecessary();
+    WebKit::logChannels().initializeLogChannelsIfNecessary();
 #endif // !LOG_DISABLED || !RELEASE_LOG_DISABLED
 
     initializeProcessName(parameters);
@@ -240,6 +243,15 @@ std::optional<std::pair<IPC::Connection::Identifier, IPC::Attachment>> Auxiliary
 #else
     notImplemented();
     return { };
+#endif
+}
+
+void AuxiliaryProcess::applyProcessCreationParameters(const AuxiliaryProcessCreationParameters& parameters)
+{
+#if !LOG_DISABLED || !RELEASE_LOG_DISABLED
+    WTF::logChannels().initializeLogChannelsIfNecessary(parameters.wtfLoggingChannels);
+    WebCore::logChannels().initializeLogChannelsIfNecessary(parameters.webCoreLoggingChannels);
+    WebKit::logChannels().initializeLogChannelsIfNecessary(parameters.webKitLoggingChannels);
 #endif
 }
 

@@ -30,8 +30,6 @@
 #include "pas_page_malloc.h"
 
 #include <errno.h>
-#include <mach/vm_page_size.h>
-#include <mach/vm_statistics.h>
 #include <math.h>
 #include "pas_config.h"
 #include "pas_internal_config.h"
@@ -41,18 +39,41 @@
 #include <string.h>
 #include <sys/mman.h>
 #include <unistd.h>
+#if PAS_OS(DARWIN)
+#include <mach/vm_page_size.h>
+#include <mach/vm_statistics.h>
+#endif
 
 size_t pas_page_malloc_num_allocated_bytes;
 size_t pas_page_malloc_cached_alignment;
 size_t pas_page_malloc_cached_alignment_shift;
 bool pas_page_malloc_mprotect_decommitted = PAS_ENABLE_TESTING;
 
+#if PAS_OS(DARWIN)
 #define PAS_VM_TAG VM_MAKE_TAG(VM_MEMORY_TCMALLOC)
+#else
+#define PAS_VM_TAG -1
+#endif
+
+#if PAS_OS(LINUX)
+#define PAS_NORESERVE MAP_NORESERVE
+#else
 #define PAS_NORESERVE 0
+#endif
+
+
+#define PAS_SYSCALL(x) do { \
+    while ((x) == -1 && errno == EAGAIN) { } \
+} while (0);
+
 
 size_t pas_page_malloc_alignment_slow(void)
 {
-    return sysconf(_SC_PAGESIZE);
+    long result = sysconf(_SC_PAGESIZE);
+    PAS_ASSERT(result >= 0);
+    PAS_ASSERT(result > 0);
+    PAS_ASSERT(result >= 4096);
+    return (size_t)result;
 }
 
 size_t pas_page_malloc_alignment_shift_slow(void)
@@ -143,9 +164,9 @@ pas_page_malloc_try_allocate_without_deallocating_padding(
     result.result = aligned;
     result.result_size = size;
     result.left_padding = mapped;
-    result.left_padding_size = aligned - mapped;
+    result.left_padding_size = (size_t)(aligned - mapped);
     result.right_padding = aligned_end;
-    result.right_padding_size = mapped_end - aligned_end;
+    result.right_padding_size = (size_t)(mapped_end - aligned_end);
     result.zero_mode = pas_zero_mode_is_all_zero;
 
     return result;
@@ -169,22 +190,21 @@ void pas_page_malloc_commit(void* ptr, size_t size)
     if (end_as_int == base_as_int)
         return;
 
-    if (pas_page_malloc_mprotect_decommitted) {
+    if (PAS_MPROTECT_DECOMMITTED) {
         result = mprotect((void*)base_as_int, end_as_int - base_as_int, PROT_READ | PROT_WRITE);
         if (result) {
-            pas_log("Could not mprotect on commit: %s\n", strerror(errno));
+            pas_log("Could not mprotect on commit: error code %d\n", result);
             PAS_ASSERT(!result);
         }
     }
 
-    if (!PAS_MADVISE_SYMMETRIC)
-        return;
-
-    result = madvise((void*)base_as_int, end_as_int - base_as_int, MADV_FREE_REUSE);
-    PAS_ASSERT(!result);
+#if PAS_OS(LINUX)
+    PAS_SYSCALL(madvise((void*)base_as_int, end_as_int - base_as_int, MADV_DODUMP));
+#endif
 }
 
-void pas_page_malloc_decommit(void* ptr, size_t size)
+static void decommit_impl(void* ptr, size_t size,
+                          bool is_asymmetric)
 {
     static const bool verbose = false;
     
@@ -204,13 +224,34 @@ void pas_page_malloc_decommit(void* ptr, size_t size)
     PAS_ASSERT(
         end_as_int == pas_round_down_to_power_of_2(end_as_int, pas_page_malloc_alignment()));
     
+#if PAS_OS(DARWIN)
     result = madvise((void*)base_as_int, end_as_int - base_as_int, MADV_FREE_REUSABLE);
     PAS_ASSERT(!result);
+#elif PAS_OS(FREEBSD)
+    PAS_SYSCALL(madvise((void*)base_as_int, end_as_int - base_as_int, MADV_FREE));
+#elif PAS_OS(LINUX)
+    PAS_SYSCALL(madvise((void*)base_as_int, end_as_int - base_as_int, MADV_DONTNEED));
+    PAS_SYSCALL(madvise((void*)base_as_int, end_as_int - base_as_int, MADV_DONTDUMP));
+#else
+    PAS_SYSCALL(madvise((void*)base_as_int, end_as_int - base_as_int, MADV_DONTNEED));
+#endif
 
-    if (pas_page_malloc_mprotect_decommitted) {
+    if (PAS_MPROTECT_DECOMMITTED && !is_asymmetric) {
         result = mprotect((void*)base_as_int, end_as_int - base_as_int, PROT_NONE);
         PAS_ASSERT(!result);
     }
+}
+
+void pas_page_malloc_decommit(void* ptr, size_t size)
+{
+    static const bool is_asymmetric = false;
+    decommit_impl(ptr, size, is_asymmetric);
+}
+
+void pas_page_malloc_decommit_asymmetric(void* ptr, size_t size)
+{
+    static const bool is_asymmetric = true;
+    decommit_impl(ptr, size, is_asymmetric);
 }
 
 void pas_page_malloc_deallocate(void* ptr, size_t size)

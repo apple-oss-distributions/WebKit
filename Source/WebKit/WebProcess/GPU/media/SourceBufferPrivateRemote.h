@@ -72,7 +72,7 @@ private:
 
     // SourceBufferPrivate overrides
     void setActive(bool) final;
-    void append(Vector<unsigned char>&&) final;
+    void append(Ref<WebCore::SharedBuffer>&&) final;
     void abort() final;
     void resetParserState() final;
     void removedFromMediaSource() final;
@@ -126,6 +126,7 @@ private:
     WeakPtr<MediaPlayerPrivateRemote> m_mediaPlayerPrivate;
 
     HashMap<AtomString, TrackPrivateRemoteIdentifier> m_trackIdentifierMap;
+    HashMap<AtomString, TrackPrivateRemoteIdentifier> m_prevTrackIdentifierMap;
 
     bool m_isActive { false };
     uint64_t m_totalTrackBufferSizeInBytes = { 0 };

@@ -43,7 +43,7 @@ void NowPlayingManager::didReceiveRemoteControlCommand(PlatformMediaSession::Rem
 
 void NowPlayingManager::addClient(Client& client)
 {
-    m_client = makeWeakPtr(client);
+    m_client = client;
     ensureRemoteCommandListenerCreated();
 }
 
@@ -124,6 +124,13 @@ void NowPlayingManager::removeSupportedCommand(PlatformMediaSession::RemoteContr
 {
     if (m_remoteCommandListener)
         m_remoteCommandListener->removeSupportedCommand(command);
+}
+
+RemoteCommandListener::RemoteCommandsSet NowPlayingManager::supportedCommands() const
+{
+    if (!m_remoteCommandListener)
+        return { };
+    return m_remoteCommandListener->supportedCommands();
 }
 
 void NowPlayingManager::setSupportedRemoteCommands(const RemoteCommandListener::RemoteCommandsSet& commands)

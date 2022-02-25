@@ -511,11 +511,16 @@ void VideoFullscreenManagerProxy::forEachSession(Function<void(VideoFullscreenMo
     }
 }
 
+void VideoFullscreenManagerProxy::addVideoInPictureInPictureDidChangeObserver(const VideoInPictureInPictureDidChangeObserver& observer)
+{
+    ASSERT(!m_pipChangeObservers.contains(observer));
+    m_pipChangeObservers.add(observer);
+}
+
 void VideoFullscreenManagerProxy::hasVideoInPictureInPictureDidChange(bool value)
 {
     m_page->uiClient().hasVideoInPictureInPictureDidChange(m_page, value);
-    if (m_client)
-        m_client->hasVideoInPictureInPictureDidChange(value);
+    m_pipChangeObservers.forEach([value] (auto& observer) { observer(value); });
 }
 
 #pragma mark Messages from VideoFullscreenManager
@@ -649,8 +654,10 @@ void VideoFullscreenManagerProxy::exitFullscreen(PlaybackSessionContextIdentifie
 
 void VideoFullscreenManagerProxy::exitFullscreenWithoutAnimationToMode(PlaybackSessionContextIdentifier contextId, WebCore::HTMLMediaElementEnums::VideoFullscreenMode targetMode)
 {
-    if (m_mockVideoPresentationModeEnabled)
+    if (m_mockVideoPresentationModeEnabled) {
+        fullscreenModeChanged(contextId, targetMode);
         return;
+    }
 
 #if PLATFORM(MAC)
     ensureInterface(contextId).exitFullscreenWithoutAnimationToMode(targetMode);

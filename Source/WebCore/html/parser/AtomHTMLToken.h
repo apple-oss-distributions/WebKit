@@ -26,9 +26,12 @@
 
 #pragma once
 
+#include "HTMLAtomStringCache.h"
 #include "HTMLToken.h"
 
 namespace WebCore {
+
+enum class HasDuplicateAttribute : bool { No, Yes };
 
 class AtomHTMLToken {
 public:
@@ -69,6 +72,8 @@ public:
 
     const String& comment() const;
 
+    HasDuplicateAttribute hasDuplicateAttribute() const { return m_hasDuplicateAttribute; };
+
 private:
     HTMLToken::Type m_type;
 
@@ -89,6 +94,8 @@ private:
 
     bool m_selfClosing; // StartTag, EndTag.
     Vector<Attribute> m_attributes; // StartTag, EndTag.
+
+    HasDuplicateAttribute m_hasDuplicateAttribute { HasDuplicateAttribute::No };
 };
 
 const Attribute* findAttribute(const Vector<Attribute>&, const QualifiedName&);
@@ -202,11 +209,13 @@ inline void AtomHTMLToken::initializeAttributes(const HTMLToken::AttributeList& 
         if (attribute.name.isEmpty())
             continue;
 
-        AtomString localName(attribute.name);
+        auto localName = HTMLAtomStringCache::makeTagOrAttributeName(attribute.name);
 
         // FIXME: This is N^2 for the number of attributes.
         if (!hasAttribute(m_attributes, localName))
-            m_attributes.uncheckedAppend(Attribute(QualifiedName(nullAtom(), localName, nullAtom()), AtomString(attribute.value)));
+            m_attributes.uncheckedAppend(Attribute(QualifiedName(nullAtom(), localName, nullAtom()), HTMLAtomStringCache::makeAttributeValue(attribute.value)));
+        else
+            m_hasDuplicateAttribute = HasDuplicateAttribute::Yes;
     }
 }
 
@@ -218,7 +227,7 @@ inline AtomHTMLToken::AtomHTMLToken(HTMLToken& token)
         ASSERT_NOT_REACHED();
         return;
     case HTMLToken::DOCTYPE:
-        m_name = AtomString(token.name());
+        m_name = HTMLAtomStringCache::makeTagOrAttributeName(token.name());
         m_doctypeData = token.releaseDoctypeData();
         return;
     case HTMLToken::EndOfFile:
@@ -226,7 +235,7 @@ inline AtomHTMLToken::AtomHTMLToken(HTMLToken& token)
     case HTMLToken::StartTag:
     case HTMLToken::EndTag:
         m_selfClosing = token.selfClosing();
-        m_name = AtomString(token.name());
+        m_name = HTMLAtomStringCache::makeTagOrAttributeName(token.name());
         initializeAttributes(token.attributes());
         return;
     case HTMLToken::Comment:

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2011-2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2011-2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -47,6 +47,7 @@
 namespace JSC { namespace DFG {
 
 class GPRTemporary;
+class JSValueRegsTemporary;
 class JSValueOperand;
 class SlowPathGenerator;
 class SpeculativeJIT;
@@ -246,6 +247,8 @@ public:
     }
     GPRReg allocate(GPRReg specific)
     {
+        if (specific == InvalidGPRReg)
+            allocate();
 #if ENABLE(DFG_REGISTER_ALLOCATION_VALIDATION)
         m_jit.addRegisterAllocationAtOffset(m_jit.debugOffset());
 #endif
@@ -477,9 +480,9 @@ public:
     {
         m_jit.boxDouble(fpr, tagGPR, payloadGPR);
     }
-    void unboxDouble(GPRReg tagGPR, GPRReg payloadGPR, FPRReg fpr, FPRReg scratchFPR)
+    void unboxDouble(GPRReg tagGPR, GPRReg payloadGPR, FPRReg fpr)
     {
-        m_jit.unboxDouble(tagGPR, payloadGPR, fpr, scratchFPR);
+        m_jit.unboxDouble(tagGPR, payloadGPR, fpr);
     }
 #endif
     void boxDouble(FPRReg fpr, JSValueRegs regs)
@@ -1245,6 +1248,11 @@ public:
     void compileSymbolEquality(Node*);
     void compileHeapBigIntEquality(Node*);
     void compilePeepHoleSymbolEquality(Node*, Node* branchNode);
+#if USE(JSVALUE64)
+    void compileNeitherDoubleNorHeapBigIntToNotDoubleStrictEquality(Node*, Edge neitherDoubleNorHeapBigInt, Edge notDouble);
+#endif
+    void emitBitwiseJSValueEquality(JSValueRegs&, JSValueRegs&, GPRReg& result);
+    void emitBranchOnBitwiseJSValueEquality(JSValueRegs&, JSValueRegs&, BasicBlock* taken, BasicBlock* notTaken);
     void compileNotDoubleNeitherDoubleNorHeapBigIntNorStringStrictEquality(Node*, Edge notDoubleEdge, Edge neitherDoubleNorHeapBigIntNorStringEdge);
     void compilePeepHoleNotDoubleNeitherDoubleNorHeapBigIntNorStringStrictEquality(Node*, Node* branchNode, Edge notDoubleEdge, Edge neitherDoubleNorHeapBigIntNorStringEdge);
     void compileSymbolUntypedEquality(Node*, Edge symbolEdge, Edge untypedEdge);
@@ -1292,9 +1300,13 @@ public:
     void compileNumberToStringWithValidRadixConstant(Node*, int32_t radix);
     void compileNewStringObject(Node*);
     void compileNewSymbol(Node*);
-    
+
+    void emitNewTypedArrayWithSizeInRegister(Node*, TypedArrayType, RegisteredStructure, GPRReg sizeGPR);
     void compileNewTypedArrayWithSize(Node*);
-    
+#if USE(LARGE_TYPED_ARRAYS)
+    void compileNewTypedArrayWithInt52Size(Node*);
+#endif
+
     void compileInt32Compare(Node*, MacroAssembler::RelationalCondition);
     void compileInt52Compare(Node*, MacroAssembler::RelationalCondition);
 #if USE(BIGINT32)
@@ -1330,11 +1342,8 @@ public:
     void compileGetPrototypeOf(Node*);
     void compileIdentity(Node*);
     
-#if USE(JSVALUE32_64)
-    template<typename BaseOperandType, typename PropertyOperandType, typename ValueOperandType, typename TagType>
-    void compileContiguousPutByVal(Node*, BaseOperandType&, PropertyOperandType&, ValueOperandType&, GPRReg valuePayloadReg, TagType valueTag);
-#endif
-    void compileDoublePutByVal(Node*, SpeculateCellOperand& base, SpeculateStrictInt32Operand& property);
+    void compileContiguousPutByVal(Node*);
+    void compileDoublePutByVal(Node*);
     bool putByValWillNeedExtraRegister(ArrayMode arrayMode)
     {
         return arrayMode.mayStoreToHole();
@@ -1345,12 +1354,18 @@ public:
         return temporaryRegisterForPutByVal(temporary, node->arrayMode());
     }
     
+    void compilePutByVal(Node*);
+
+    // We use a scopedLambda to placate register allocation validation.
+    enum class CanUseFlush { Yes, No };
+    void compileGetByVal(Node*, const ScopedLambda<std::tuple<JSValueRegs, DataFormat, CanUseFlush>(DataFormat preferredFormat)>& prefix);
+
     void compileGetCharCodeAt(Node*);
-    void compileGetByValOnString(Node*);
+    void compileGetByValOnString(Node*, const ScopedLambda<std::tuple<JSValueRegs, DataFormat, CanUseFlush>(DataFormat preferredFormat)>& prefix);
     void compileFromCharCode(Node*); 
 
-    void compileGetByValOnDirectArguments(Node*);
-    void compileGetByValOnScopedArguments(Node*);
+    void compileGetByValOnDirectArguments(Node*, const ScopedLambda<std::tuple<JSValueRegs, DataFormat, CanUseFlush>(DataFormat preferredFormat)>& prefix);
+    void compileGetByValOnScopedArguments(Node*, const ScopedLambda<std::tuple<JSValueRegs, DataFormat, CanUseFlush>(DataFormat preferredFormat)>& prefix);
 
     void compileGetPrivateName(Node*);
     void compileGetPrivateNameById(Node*);
@@ -1362,6 +1377,9 @@ public:
     void compileGetGlobalThis(Node*);
 
     void compileGetArrayLength(Node*);
+#if USE(LARGE_TYPED_ARRAYS)
+    void compileGetTypedArrayLengthAsInt52(Node*);
+#endif
 
     void compileCheckTypeInfoFlags(Node*);
     void compileCheckIdent(Node*);
@@ -1389,9 +1407,9 @@ public:
     void compileShiftOp(Node*);
 
     template <typename Generator, typename RepatchingFunction, typename NonRepatchingFunction>
-    void compileMathIC(Node*, JITBinaryMathIC<Generator>*, bool needsScratchGPRReg, bool needsScratchFPRReg, RepatchingFunction, NonRepatchingFunction);
+    void compileMathIC(Node*, JITBinaryMathIC<Generator>*, RepatchingFunction, NonRepatchingFunction);
     template <typename Generator, typename RepatchingFunction, typename NonRepatchingFunction>
-    void compileMathIC(Node*, JITUnaryMathIC<Generator>*, bool needsScratchGPRReg, RepatchingFunction, NonRepatchingFunction);
+    void compileMathIC(Node*, JITUnaryMathIC<Generator>*, RepatchingFunction, NonRepatchingFunction);
 
     void compileArithDoubleUnaryOp(Node*, double (*doubleFunction)(double), double (*operation)(JSGlobalObject*, EncodedJSValue));
     void compileValueAdd(Node*);
@@ -1420,18 +1438,21 @@ public:
     void compileArithMinMax(Node*);
     void compileConstantStoragePointer(Node*);
     void compileGetIndexedPropertyStorage(Node*);
-    JITCompiler::Jump jumpForTypedArrayOutOfBounds(Node*, GPRReg baseGPR, GPRReg indexGPR);
+    JITCompiler::Jump jumpForTypedArrayOutOfBounds(Node*, GPRReg baseGPR, GPRReg indexGPR, GPRReg scratchGPR);
     JITCompiler::Jump jumpForTypedArrayIsDetachedIfOutOfBounds(Node*, GPRReg baseGPR, JITCompiler::Jump outOfBounds);
-    void emitTypedArrayBoundsCheck(Node*, GPRReg baseGPR, GPRReg indexGPR);
+    void emitTypedArrayBoundsCheck(Node*, GPRReg baseGPR, GPRReg indexGPR, GPRReg scratchGPR);
     void compileGetTypedArrayByteOffset(Node*);
-    void compileGetByValOnIntTypedArray(Node*, TypedArrayType);
-    void compilePutByValForIntTypedArray(GPRReg base, GPRReg property, Node*, TypedArrayType);
-    void compileGetByValOnFloatTypedArray(Node*, TypedArrayType);
-    void compilePutByValForFloatTypedArray(GPRReg base, GPRReg property, Node*, TypedArrayType);
-    void compileGetByValForObjectWithString(Node*);
-    void compileGetByValForObjectWithSymbol(Node*);
-    void compilePutByValForCellWithString(Node*, Edge& child1, Edge& child2, Edge& child3);
-    void compilePutByValForCellWithSymbol(Node*, Edge& child1, Edge& child2, Edge& child3);
+#if USE(LARGE_TYPED_ARRAYS)
+    void compileGetTypedArrayByteOffsetAsInt52(Node*);
+#endif
+    void compileGetByValOnIntTypedArray(Node*, TypedArrayType, const ScopedLambda<std::tuple<JSValueRegs, DataFormat, CanUseFlush>(DataFormat preferredFormat)>& prefix);
+    void compilePutByValForIntTypedArray(Node*, TypedArrayType);
+    void compileGetByValOnFloatTypedArray(Node*, TypedArrayType, const ScopedLambda<std::tuple<JSValueRegs, DataFormat, CanUseFlush>(DataFormat preferredFormat)>& prefix);
+    void compilePutByValForFloatTypedArray(Node*, TypedArrayType);
+    void compileGetByValForObjectWithString(Node*, const ScopedLambda<std::tuple<JSValueRegs, DataFormat, CanUseFlush>(DataFormat preferredFormat)>& prefix);
+    void compileGetByValForObjectWithSymbol(Node*, const ScopedLambda<std::tuple<JSValueRegs, DataFormat, CanUseFlush>(DataFormat preferredFormat)>& prefix);
+    void compilePutByValForCellWithString(Node*);
+    void compilePutByValForCellWithSymbol(Node*);
     void compileGetByValWithThis(Node*);
     void compilePutPrivateName(Node*);
     void compilePutPrivateNameById(Node*);
@@ -1458,7 +1479,7 @@ public:
 #endif
         Edge valueUse);
     void loadFromIntTypedArray(GPRReg storageReg, GPRReg propertyReg, GPRReg resultReg, TypedArrayType);
-    void setIntTypedArrayLoadResult(Node*, GPRReg resultReg, TypedArrayType, bool canSpeculate);
+    void setIntTypedArrayLoadResult(Node*, JSValueRegs resultRegs, TypedArrayType, bool canSpeculate, bool shouldBox, FPRReg);
     template <typename ClassType> void compileNewFunctionCommon(GPRReg, RegisteredStructure, GPRReg, GPRReg, GPRReg, MacroAssembler::JumpList&, size_t, FunctionExecutable*);
     void compileNewFunction(Node*);
     void compileSetFunctionName(Node*);
@@ -1488,6 +1509,7 @@ public:
     void compileRegExpMatchFast(Node*);
     void compileRegExpMatchFastGlobal(Node*);
     void compileRegExpTest(Node*);
+    void compileRegExpTestInline(Node*);
     void compileStringReplace(Node*);
     void compileIsObject(Node*);
     void compileTypeOfIsObject(Node*);
@@ -1524,21 +1546,22 @@ public:
     void compileToLowerCase(Node*);
     void compileThrow(Node*);
     void compileThrowStaticError(Node*);
-    void compileGetEnumerableLength(Node*);
-    void compileHasEnumerableStructureProperty(Node*);
-    void compileHasEnumerableProperty(Node*);
-    void compileToIndexString(Node*);
+
+    void compileEnumeratorNextUpdateIndexAndMode(Node*);
+    void compileEnumeratorNextExtractMode(Node*);
+    void compileEnumeratorNextExtractIndex(Node*);
+    void compileEnumeratorNextUpdatePropertyName(Node*);
+    void compileEnumeratorGetByVal(Node*);
+    template<typename SlowPathFunctionType>
+    void compileEnumeratorHasProperty(Node*, SlowPathFunctionType);
+    void compileEnumeratorInByVal(Node*);
+    void compileEnumeratorHasOwnProperty(Node*);
+
     void compilePutByIdFlush(Node*);
     void compilePutById(Node*);
     void compilePutByIdDirect(Node*);
     void compilePutByIdWithThis(Node*);
-    template <typename Function>
-    void compileHasOwnStructurePropertyImpl(Node*, Function);
-    void compileHasOwnStructureProperty(Node*);
-    void compileInStructureProperty(Node*);
-    void compileGetDirectPname(Node*);
     void compileGetPropertyEnumerator(Node*);
-    void compileGetEnumeratorPname(Node*);
     void compileGetExecutable(Node*);
     void compileGetGetter(Node*);
     void compileGetSetter(Node*);
@@ -1568,7 +1591,7 @@ public:
     void compileCallNumberConstructor(Node*);
     void compileLogShadowChickenPrologue(Node*);
     void compileLogShadowChickenTail(Node*);
-    void compileHasIndexedProperty(Node*, S_JITOperation_GCZ);
+    void compileHasIndexedProperty(Node*, S_JITOperation_GCZ, const ScopedLambda<std::tuple<GPRReg, GPRReg>()>& prefix);
     void compileExtractCatchLocal(Node*);
     void compileClearCatchLocals(Node*);
     void compileProfileType(Node*);
@@ -1733,6 +1756,8 @@ public:
     void speculateNotCellNorBigInt(Edge);
     void speculateNotDouble(Edge, JSValueRegs, GPRReg temp);
     void speculateNotDouble(Edge);
+    void speculateNeitherDoubleNorHeapBigInt(Edge, JSValueRegs, GPRReg temp);
+    void speculateNeitherDoubleNorHeapBigInt(Edge);
     void speculateNeitherDoubleNorHeapBigIntNorString(Edge, JSValueRegs, GPRReg temp);
     void speculateNeitherDoubleNorHeapBigIntNorString(Edge);
     void speculateOther(Edge, JSValueRegs, GPRReg temp);
@@ -1926,6 +1951,8 @@ public:
         return edge().node();
     }
 
+    JSValueRegs regs() { return jsValueRegs(); }
+
 #if USE(JSVALUE64)
     GPRReg gpr()
     {
@@ -1965,7 +1992,7 @@ public:
         return JSValueRegs(tagGPR(), payloadGPR());
     }
 
-    GPRReg gpr(WhichValueWord which)
+    GPRReg gpr(WhichValueWord which = PayloadWord)
     {
         return jsValueRegs().gpr(which);
     }
@@ -2003,21 +2030,20 @@ private:
 class StorageOperand {
     WTF_MAKE_FAST_ALLOCATED;
 public:
+    StorageOperand() = default;
+
     explicit StorageOperand(SpeculativeJIT* jit, Edge edge)
         : m_jit(jit)
         , m_edge(edge)
         , m_gprOrInvalid(InvalidGPRReg)
     {
-        ASSERT(m_jit);
-        ASSERT(edge.useKind() == UntypedUse || edge.useKind() == KnownCellUse);
-        if (jit->isFilled(node()))
-            gpr();
+        emplace(jit, edge);
     }
     
     ~StorageOperand()
     {
-        ASSERT(m_gprOrInvalid != InvalidGPRReg);
-        m_jit->unlock(m_gprOrInvalid);
+        if (m_gprOrInvalid != InvalidGPRReg)
+            m_jit->unlock(m_gprOrInvalid);
     }
     
     Edge edge() const
@@ -2036,6 +2062,17 @@ public:
             m_gprOrInvalid = m_jit->fillStorage(edge());
         return m_gprOrInvalid;
     }
+
+    void emplace(SpeculativeJIT* jit, Edge edge)
+    {
+        m_jit = jit;
+        m_edge = edge;
+        ASSERT(m_gprOrInvalid == InvalidGPRReg);
+        ASSERT(m_jit);
+        ASSERT(edge.useKind() == UntypedUse || edge.useKind() == KnownCellUse);
+        if (jit->isFilled(node()))
+            gpr();
+    }
     
     void use()
     {
@@ -2043,9 +2080,9 @@ public:
     }
     
 private:
-    SpeculativeJIT* m_jit;
+    SpeculativeJIT* m_jit { nullptr };
     Edge m_edge;
-    GPRReg m_gprOrInvalid;
+    GPRReg m_gprOrInvalid { InvalidGPRReg };
 };
 
 
@@ -2134,11 +2171,19 @@ class JSValueRegsTemporary {
 public:
     JSValueRegsTemporary();
     JSValueRegsTemporary(SpeculativeJIT*);
+    JSValueRegsTemporary(SpeculativeJIT*, GPRReg specificPayload);
+#if USE(JSVALUE32_64)
+    JSValueRegsTemporary(SpeculativeJIT*, GPRReg specificPayload, GPRReg specificTag);
+#endif
     template<typename T>
     JSValueRegsTemporary(SpeculativeJIT*, ReuseTag, T& operand, WhichValueWord resultRegWord = PayloadWord);
     JSValueRegsTemporary(SpeculativeJIT*, ReuseTag, JSValueOperand&);
     ~JSValueRegsTemporary();
     
+    explicit operator bool() { return !!regs(); }
+
+    JSValueRegsTemporary& operator=(JSValueRegsTemporary&&) = default;
+
     JSValueRegs regs();
 
 private:
@@ -2149,6 +2194,26 @@ private:
     GPRTemporary m_tagGPR;
 #endif
 };
+
+#if USE(JSVALUE64)
+template<typename T>
+JSValueRegsTemporary::JSValueRegsTemporary(SpeculativeJIT* jit, ReuseTag, T& operand, WhichValueWord)
+    : m_gpr(jit, Reuse, operand)
+{
+}
+#else
+template<typename T>
+JSValueRegsTemporary::JSValueRegsTemporary(SpeculativeJIT* jit, ReuseTag, T& operand, WhichValueWord resultWord)
+{
+    if (resultWord == PayloadWord) {
+        m_payloadGPR = GPRTemporary(jit, Reuse, operand);
+        m_tagGPR = GPRTemporary(jit);
+    } else {
+        m_payloadGPR = GPRTemporary(jit);
+        m_tagGPR = GPRTemporary(jit, Reuse, operand);
+    }
+}
+#endif
 
 class FPRTemporary {
     WTF_MAKE_FAST_ALLOCATED;
@@ -2373,7 +2438,7 @@ private:
     GPRReg m_gprOrInvalid;
 };
 
-// Gives you a canonical Int52 (i.e. it's left-shifted by 16, low bits zero).
+// Gives you a canonical Int52 (i.e. it's left-shifted by 12, low bits zero).
 class SpeculateInt52Operand {
     WTF_MAKE_FAST_ALLOCATED;
 public:
@@ -2421,7 +2486,7 @@ private:
     GPRReg m_gprOrInvalid;
 };
 
-// Gives you a strict Int52 (i.e. the payload is in the low 48 bits, high 16 bits are sign-extended).
+// Gives you a strict Int52 (i.e. the payload is in the low 52 bits, high 12 bits are sign-extended).
 class SpeculateStrictInt52Operand {
     WTF_MAKE_FAST_ALLOCATED;
 public:

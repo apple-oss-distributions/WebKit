@@ -26,6 +26,7 @@
 
 #pragma once
 
+#include "WebProcessProxy.h"
 #include <WebCore/RegistrableDomain.h>
 #include <pal/SessionID.h>
 #include <wtf/HashMap.h>
@@ -35,7 +36,6 @@
 namespace WebKit {
 
 class WebProcessPool;
-class WebProcessProxy;
 class WebsiteDataStore;
 
 class WebProcessCache {
@@ -44,7 +44,7 @@ public:
     explicit WebProcessCache(WebProcessPool&);
 
     bool addProcessIfPossible(Ref<WebProcessProxy>&&);
-    RefPtr<WebProcessProxy> takeProcess(const WebCore::RegistrableDomain&, WebsiteDataStore&);
+    RefPtr<WebProcessProxy> takeProcess(const WebCore::RegistrableDomain&, WebsiteDataStore&, WebProcessProxy::CaptivePortalMode);
 
     void updateCapacity(WebProcessPool&);
     unsigned capacity() const { return m_capacity; }
@@ -58,6 +58,7 @@ public:
 
     enum class ShouldShutDownProcess { No, Yes };
     void removeProcess(WebProcessProxy&, ShouldShutDownProcess);
+    static void setCachedProcessSuspensionDelayForTesting(Seconds);
 
 private:
     static Seconds cachedProcessLifetime;
@@ -71,6 +72,7 @@ private:
 
         Ref<WebProcessProxy> takeProcess();
         WebProcessProxy& process() { ASSERT(m_process); return *m_process; }
+        void startSuspensionTimer();
 
 #if PLATFORM(MAC)
         bool isSuspended() const { return !m_suspensionTimer.isActive(); }

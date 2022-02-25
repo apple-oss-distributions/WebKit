@@ -46,7 +46,6 @@ RTCRtpTransceiver::RTCRtpTransceiver(Ref<RTCRtpSender>&& sender, Ref<RTCRtpRecei
     : m_direction(RTCRtpTransceiverDirection::Sendrecv)
     , m_sender(WTFMove(sender))
     , m_receiver(WTFMove(receiver))
-    , m_iceTransport(RTCIceTransport::create())
     , m_backend(WTFMove(backend))
 {
 }
@@ -102,7 +101,7 @@ void RTCRtpTransceiver::disableSendingDirection()
 void RTCRtpTransceiver::setConnection(RTCPeerConnection& connection)
 {
     ASSERT(!m_connection);
-    m_connection = makeWeakPtr(connection);
+    m_connection = connection;
 }
 
 ExceptionOr<void> RTCRtpTransceiver::stop()
@@ -119,7 +118,7 @@ ExceptionOr<void> RTCRtpTransceiver::stop()
     if (m_backend)
         m_backend->stop();
 
-    m_connection->scheduleNegotiationNeededEvent();
+    // No need to call negotiation needed, it will be done by the backend itself.
     return { };
 }
 

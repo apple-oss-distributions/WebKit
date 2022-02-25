@@ -42,23 +42,24 @@
 namespace WebKit {
 using namespace WebCore;
 
-std::unique_ptr<SampleBufferDisplayLayer> SampleBufferDisplayLayer::create(SampleBufferDisplayLayerManager& manager, Client& client)
+std::unique_ptr<SampleBufferDisplayLayer> SampleBufferDisplayLayer::create(SampleBufferDisplayLayerManager& manager, WebCore::SampleBufferDisplayLayer::Client& client)
 {
     return std::unique_ptr<SampleBufferDisplayLayer>(new SampleBufferDisplayLayer(manager, client));
 }
 
-SampleBufferDisplayLayer::SampleBufferDisplayLayer(SampleBufferDisplayLayerManager& manager, Client& client)
+SampleBufferDisplayLayer::SampleBufferDisplayLayer(SampleBufferDisplayLayerManager& manager, WebCore::SampleBufferDisplayLayer::Client& client)
     : WebCore::SampleBufferDisplayLayer(client)
-    , m_manager(makeWeakPtr(manager))
+    , m_manager(manager)
     , m_connection(WebProcess::singleton().ensureGPUProcessConnection().connection())
     , m_identifier(SampleBufferDisplayLayerIdentifier::generate())
 {
     manager.addLayer(*this);
+    WebProcess::singleton().ensureGPUProcessConnection().addClient(*this);
 }
 
 void SampleBufferDisplayLayer::initialize(bool hideRootLayer, IntSize size, CompletionHandler<void(bool)>&& callback)
 {
-    m_connection->sendWithAsyncReply(Messages::RemoteSampleBufferDisplayLayerManager::CreateLayer { m_identifier, hideRootLayer, size }, [this, weakThis = makeWeakPtr(this), callback = WTFMove(callback)](auto contextId) mutable {
+    m_connection->sendWithAsyncReply(Messages::RemoteSampleBufferDisplayLayerManager::CreateLayer { m_identifier, hideRootLayer, size }, [this, weakThis = WeakPtr { *this }, callback = WTFMove(callback)](auto contextId) mutable {
         if (!weakThis)
             return callback(false);
         if (contextId)
@@ -77,6 +78,7 @@ void SampleBufferDisplayLayer::setLogIdentifier(String&& logIdentifier)
 
 SampleBufferDisplayLayer::~SampleBufferDisplayLayer()
 {
+    WebProcess::singleton().ensureGPUProcessConnection().removeClient(*this);
     m_connection->send(Messages::RemoteSampleBufferDisplayLayerManager::ReleaseLayer { m_identifier }, 0);
     if (m_manager)
         m_manager->removeLayer(*this);
@@ -145,6 +147,15 @@ PlatformLayer* SampleBufferDisplayLayer::rootLayer()
 void SampleBufferDisplayLayer::setDidFail(bool value)
 {
     m_didFail = value;
+    if (m_client && m_didFail)
+        m_client->sampleBufferDisplayLayerStatusDidFail();
+}
+
+void SampleBufferDisplayLayer::gpuProcessConnectionDidClose(GPUProcessConnection&)
+{
+    m_didFail = true;
+    if (m_client)
+        m_client->sampleBufferDisplayLayerStatusDidFail();
 }
 
 }

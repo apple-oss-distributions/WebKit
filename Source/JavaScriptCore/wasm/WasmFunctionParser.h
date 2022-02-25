@@ -37,7 +37,14 @@ enum class BlockType {
     If,
     Block,
     Loop,
-    TopLevel
+    TopLevel,
+    Try,
+    Catch,
+};
+
+enum class CatchKind {
+    Catch,
+    CatchAll,
 };
 
 template<typename EnclosingStack, typename NewStack>
@@ -147,6 +154,7 @@ private:
     PartialResult WARN_UNUSED_RETURN parseIndexForLocal(uint32_t&);
     PartialResult WARN_UNUSED_RETURN parseIndexForGlobal(uint32_t&);
     PartialResult WARN_UNUSED_RETURN parseFunctionIndex(uint32_t&);
+    PartialResult WARN_UNUSED_RETURN parseExceptionIndex(uint32_t&);
     PartialResult WARN_UNUSED_RETURN parseBranchTarget(uint32_t&);
 
     struct TableInitImmediates {
@@ -210,6 +218,12 @@ private:
     unsigned m_unreachableBlocks { 0 };
     unsigned m_loopIndex { 0 };
 };
+
+template<typename ControlType>
+static bool isTryOrCatch(ControlType& data)
+{
+    return ControlType::isTry(data) || ControlType::isCatch(data);
+}
 
 template<typename Context>
 FunctionParser<Context>::FunctionParser(Context& context, const uint8_t* functionStart, size_t functionLength, const Signature& signature, const ModuleInformation& info)
@@ -576,6 +590,16 @@ auto FunctionParser<Context>::parseFunctionIndex(uint32_t& resultIndex) -> Parti
 }
 
 template<typename Context>
+auto FunctionParser<Context>::parseExceptionIndex(uint32_t& result) -> PartialResult
+{
+    uint32_t exceptionIndex;
+    WASM_PARSER_FAIL_IF(!parseVarUInt32(exceptionIndex), "can't parse exception index");
+    WASM_VALIDATOR_FAIL_IF(exceptionIndex >= m_info.exceptionIndexSpaceSize(), "exception index ", exceptionIndex, " is invalid, limit is ", m_info.exceptionIndexSpaceSize());
+    result = exceptionIndex;
+    return { };
+}
+
+template<typename Context>
 auto FunctionParser<Context>::parseBranchTarget(uint32_t& resultTarget) -> PartialResult
 {
     uint32_t target;
@@ -736,8 +760,7 @@ auto FunctionParser<Context>::parseExpression() -> PartialResult
         WASM_TRY_POP_EXPRESSION_STACK_INTO(zero, "select zero");
         WASM_TRY_POP_EXPRESSION_STACK_INTO(nonZero, "select non-zero");
 
-        if (Options::useWebAssemblyReferences())
-            WASM_PARSER_FAIL_IF(isRefType(nonZero.type()) || isRefType(nonZero.type()), "can't use ref-types with unannotated select");
+        WASM_PARSER_FAIL_IF(isRefType(nonZero.type()) || isRefType(nonZero.type()), "can't use ref-types with unannotated select");
 
         WASM_VALIDATOR_FAIL_IF(!condition.type().isI32(), "select condition must be i32, got ", condition.type().kind);
         WASM_VALIDATOR_FAIL_IF(nonZero.type() != zero.type(), "select result types must match, got ", nonZero.type().kind, " and ", zero.type().kind);
@@ -750,8 +773,6 @@ auto FunctionParser<Context>::parseExpression() -> PartialResult
     }
 
     case AnnotatedSelect: {
-        WASM_PARSER_FAIL_IF(!Options::useWebAssemblyReferences(), "references are not enabled");
-
         AnnotatedSelectImmediates immediates;
         WASM_FAIL_IF_HELPER_FAILS(parseAnnotatedSelectImmediates(immediates));
 
@@ -811,7 +832,6 @@ FOR_EACH_WASM_MEMORY_STORE_OP(CREATE_CASE)
     }
 
     case TableGet: {
-        WASM_PARSER_FAIL_IF(!Options::useWebAssemblyReferences(), "references are not enabled");
         unsigned tableIndex;
         WASM_PARSER_FAIL_IF(!parseVarUInt32(tableIndex), "can't parse table index");
         WASM_VALIDATOR_FAIL_IF(tableIndex >= m_info.tableCount(), "table index ", tableIndex, " is invalid, limit is ", m_info.tableCount());
@@ -828,7 +848,6 @@ FOR_EACH_WASM_MEMORY_STORE_OP(CREATE_CASE)
     }
 
     case TableSet: {
-        WASM_PARSER_FAIL_IF(!Options::useWebAssemblyReferences(), "references are not enabled");
         unsigned tableIndex;
         WASM_PARSER_FAIL_IF(!parseVarUInt32(tableIndex), "can't parse table index");
         WASM_VALIDATOR_FAIL_IF(tableIndex >= m_info.tableCount(), "table index ", tableIndex, " is invalid, limit is ", m_info.tableCount());
@@ -850,8 +869,6 @@ FOR_EACH_WASM_MEMORY_STORE_OP(CREATE_CASE)
         Ext1OpType op = static_cast<Ext1OpType>(extOp);
         switch (op) {
         case Ext1OpType::TableInit: {
-            WASM_PARSER_FAIL_IF(!Options::useWebAssemblyReferences(), "references are not enabled");
-
             TableInitImmediates immediates;
             WASM_FAIL_IF_HELPER_FAILS(parseTableInitImmediates(immediates));
 
@@ -870,8 +887,6 @@ FOR_EACH_WASM_MEMORY_STORE_OP(CREATE_CASE)
             break;
         }
         case Ext1OpType::ElemDrop: {
-            WASM_PARSER_FAIL_IF(!Options::useWebAssemblyReferences(), "references are not enabled");
-
             unsigned elementIndex;
             WASM_FAIL_IF_HELPER_FAILS(parseElementIndex(elementIndex));
 
@@ -879,8 +894,6 @@ FOR_EACH_WASM_MEMORY_STORE_OP(CREATE_CASE)
             break;
         }
         case Ext1OpType::TableSize: {
-            WASM_PARSER_FAIL_IF(!Options::useWebAssemblyReferences(), "references are not enabled");
-
             unsigned tableIndex;
             WASM_FAIL_IF_HELPER_FAILS(parseTableIndex(tableIndex));
 
@@ -890,8 +903,6 @@ FOR_EACH_WASM_MEMORY_STORE_OP(CREATE_CASE)
             break;
         }
         case Ext1OpType::TableGrow: {
-            WASM_PARSER_FAIL_IF(!Options::useWebAssemblyReferences(), "references are not enabled");
-
             unsigned tableIndex;
             WASM_FAIL_IF_HELPER_FAILS(parseTableIndex(tableIndex));
 
@@ -910,8 +921,6 @@ FOR_EACH_WASM_MEMORY_STORE_OP(CREATE_CASE)
             break;
         }
         case Ext1OpType::TableFill: {
-            WASM_PARSER_FAIL_IF(!Options::useWebAssemblyReferences(), "references are not enabled");
-
             unsigned tableIndex;
             WASM_FAIL_IF_HELPER_FAILS(parseTableIndex(tableIndex));
 
@@ -929,8 +938,6 @@ FOR_EACH_WASM_MEMORY_STORE_OP(CREATE_CASE)
             break;
         }
         case Ext1OpType::TableCopy: {
-            WASM_PARSER_FAIL_IF(!Options::useWebAssemblyReferences(), "references are not enabled");
-
             TableCopyImmediates immediates;
             WASM_FAIL_IF_HELPER_FAILS(parseTableCopyImmediates(immediates));
 
@@ -953,8 +960,6 @@ FOR_EACH_WASM_MEMORY_STORE_OP(CREATE_CASE)
             break;
         }
         case Ext1OpType::MemoryFill: {
-            WASM_PARSER_FAIL_IF(!Options::useWebAssemblyReferences(), "references are not enabled");
-
             WASM_FAIL_IF_HELPER_FAILS(parseMemoryFillImmediate());
 
             WASM_VALIDATOR_FAIL_IF(!m_info.memoryCount(), "memory must be present");
@@ -975,8 +980,6 @@ FOR_EACH_WASM_MEMORY_STORE_OP(CREATE_CASE)
             break;
         }
         case Ext1OpType::MemoryCopy: {
-            WASM_PARSER_FAIL_IF(!Options::useWebAssemblyReferences(), "references are not enabled");
-
             WASM_FAIL_IF_HELPER_FAILS(parseMemoryCopyImmediates());
 
             WASM_VALIDATOR_FAIL_IF(!m_info.memoryCount(), "memory must be present");
@@ -997,8 +1000,6 @@ FOR_EACH_WASM_MEMORY_STORE_OP(CREATE_CASE)
             break;
         }
         case Ext1OpType::MemoryInit: {
-            WASM_PARSER_FAIL_IF(!Options::useWebAssemblyReferences(), "references are not enabled");
-
             MemoryInitImmediates immediates;
             WASM_FAIL_IF_HELPER_FAILS(parseMemoryInitImmediates(immediates));
 
@@ -1017,8 +1018,6 @@ FOR_EACH_WASM_MEMORY_STORE_OP(CREATE_CASE)
             break;
         }
         case Ext1OpType::DataDrop: {
-            WASM_PARSER_FAIL_IF(!Options::useWebAssemblyReferences(), "references are not enabled");
-
             unsigned dataSegmentIndex;
             WASM_FAIL_IF_HELPER_FAILS(parseDataSegmentIndex(dataSegmentIndex));
 
@@ -1078,15 +1077,22 @@ FOR_EACH_WASM_MEMORY_STORE_OP(CREATE_CASE)
     }
 
     case RefNull: {
-        WASM_PARSER_FAIL_IF(!Options::useWebAssemblyReferences(), "references are not enabled");
         Type typeOfNull;
-        WASM_PARSER_FAIL_IF(!parseRefType(m_info, typeOfNull), "ref.null type must be a reference type");
+        if (Options::useWebAssemblyTypedFunctionReferences()) {
+            int32_t heapType;
+            WASM_PARSER_FAIL_IF(!parseHeapType(m_info, heapType), "ref.null heaptype must be funcref, externref or type_idx");
+            if (isTypeIndexHeapType(heapType)) {
+                SignatureIndex signatureIndex = SignatureInformation::get(m_info.usedSignatures[heapType].get());
+                typeOfNull = Type { TypeKind::RefNull, Nullable::Yes, signatureIndex };
+            } else
+                typeOfNull = Type { TypeKind::RefNull, Nullable::Yes, static_cast<SignatureIndex>(heapType) };
+        } else
+            WASM_PARSER_FAIL_IF(!parseRefType(m_info, typeOfNull), "ref.null type must be a reference type");
         m_expressionStack.constructAndAppend(typeOfNull, m_context.addConstant(typeOfNull, JSValue::encode(jsNull())));
         return { };
     }
 
     case RefIsNull: {
-        WASM_PARSER_FAIL_IF(!Options::useWebAssemblyReferences(), "references are not enabled");
         TypedExpression value;
         WASM_TRY_POP_EXPRESSION_STACK_INTO(value, "ref.is_null");
         WASM_VALIDATOR_FAIL_IF(!isRefType(value.type()), "ref.is_null to type ", value.type().kind, " expected a reference type");
@@ -1097,8 +1103,6 @@ FOR_EACH_WASM_MEMORY_STORE_OP(CREATE_CASE)
     }
 
     case RefFunc: {
-        WASM_PARSER_FAIL_IF(!Options::useWebAssemblyReferences(), "references are not enabled");
-
         uint32_t index;
         WASM_PARSER_FAIL_IF(!parseVarUInt32(index), "can't get index for ref.func");
         WASM_VALIDATOR_FAIL_IF(index >= m_info.functionIndexSpaceSize(), "ref.func index ", index, " is too large, max is ", m_info.functionIndexSpaceSize());
@@ -1110,7 +1114,7 @@ FOR_EACH_WASM_MEMORY_STORE_OP(CREATE_CASE)
 
         if (Options::useWebAssemblyTypedFunctionReferences()) {
             SignatureIndex signatureIndex = m_info.signatureIndexFromFunctionIndexSpace(index);
-            m_expressionStack.constructAndAppend(Type {TypeKind::TypeIdx, Nullable::No, signatureIndex}, result);
+            m_expressionStack.constructAndAppend(Type { TypeKind::Ref, Nullable::No, signatureIndex }, result);
             return { };
         }
 
@@ -1252,7 +1256,7 @@ FOR_EACH_WASM_MEMORY_STORE_OP(CREATE_CASE)
 
     case CallRef: {
         WASM_PARSER_FAIL_IF(!Options::useWebAssemblyTypedFunctionReferences(), "function references are not enabled");
-        WASM_VALIDATOR_FAIL_IF(!m_expressionStack.last().type().isTypeIdx(), "non-funcref call_ref value ", m_expressionStack.last().type().kind);
+        WASM_VALIDATOR_FAIL_IF(!isRefWithTypeIndex(m_expressionStack.last().type()), "non-funcref call_ref value ", m_expressionStack.last().type().kind);
 
         const SignatureIndex calleeSignatureIndex = m_expressionStack.last().type().index;
         const Signature& calleeSignature = SignatureInformation::get(calleeSignatureIndex);
@@ -1359,6 +1363,131 @@ FOR_EACH_WASM_MEMORY_STORE_OP(CREATE_CASE)
         WASM_FAIL_IF_HELPER_FAILS(unify(controlEntry.controlData));
         WASM_TRY_ADD_TO_CONTEXT(addElse(controlEntry.controlData, m_expressionStack));
         m_expressionStack = WTFMove(controlEntry.elseBlockStack);
+        return { };
+    }
+
+    case Try: {
+        WASM_PARSER_FAIL_IF(!Options::useWebAssemblyExceptions(), "wasm exceptions are not enabled");
+
+        BlockSignature inlineSignature;
+        WASM_PARSER_FAIL_IF(!parseBlockSignature(m_info, inlineSignature), "can't get try's signature");
+
+        WASM_VALIDATOR_FAIL_IF(m_expressionStack.size() < inlineSignature->argumentCount(), "Too few arguments on stack for try block. Trye expects ", inlineSignature->argumentCount(), ", but only ", m_expressionStack.size(), " were present. Try block has signature: ", inlineSignature->toString());
+        unsigned offset = m_expressionStack.size() - inlineSignature->argumentCount();
+        for (unsigned i = 0; i < inlineSignature->argumentCount(); ++i)
+            WASM_VALIDATOR_FAIL_IF(m_expressionStack[offset + i].type() != inlineSignature->argument(i), "Try expects the argument at index", i, " to be ", inlineSignature->argument(i).kind, " but argument has type ", m_expressionStack[i].type().kind);
+
+        int64_t oldSize = m_expressionStack.size();
+        Stack newStack;
+        ControlType control;
+        WASM_TRY_ADD_TO_CONTEXT(addTry(inlineSignature, m_expressionStack, control, newStack));
+        ASSERT_UNUSED(oldSize, oldSize - m_expressionStack.size() == inlineSignature->argumentCount());
+        ASSERT(newStack.size() == inlineSignature->argumentCount());
+
+        m_controlStack.append({ WTFMove(m_expressionStack), { }, WTFMove(control) });
+        m_expressionStack = WTFMove(newStack);
+        return { };
+    }
+
+    case Catch: {
+        WASM_PARSER_FAIL_IF(!Options::useWebAssemblyExceptions(), "wasm exceptions are not enabled");
+
+        WASM_PARSER_FAIL_IF(m_controlStack.size() == 1, "can't use catch block at the top-level of a function");
+
+        uint32_t exceptionIndex;
+        WASM_FAIL_IF_HELPER_FAILS(parseExceptionIndex(exceptionIndex));
+        SignatureIndex signatureIndex = m_info.signatureIndexFromExceptionIndexSpace(exceptionIndex);
+        const Signature& exceptionSignature = SignatureInformation::get(signatureIndex);
+
+        ControlEntry& controlEntry = m_controlStack.last();
+        WASM_VALIDATOR_FAIL_IF(!isTryOrCatch(controlEntry.controlData), "catch block isn't associated to a try");
+        WASM_FAIL_IF_HELPER_FAILS(unify(controlEntry.controlData));
+
+        ResultList results;
+        Stack preCatchStack;
+        m_expressionStack.swap(preCatchStack);
+        WASM_TRY_ADD_TO_CONTEXT(addCatch(exceptionIndex, exceptionSignature, preCatchStack, controlEntry.controlData, results));
+
+        RELEASE_ASSERT(exceptionSignature.argumentCount() == results.size());
+        for (unsigned i = 0; i < exceptionSignature.argumentCount(); ++i)
+            m_expressionStack.constructAndAppend(exceptionSignature.argument(i), results[i]);
+        return { };
+    }
+
+    case CatchAll: {
+        WASM_PARSER_FAIL_IF(!Options::useWebAssemblyExceptions(), "wasm exceptions are not enabled");
+
+        WASM_PARSER_FAIL_IF(m_controlStack.size() == 1, "can't use catch block at the top-level of a function");
+
+        ControlEntry& controlEntry = m_controlStack.last();
+
+        WASM_VALIDATOR_FAIL_IF(!isTryOrCatch(controlEntry.controlData), "catch block isn't associated to a try");
+        WASM_FAIL_IF_HELPER_FAILS(unify(controlEntry.controlData));
+
+        ResultList results;
+        Stack preCatchStack;
+        m_expressionStack.swap(preCatchStack);
+        WASM_TRY_ADD_TO_CONTEXT(addCatchAll(preCatchStack, controlEntry.controlData));
+        return { };
+    }
+
+    case Delegate: {
+        WASM_PARSER_FAIL_IF(!Options::useWebAssemblyExceptions(), "wasm exceptions are not enabled");
+
+        WASM_PARSER_FAIL_IF(m_controlStack.size() == 1, "can't use delegate at the top-level of a function");
+
+        uint32_t target;
+        WASM_FAIL_IF_HELPER_FAILS(parseBranchTarget(target));
+
+        ControlEntry controlEntry = m_controlStack.takeLast();
+        WASM_VALIDATOR_FAIL_IF(!ControlType::isTry(controlEntry.controlData), "delegate isn't associated to a try");
+
+        ControlType& targetData = m_controlStack[m_controlStack.size() - 1 - target].controlData;
+        WASM_VALIDATOR_FAIL_IF(!ControlType::isTry(targetData) && !ControlType::isTopLevel(targetData), "delegate target isn't a try or the top level block");
+
+        WASM_TRY_ADD_TO_CONTEXT(addDelegate(targetData, controlEntry.controlData));
+        WASM_FAIL_IF_HELPER_FAILS(unify(controlEntry.controlData));
+        WASM_TRY_ADD_TO_CONTEXT(endBlock(controlEntry, m_expressionStack));
+        m_expressionStack.swap(controlEntry.enclosedExpressionStack);
+        return { };
+    }
+
+    case Throw: {
+        WASM_PARSER_FAIL_IF(!Options::useWebAssemblyExceptions(), "wasm exceptions are not enabled");
+
+        uint32_t exceptionIndex;
+        WASM_FAIL_IF_HELPER_FAILS(parseExceptionIndex(exceptionIndex));
+        SignatureIndex signatureIndex = m_info.signatureIndexFromExceptionIndexSpace(exceptionIndex);
+        const Signature& exceptionSignature = SignatureInformation::get(signatureIndex);
+
+        WASM_VALIDATOR_FAIL_IF(m_expressionStack.size() < exceptionSignature.argumentCount(), "Too few arguments on stack for the exception being thrown. The exception expects ", exceptionSignature.argumentCount(), ", but only ", m_expressionStack.size(), " were present. Exception has signature: ", exceptionSignature.toString());
+        unsigned offset = m_expressionStack.size() - exceptionSignature.argumentCount();
+        Vector<ExpressionType> args;
+        WASM_PARSER_FAIL_IF(!args.tryReserveCapacity(exceptionSignature.argumentCount()), "can't allocate enough memory for throw's ", exceptionSignature.argumentCount(), " arguments");
+        for (unsigned i = 0; i < exceptionSignature.argumentCount(); ++i) {
+            TypedExpression arg = m_expressionStack.at(offset + i);
+            WASM_VALIDATOR_FAIL_IF(arg.type() != exceptionSignature.argument(i), "The exception being thrown expects the argument at index ", i, " to be ", exceptionSignature.argument(i).kind, " but argument has type ", arg.type().kind);
+            args.uncheckedAppend(arg);
+            m_context.didPopValueFromStack();
+        }
+        m_expressionStack.shrink(offset);
+
+        WASM_TRY_ADD_TO_CONTEXT(addThrow(exceptionIndex, args, m_expressionStack));
+        m_unreachableBlocks = 1;
+        return { };
+    }
+
+    case Rethrow: {
+        WASM_PARSER_FAIL_IF(!Options::useWebAssemblyExceptions(), "wasm exceptions are not enabled");
+
+        uint32_t target;
+        WASM_FAIL_IF_HELPER_FAILS(parseBranchTarget(target));
+
+        ControlType& data = m_controlStack[m_controlStack.size() - 1 - target].controlData;
+        WASM_VALIDATOR_FAIL_IF(!ControlType::isAnyCatch(data), "rethrow doesn't refer to a catch block");
+
+        WASM_TRY_ADD_TO_CONTEXT(addRethrow(target, data));
+        m_unreachableBlocks = 1;
         return { };
     }
 
@@ -1516,6 +1645,66 @@ auto FunctionParser<Context>::parseUnreachableExpression() -> PartialResult
         return { };
     }
 
+    case Catch: {
+        WASM_PARSER_FAIL_IF(!Options::useWebAssemblyExceptions(), "wasm exceptions are not enabled");
+
+        uint32_t exceptionIndex;
+        WASM_FAIL_IF_HELPER_FAILS(parseExceptionIndex(exceptionIndex));
+        SignatureIndex signatureIndex = m_info.signatureIndexFromExceptionIndexSpace(exceptionIndex);
+        const Signature& exceptionSignature = SignatureInformation::get(signatureIndex);
+
+        if (m_unreachableBlocks > 1)
+            return { };
+
+        ControlEntry& data = m_controlStack.last();
+        WASM_VALIDATOR_FAIL_IF(!isTryOrCatch(data.controlData), "catch block isn't associated to a try");
+
+        m_unreachableBlocks = 0;
+        m_expressionStack = { };
+        ResultList results;
+        WASM_TRY_ADD_TO_CONTEXT(addCatchToUnreachable(exceptionIndex, exceptionSignature, data.controlData, results));
+
+        RELEASE_ASSERT(exceptionSignature.argumentCount() == results.size());
+        for (unsigned i = 0; i < exceptionSignature.argumentCount(); ++i)
+            m_expressionStack.constructAndAppend(exceptionSignature.argument(i), results[i]);
+        return { };
+    }
+
+    case CatchAll: {
+        WASM_PARSER_FAIL_IF(!Options::useWebAssemblyExceptions(), "wasm exceptions are not enabled");
+
+        if (m_unreachableBlocks > 1)
+            return { };
+
+        ControlEntry& data = m_controlStack.last();
+        m_unreachableBlocks = 0;
+        m_expressionStack = { };
+        WASM_VALIDATOR_FAIL_IF(!isTryOrCatch(data.controlData), "catch block isn't associated to a try");
+        WASM_TRY_ADD_TO_CONTEXT(addCatchAllToUnreachable(data.controlData));
+        return { };
+    }
+
+    case Delegate: {
+        WASM_PARSER_FAIL_IF(!Options::useWebAssemblyExceptions(), "wasm exceptions are not enabled");
+
+        WASM_PARSER_FAIL_IF(m_controlStack.size() == 1, "can't use delegate at the top-level of a function");
+
+        uint32_t target;
+        WASM_FAIL_IF_HELPER_FAILS(parseBranchTarget(target));
+
+        ControlEntry controlEntry = m_controlStack.takeLast();
+        WASM_VALIDATOR_FAIL_IF(!ControlType::isTry(controlEntry.controlData), "delegate isn't associated to a try");
+
+        ControlType& data = m_controlStack[m_controlStack.size() - 1 - target].controlData;
+        WASM_VALIDATOR_FAIL_IF(!ControlType::isTry(data) && !ControlType::isTopLevel(data), "delegate target isn't a try block");
+
+        WASM_TRY_ADD_TO_CONTEXT(addDelegateToUnreachable(data, controlEntry.controlData));
+        Stack emptyStack;
+        WASM_TRY_ADD_TO_CONTEXT(addEndToUnreachable(controlEntry, emptyStack));
+        m_expressionStack.swap(controlEntry.enclosedExpressionStack);
+        return { };
+    }
+
     case End: {
         if (m_unreachableBlocks == 1) {
             ControlEntry data = m_controlStack.takeLast();
@@ -1524,14 +1713,20 @@ auto FunctionParser<Context>::parseUnreachableExpression() -> PartialResult
                 m_expressionStack = WTFMove(data.elseBlockStack);
                 WASM_FAIL_IF_HELPER_FAILS(unify(data.controlData));
                 WASM_TRY_ADD_TO_CONTEXT(endBlock(data, m_expressionStack));
-            } else
-                WASM_TRY_ADD_TO_CONTEXT(addEndToUnreachable(data));
+            } else {
+                Stack emptyStack;
+                WASM_TRY_ADD_TO_CONTEXT(addEndToUnreachable(data, emptyStack));
+            }
 
             m_expressionStack.swap(data.enclosedExpressionStack);
         }
         m_unreachableBlocks--;
         return { };
     }
+
+    case Try:
+        WASM_PARSER_FAIL_IF(!Options::useWebAssemblyExceptions(), "wasm exceptions are not enabled");
+        FALLTHROUGH;
 
     case Loop:
     case If:
@@ -1605,10 +1800,29 @@ auto FunctionParser<Context>::parseUnreachableExpression() -> PartialResult
         return { };
     }
 
+    case Rethrow: {
+        WASM_PARSER_FAIL_IF(!Options::useWebAssemblyExceptions(), "wasm exceptions are not enabled");
+        uint32_t target;
+        WASM_FAIL_IF_HELPER_FAILS(parseBranchTarget(target));
+
+        ControlType& data = m_controlStack[m_controlStack.size() - 1 - target].controlData;
+        WASM_VALIDATOR_FAIL_IF(!ControlType::isAnyCatch(data), "rethrow doesn't refer to a catch block");
+        return { };
+    }
+
     case Br:
     case BrIf: {
         uint32_t target;
         WASM_FAIL_IF_HELPER_FAILS(parseBranchTarget(target));
+        return { };
+    }
+
+    case Throw: {
+        WASM_PARSER_FAIL_IF(!Options::useWebAssemblyExceptions(), "wasm exceptions are not enabled");
+
+        uint32_t exceptionIndex;
+        WASM_FAIL_IF_HELPER_FAILS(parseExceptionIndex(exceptionIndex));
+
         return { };
     }
 
@@ -1630,13 +1844,11 @@ auto FunctionParser<Context>::parseUnreachableExpression() -> PartialResult
 
         switch (static_cast<Ext1OpType>(extOp)) {
         case Ext1OpType::TableInit: {
-            WASM_PARSER_FAIL_IF(!Options::useWebAssemblyReferences(), "references are not enabled");
             TableInitImmediates immediates;
             WASM_FAIL_IF_HELPER_FAILS(parseTableInitImmediates(immediates));
             return { };
         }
         case Ext1OpType::ElemDrop: {
-            WASM_PARSER_FAIL_IF(!Options::useWebAssemblyReferences(), "references are not enabled");
             unsigned elementIndex;
             WASM_FAIL_IF_HELPER_FAILS(parseElementIndex(elementIndex));
             return { };
@@ -1644,35 +1856,29 @@ auto FunctionParser<Context>::parseUnreachableExpression() -> PartialResult
         case Ext1OpType::TableSize:
         case Ext1OpType::TableGrow:
         case Ext1OpType::TableFill: {
-            WASM_PARSER_FAIL_IF(!Options::useWebAssemblyReferences(), "references are not enabled");
             unsigned tableIndex;
             WASM_FAIL_IF_HELPER_FAILS(parseTableIndex(tableIndex));
             return { };
         }
         case Ext1OpType::TableCopy: {
-            WASM_PARSER_FAIL_IF(!Options::useWebAssemblyReferences(), "references are not enabled");
             TableCopyImmediates immediates;
             WASM_FAIL_IF_HELPER_FAILS(parseTableCopyImmediates(immediates));
             return { };
         }
         case Ext1OpType::MemoryFill: {
-            WASM_PARSER_FAIL_IF(!Options::useWebAssemblyReferences(), "references are not enabled");
             WASM_FAIL_IF_HELPER_FAILS(parseMemoryFillImmediate());
             return { };
         }
         case Ext1OpType::MemoryCopy: {
-            WASM_PARSER_FAIL_IF(!Options::useWebAssemblyReferences(), "references are not enabled");
             WASM_FAIL_IF_HELPER_FAILS(parseMemoryCopyImmediates());
             return { };
         }
         case Ext1OpType::MemoryInit: {
-            WASM_PARSER_FAIL_IF(!Options::useWebAssemblyReferences(), "references are not enabled");
             MemoryInitImmediates immediates;
             WASM_FAIL_IF_HELPER_FAILS(parseMemoryInitImmediates(immediates));
             return { };
         }
         case Ext1OpType::DataDrop: {
-            WASM_PARSER_FAIL_IF(!Options::useWebAssemblyReferences(), "references are not enabled");
             unsigned dataSegmentIndex;
             WASM_FAIL_IF_HELPER_FAILS(parseDataSegmentIndex(dataSegmentIndex));
             return { };
@@ -1690,8 +1896,6 @@ auto FunctionParser<Context>::parseUnreachableExpression() -> PartialResult
     }
 
     case AnnotatedSelect: {
-        WASM_PARSER_FAIL_IF(!Options::useWebAssemblyReferences(), "references are not enabled");
-
         AnnotatedSelectImmediates immediates;
         WASM_FAIL_IF_HELPER_FAILS(parseAnnotatedSelectImmediates(immediates));
         return { };
@@ -1705,14 +1909,12 @@ auto FunctionParser<Context>::parseUnreachableExpression() -> PartialResult
     }
     case RefIsNull:
     case RefNull: {
-        WASM_PARSER_FAIL_IF(!Options::useWebAssemblyReferences(), "references are not enabled");
         return { };
     }
 
     case RefFunc: {
         uint32_t unused;
         WASM_PARSER_FAIL_IF(!parseVarUInt32(unused), "can't get immediate for ", m_currentOpcode, " in unreachable context");
-        WASM_PARSER_FAIL_IF(!Options::useWebAssemblyReferences(), "references are not enabled");
         return { };
     }
 

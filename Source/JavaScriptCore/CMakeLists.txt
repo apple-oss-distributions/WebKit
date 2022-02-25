@@ -27,7 +27,7 @@ set(JavaScriptCore_PRIVATE_INCLUDE_DIRECTORIES
     "${JAVASCRIPTCORE_DIR}/dfg"
     "${JAVASCRIPTCORE_DIR}/disassembler"
     "${JAVASCRIPTCORE_DIR}/disassembler/ARM64"
-    "${JAVASCRIPTCORE_DIR}/disassembler/udis86"
+    "${JAVASCRIPTCORE_DIR}/disassembler/zydis/Zydis"
     "${JAVASCRIPTCORE_DIR}/domjit"
     "${JAVASCRIPTCORE_DIR}/ftl"
     "${JAVASCRIPTCORE_DIR}/heap"
@@ -103,16 +103,31 @@ set(JavaScriptCore_OBJECT_LUT_SOURCES
     runtime/RegExpPrototype.cpp
     runtime/RegExpStringIteratorPrototype.cpp
     runtime/SetPrototype.cpp
+    runtime/ShadowRealmObject.cpp
+    runtime/ShadowRealmPrototype.cpp
     runtime/StringConstructor.cpp
     runtime/StringPrototype.cpp
     runtime/SymbolConstructor.cpp
     runtime/SymbolPrototype.cpp
+    runtime/TemporalCalendarConstructor.cpp
+    runtime/TemporalCalendarPrototype.cpp
+    runtime/TemporalDurationConstructor.cpp
+    runtime/TemporalDurationPrototype.cpp
+    runtime/TemporalInstantConstructor.cpp
+    runtime/TemporalInstantPrototype.cpp
+    runtime/TemporalNow.cpp
     runtime/TemporalObject.cpp
+    runtime/TemporalPlainTimeConstructor.cpp
+    runtime/TemporalPlainTimePrototype.cpp
+    runtime/TemporalTimeZoneConstructor.cpp
+    runtime/TemporalTimeZonePrototype.cpp
 
     wasm/js/JSWebAssembly.cpp
     wasm/js/JSToWasmICCallee.cpp
     wasm/js/WebAssemblyCompileErrorConstructor.cpp
     wasm/js/WebAssemblyCompileErrorPrototype.cpp
+    wasm/js/WebAssemblyExceptionConstructor.cpp
+    wasm/js/WebAssemblyExceptionPrototype.cpp
     wasm/js/WebAssemblyGlobalConstructor.cpp
     wasm/js/WebAssemblyGlobalPrototype.cpp
     wasm/js/WebAssemblyInstanceConstructor.cpp
@@ -127,6 +142,8 @@ set(JavaScriptCore_OBJECT_LUT_SOURCES
     wasm/js/WebAssemblyRuntimeErrorPrototype.cpp
     wasm/js/WebAssemblyTableConstructor.cpp
     wasm/js/WebAssemblyTablePrototype.cpp
+    wasm/js/WebAssemblyTagConstructor.cpp
+    wasm/js/WebAssemblyTagPrototype.cpp
 )
 
 set(JavaScriptCore_FRAMEWORKS
@@ -171,23 +188,6 @@ foreach (_file ${JavaScriptCore_SCRIPTS_SOURCES})
     list(APPEND JavaScriptCore_SCRIPTS ${JavaScriptCore_SCRIPTS_DIR}/${_script})
 endforeach ()
 
-set(UDIS_GEN_DEP
-    disassembler/udis86/optable.xml
-    disassembler/udis86/ud_itab.py
-    disassembler/udis86/ud_opcode.py
-)
-
-add_custom_command(
-    OUTPUT ${JavaScriptCore_DERIVED_SOURCES_DIR}/udis86_itab.c ${JavaScriptCore_DERIVED_SOURCES_DIR}/udis86_itab.h
-    DEPENDS ${UDIS_GEN_DEP}
-    WORKING_DIRECTORY ${JavaScriptCore_DERIVED_SOURCES_DIR}
-    COMMAND ${PYTHON_EXECUTABLE} ${JAVASCRIPTCORE_DIR}/disassembler/udis86/ud_itab.py ${JAVASCRIPTCORE_DIR}/disassembler/udis86/optable.xml ${JavaScriptCore_DERIVED_SOURCES_DIR}
-    VERBATIM)
-
-list(APPEND JavaScriptCore_HEADERS
-    ${JavaScriptCore_DERIVED_SOURCES_DIR}/udis86_itab.h
-)
-
 # This is the default build variant for Xcode builds.
 set(BUILD_VARIANTS
     "normal"
@@ -216,6 +216,7 @@ set(OFFLINE_ASM
     offlineasm/parser.rb
     offlineasm/registers.rb
     offlineasm/risc.rb
+    offlineasm/riscv64.rb
     offlineasm/self_hash.rb
     offlineasm/settings.rb
     offlineasm/transform.rb
@@ -273,6 +274,8 @@ else ()
         set(OFFLINE_ASM_BACKEND "ARMv7")
     elseif (WTF_CPU_MIPS)
         set(OFFLINE_ASM_BACKEND "MIPS")
+    elseif (WTF_CPU_RISCV64)
+        set(OFFLINE_ASM_BACKEND "RISCV64")
     endif ()
 
     if (NOT ENABLE_JIT)
@@ -309,6 +312,71 @@ add_custom_command(
     COMMAND ${RUBY_EXECUTABLE} ${JAVASCRIPTCORE_DIR}/offlineasm/generate_offset_extractor.rb -I${JavaScriptCore_DERIVED_SOURCES_DIR}/ ${JAVASCRIPTCORE_DIR}/llint/LowLevelInterpreter.asm $<TARGET_FILE:LLIntSettingsExtractor> ${JavaScriptCore_DERIVED_SOURCES_DIR}/LLIntDesiredOffsets.h ${OFFLINE_ASM_BACKEND} ${BUILD_VARIANTS}
     VERBATIM)
 
+# JSCBuiltins
+
+set(BUILTINS_GENERATOR_SCRIPTS
+    ${JavaScriptCore_SCRIPTS_DIR}/wkbuiltins.py
+    ${JavaScriptCore_SCRIPTS_DIR}/builtins_generator.py
+    ${JavaScriptCore_SCRIPTS_DIR}/builtins_model.py
+    ${JavaScriptCore_SCRIPTS_DIR}/builtins_templates.py
+    ${JavaScriptCore_SCRIPTS_DIR}/builtins_generate_combined_header.py
+    ${JavaScriptCore_SCRIPTS_DIR}/builtins_generate_combined_implementation.py
+    ${JavaScriptCore_SCRIPTS_DIR}/builtins_generate_separate_header.py
+    ${JavaScriptCore_SCRIPTS_DIR}/builtins_generate_separate_implementation.py
+    ${JavaScriptCore_SCRIPTS_DIR}/builtins_generate_wrapper_header.py
+    ${JavaScriptCore_SCRIPTS_DIR}/builtins_generate_wrapper_implementation.py
+    ${JavaScriptCore_SCRIPTS_DIR}/builtins_generate_internals_wrapper_header.py
+    ${JavaScriptCore_SCRIPTS_DIR}/builtins_generate_internals_wrapper_implementation.py
+    ${JavaScriptCore_SCRIPTS_DIR}/generate-js-builtins.py
+    ${JavaScriptCore_SCRIPTS_DIR}/lazywriter.py
+)
+
+set(JavaScriptCore_BUILTINS_SOURCES
+    ${JAVASCRIPTCORE_DIR}/builtins/AsyncFromSyncIteratorPrototype.js
+    ${JAVASCRIPTCORE_DIR}/builtins/ArrayConstructor.js
+    ${JAVASCRIPTCORE_DIR}/builtins/ArrayIteratorPrototype.js
+    ${JAVASCRIPTCORE_DIR}/builtins/ArrayPrototype.js
+    ${JAVASCRIPTCORE_DIR}/builtins/AsyncFunctionPrototype.js
+    ${JAVASCRIPTCORE_DIR}/builtins/AsyncIteratorPrototype.js
+    ${JAVASCRIPTCORE_DIR}/builtins/AsyncGeneratorPrototype.js
+    ${JAVASCRIPTCORE_DIR}/builtins/DatePrototype.js
+    ${JAVASCRIPTCORE_DIR}/builtins/FunctionPrototype.js
+    ${JAVASCRIPTCORE_DIR}/builtins/GeneratorPrototype.js
+    ${JAVASCRIPTCORE_DIR}/builtins/GlobalObject.js
+    ${JAVASCRIPTCORE_DIR}/builtins/GlobalOperations.js
+    ${JAVASCRIPTCORE_DIR}/builtins/InternalPromiseConstructor.js
+    ${JAVASCRIPTCORE_DIR}/builtins/IteratorHelpers.js
+    ${JAVASCRIPTCORE_DIR}/builtins/IteratorPrototype.js
+    ${JAVASCRIPTCORE_DIR}/builtins/MapIteratorPrototype.js
+    ${JAVASCRIPTCORE_DIR}/builtins/MapPrototype.js
+    ${JAVASCRIPTCORE_DIR}/builtins/ModuleLoader.js
+    ${JAVASCRIPTCORE_DIR}/builtins/NumberConstructor.js
+    ${JAVASCRIPTCORE_DIR}/builtins/ObjectConstructor.js
+    ${JAVASCRIPTCORE_DIR}/builtins/PromiseConstructor.js
+    ${JAVASCRIPTCORE_DIR}/builtins/PromiseOperations.js
+    ${JAVASCRIPTCORE_DIR}/builtins/PromisePrototype.js
+    ${JAVASCRIPTCORE_DIR}/builtins/ReflectObject.js
+    ${JAVASCRIPTCORE_DIR}/builtins/RegExpPrototype.js
+    ${JAVASCRIPTCORE_DIR}/builtins/RegExpStringIteratorPrototype.js
+    ${JAVASCRIPTCORE_DIR}/builtins/SetIteratorPrototype.js
+    ${JAVASCRIPTCORE_DIR}/builtins/SetPrototype.js
+    ${JAVASCRIPTCORE_DIR}/builtins/ShadowRealmPrototype.js
+    ${JAVASCRIPTCORE_DIR}/builtins/StringConstructor.js
+    ${JAVASCRIPTCORE_DIR}/builtins/StringIteratorPrototype.js
+    ${JAVASCRIPTCORE_DIR}/builtins/StringPrototype.js
+    ${JAVASCRIPTCORE_DIR}/builtins/TypedArrayConstructor.js
+    ${JAVASCRIPTCORE_DIR}/builtins/TypedArrayPrototype.js
+    ${JAVASCRIPTCORE_DIR}/builtins/WebAssembly.js
+)
+
+add_custom_command(
+    OUTPUT ${JavaScriptCore_DERIVED_SOURCES_DIR}/JSCBuiltins.cpp ${JavaScriptCore_DERIVED_SOURCES_DIR}/JSCBuiltins.h
+    MAIN_DEPENDENCY ${JavaScriptCore_SCRIPTS_DIR}/generate-js-builtins.py
+    DEPENDS ${JavaScriptCore_BUILTINS_SOURCES} ${BUILTINS_GENERATOR_SCRIPTS}
+    COMMAND ${PYTHON_EXECUTABLE} ${JavaScriptCore_SCRIPTS_DIR}/generate-js-builtins.py --framework JavaScriptCore --output-directory ${JavaScriptCore_DERIVED_SOURCES_DIR} --combined ${JavaScriptCore_BUILTINS_SOURCES}
+    VERBATIM)
+add_custom_target(JSCBuiltins DEPENDS "${JavaScriptCore_DERIVED_SOURCES_DIR}/JSCBuiltins.h")
+
 # We add the header files directly to the ADD_EXECUTABLE call instead of setting the
 # OBJECT_DEPENDS property in LLIntOffsetsExtractor.cpp because generate_offset_extractor.rb and
 # generate-bytecode-files may not regenerate the .h files in case the hash it calculates does not change.
@@ -342,7 +410,7 @@ set(LLIntOffsetsExtractor_PRIVATE_INCLUDE_DIRECTORIES
     $<TARGET_PROPERTY:JavaScriptCore,INCLUDE_DIRECTORIES>
 )
 set(LLIntOffsetsExtractor_FRAMEWORKS ${JavaScriptCore_FRAMEWORKS})
-set(LLIntOffsetsExtractor_DEPENDENCIES JavaScriptCore_CopyHeaders)
+set(LLIntOffsetsExtractor_DEPENDENCIES JavaScriptCore_CopyHeaders JSCBuiltins)
 WEBKIT_EXECUTABLE(LLIntOffsetsExtractor)
 
 # The build system will execute asm.rb every time LLIntOffsetsExtractor's mtime is newer than
@@ -356,6 +424,10 @@ if (MSVC AND NOT ENABLE_C_LOOP)
     set(OFFLINE_ASM_ARGS --assembler=MASM)
 else ()
     set(LLIntOutput LLIntAssembly.h)
+endif ()
+
+if (CMAKE_SYSTEM_NAME MATCHES "Linux")
+    set(OFFLINE_ASM_ARGS --binary-format=ELF)
 endif ()
 
 add_custom_command(
@@ -504,6 +576,7 @@ set(JavaScriptCore_PRIVATE_FRAMEWORK_HEADERS
     assembler/CodeLocation.h
     assembler/FastJITPermissions.h
     assembler/JITOperationList.h
+    assembler/JITOperationValidation.h
     assembler/LinkBuffer.h
     assembler/MIPSAssembler.h
     assembler/MIPSRegisters.h
@@ -513,17 +586,22 @@ set(JavaScriptCore_PRIVATE_FRAMEWORK_HEADERS
     assembler/MacroAssemblerCodeRef.h
     assembler/MacroAssemblerHelpers.h
     assembler/MacroAssemblerMIPS.h
-    assembler/MacroAssemblerX86.h
+    assembler/MacroAssemblerRISCV64.h
     assembler/MacroAssemblerX86Common.h
     assembler/MacroAssemblerX86_64.h
     assembler/Printer.h
+    assembler/RISCV64Assembler.h
+    assembler/RISCV64Registers.h
     assembler/RegisterInfo.h
+    assembler/SecureARM64EHashPins.h
+    assembler/SecureARM64EHashPinsInlines.h
     assembler/X86Assembler.h
     assembler/X86Registers.h
     assembler/X86_64Registers.h
 
     b3/B3Common.h
     b3/B3Type.h
+    b3/B3ValueRep.h
 
     bindings/ScriptFunctionCall.h
     bindings/ScriptObject.h
@@ -532,6 +610,7 @@ set(JavaScriptCore_PRIVATE_FRAMEWORK_HEADERS
     builtins/BuiltinNames.h
     builtins/BuiltinUtils.h
 
+    bytecode/ArithProfile.h
     bytecode/ArrayAllocationProfile.h
     bytecode/ArrayProfile.h
     bytecode/BytecodeConventions.h
@@ -565,7 +644,6 @@ set(JavaScriptCore_PRIVATE_FRAMEWORK_HEADERS
     bytecode/InternalFunctionAllocationProfile.h
     bytecode/IterationModeMetadata.h
     bytecode/JumpTable.h
-    bytecode/LLIntCallLinkInfo.h
     bytecode/LLIntPrototypeLoadAdaptiveStructureWatchpoint.h
     bytecode/LazyOperandValueProfile.h
     bytecode/LinkTimeConstant.h
@@ -579,6 +657,7 @@ set(JavaScriptCore_PRIVATE_FRAMEWORK_HEADERS
     bytecode/PutByIdFlags.h
     bytecode/SetPrivateBrandStatus.h
     bytecode/SetPrivateBrandVariant.h
+    bytecode/SourceID.h
     bytecode/SpeculatedType.h
     bytecode/StructureSet.h
     bytecode/SuperSampler.h
@@ -635,6 +714,7 @@ set(JavaScriptCore_PRIVATE_FRAMEWORK_HEADERS
     heap/ConstraintParallelism.h
     heap/ConstraintVolatility.h
     heap/DeferGC.h
+    heap/DeferGCInlines.h
     heap/DeleteAllCodeEffort.h
     heap/DestructionMode.h
     heap/FastMallocAlignedMemoryAllocator.h
@@ -653,6 +733,7 @@ set(JavaScriptCore_PRIVATE_FRAMEWORK_HEADERS
     heap/GCSegmentedArray.h
     heap/Handle.h
     heap/HandleBlock.h
+    heap/HandleForward.h
     heap/HandleSet.h
     heap/HandleTypes.h
     heap/Heap.h
@@ -664,9 +745,13 @@ set(JavaScriptCore_PRIVATE_FRAMEWORK_HEADERS
     heap/HeapInlines.h
     heap/HeapObserver.h
     heap/HeapSnapshotBuilder.h
+    heap/HeapSubspaceTypes.h
     heap/IncrementalSweeper.h
+    heap/IsoAlignedMemoryAllocator.h
     heap/IsoCellSet.h
     heap/IsoHeapCellType.h
+    heap/IsoInlinedHeapCellType.h
+    heap/IsoInlinedHeapCellTypeInlines.h
     heap/IsoSubspace.h
     heap/IsoSubspaceInlines.h
     heap/IsoSubspacePerVM.h
@@ -691,6 +776,7 @@ set(JavaScriptCore_PRIVATE_FRAMEWORK_HEADERS
     heap/SlotVisitorInlines.h
     heap/SlotVisitorMacros.h
     heap/Strong.h
+    heap/StrongForward.h
     heap/StrongInlines.h
     heap/Subspace.h
     heap/SubspaceInlines.h
@@ -758,6 +844,8 @@ set(JavaScriptCore_PRIVATE_FRAMEWORK_HEADERS
 
     jit/AssemblyHelpers.h
     jit/AssemblyHelpersSpoolers.h
+    jit/BaselineJITCode.h
+    jit/CallFrameShuffleData.h
     jit/CCallHelpers.h
     jit/ExecutableAllocator.h
     jit/ExecutableMemoryHandle.h
@@ -774,10 +862,12 @@ set(JavaScriptCore_PRIVATE_FRAMEWORK_HEADERS
     jit/JITOperations.h
     jit/JITStubRoutine.h
     jit/JITThunks.h
+    jit/PCToCodeOriginMap.h
     jit/PolymorphicCallStubRoutine.h
     jit/Reg.h
     jit/RegisterAtOffset.h
     jit/RegisterAtOffsetList.h
+    jit/RegisterMap.h
     jit/RegisterSet.h
     jit/Snippet.h
     jit/SnippetParams.h
@@ -796,6 +886,7 @@ set(JavaScriptCore_PRIVATE_FRAMEWORK_HEADERS
     parser/ParserError.h
     parser/ParserModes.h
     parser/ParserTokens.h
+    parser/ResultType.h
     parser/SourceCode.h
     parser/SourceProvider.h
     parser/SourceProviderCache.h
@@ -831,6 +922,7 @@ set(JavaScriptCore_PRIVATE_FRAMEWORK_HEADERS
     runtime/ArrayPrototype.h
     runtime/ArrayStorage.h
     runtime/ArrayStorageInlines.h
+    runtime/AsyncIteratorPrototype.h
     runtime/AuxiliaryBarrier.h
     runtime/AuxiliaryBarrierInlines.h
     runtime/BasicBlockLocation.h
@@ -903,6 +995,7 @@ set(JavaScriptCore_PRIVATE_FRAMEWORK_HEADERS
     runtime/ExecutableBaseInlines.h
     runtime/Float32Array.h
     runtime/Float64Array.h
+    runtime/Forward.h
     runtime/FunctionConstructor.h
     runtime/FunctionExecutable.h
     runtime/FunctionHasExecutedCache.h
@@ -932,7 +1025,6 @@ set(JavaScriptCore_PRIVATE_FRAMEWORK_HEADERS
     runtime/InternalFunction.h
     runtime/Intrinsic.h
     runtime/IterationKind.h
-    runtime/IterationStatus.h
     runtime/IteratorOperations.h
     runtime/IteratorPrototype.h
     runtime/JSArray.h
@@ -982,6 +1074,7 @@ set(JavaScriptCore_PRIVATE_FRAMEWORK_HEADERS
     runtime/JSModuleLoader.h
     runtime/JSModuleRecord.h
     runtime/JSNativeStdFunction.h
+    runtime/JSONAtomStringCache.h
     runtime/JSONObject.h
     runtime/JSObject.h
     runtime/JSObjectInlines.h
@@ -1035,12 +1128,12 @@ set(JavaScriptCore_PRIVATE_FRAMEWORK_HEADERS
     runtime/PrivateName.h
     runtime/ProgramExecutable.h
     runtime/PropertyDescriptor.h
-    runtime/PropertyMapHashTable.h
     runtime/PropertyName.h
     runtime/PropertyNameArray.h
     runtime/PropertyOffset.h
     runtime/PropertySlot.h
     runtime/PropertyStorage.h
+    runtime/PropertyTable.h
     runtime/Protect.h
     runtime/PrototypeKey.h
     runtime/ProxyObject.h
@@ -1063,6 +1156,7 @@ set(JavaScriptCore_PRIVATE_FRAMEWORK_HEADERS
     runtime/ScriptExecutable.h
     runtime/ScriptFetchParameters.h
     runtime/ScriptFetcher.h
+    runtime/ShadowRealmObject.h
     runtime/SlowPathFunction.h
     runtime/SlowPathReturnType.h
     runtime/SmallStrings.h
@@ -1094,6 +1188,7 @@ set(JavaScriptCore_PRIVATE_FRAMEWORK_HEADERS
     runtime/ToNativeFromValue.h
     runtime/TypeError.h
     runtime/TypeSet.h
+    runtime/TypedArrayAdaptersForwardDeclarations.h
     runtime/TypedArrayAdaptors.h
     runtime/TypedArrayController.h
     runtime/TypedArrayInlines.h
@@ -1125,15 +1220,16 @@ set(JavaScriptCore_PRIVATE_FRAMEWORK_HEADERS
     tools/VMInspectorInlines.h
 
     wasm/WasmCallee.h
+    wasm/WasmCalleeGroup.h
     wasm/WasmCapabilities.h
-    wasm/WasmCodeBlock.h
     wasm/WasmCompilationMode.h
     wasm/WasmContext.h
     wasm/WasmEmbedder.h
     wasm/WasmExceptionType.h
     wasm/WasmFaultSignalHandler.h
     wasm/WasmFormat.h
-    wasm/WasmFunctionCodeBlock.h
+    wasm/WasmFunctionCodeBlockGenerator.h
+    wasm/WasmHandlerInfo.h
     wasm/WasmIndexOrName.h
     wasm/WasmLLIntTierUpCounter.h
     wasm/WasmMemory.h
@@ -1142,12 +1238,14 @@ set(JavaScriptCore_PRIVATE_FRAMEWORK_HEADERS
     wasm/WasmModule.h
     wasm/WasmName.h
     wasm/WasmNameSection.h
+    wasm/WasmOSREntryData.h
     wasm/WasmPageCount.h
     wasm/WasmSections.h
     wasm/WasmSignature.h
     wasm/WasmStreamingCompiler.h
     wasm/WasmStreamingParser.h
     wasm/WasmTierUpCount.h
+    wasm/WasmValueLocation.h
 
     wasm/js/JSWebAssembly.h
     wasm/js/JSWebAssemblyMemory.h
@@ -1297,70 +1395,6 @@ add_custom_command(
     VERBATIM)
 add_custom_target(InspectorBackendCommands DEPENDS "${JavaScriptCore_DERIVED_SOURCES_DIR}/inspector/InspectorBackendCommands.js")
 
-# JSCBuiltins
-
-set(BUILTINS_GENERATOR_SCRIPTS
-    ${JavaScriptCore_SCRIPTS_DIR}/wkbuiltins.py
-    ${JavaScriptCore_SCRIPTS_DIR}/builtins_generator.py
-    ${JavaScriptCore_SCRIPTS_DIR}/builtins_model.py
-    ${JavaScriptCore_SCRIPTS_DIR}/builtins_templates.py
-    ${JavaScriptCore_SCRIPTS_DIR}/builtins_generate_combined_header.py
-    ${JavaScriptCore_SCRIPTS_DIR}/builtins_generate_combined_implementation.py
-    ${JavaScriptCore_SCRIPTS_DIR}/builtins_generate_separate_header.py
-    ${JavaScriptCore_SCRIPTS_DIR}/builtins_generate_separate_implementation.py
-    ${JavaScriptCore_SCRIPTS_DIR}/builtins_generate_wrapper_header.py
-    ${JavaScriptCore_SCRIPTS_DIR}/builtins_generate_wrapper_implementation.py
-    ${JavaScriptCore_SCRIPTS_DIR}/builtins_generate_internals_wrapper_header.py
-    ${JavaScriptCore_SCRIPTS_DIR}/builtins_generate_internals_wrapper_implementation.py
-    ${JavaScriptCore_SCRIPTS_DIR}/generate-js-builtins.py
-    ${JavaScriptCore_SCRIPTS_DIR}/lazywriter.py
-)
-
-set(JavaScriptCore_BUILTINS_SOURCES
-    ${JAVASCRIPTCORE_DIR}/builtins/AsyncFromSyncIteratorPrototype.js
-    ${JAVASCRIPTCORE_DIR}/builtins/ArrayConstructor.js
-    ${JAVASCRIPTCORE_DIR}/builtins/ArrayIteratorPrototype.js
-    ${JAVASCRIPTCORE_DIR}/builtins/ArrayPrototype.js
-    ${JAVASCRIPTCORE_DIR}/builtins/AsyncFunctionPrototype.js
-    ${JAVASCRIPTCORE_DIR}/builtins/AsyncIteratorPrototype.js
-    ${JAVASCRIPTCORE_DIR}/builtins/AsyncGeneratorPrototype.js
-    ${JAVASCRIPTCORE_DIR}/builtins/DatePrototype.js
-    ${JAVASCRIPTCORE_DIR}/builtins/FunctionPrototype.js
-    ${JAVASCRIPTCORE_DIR}/builtins/GeneratorPrototype.js
-    ${JAVASCRIPTCORE_DIR}/builtins/GlobalObject.js
-    ${JAVASCRIPTCORE_DIR}/builtins/GlobalOperations.js
-    ${JAVASCRIPTCORE_DIR}/builtins/InternalPromiseConstructor.js
-    ${JAVASCRIPTCORE_DIR}/builtins/IteratorHelpers.js
-    ${JAVASCRIPTCORE_DIR}/builtins/IteratorPrototype.js
-    ${JAVASCRIPTCORE_DIR}/builtins/MapIteratorPrototype.js
-    ${JAVASCRIPTCORE_DIR}/builtins/MapPrototype.js
-    ${JAVASCRIPTCORE_DIR}/builtins/ModuleLoader.js
-    ${JAVASCRIPTCORE_DIR}/builtins/NumberConstructor.js
-    ${JAVASCRIPTCORE_DIR}/builtins/ObjectConstructor.js
-    ${JAVASCRIPTCORE_DIR}/builtins/PromiseConstructor.js
-    ${JAVASCRIPTCORE_DIR}/builtins/PromiseOperations.js
-    ${JAVASCRIPTCORE_DIR}/builtins/PromisePrototype.js
-    ${JAVASCRIPTCORE_DIR}/builtins/ReflectObject.js
-    ${JAVASCRIPTCORE_DIR}/builtins/RegExpPrototype.js
-    ${JAVASCRIPTCORE_DIR}/builtins/RegExpStringIteratorPrototype.js
-    ${JAVASCRIPTCORE_DIR}/builtins/SetIteratorPrototype.js
-    ${JAVASCRIPTCORE_DIR}/builtins/SetPrototype.js
-    ${JAVASCRIPTCORE_DIR}/builtins/StringConstructor.js
-    ${JAVASCRIPTCORE_DIR}/builtins/StringIteratorPrototype.js
-    ${JAVASCRIPTCORE_DIR}/builtins/StringPrototype.js
-    ${JAVASCRIPTCORE_DIR}/builtins/TypedArrayConstructor.js
-    ${JAVASCRIPTCORE_DIR}/builtins/TypedArrayPrototype.js
-    ${JAVASCRIPTCORE_DIR}/builtins/WebAssembly.js
-)
-
-add_custom_command(
-    OUTPUT ${JavaScriptCore_DERIVED_SOURCES_DIR}/JSCBuiltins.cpp ${JavaScriptCore_DERIVED_SOURCES_DIR}/JSCBuiltins.h
-    MAIN_DEPENDENCY ${JavaScriptCore_SCRIPTS_DIR}/generate-js-builtins.py
-    DEPENDS ${JavaScriptCore_BUILTINS_SOURCES} ${BUILTINS_GENERATOR_SCRIPTS}
-    COMMAND ${PYTHON_EXECUTABLE} ${JavaScriptCore_SCRIPTS_DIR}/generate-js-builtins.py --framework JavaScriptCore --output-directory ${JavaScriptCore_DERIVED_SOURCES_DIR} --combined ${JavaScriptCore_BUILTINS_SOURCES}
-    VERBATIM)
-add_custom_target(JSCBuiltins DEPENDS "${JavaScriptCore_DERIVED_SOURCES_DIR}/JSCBuiltins.h")
-
 list(APPEND JavaScriptCore_HEADERS
     ${JavaScriptCore_DERIVED_SOURCES_DIR}/inspector/InspectorBackendDispatchers.h
     ${JavaScriptCore_DERIVED_SOURCES_DIR}/inspector/InspectorFrontendDispatchers.h
@@ -1408,6 +1442,12 @@ if (COMPILER_IS_GCC_OR_CLANG)
     # Avoid using fused multiply-add instructions since this could give different results
     # for e.g. parseInt depending on the platform and compilation flags.
     WEBKIT_ADD_TARGET_CXX_FLAGS(JavaScriptCore -ffp-contract=off -fno-slp-vectorize)
+
+    # On MIPS we have to explicitly disable madd4, since some versions of gcc still generate
+    # such instructions despite -ffp-contract=off
+    if (WTF_CPU_MIPS)
+        WEBKIT_ADD_TARGET_CXX_FLAGS(JavaScriptCore -mno-madd4)
+    endif ()
 endif ()
 
 WEBKIT_COPY_FILES(JavaScriptCore_CopyHeaders
@@ -1449,15 +1489,46 @@ if (CMAKE_COMPILER_IS_GNUCXX AND GCC_OFFLINEASM_SOURCE_MAP)
         PROPERTY RULE_LAUNCH_COMPILE "${LowLevelInterpreter_LAUNCHER}")
 
     # Pass in the filename as a magic preprocessor directive, so that
-    # the wrapper can accurately identify the source file.
+    # the wrapper can accurately identify the source file. This is incompatible
+    # with LTO.
     set_source_files_properties("llint/LowLevelInterpreter.cpp"
         PROPERTIES
-        COMPILE_DEFINITIONS "POSTPROCESS_ASM=llint/LowLevelInterpreter.cpp")
+        COMPILE_DEFINITIONS "POSTPROCESS_ASM=llint/LowLevelInterpreter.cpp"
+        COMPILE_OPTIONS "-fno-lto")
 endif ()
 
-list(APPEND JavaScriptCore_SOURCES $<TARGET_OBJECTS:LowLevelInterpreterLib>)
+# When building JavaScriptCore as an object library, we need to make sure the
+# lowlevelinterpreter lib objects get propogated.
+if (${JavaScriptCore_LIBRARY_TYPE} STREQUAL "OBJECT")
+    list(APPEND JavaScriptCore_PRIVATE_LIBRARIES $<TARGET_OBJECTS:LowLevelInterpreterLib>)
+else ()
+    list(APPEND JavaScriptCore_SOURCES $<TARGET_OBJECTS:LowLevelInterpreterLib>)
+endif ()
 
 WEBKIT_COMPUTE_SOURCES(JavaScriptCore)
+list(APPEND JavaScriptCore_SOURCES
+    disassembler/zydis/Zydis/Zycore.c
+    disassembler/zydis/Zydis/ZycoreAllocator.c
+    disassembler/zydis/Zydis/ZycoreBitset.c
+    disassembler/zydis/Zydis/ZycoreFormat.c
+    disassembler/zydis/Zydis/ZycoreList.c
+    disassembler/zydis/Zydis/ZycoreString.c
+    disassembler/zydis/Zydis/ZycoreVector.c
+    disassembler/zydis/Zydis/Zydis.c
+    disassembler/zydis/Zydis/ZydisDecoder.c
+    disassembler/zydis/Zydis/ZydisDecoderData.c
+    disassembler/zydis/Zydis/ZydisFormatter.c
+    disassembler/zydis/Zydis/ZydisFormatterATT.c
+    disassembler/zydis/Zydis/ZydisFormatterBase.c
+    disassembler/zydis/Zydis/ZydisFormatterBuffer.c
+    disassembler/zydis/Zydis/ZydisFormatterIntel.c
+    disassembler/zydis/Zydis/ZydisMetaInfo.c
+    disassembler/zydis/Zydis/ZydisMnemonic.c
+    disassembler/zydis/Zydis/ZydisRegister.c
+    disassembler/zydis/Zydis/ZydisSharedData.c
+    disassembler/zydis/Zydis/ZydisString.c
+    disassembler/zydis/Zydis/ZydisUtils.c
+)
 WEBKIT_FRAMEWORK(JavaScriptCore)
 WEBKIT_FRAMEWORK_TARGET(JavaScriptCore)
 

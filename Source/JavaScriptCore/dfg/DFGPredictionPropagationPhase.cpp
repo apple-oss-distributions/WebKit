@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2011-2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2011-2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -473,14 +473,14 @@ private:
             Edge child1 = m_graph.child(node, 0);
             if (!child1->prediction())
                 break;
-            
+
             Edge child2 = m_graph.child(node, 1);
             ArrayMode arrayMode = node->arrayMode().refine(
                 m_graph, node,
                 child1->prediction(),
                 child2->prediction(),
                 SpecNone);
-            
+
             switch (arrayMode.type()) {
             case Array::Int32:
                 if (arrayMode.isOutOfBounds())
@@ -862,11 +862,13 @@ private:
             break;
         }
 
+        case EnumeratorGetByVal:
         case ArrayPop:
         case ArrayPush:
         case RegExpExec:
         case RegExpExecNonGlobalOrSticky:
         case RegExpTest:
+        case RegExpTestInline:
         case RegExpMatchFast:
         case RegExpMatchFastGlobal:
         case StringReplace:
@@ -882,7 +884,6 @@ private:
         case GetPrivateName:
         case GetPrivateNameById:
         case MultiGetByOffset:
-        case GetDirectPname:
         case Call:
         case DirectCall:
         case TailCallInlinedCaller:
@@ -983,6 +984,12 @@ private:
         case GetArrayLength:
         case GetVectorLength: {
             setPrediction(SpecInt32Only);
+            break;
+        }
+
+        case GetTypedArrayLengthAsInt52:
+        case GetTypedArrayByteOffsetAsInt52: {
+            setPrediction(SpecInt52Any);
             break;
         }
 
@@ -1205,21 +1212,20 @@ private:
             setPrediction(SpecObjectOther);
             break;
 
-        case GetEnumerableLength: {
+        case EnumeratorNextExtractMode:
+        case EnumeratorNextExtractIndex: {
             setPrediction(SpecInt32Only);
             break;
         }
+
+        case EnumeratorInByVal:
+        case EnumeratorHasOwnProperty:
         case InByVal:
         case InById:
         case HasPrivateName:
         case HasPrivateBrand:
         case HasOwnProperty:
-        case HasOwnStructureProperty:
-        case InStructureProperty:
-        case HasIndexedProperty:
-        case HasEnumerableIndexedProperty:
-        case HasEnumerableStructureProperty:
-        case HasEnumerableProperty: {
+        case HasIndexedProperty: {
             setPrediction(SpecBoolean);
             break;
         }
@@ -1227,18 +1233,17 @@ private:
             setPrediction(SpecCell);
             break;
         }
-        case GetEnumeratorStructurePname: {
-            setPrediction(SpecCell | SpecOther);
+
+        case EnumeratorNextUpdateIndexAndMode: {
+            setPrediction(SpecFullNumber);
             break;
         }
-        case GetEnumeratorGenericPname: {
-            setPrediction(SpecCell | SpecOther);
+
+        case EnumeratorNextUpdatePropertyName: {
+            setPrediction(SpecStringIdent);
             break;
         }
-        case ToIndexString: {
-            setPrediction(SpecString);
-            break;
-        }
+
         case ParseInt: {
             // We expect this node to almost always produce an int32. However,
             // it's possible it produces NaN or integers out of int32 range. We
@@ -1322,6 +1327,7 @@ private:
         case CheckTierUpAndOSREnter:
         case AssertInBounds:
         case CheckInBounds:
+        case CheckInBoundsInt52:
         case ValueToInt32:
         case DoubleRep:
         case ValueRep:
@@ -1451,7 +1457,7 @@ private:
         case WeakMapSet:
         case FilterCallLinkStatus:
         case FilterGetByStatus:
-        case FilterPutByIdStatus:
+        case FilterPutByStatus:
         case FilterInByStatus:
         case FilterDeleteByStatus:
         case FilterCheckPrivateBrandStatus:

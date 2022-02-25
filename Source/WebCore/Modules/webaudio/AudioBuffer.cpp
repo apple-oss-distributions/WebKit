@@ -86,6 +86,11 @@ AudioBuffer::AudioBuffer(unsigned numberOfChannels, size_t length, float sampleR
     , m_originalLength(length)
     , m_isDetachable(preventDetaching == LegacyPreventDetaching::No)
 {
+    if (static_cast<uint64_t>(m_originalLength) > s_maxLength) {
+        invalidate();
+        return;
+    }
+
     m_channels.reserveCapacity(numberOfChannels);
 
     for (unsigned i = 0; i < numberOfChannels; ++i) {
@@ -107,6 +112,11 @@ AudioBuffer::AudioBuffer(AudioBus& bus)
     : m_sampleRate(bus.sampleRate())
     , m_originalLength(bus.length())
 {
+    if (static_cast<uint64_t>(m_originalLength) > s_maxLength) {
+        invalidate();
+        return;
+    }
+
     // Copy audio data from the bus to the Float32Arrays we manage.
     unsigned numberOfChannels = bus.numberOfChannels();
     m_channels.reserveCapacity(numberOfChannels);
@@ -149,8 +159,8 @@ ExceptionOr<JSC::JSValue> AudioBuffer::getChannelData(JSDOMGlobalObject& globalO
 
     if (globalObject.worldIsNormal()) {
         if (!m_channelWrappers[channelIndex])
-            m_channelWrappers[channelIndex] = { constructJSArray() };
-        return static_cast<JSC::JSValue>(m_channelWrappers[channelIndex]);
+            m_channelWrappers[channelIndex].setWeakly(constructJSArray());
+        return m_channelWrappers[channelIndex].getValue();
     }
     return constructJSArray();
 }
@@ -158,6 +168,8 @@ ExceptionOr<JSC::JSValue> AudioBuffer::getChannelData(JSDOMGlobalObject& globalO
 template<typename Visitor>
 void AudioBuffer::visitChannelWrappers(Visitor& visitor)
 {
+    // FIXME: AudioBuffer::releaseMemory can clear this buffer while visiting it from concurrent GC thread.
+    // https://bugs.webkit.org/show_bug.cgi?id=236279
     for (auto& channelWrapper : m_channelWrappers)
         channelWrapper.visit(visitor);
 }
@@ -198,7 +210,7 @@ ExceptionOr<void> AudioBuffer::copyFromChannel(Ref<Float32Array>&& destination, 
     if (bufferOffset >= dataLength)
         return { };
     
-    unsigned count = dataLength - bufferOffset;
+    size_t count = dataLength - bufferOffset;
     count = std::min(destination.get().length(), count);
     
     const float* src = channelData->data();
@@ -226,7 +238,7 @@ ExceptionOr<void> AudioBuffer::copyToChannel(Ref<Float32Array>&& source, unsigne
     if (bufferOffset >= dataLength)
         return { };
     
-    unsigned count = dataLength - bufferOffset;
+    size_t count = dataLength - bufferOffset;
     count = std::min(source.get().length(), count);
     
     const float* src = source->data();

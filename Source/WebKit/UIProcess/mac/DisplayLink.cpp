@@ -48,13 +48,13 @@ DisplayLink::DisplayLink(WebCore::PlatformDisplayID displayID)
     ASSERT(hasProcessPrivilege(ProcessPrivilege::CanCommunicateWithWindowServer));
     CVReturn error = CVDisplayLinkCreateWithCGDisplay(displayID, &m_displayLink);
     if (error) {
-        WTFLogAlways("Could not create a display link for display %u: error %d", displayID, error);
+        RELEASE_LOG_FAULT(DisplayLink, "Could not create a display link for display %u: error %d", displayID, error);
         return;
     }
     
     error = CVDisplayLinkSetOutputCallback(m_displayLink, displayLinkCallback, this);
     if (error) {
-        WTFLogAlways("Could not set the display link output callback for display %u: error %d", displayID, error);
+        RELEASE_LOG_FAULT(DisplayLink, "DisplayLink: Could not set the display link output callback for display %u: error %d", displayID, error);
         return;
     }
 
@@ -79,7 +79,11 @@ DisplayLink::~DisplayLink()
 WebCore::FramesPerSecond DisplayLink::nominalFramesPerSecondFromDisplayLink(CVDisplayLinkRef displayLink)
 {
     CVTime refreshPeriod = CVDisplayLinkGetNominalOutputVideoRefreshPeriod(displayLink);
-    return round((double)refreshPeriod.timeScale / (double)refreshPeriod.timeValue);
+    if (!refreshPeriod.timeValue)
+        return WebCore::FullSpeedFramesPerSecond;
+
+    WebCore::FramesPerSecond result = round((double)refreshPeriod.timeScale / (double)refreshPeriod.timeValue);
+    return result ?: WebCore::FullSpeedFramesPerSecond;
 }
 
 void DisplayLink::addObserver(IPC::Connection& connection, DisplayLinkObserverID observerID, WebCore::FramesPerSecond preferredFramesPerSecond)
@@ -97,11 +101,12 @@ void DisplayLink::addObserver(IPC::Connection& connection, DisplayLinkObserverID
 
     if (!CVDisplayLinkIsRunning(m_displayLink)) {
         LOG_WITH_STREAM(DisplayLink, stream << "[UI ] DisplayLink for display " << m_displayID << " starting CVDisplayLink with fps " << m_displayNominalFramesPerSecond);
-        CVReturn error = CVDisplayLinkStart(m_displayLink);
-        if (error)
-            WTFLogAlways("Could not start the display link: %d", error);
 
         m_currentUpdate = { 0, m_displayNominalFramesPerSecond };
+
+        CVReturn error = CVDisplayLinkStart(m_displayLink);
+        if (error)
+            RELEASE_LOG_FAULT(DisplayLink, "DisplayLink: Could not start the display link: %d", error);
     }
 }
 
@@ -231,9 +236,9 @@ void DisplayLink::notifyObserversDisplayWasRefreshed()
             << " observers, on background queue " << shouldSendIPCOnBackgroundQueue << " maxFramesPerSecond " << observersMaxFramesPerSecond << " full speed clients " << connectionInfo.fullSpeedUpdatesClientCount << " relevant " << mainThreadWantsUpdate);
 
         if (connectionInfo.fullSpeedUpdatesClientCount) {
-            IPC::Connection::send(connectionID, Messages::EventDispatcher::DisplayWasRefreshed(m_displayID, m_currentUpdate, mainThreadWantsUpdate), 0);
+            IPC::Connection::send(connectionID, Messages::EventDispatcher::DisplayWasRefreshed(m_displayID, m_currentUpdate, mainThreadWantsUpdate), 0, { }, Thread::QOS::UserInteractive);
         } else if (mainThreadWantsUpdate)
-            IPC::Connection::send(connectionID, Messages::WebProcess::DisplayWasRefreshed(m_displayID, m_currentUpdate), 0);
+            IPC::Connection::send(connectionID, Messages::WebProcess::DisplayWasRefreshed(m_displayID, m_currentUpdate), 0, { }, Thread::QOS::UserInteractive);
     }
 
     m_currentUpdate = m_currentUpdate.nextUpdate();

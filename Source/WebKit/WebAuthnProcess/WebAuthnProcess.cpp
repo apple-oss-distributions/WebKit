@@ -92,6 +92,7 @@ void WebAuthnProcess::lowMemoryHandler(Critical critical)
 
 void WebAuthnProcess::initializeWebAuthnProcess(WebAuthnProcessCreationParameters&& parameters)
 {
+    applyProcessCreationParameters(parameters.auxiliaryProcessParameters);
     WTF::Thread::setCurrentThreadIsUserInitiated();
     AtomString::init();
 }
@@ -113,14 +114,6 @@ void WebAuthnProcess::resume()
 {
 }
 
-void WebAuthnProcess::processDidTransitionToForeground()
-{
-}
-
-void WebAuthnProcess::processDidTransitionToBackground()
-{
-}
-
 WebAuthnConnectionToWebProcess* WebAuthnProcess::webProcessConnection(ProcessIdentifier identifier) const
 {
     return m_webProcessConnections.get(identifier);
@@ -139,6 +132,13 @@ void WebAuthnProcess::setMockWebAuthenticationConfiguration(WebCore::MockWebAuth
 #if !PLATFORM(COCOA)
 void WebAuthnProcess::platformInitializeWebAuthnProcess(const WebAuthnProcessCreationParameters&)
 {
+}
+#endif
+
+#if ENABLE(CFPREFS_DIRECT_MODE)
+void WebAuthnProcess::notifyPreferencesChanged(const String& domain, const String& key, const std::optional<String>& encodedValue)
+{
+    preferenceDidUpdate(domain, key, encodedValue);
 }
 #endif
 

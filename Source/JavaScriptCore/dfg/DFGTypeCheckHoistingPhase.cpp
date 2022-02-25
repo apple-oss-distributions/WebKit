@@ -273,15 +273,18 @@ private:
                 case ReallocatePropertyStorage:
                 case NukeStructureAndSetButterfly:
                 case GetButterfly:
+                case EnumeratorGetByVal:
                 case GetByVal:
                 case PutByValDirect:
                 case PutByVal:
                 case PutByValAlias:
                 case GetArrayLength:
+                case GetTypedArrayLengthAsInt52:
                 case CheckArray:
                 case CheckDetached:
                 case GetIndexedPropertyStorage:
                 case GetTypedArrayByteOffset:
+                case GetTypedArrayByteOffsetAsInt52:
                 case Phantom:
                 case MovHint:
                 case MultiGetByOffset:
@@ -352,11 +355,13 @@ private:
                 case PutStructure:
                 case ReallocatePropertyStorage:
                 case GetButterfly:
+                case EnumeratorGetByVal:
                 case GetByVal:
                 case PutByValDirect:
                 case PutByVal:
                 case PutByValAlias:
                 case GetArrayLength:
+                case GetTypedArrayLengthAsInt52:
                 case GetIndexedPropertyStorage:
                 case Phantom:
                 case MovHint:

@@ -28,7 +28,6 @@
 
 #if USE(AUDIO_SESSION) && PLATFORM(COCOA)
 
-#import "AudioSession.h"
 #import "AudioUtilities.h"
 #import "DeprecatedGlobalSettings.h"
 #import "HTMLMediaElement.h"
@@ -40,6 +39,7 @@
 #import "PlatformStrategies.h"
 #import "SharedBuffer.h"
 #import "VP9UtilitiesCocoa.h"
+#import <pal/SessionID.h>
 #import <wtf/BlockObjCExceptions.h>
 #import <wtf/Function.h>
 
@@ -59,6 +59,7 @@ std::unique_ptr<PlatformMediaSessionManager> PlatformMediaSessionManager::create
 MediaSessionManagerCocoa::MediaSessionManagerCocoa()
     : m_nowPlayingManager(platformStrategies()->mediaStrategy().createNowPlayingManager())
     , m_defaultBufferSize(AudioSession::sharedSession().preferredBufferSize())
+    , m_delayCategoryChangeTimer(RunLoop::main(), this, &MediaSessionManagerCocoa::possiblyChangeAudioCategory)
 {
     ensureCodecsRegistered();
 }
@@ -78,14 +79,29 @@ void MediaSessionManagerCocoa::ensureCodecsRegistered()
 #endif
 }
 
+#if ENABLE(MEDIA_SOURCE) && HAVE(AVSAMPLEBUFFERVIDEOOUTPUT)
+static bool s_mediaSourceInlinePaintingEnabled = false;
+void MediaSessionManagerCocoa::setMediaSourceInlinePaintingEnabled(bool enabled)
+{
+    s_mediaSourceInlinePaintingEnabled = enabled;
+}
+
+bool MediaSessionManagerCocoa::mediaSourceInlinePaintingEnabled()
+{
+    return s_mediaSourceInlinePaintingEnabled;
+}
+#endif
+
 void MediaSessionManagerCocoa::updateSessionState()
 {
+    constexpr auto delayBeforeSettingCategoryNone = 2_s;
     int videoCount = 0;
     int videoAudioCount = 0;
     int audioCount = 0;
     int webAudioCount = 0;
     int captureCount = countActiveAudioCaptureSources();
     bool hasAudibleAudioOrVideoMediaType = false;
+    bool isPlayingAudio = false;
     forEachSession([&] (auto& session) mutable {
         auto type = session.mediaType();
         switch (type) {
@@ -101,16 +117,22 @@ void MediaSessionManagerCocoa::updateSessionState()
             ++audioCount;
             break;
         case PlatformMediaSession::MediaType::WebAudio:
-            if (session.canProduceAudio())
+            if (session.canProduceAudio()) {
                 ++webAudioCount;
+                isPlayingAudio |= session.isPlaying();
+            }
             break;
         }
 
         if (!hasAudibleAudioOrVideoMediaType) {
-            if ((type == PlatformMediaSession::MediaType::VideoAudio || type == PlatformMediaSession::MediaType::Audio) && session.canProduceAudio() && session.hasPlayedSinceLastInterruption())
+            bool isPotentiallyAudible = session.isPlayingToWirelessPlaybackTarget()
+                || ((type == PlatformMediaSession::MediaType::VideoAudio || type == PlatformMediaSession::MediaType::Audio)
+                    && session.canProduceAudio()
+                    && (session.hasPlayedSinceLastInterruption() || session.preparingToPlay()));
+            if (isPotentiallyAudible) {
                 hasAudibleAudioOrVideoMediaType = true;
-            if (session.isPlayingToWirelessPlaybackTarget())
-                hasAudibleAudioOrVideoMediaType = true;
+                isPlayingAudio |= session.isPlaying();
+            }
         }
     });
 
@@ -138,7 +160,7 @@ void MediaSessionManagerCocoa::updateSessionState()
 
     RouteSharingPolicy policy = RouteSharingPolicy::Default;
     auto category = AudioSession::CategoryType::None;
-    if (captureCount)
+    if (captureCount || (isPlayingAudio && AudioSession::sharedSession().category() == AudioSession::CategoryType::PlayAndRecord))
         category = AudioSession::CategoryType::PlayAndRecord;
     else if (hasAudibleAudioOrVideoMediaType) {
         category = AudioSession::CategoryType::MediaPlayback;
@@ -146,8 +168,26 @@ void MediaSessionManagerCocoa::updateSessionState()
     } else if (webAudioCount)
         category = AudioSession::CategoryType::AmbientSound;
 
+    if (category == AudioSession::CategoryType::None && m_previousCategory != AudioSession::CategoryType::None) {
+        if (!m_delayCategoryChangeTimer.isActive()) {
+            m_delayCategoryChangeTimer.startOneShot(delayBeforeSettingCategoryNone);
+            ALWAYS_LOG(LOGIDENTIFIER, "setting timer");
+        }
+        category = m_previousCategory;
+    } else
+        m_delayCategoryChangeTimer.stop();
+
+    m_previousCategory = category;
+
     ALWAYS_LOG(LOGIDENTIFIER, "setting category = ", category, ", policy = ", policy);
     AudioSession::sharedSession().setCategory(category, policy);
+}
+
+void MediaSessionManagerCocoa::possiblyChangeAudioCategory()
+{
+    ALWAYS_LOG(LOGIDENTIFIER);
+    m_previousCategory = AudioSession::CategoryType::None;
+    updateSessionState();
 }
 
 void MediaSessionManagerCocoa::beginInterruption(PlatformMediaSession::InterruptionType type)
@@ -227,7 +267,7 @@ void MediaSessionManagerCocoa::sessionWillEndPlayback(PlatformMediaSession& sess
 {
     PlatformMediaSessionManager::sessionWillEndPlayback(session, delayCallingUpdateNowPlaying);
 
-    callOnMainThread([weakSession = makeWeakPtr(session)] {
+    callOnMainThread([weakSession = WeakPtr { session }] {
         if (weakSession)
             weakSession->updateMediaUsageIfChanged();
     });
@@ -262,6 +302,11 @@ void MediaSessionManagerCocoa::addSupportedCommand(PlatformMediaSession::RemoteC
 void MediaSessionManagerCocoa::removeSupportedCommand(PlatformMediaSession::RemoteControlCommandType command)
 {
     m_nowPlayingManager->removeSupportedCommand(command);
+}
+
+RemoteCommandListener::RemoteCommandsSet MediaSessionManagerCocoa::supportedCommands() const
+{
+    return m_nowPlayingManager->supportedCommands();
 }
 
 void MediaSessionManagerCocoa::clearNowPlayingInfo()
@@ -318,7 +363,7 @@ void MediaSessionManagerCocoa::setNowPlayingInfo(bool setAsNowPlayingApplication
         CFDictionarySetValue(info.get(), kMRMediaRemoteNowPlayingInfoElapsedTime, cfCurrentTime.get());
     }
     if (nowPlayingInfo.artwork && nowPlayingInfo.artwork->imageData) {
-        auto nsArtwork = nowPlayingInfo.artwork->imageData->createNSData();
+        auto nsArtwork = nowPlayingInfo.artwork->imageData->makeContiguous()->createNSData();
         CFDictionarySetValue(info.get(), kMRMediaRemoteNowPlayingInfoArtworkData, nsArtwork.get());
         CFDictionarySetValue(info.get(), kMRMediaRemoteNowPlayingInfoArtworkMIMEType, nowPlayingInfo.artwork->mimeType.createCFString().get());
         CFDictionarySetValue(info.get(), kMRMediaRemoteNowPlayingInfoArtworkIdentifier, String::number(nowPlayingInfo.artwork->src.hash()).createCFString().get());
@@ -383,9 +428,16 @@ void MediaSessionManagerCocoa::updateNowPlayingInfo()
 
     m_haveEverRegisteredAsNowPlayingApplication = true;
 
-    if (m_nowPlayingManager->setNowPlayingInfo(*nowPlayingInfo))
-        ALWAYS_LOG(LOGIDENTIFIER, "title = \"", nowPlayingInfo->title, "\", isPlaying = ", nowPlayingInfo->isPlaying, ", duration = ", nowPlayingInfo->duration, ", now = ", nowPlayingInfo->currentTime, ", id = ", nowPlayingInfo->uniqueIdentifier.toUInt64(), ", registered = ", m_registeredAsNowPlayingApplication, ", src = \"", nowPlayingInfo->artwork ? nowPlayingInfo->artwork->src : String(), "\"");
-
+    if (m_nowPlayingManager->setNowPlayingInfo(*nowPlayingInfo)) {
+#ifdef LOG_DISABLED
+        String src = "src";
+        String title = "title";
+#else
+        String src = nowPlayingInfo->artwork ? nowPlayingInfo->artwork->src : String();
+        String title = nowPlayingInfo->title;
+#endif
+        ALWAYS_LOG(LOGIDENTIFIER, "title = \"", title, "\", isPlaying = ", nowPlayingInfo->isPlaying, ", duration = ", nowPlayingInfo->duration, ", now = ", nowPlayingInfo->currentTime, ", id = ", nowPlayingInfo->uniqueIdentifier.toUInt64(), ", registered = ", m_registeredAsNowPlayingApplication, ", src = \"", src, "\"");
+    }
     if (!m_registeredAsNowPlayingApplication) {
         m_registeredAsNowPlayingApplication = true;
         providePresentingApplicationPIDIfNecessary();

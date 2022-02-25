@@ -41,7 +41,7 @@ Ref<XRDeviceProxy> XRDeviceProxy::create(XRDeviceInfo&& deviceInfo, PlatformXRSy
 }
 
 XRDeviceProxy::XRDeviceProxy(XRDeviceInfo&& deviceInfo, PlatformXRSystemProxy& xrSystem)
-    : m_xrSystem(makeWeakPtr(xrSystem))
+    : m_xrSystem(xrSystem)
 {
     m_identifier = deviceInfo.identifier;
     m_supportsStereoRendering = deviceInfo.supportsStereoRendering;
@@ -76,10 +76,10 @@ Vector<PlatformXR::Device::ViewData> XRDeviceProxy::views(SessionMode mode) cons
 {
     Vector<Device::ViewData> views;
     if (m_supportsStereoRendering && mode == SessionMode::ImmersiveVr) {
-        views.append({ .active = true, Eye::Left });
-        views.append({ .active = true, Eye::Right });
+        views.append({ .active = true, .eye = Eye::Left });
+        views.append({ .active = true, .eye = Eye::Right });
     } else
-        views.append({ .active = true, Eye::None });
+        views.append({ .active = true, .eye = Eye::None });
     return views;
 }
 

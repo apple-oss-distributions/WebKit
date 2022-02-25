@@ -30,11 +30,12 @@
 #include "NativeImage.h"
 #include "PlatformLayer.h"
 #include "VideoLayerManager.h"
-#include "WebVideoContainerLayer.h"
 #include <wtf/Function.h>
 #include <wtf/LoggerHelper.h>
 #include <wtf/Noncopyable.h>
 #include <wtf/RetainPtr.h>
+
+OBJC_CLASS WebVideoContainerLayer;
 
 namespace WebCore {
 
@@ -63,7 +64,7 @@ public:
 
 #if ENABLE(VIDEO_PRESENTATION_MODE)
     WEBCORE_EXPORT PlatformLayer* videoFullscreenLayer() const final;
-    WEBCORE_EXPORT void setVideoFullscreenLayer(PlatformLayer*, WTF::Function<void()>&& completionHandler, PlatformImagePtr) final;
+    WEBCORE_EXPORT void setVideoFullscreenLayer(PlatformLayer*, Function<void()>&& completionHandler, PlatformImagePtr) final;
     WEBCORE_EXPORT FloatRect videoFullscreenFrame() const final;
     WEBCORE_EXPORT void setVideoFullscreenFrame(FloatRect) final;
     WEBCORE_EXPORT void updateVideoFullscreenInlineImage(PlatformImagePtr) final;

@@ -397,7 +397,7 @@ static bool nodeIsMouseFocusable(Node& node)
     if (element.isMouseFocusable())
         return true;
 
-    if (auto shadowRoot = makeRefPtr(element.shadowRoot())) {
+    if (RefPtr shadowRoot = element.shadowRoot()) {
         if (shadowRoot->delegatesFocus()) {
             for (auto& node : composedTreeDescendants(element)) {
                 if (is<Element>(node) && downcast<Element>(node).isMouseFocusable())
@@ -627,14 +627,6 @@ NSRect Frame::rectForScrollToVisible()
     return unionRect(selection.visibleStart().absoluteCaretBounds(), selection.visibleEnd().absoluteCaretBounds());
 }
 
-unsigned Frame::formElementsCharacterCount() const
-{
-    Document* document = this->document();
-    if (!document)
-        return 0;
-    return document->formController().formElementsCharacterCount();
-}
-
 void Frame::setTimersPaused(bool paused)
 {
     if (!m_page)
@@ -652,8 +644,9 @@ void Frame::dispatchPageHideEventBeforePause()
     if (!isMainFrame())
         return;
 
-    for (Frame* frame = this; frame; frame = frame->tree().traverseNext(this))
-        frame->document()->domWindow()->dispatchEvent(PageTransitionEvent::create(eventNames().pagehideEvent, true), document());
+    Page::forEachDocumentFromMainFrame(*this, [pagehideEvent = eventNames().pagehideEvent, mainDocument = document()](Document& document) {
+        document.domWindow()->dispatchEvent(PageTransitionEvent::create(pagehideEvent, true), mainDocument);
+    });
 }
 
 void Frame::dispatchPageShowEventBeforeResume()
@@ -662,8 +655,9 @@ void Frame::dispatchPageShowEventBeforeResume()
     if (!isMainFrame())
         return;
 
-    for (Frame* frame = this; frame; frame = frame->tree().traverseNext(this))
-        frame->document()->domWindow()->dispatchEvent(PageTransitionEvent::create(eventNames().pageshowEvent, true), document());
+    Page::forEachDocumentFromMainFrame(*this, [pageshowEvent = eventNames().pageshowEvent, mainDocument = document()](Document& document) {
+        document.domWindow()->dispatchEvent(PageTransitionEvent::create(pageshowEvent, true), mainDocument);
+    });
 }
 
 void Frame::setRangedSelectionBaseToCurrentSelection()
@@ -736,7 +730,7 @@ NSArray *Frame::interpretationsForCurrentRoot() const
     size_t interpretationsCount = 1;
 
     for (auto* marker : markersInRoot)
-        interpretationsCount *= WTF::get<Vector<String>>(marker->data()).size() + 1;
+        interpretationsCount *= std::get<Vector<String>>(marker->data()).size() + 1;
 
     Vector<Vector<UChar>> interpretations;
     interpretations.grow(interpretationsCount);
@@ -747,7 +741,7 @@ NSArray *Frame::interpretationsForCurrentRoot() const
 
     for (auto& node : intersectingNodes(rangeOfRootContents)) {
         for (auto* marker : document()->markers().markersFor(node, DocumentMarker::DictationPhraseWithAlternatives)) {
-            auto& alternatives = WTF::get<Vector<String>>(marker->data());
+            auto& alternatives = std::get<Vector<String>>(marker->data());
 
             auto rangeForMarker = makeSimpleRange(node, *marker);
 

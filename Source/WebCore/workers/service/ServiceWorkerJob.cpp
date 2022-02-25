@@ -140,7 +140,7 @@ ResourceError ServiceWorkerJob::validateServiceWorkerResponse(const ServiceWorke
     return { };
 }
 
-void ServiceWorkerJob::didReceiveResponse(unsigned long, const ResourceResponse& response)
+void ServiceWorkerJob::didReceiveResponse(ResourceLoaderIdentifier, const ResourceResponse& response)
 {
     ASSERT(m_creationThread.ptr() == &Thread::current());
     ASSERT(!m_completed);
@@ -165,7 +165,7 @@ void ServiceWorkerJob::notifyFinished()
     auto scriptLoader = WTFMove(m_scriptLoader);
 
     if (!scriptLoader->failed()) {
-        m_client.jobFinishedLoadingScript(*this, scriptLoader->script(), scriptLoader->certificateInfo(), scriptLoader->contentSecurityPolicy(), scriptLoader->referrerPolicy());
+        m_client.jobFinishedLoadingScript(*this, scriptLoader->script(), scriptLoader->certificateInfo(), scriptLoader->contentSecurityPolicy(), scriptLoader->crossOriginEmbedderPolicy(), scriptLoader->referrerPolicy());
         return;
     }
 

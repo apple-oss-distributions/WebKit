@@ -41,6 +41,7 @@ GPUProcessCreationParameters::GPUProcessCreationParameters() = default;
 
 void GPUProcessCreationParameters::encode(IPC::Encoder& encoder) const
 {
+    encoder << auxiliaryProcessParameters;
 #if ENABLE(MEDIA_STREAM)
     encoder << useMockCaptureDevices;
 #if PLATFORM(MAC)
@@ -59,12 +60,13 @@ void GPUProcessCreationParameters::encode(IPC::Encoder& encoder) const
     encoder << dynamicMachExtensionHandles;
 #endif
 
-    encoder << webCoreLoggingChannels;
-    encoder << webKitLoggingChannels;
+    encoder << applicationVisibleName;
 }
 
 bool GPUProcessCreationParameters::decode(IPC::Decoder& decoder, GPUProcessCreationParameters& result)
 {
+    if (!decoder.decode(result.auxiliaryProcessParameters))
+        return false;
 #if ENABLE(MEDIA_STREAM)
     if (!decoder.decode(result.useMockCaptureDevices))
         return false;
@@ -90,28 +92,26 @@ bool GPUProcessCreationParameters::decode(IPC::Decoder& decoder, GPUProcessCreat
     result.containerTemporaryDirectoryExtensionHandle = WTFMove(*containerTemporaryDirectoryExtensionHandle);
 #endif
 #if PLATFORM(IOS_FAMILY)
-    std::optional<SandboxExtension::HandleArray> compilerServiceExtensionHandles;
+    std::optional<Vector<SandboxExtension::Handle>> compilerServiceExtensionHandles;
     decoder >> compilerServiceExtensionHandles;
     if (!compilerServiceExtensionHandles)
         return false;
     result.compilerServiceExtensionHandles = WTFMove(*compilerServiceExtensionHandles);
 
-    std::optional<SandboxExtension::HandleArray> dynamicIOKitExtensionHandles;
+    std::optional<Vector<SandboxExtension::Handle>> dynamicIOKitExtensionHandles;
     decoder >> dynamicIOKitExtensionHandles;
     if (!dynamicIOKitExtensionHandles)
         return false;
     result.dynamicIOKitExtensionHandles = WTFMove(*dynamicIOKitExtensionHandles);
 
-    std::optional<SandboxExtension::HandleArray> dynamicMachExtensionHandles;
+    std::optional<Vector<SandboxExtension::Handle>> dynamicMachExtensionHandles;
     decoder >> dynamicMachExtensionHandles;
     if (!dynamicMachExtensionHandles)
         return false;
     result.dynamicMachExtensionHandles = WTFMove(*dynamicMachExtensionHandles);
 #endif
 
-    if (!decoder.decode(result.webCoreLoggingChannels))
-        return false;
-    if (!decoder.decode(result.webKitLoggingChannels))
+    if (!decoder.decode(result.applicationVisibleName))
         return false;
 
     return true;

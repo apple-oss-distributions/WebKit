@@ -44,7 +44,7 @@
 namespace WebCore {
 
 CSSFontFaceSet::CSSFontFaceSet(CSSFontSelector* owningFontSelector)
-    : m_owningFontSelector(makeWeakPtr(owningFontSelector))
+    : m_owningFontSelector(owningFontSelector)
 {
 }
 
@@ -103,16 +103,23 @@ bool CSSFontFaceSet::hasFace(const CSSFontFace& face) const
     return false;
 }
 
+// Calling updateStyleIfNeeded() might delete |this|.
+void CSSFontFaceSet::updateStyleIfNeeded()
+{
+    if (m_owningFontSelector)
+        m_owningFontSelector->updateStyleIfNeeded();
+}
+
 void CSSFontFaceSet::ensureLocalFontFacesForFamilyRegistered(const String& familyName)
 {
     ASSERT(m_owningFontSelector);
     if (m_locallyInstalledFacesLookupTable.contains(familyName))
         return;
 
-    AllowUserInstalledFonts allowUserInstalledFonts = AllowUserInstalledFonts::Yes;
-    if (m_owningFontSelector->scriptExecutionContext())
-        allowUserInstalledFonts = m_owningFontSelector->scriptExecutionContext()->settingsValues().shouldAllowUserInstalledFonts ? AllowUserInstalledFonts::Yes : AllowUserInstalledFonts::No;
-    Vector<FontSelectionCapabilities> capabilities = m_owningFontSelector->scriptExecutionContext()->fontCache().getFontSelectionCapabilitiesInFamily(familyName, allowUserInstalledFonts);
+    if (!m_owningFontSelector->scriptExecutionContext())
+        return;
+    AllowUserInstalledFonts allowUserInstalledFonts = m_owningFontSelector->scriptExecutionContext()->settingsValues().shouldAllowUserInstalledFonts ? AllowUserInstalledFonts::Yes : AllowUserInstalledFonts::No;
+    Vector<FontSelectionCapabilities> capabilities = FontCache::forCurrentThread().getFontSelectionCapabilitiesInFamily(familyName, allowUserInstalledFonts);
     if (capabilities.isEmpty())
         return;
 
@@ -162,8 +169,11 @@ String CSSFontFaceSet::familyNameFromPrimitive(const CSSPrimitiveValue& value)
 
 void CSSFontFaceSet::addToFacesLookupTable(CSSFontFace& face)
 {
-    if (!face.families())
+    if (!face.families()) {
+        // If the font has failed, there's no point in actually adding it to m_facesLookupTable,
+        // because no font requests can actually use it for anything. So, let's just ... not add it.
         return;
+    }
     auto families = face.families().value();
 
     for (auto& item : *families) {
@@ -220,7 +230,12 @@ void CSSFontFaceSet::removeFromFacesLookupTable(const CSSFontFace& face, const C
             continue;
 
         auto iterator = m_facesLookupTable.find(familyName);
-        ASSERT(iterator != m_facesLookupTable.end());
+        if (iterator == m_facesLookupTable.end()) {
+            // The font may have failed even before addToFacesLookupTable() was called on it,
+            // which means we never added it (because there's no point in adding a failed font).
+            // So, if it was never added, removing it is free! Woohoo!
+            return;
+        }
         bool found = false;
         for (size_t i = 0; i < iterator->value.size(); ++i) {
             if (iterator->value[i].ptr() == &face) {
@@ -237,7 +252,7 @@ void CSSFontFaceSet::removeFromFacesLookupTable(const CSSFontFace& face, const C
 
 void CSSFontFaceSet::remove(const CSSFontFace& face)
 {
-    auto protect = makeRef(face);
+    Ref protect { face };
 
     m_cache.clear();
 
@@ -427,7 +442,8 @@ ExceptionOr<bool> CSSFontFaceSet::check(const String& font, const String& text)
         return matchingFaces.releaseException();
 
     for (auto& face : matchingFaces.releaseReturnValue()) {
-        if (face.get().status() == CSSFontFace::Status::Pending)
+        if (face.get().status() == CSSFontFace::Status::Pending
+            || face.get().status() == CSSFontFace::Status::Loading)
             return false;
     }
     return true;

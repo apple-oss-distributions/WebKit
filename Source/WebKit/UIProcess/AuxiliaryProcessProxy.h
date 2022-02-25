@@ -25,6 +25,7 @@
 
 #pragma once
 
+#include "AuxiliaryProcessCreationParameters.h"
 #include "Connection.h"
 #include "MessageReceiverMap.h"
 #include "ProcessLauncher.h"
@@ -43,10 +44,12 @@ class AuxiliaryProcessProxy : public ThreadSafeRefCounted<AuxiliaryProcessProxy,
     WTF_MAKE_NONCOPYABLE(AuxiliaryProcessProxy);
 
 protected:
-    explicit AuxiliaryProcessProxy(bool alwaysRunsAtBackgroundPriority = false);
+    AuxiliaryProcessProxy(bool alwaysRunsAtBackgroundPriority = false, Seconds responsivenessTimeout = ResponsivenessTimer::defaultResponsivenessTimeout);
 
 public:
     virtual ~AuxiliaryProcessProxy();
+
+    static AuxiliaryProcessCreationParameters auxiliaryProcessParameters();
 
     void connect();
     virtual void terminate();
@@ -111,6 +114,7 @@ public:
         Terminated,
     };
     State state() const;
+    String stateString() const;
     bool isLaunching() const { return state() == State::Launching; }
     bool wasTerminated() const;
 

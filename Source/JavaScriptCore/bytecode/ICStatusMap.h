@@ -36,19 +36,17 @@ class CallLinkStatus;
 class CodeBlock;
 class GetByStatus;
 class InByStatus;
-class PutByIdStatus;
+class PutByStatus;
 class DeleteByStatus;
 class StructureStubInfo;
-struct ByValInfo;
 
 struct ICStatus {
     StructureStubInfo* stubInfo { nullptr };
     CallLinkInfo* callLinkInfo { nullptr };
-    ByValInfo* byValInfo { nullptr };
     CallLinkStatus* callStatus { nullptr };
     GetByStatus* getStatus { nullptr };
     InByStatus* inStatus { nullptr };
-    PutByIdStatus* putStatus { nullptr };
+    PutByStatus* putStatus { nullptr };
     DeleteByStatus* deleteStatus { nullptr };
 };
 

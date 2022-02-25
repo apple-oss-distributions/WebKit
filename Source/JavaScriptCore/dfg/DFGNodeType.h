@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2012-2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2012-2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -261,8 +261,11 @@ namespace JSC { namespace DFG {
     macro(MultiPutByOffset, NodeMustGenerate) \
     macro(MultiDeleteByOffset, NodeMustGenerate | NodeResultJS) \
     macro(GetArrayLength, NodeResultInt32) \
+    /* This is only relevant for TypedArrays, as they are the only ones that can have a length that does not fit in 32 bits. */ \
+    macro(GetTypedArrayLengthAsInt52, NodeResultInt52) \
     macro(GetVectorLength, NodeResultInt32) \
     macro(GetTypedArrayByteOffset, NodeResultInt32) \
+    macro(GetTypedArrayByteOffsetAsInt52, NodeResultInt52) \
     macro(GetScope, NodeResultJS) \
     macro(SkipScope, NodeResultJS) \
     macro(ResolveScope, NodeResultJS | NodeMustGenerate) \
@@ -286,6 +289,7 @@ namespace JSC { namespace DFG {
     macro(CheckBadValue, NodeMustGenerate) \
     macro(AssertInBounds, NodeMustGenerate) \
     macro(CheckInBounds, NodeMustGenerate | NodeResultJS) \
+    macro(CheckInBoundsInt52, NodeMustGenerate | NodeResultJS) \
     macro(CheckIdent, NodeMustGenerate) \
     macro(CheckTypeInfoFlags, NodeMustGenerate) /* Takes an OpInfo with the flags you want to test are set */\
     macro(CheckJSCast, NodeMustGenerate) /* This is the same as jsCast but as a speculation rather than assertion */\
@@ -319,6 +323,7 @@ namespace JSC { namespace DFG {
     macro(RegExpExec, NodeResultJS | NodeMustGenerate) \
     macro(RegExpExecNonGlobalOrSticky, NodeResultJS) \
     macro(RegExpTest, NodeResultJS | NodeMustGenerate) \
+    macro(RegExpTestInline, NodeResultJS | NodeMustGenerate) \
     macro(RegExpMatchFast, NodeResultJS | NodeMustGenerate) \
     macro(RegExpMatchFastGlobal, NodeResultJS) \
     macro(StringReplace, NodeResultJS | NodeMustGenerate) \
@@ -372,7 +377,7 @@ namespace JSC { namespace DFG {
     macro(NewInternalFieldObject, NodeResultJS) \
     macro(NewTypedArray, NodeResultJS | NodeMustGenerate) \
     macro(NewRegexp, NodeResultJS) \
-    macro(NewSymbol, NodeResultJS) \
+    macro(NewSymbol, NodeResultJS | NodeMustGenerate) \
     macro(NewStringObject, NodeResultJS) \
     /* Rest Parameter */\
     macro(GetRestLength, NodeResultInt32) \
@@ -501,20 +506,17 @@ namespace JSC { namespace DFG {
     macro(StoreBarrier, NodeMustGenerate) \
     macro(FencedStoreBarrier, NodeMustGenerate) \
     \
-    /* For-in enumeration opcodes */\
-    macro(GetEnumerableLength, NodeMustGenerate | NodeResultJS) \
     /* Must generate because of Proxies on the prototype chain */ \
     macro(HasIndexedProperty, NodeMustGenerate | NodeResultBoolean | NodeHasVarArgs) \
-    macro(HasEnumerableIndexedProperty, NodeMustGenerate | NodeResultBoolean | NodeHasVarArgs) \
-    macro(HasEnumerableStructureProperty, NodeResultBoolean) \
-    macro(HasEnumerableProperty, NodeResultBoolean) \
-    macro(HasOwnStructureProperty, NodeResultBoolean | NodeMustGenerate) \
-    macro(InStructureProperty, NodeMustGenerate | NodeResultBoolean) \
-    macro(GetDirectPname, NodeMustGenerate | NodeHasVarArgs | NodeResultJS) \
+    /* For-in enumeration opcodes */\
     macro(GetPropertyEnumerator, NodeMustGenerate | NodeResultJS) \
-    macro(GetEnumeratorStructurePname, NodeMustGenerate | NodeResultJS) \
-    macro(GetEnumeratorGenericPname, NodeMustGenerate | NodeResultJS) \
-    macro(ToIndexString, NodeResultJS) \
+    macro(EnumeratorNextUpdateIndexAndMode, NodeResultJS | NodeHasVarArgs) \
+    macro(EnumeratorNextExtractMode, NodeResultInt32) \
+    macro(EnumeratorNextExtractIndex, NodeResultInt32) \
+    macro(EnumeratorNextUpdatePropertyName, NodeResultJS) \
+    macro(EnumeratorGetByVal, NodeResultJS | NodeHasVarArgs | NodeMustGenerate) \
+    macro(EnumeratorInByVal, NodeResultBoolean | NodeHasVarArgs | NodeMustGenerate) \
+    macro(EnumeratorHasOwnProperty, NodeResultBoolean | NodeHasVarArgs | NodeMustGenerate) \
     /* Nodes for JSMap and JSSet */ \
     macro(MapHash, NodeResultInt32) \
     macro(NormalizeMapKey, NodeResultJS) \
@@ -549,7 +551,7 @@ namespace JSC { namespace DFG {
     macro(FilterCallLinkStatus, NodeMustGenerate) \
     macro(FilterGetByStatus, NodeMustGenerate) \
     macro(FilterInByStatus, NodeMustGenerate) \
-    macro(FilterPutByIdStatus, NodeMustGenerate) \
+    macro(FilterPutByStatus, NodeMustGenerate) \
     macro(FilterDeleteByStatus, NodeMustGenerate) \
     macro(FilterCheckPrivateBrandStatus, NodeMustGenerate) \
     macro(FilterSetPrivateBrandStatus, NodeMustGenerate) \

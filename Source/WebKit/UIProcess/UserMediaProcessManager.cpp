@@ -93,25 +93,37 @@ bool UserMediaProcessManager::willCreateMediaStream(UserMediaPermissionRequestMa
     }
 
     if (extensionCount) {
-        SandboxExtension::HandleArray handles;
+        Vector<SandboxExtension::Handle> handles;
         Vector<String> ids;
 
         if (!proxy.page().preferences().mockCaptureDevicesEnabled()) {
-            handles.allocate(extensionCount);
+            handles.resize(extensionCount);
             ids.reserveInitialCapacity(extensionCount);
 
-            if (needsAudioSandboxExtension && SandboxExtension::createHandleForGenericExtension(audioExtensionPath, handles[--extensionCount]))
-                ids.uncheckedAppend(audioExtensionPath);
+            if (needsAudioSandboxExtension) {
+                if (auto handle = SandboxExtension::createHandleForGenericExtension(audioExtensionPath)) {
+                    handles[--extensionCount] = WTFMove(*handle);
+                    ids.uncheckedAppend(audioExtensionPath);
+                }
+            }
 
-            if (needsVideoSandboxExtension && SandboxExtension::createHandleForGenericExtension(videoExtensionPath, handles[--extensionCount]))
-                ids.uncheckedAppend(videoExtensionPath);
+            if (needsVideoSandboxExtension) {
+                if (auto handle = SandboxExtension::createHandleForGenericExtension(videoExtensionPath)) {
+                    handles[--extensionCount] = WTFMove(*handle);
+                    ids.uncheckedAppend(videoExtensionPath);
+                }
+            }
 
             if (needsAppleCameraSandboxExtension) {
-                if (SandboxExtension::createHandleForMachLookup(appleCameraServicePath, std::nullopt, handles[--extensionCount]))
+                if (auto handle = SandboxExtension::createHandleForMachLookup(appleCameraServicePath, std::nullopt)) {
+                    handles[--extensionCount] = WTFMove(*handle);
                     ids.uncheckedAppend(appleCameraServicePath);
+                }
 #if HAVE(ADDITIONAL_APPLE_CAMERA_SERVICE)
-                if (SandboxExtension::createHandleForMachLookup(additionalAppleCameraServicePath, std::nullopt, handles[--extensionCount]))
+                if (auto handle = SandboxExtension::createHandleForMachLookup(additionalAppleCameraServicePath, std::nullopt)) {
+                    handles[--extensionCount] = WTFMove(*handle);
                     ids.uncheckedAppend(additionalAppleCameraServicePath);
+                }
 #endif
             }
 
@@ -119,6 +131,8 @@ bool UserMediaProcessManager::willCreateMediaStream(UserMediaPermissionRequestMa
                 WTFLogAlways("Could not create a required sandbox extension, capture will fail!");
                 return false;
             }
+
+            // FIXME: Is it correct to ensure that the corresponding entries in `handles` and `ids` are in reverse order?
         }
 
         for (const auto& id : ids)
@@ -212,7 +226,7 @@ void UserMediaProcessManager::captureDevicesChanged()
 
 void UserMediaProcessManager::updateCaptureDevices(ShouldNotify shouldNotify)
 {
-    WebCore::RealtimeMediaSourceCenter::singleton().getMediaStreamDevices([weakThis = makeWeakPtr(*this), this, shouldNotify](auto&& newDevices) mutable {
+    WebCore::RealtimeMediaSourceCenter::singleton().getMediaStreamDevices([weakThis = WeakPtr { *this }, this, shouldNotify](auto&& newDevices) mutable {
         if (!weakThis)
             return;
 

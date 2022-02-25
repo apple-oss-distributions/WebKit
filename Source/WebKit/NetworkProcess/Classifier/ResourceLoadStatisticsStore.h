@@ -25,16 +25,16 @@
 
 #pragma once
 
-#if ENABLE(RESOURCE_LOAD_STATISTICS)
+#if ENABLE(INTELLIGENT_TRACKING_PREVENTION)
 
 #include "ResourceLoadStatisticsClassifier.h"
 #include "WebResourceLoadStatisticsStore.h"
 #include <JavaScriptCore/ConsoleTypes.h>
 #include <WebCore/FrameIdentifier.h>
 #include <wtf/CompletionHandler.h>
+#include <wtf/Forward.h>
 #include <wtf/Vector.h>
 #include <wtf/WeakPtr.h>
-#include <wtf/WorkQueue.h>
 
 #if HAVE(CORE_PREDICTION)
 #include "ResourceLoadStatisticsClassifierCocoa.h"
@@ -202,22 +202,11 @@ public:
     virtual void clearOperatingDates() = 0;
     virtual bool hasStatisticsExpired(WallTime mostRecentUserInteractionTime, OperatingDatesWindow) const = 0;
     virtual void insertExpiredStatisticForTesting(const RegistrableDomain&, unsigned numberOfOperatingDaysPassed, bool hasUserInteraction, bool isScheduledForAllButCookieDataRemoval, bool) = 0;
-    
-    // Private Click Measurement.
-    virtual void insertPrivateClickMeasurement(WebCore::PrivateClickMeasurement&&, PrivateClickMeasurementAttributionType) = 0;
-    virtual void markAllUnattributedPrivateClickMeasurementAsExpiredForTesting() = 0;
-    virtual std::optional<WebCore::PrivateClickMeasurement::AttributionSecondsUntilSendData> attributePrivateClickMeasurement(const WebCore::PrivateClickMeasurement::SourceSite&, const WebCore::PrivateClickMeasurement::AttributionDestinationSite&, WebCore::PrivateClickMeasurement::AttributionTriggerData&&) = 0;
-    virtual Vector<WebCore::PrivateClickMeasurement> allAttributedPrivateClickMeasurement() = 0;
-    virtual void clearPrivateClickMeasurement(std::optional<RegistrableDomain>) = 0;
-    virtual void clearExpiredPrivateClickMeasurement() = 0;
-    virtual String privateClickMeasurementToString() = 0;
-    virtual void clearSentAttribution(WebCore::PrivateClickMeasurement&&, WebCore::PrivateClickMeasurement::AttributionReportEndpoint) = 0;
-    virtual void markAttributedPrivateClickMeasurementsAsExpiredForTesting() = 0;
 
 protected:
     static unsigned computeImportance(const WebCore::ResourceLoadStatistics&);
 
-    ResourceLoadStatisticsStore(WebResourceLoadStatisticsStore&, WorkQueue&, ShouldIncludeLocalhost);
+    ResourceLoadStatisticsStore(WebResourceLoadStatisticsStore&, SuspendableWorkQueue&, ShouldIncludeLocalhost);
     
     bool dataRecordsBeingRemoved() const { return m_dataRecordsBeingRemoved; }
 
@@ -228,7 +217,7 @@ protected:
     virtual void pruneStatisticsIfNeeded() = 0;
 
     WebResourceLoadStatisticsStore& store() { return m_store; }
-    Ref<WorkQueue>& workQueue() { return m_workQueue; }
+    Ref<SuspendableWorkQueue>& workQueue() { return m_workQueue; }
 #if HAVE(CORE_PREDICTION)
     ResourceLoadStatisticsClassifierCocoa& classifier() { return m_resourceLoadStatisticsClassifier; }
 #else
@@ -278,14 +267,11 @@ private:
     void updateClientSideCookiesAgeCap();
 
     WebResourceLoadStatisticsStore& m_store;
-    Ref<WorkQueue> m_workQueue;
+    Ref<SuspendableWorkQueue> m_workQueue;
 #if HAVE(CORE_PREDICTION)
     ResourceLoadStatisticsClassifierCocoa m_resourceLoadStatisticsClassifier;
 #else
     ResourceLoadStatisticsClassifier m_resourceLoadStatisticsClassifier;
-#endif
-#if ENABLE(NETSCAPE_PLUGIN_API)
-    HashSet<uint64_t> m_activePluginTokens;
 #endif
     Parameters m_parameters;
     WallTime m_endOfGrandfatheringTimestamp;

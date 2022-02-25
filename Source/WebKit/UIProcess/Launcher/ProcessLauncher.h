@@ -61,6 +61,8 @@ public:
         virtual void didFinishLaunching(ProcessLauncher*, IPC::Connection::Identifier) = 0;
         virtual bool shouldConfigureJSCForTesting() const { return false; }
         virtual bool isJITEnabled() const { return true; }
+        virtual bool shouldEnableSharedArrayBuffer() const { return false; }
+        virtual bool shouldEnableCaptivePortalMode() const { return false; }
 #if PLATFORM(COCOA)
         virtual RefPtr<XPCEventHandler> xpcEventHandler() const { return nullptr; }
 #endif
@@ -68,9 +70,6 @@ public:
     
     enum class ProcessType {
         Web,
-#if ENABLE(NETSCAPE_PLUGIN_API)
-        Plugin,
-#endif
         Network,
 #if ENABLE(GPU_PROCESS)
         GPU,
@@ -122,6 +121,10 @@ private:
     void didFinishLaunchingProcess(ProcessID, IPC::Connection::Identifier);
 
     void platformInvalidate();
+
+#if PLATFORM(COCOA)
+    void terminateXPCConnection();
+#endif
 
     Client* m_client;
 

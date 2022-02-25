@@ -25,14 +25,13 @@
 
 #pragma once
 
-#if ENABLE(RESOURCE_LOAD_STATISTICS)
+#if ENABLE(INTELLIGENT_TRACKING_PREVENTION)
 
 #include "ResourceLoadStatisticsStore.h"
 #include "WebResourceLoadStatisticsStore.h"
 #include <wtf/CompletionHandler.h>
 #include <wtf/Vector.h>
 #include <wtf/WeakPtr.h>
-#include <wtf/WorkQueue.h>
 
 namespace WebCore {
 class KeyedDecoder;
@@ -47,7 +46,7 @@ namespace WebKit {
 // This is always constructed / used / destroyed on the WebResourceLoadStatisticsStore's statistics queue.
 class ResourceLoadStatisticsMemoryStore final : public ResourceLoadStatisticsStore {
 public:
-    ResourceLoadStatisticsMemoryStore(WebResourceLoadStatisticsStore&, WorkQueue&, ShouldIncludeLocalhost);
+    ResourceLoadStatisticsMemoryStore(WebResourceLoadStatisticsStore&, SuspendableWorkQueue&, ShouldIncludeLocalhost);
 
     void clear(CompletionHandler<void()>&&) override;
     bool isEmpty() const override;
@@ -107,17 +106,6 @@ public:
     void removeDataForDomain(const RegistrableDomain&) override;
     Vector<RegistrableDomain> allDomains() const final;
     void insertExpiredStatisticForTesting(const RegistrableDomain&, unsigned numberOfOperatingDaysPassed, bool hasUserInteraction, bool isScheduledForAllButCookieDataRemoval, bool isPrevalent) override;
-
-    // Private Click Measurement is not implemented in the ITP memory store.
-    void insertPrivateClickMeasurement(WebCore::PrivateClickMeasurement&&, PrivateClickMeasurementAttributionType) override { };
-    void markAllUnattributedPrivateClickMeasurementAsExpiredForTesting() override { };
-    std::optional<WebCore::PrivateClickMeasurement::AttributionSecondsUntilSendData>attributePrivateClickMeasurement(const WebCore::PrivateClickMeasurement::SourceSite&, const WebCore::PrivateClickMeasurement::AttributionDestinationSite&, WebCore::PrivateClickMeasurement::AttributionTriggerData&&) override { return { }; };
-    Vector<WebCore::PrivateClickMeasurement> allAttributedPrivateClickMeasurement() override { return { }; };
-    void clearPrivateClickMeasurement(std::optional<RegistrableDomain>) override { };
-    void clearExpiredPrivateClickMeasurement() override { };
-    String privateClickMeasurementToString() override { return String(); };
-    void clearSentAttribution(WebCore::PrivateClickMeasurement&&, WebCore::PrivateClickMeasurement::AttributionReportEndpoint) override { };
-    void markAttributedPrivateClickMeasurementsAsExpiredForTesting() override { };
 
 private:
     void includeTodayAsOperatingDateIfNecessary() override;

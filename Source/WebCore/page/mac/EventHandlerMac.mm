@@ -178,7 +178,7 @@ void EventHandler::focusDocumentView()
     if (!page)
         return;
 
-    if (auto frameView = makeRefPtr(m_frame.view())) {
+    if (RefPtr frameView = m_frame.view()) {
         if (NSView *documentView = frameView->documentView()) {
             page->chrome().focusNSView(documentView);
             // Check page() again because focusNSView can cause reentrancy.
@@ -188,7 +188,7 @@ void EventHandler::focusDocumentView()
     }
 
     RELEASE_ASSERT(page == m_frame.page());
-    page->focusController().setFocusedFrame(&m_frame);
+    CheckedRef(page->focusController())->setFocusedFrame(&m_frame);
 }
 
 bool EventHandler::passWidgetMouseDownEventToWidget(const MouseEventWithHitTestResults& event)
@@ -799,8 +799,6 @@ static ScrollableArea* scrollableAreaForBox(RenderBox& box)
 // FIXME: This could be written in terms of ScrollableArea::enclosingScrollableArea().
 static ContainerNode* findEnclosingScrollableContainer(ContainerNode* node, const PlatformWheelEvent& wheelEvent)
 {
-    auto biasedDelta = ScrollController::wheelDeltaBiasingTowardsVertical(wheelEvent);
-
     // Find the first node with a valid scrollable area starting with the current
     // node and traversing its parents (or shadow hosts).
     for (ContainerNode* candidate = node; candidate; candidate = candidate->parentOrShadowHostNode()) {
@@ -821,10 +819,7 @@ static ContainerNode* findEnclosingScrollableContainer(ContainerNode* node, cons
         if (wheelEvent.phase() == PlatformWheelEventPhase::MayBegin || wheelEvent.phase() == PlatformWheelEventPhase::Cancelled)
             return candidate;
 
-        if (biasedDelta.height() && !scrollableArea->isPinnedForScrollDeltaOnAxis(-biasedDelta.height(), ScrollEventAxis::Vertical))
-            return candidate;
-
-        if (biasedDelta.width() && !scrollableArea->isPinnedForScrollDeltaOnAxis(-biasedDelta.width(), ScrollEventAxis::Horizontal))
+        if (EventHandler::scrollableAreaCanHandleEvent(wheelEvent, *scrollableArea))
             return candidate;
     }
     
@@ -837,7 +832,7 @@ static WeakPtr<ScrollableArea> scrollableAreaForEventTarget(Element* eventTarget
     if (!widget || !widget->isScrollView())
         return { };
 
-    return makeWeakPtr(static_cast<ScrollableArea&>(static_cast<ScrollView&>(*widget)));
+    return static_cast<ScrollableArea&>(static_cast<ScrollView&>(*widget));
 }
     
 static bool eventTargetIsPlatformWidget(Element* eventTarget)
@@ -859,7 +854,7 @@ static WeakPtr<ScrollableArea> scrollableAreaForContainerNode(ContainerNode& con
     if (!scrollableAreaPtr)
         return { };
     
-    return makeWeakPtr(*scrollableAreaPtr);
+    return *scrollableAreaPtr;
 }
 
 void EventHandler::determineWheelEventTarget(const PlatformWheelEvent& wheelEvent, RefPtr<Element>& wheelEventTarget, WeakPtr<ScrollableArea>& scrollableArea, bool& isOverWidget)
@@ -879,7 +874,7 @@ void EventHandler::determineWheelEventTarget(const PlatformWheelEvent& wheelEven
         if (scrollableContainer)
             scrollableArea = scrollableAreaForContainerNode(*scrollableContainer);
         else
-            scrollableArea = makeWeakPtr(static_cast<ScrollableArea&>(*view));
+            scrollableArea = static_cast<ScrollableArea&>(*view);
     }
 
     LOG_WITH_STREAM(ScrollLatching, stream << "EventHandler::determineWheelEventTarget() - event " << wheelEvent << " found scrollableArea " << ValueOrNull(scrollableArea.get()) << ", latching state is " << page->scrollLatchingController());
@@ -890,29 +885,7 @@ void EventHandler::determineWheelEventTarget(const PlatformWheelEvent& wheelEven
     if (wheelEvent.shouldResetLatching() || wheelEvent.isNonGestureEvent())
         return;
 
-    if (m_frame.isMainFrame() && wheelEvent.isGestureStart())
-        page->wheelEventDeltaFilter()->beginFilteringDeltas();
-
     page->scrollLatchingController().updateAndFetchLatchingStateForFrame(m_frame, wheelEvent, wheelEventTarget, scrollableArea, isOverWidget);
-}
-
-void EventHandler::recordWheelEventForDeltaFilter(const PlatformWheelEvent& wheelEvent)
-{
-    auto* page = m_frame.page();
-    if (!page)
-        return;
-
-    switch (wheelEvent.phase()) {
-    case PlatformWheelEventPhase::Began:
-        page->wheelEventDeltaFilter()->beginFilteringDeltas();
-        break;
-    case PlatformWheelEventPhase::Ended:
-        page->wheelEventDeltaFilter()->endFilteringDeltas();
-        break;
-    default:
-        break;
-    }
-    page->wheelEventDeltaFilter()->updateFromDelta(FloatSize(wheelEvent.deltaX(), wheelEvent.deltaY()));
 }
 
 bool EventHandler::processWheelEventForScrolling(const PlatformWheelEvent& wheelEvent, const WeakPtr<ScrollableArea>& scrollableArea, OptionSet<EventHandling> eventHandling)
@@ -1076,10 +1049,10 @@ IntPoint EventHandler::targetPositionInWindowForSelectionAutoscroll() const
 {
     Page* page = m_frame.page();
     if (!page)
-        return m_lastKnownMousePosition.value_or(IntPoint());
+        return valueOrDefault(m_lastKnownMousePosition);
 
     auto frame = toUserSpaceForPrimaryScreen(screenRectForDisplay(page->chrome().displayID()));
-    return m_lastKnownMousePosition.value_or(IntPoint()) + autoscrollAdjustmentFactorForScreenBoundaries(m_lastKnownMouseGlobalPosition, frame);
+    return valueOrDefault(m_lastKnownMousePosition) + autoscrollAdjustmentFactorForScreenBoundaries(m_lastKnownMouseGlobalPosition, frame);
 }
 
 }

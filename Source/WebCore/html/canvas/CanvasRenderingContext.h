@@ -42,7 +42,7 @@ class HTMLCanvasElement;
 class HTMLImageElement;
 class HTMLVideoElement;
 class ImageBitmap;
-class TypedOMCSSImageValue;
+class CSSStyleImageValue;
 class WebGLObject;
 enum class PixelFormat : uint8_t;
 
@@ -77,7 +77,7 @@ public:
     // used for compositing purposes.
     virtual void prepareForDisplayWithPaint() { }
     virtual void paintRenderingResultsToCanvas() { }
-    virtual PlatformLayer* platformLayer() const { return 0; }
+    virtual RefPtr<GraphicsLayerContentsDisplayDelegate> layerContentsDisplayDelegate();
 
     bool hasActiveInspectorCanvasCallTracer() const { return m_hasActiveInspectorCanvasCallTracer; }
     void setHasActiveInspectorCanvasCallTracer(bool hasActiveInspectorCanvasCallTracer) { m_hasActiveInspectorCanvasCallTracer = hasActiveInspectorCanvasCallTracer; }
@@ -104,7 +104,7 @@ protected:
             m_canvas.setOriginTainted();
     }
     void checkOrigin(const URL&);
-    void checkOrigin(const TypedOMCSSImageValue&);
+    void checkOrigin(const CSSStyleImageValue&);
 
     bool m_hasActiveInspectorCanvasCallTracer { false };
 

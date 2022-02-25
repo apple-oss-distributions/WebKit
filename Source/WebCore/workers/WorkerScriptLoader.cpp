@@ -58,6 +58,7 @@ std::optional<Exception> WorkerScriptLoader::loadSynchronously(ScriptExecutionCo
 
     m_url = url;
     m_destination = FetchOptions::Destination::Script;
+    m_isCOEPEnabled = scriptExecutionContext->settingsValues().crossOriginEmbedderPolicyEnabled;
 
 #if ENABLE(SERVICE_WORKER)
     bool isServiceWorkerGlobalScope = is<ServiceWorkerGlobalScope>(workerGlobalScope);
@@ -98,7 +99,7 @@ std::optional<Exception> WorkerScriptLoader::loadSynchronously(ScriptExecutionCo
 
     // If the fetching attempt failed, throw a NetworkError exception and abort all these steps.
     if (failed())
-        return Exception { NetworkError, error().localizedDescription() };
+        return Exception { NetworkError, m_error.sanitizedDescription() };
 
 #if ENABLE(SERVICE_WORKER)
     if (isServiceWorkerGlobalScope) {
@@ -116,6 +117,7 @@ void WorkerScriptLoader::loadAsynchronously(ScriptExecutionContext& scriptExecut
     m_client = &client;
     m_url = scriptRequest.url();
     m_destination = fetchOptions.destination;
+    m_isCOEPEnabled = scriptExecutionContext.settingsValues().crossOriginEmbedderPolicyEnabled;
 
     ASSERT(scriptRequest.httpMethod() == "GET");
 
@@ -176,7 +178,7 @@ ResourceError WorkerScriptLoader::validateWorkerResponse(const ResourceResponse&
     return { };
 }
 
-void WorkerScriptLoader::didReceiveResponse(unsigned long identifier, const ResourceResponse& response)
+void WorkerScriptLoader::didReceiveResponse(ResourceLoaderIdentifier identifier, const ResourceResponse& response)
 {
     m_error = validateWorkerResponse(response, m_destination);
     if (!m_error.isNull()) {
@@ -191,12 +193,14 @@ void WorkerScriptLoader::didReceiveResponse(unsigned long identifier, const Reso
     m_responseSource = response.source();
     m_isRedirected = response.isRedirected();
     m_contentSecurityPolicy = ContentSecurityPolicyResponseHeaders { response };
+    if (m_isCOEPEnabled)
+        m_crossOriginEmbedderPolicy = obtainCrossOriginEmbedderPolicy(response, nullptr);
     m_referrerPolicy = response.httpHeaderField(HTTPHeaderName::ReferrerPolicy);
     if (m_client)
         m_client->didReceiveResponse(identifier, response);
 }
 
-void WorkerScriptLoader::didReceiveData(const uint8_t* data, int len)
+void WorkerScriptLoader::didReceiveData(const SharedBuffer& buffer)
 {
     if (m_failed)
         return;
@@ -208,16 +212,13 @@ void WorkerScriptLoader::didReceiveData(const uint8_t* data, int len)
             m_decoder = TextResourceDecoder::create("text/javascript"_s, "UTF-8");
     }
 
-    if (!len)
+    if (buffer.isEmpty())
         return;
-    
-    if (len == -1)
-        len = strlen(reinterpret_cast<const char*>(data));
 
-    m_script.append(m_decoder->decode(data, len));
+    m_script.append(m_decoder->decode(buffer.data(), buffer.size()));
 }
 
-void WorkerScriptLoader::didFinishLoading(unsigned long identifier)
+void WorkerScriptLoader::didFinishLoading(ResourceLoaderIdentifier identifier)
 {
     if (m_failed) {
         notifyError();

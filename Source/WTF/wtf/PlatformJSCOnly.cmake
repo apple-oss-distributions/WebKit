@@ -11,6 +11,7 @@ if (WIN32)
         win/DbgHelperWin.cpp
         win/FileSystemWin.cpp
         win/LanguageWin.cpp
+        win/LoggingWin.cpp
         win/MainThreadWin.cpp
         win/OSAllocatorWin.cpp
         win/PathWalker.cpp
@@ -37,6 +38,7 @@ else ()
         text/unix/TextBreakIteratorInternalICUUnix.cpp
 
         unix/LanguageUnix.cpp
+        unix/LoggingUnix.cpp
     )
     if (WTF_OS_FUCHSIA)
         list(APPEND WTF_SOURCES
@@ -97,6 +99,7 @@ elseif (CMAKE_SYSTEM_NAME MATCHES "Linux")
     list(APPEND WTF_SOURCES
         linux/CurrentProcessMemoryStatus.cpp
         linux/MemoryFootprintLinux.cpp
+        linux/RealTimeThreads.cpp
 
         unix/MemoryPressureHandlerUnix.cpp
     )

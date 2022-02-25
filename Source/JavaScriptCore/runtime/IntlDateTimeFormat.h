@@ -33,8 +33,7 @@
 struct UDateIntervalFormat;
 
 #if !defined(HAVE_ICU_U_DATE_INTERVAL_FORMAT_FORMAT_RANGE_TO_PARTS)
-// ICU header is up-to-date if the build is non-Darwin or using Apple Internal SDK.
-#if (USE(APPLE_INTERNAL_SDK) || !OS(DARWIN)) && U_ICU_VERSION_MAJOR_NUM >= 64
+#if U_ICU_VERSION_MAJOR_NUM >= 64
 #define HAVE_ICU_U_DATE_INTERVAL_FORMAT_FORMAT_RANGE_TO_PARTS 1
 #endif
 #endif
@@ -83,6 +82,9 @@ public:
 
     static IntlDateTimeFormat* unwrapForOldFunctions(JSGlobalObject*, JSValue);
 
+    enum class HourCycle : uint8_t { None, H11, H12, H23, H24 };
+    static HourCycle hourCycleFromPattern(const Vector<UChar, 32>&);
+
 private:
     IntlDateTimeFormat(VM&, Structure*);
     void finishCreation(VM&);
@@ -92,7 +94,8 @@ private:
 
     UDateIntervalFormat* createDateIntervalFormatIfNecessary(JSGlobalObject*);
 
-    enum class HourCycle : uint8_t { None, H11, H12, H23, H24 };
+    static double handleDateTimeValue(JSGlobalObject*, JSValue);
+
     enum class Weekday : uint8_t { None, Narrow, Short, Long };
     enum class Era : uint8_t { None, Narrow, Short, Long };
     enum class Year : uint8_t { None, TwoDigit, Numeric };
@@ -102,10 +105,10 @@ private:
     enum class Hour : uint8_t { None, TwoDigit, Numeric };
     enum class Minute : uint8_t { None, TwoDigit, Numeric };
     enum class Second : uint8_t { None, TwoDigit, Numeric };
-    enum class TimeZoneName : uint8_t { None, Short, Long };
+    enum class TimeZoneName : uint8_t { None, Short, Long, ShortOffset, LongOffset, ShortGeneric, LongGeneric };
     enum class DateTimeStyle : uint8_t { None, Full, Long, Medium, Short };
 
-    void setFormatsFromPattern(const StringView&);
+    void setFormatsFromPattern(StringView);
     static ASCIILiteral hourCycleString(HourCycle);
     static ASCIILiteral weekdayString(Weekday);
     static ASCIILiteral eraString(Era);
@@ -121,7 +124,6 @@ private:
 
     static HourCycle hourCycleFromSymbol(UChar);
     static HourCycle parseHourCycle(const String&);
-    static HourCycle hourCycleFromPattern(const Vector<UChar, 32>&);
     static void replaceHourCycleInSkeleton(Vector<UChar, 32>&, bool hour12);
     static void replaceHourCycleInPattern(Vector<UChar, 32>&, HourCycle);
 

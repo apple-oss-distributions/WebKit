@@ -12,6 +12,7 @@ file(MAKE_DIRECTORY ${FORWARDING_HEADERS_WPE_EXTENSION_DIR})
 file(MAKE_DIRECTORY ${FORWARDING_HEADERS_WPE_DOM_DIR})
 file(MAKE_DIRECTORY ${FORWARDING_HEADERS_WPE_JSC_DIR})
 
+configure_file(Shared/glib/BuildRevision.h.in ${FORWARDING_HEADERS_WPE_DIR}/BuildRevision.h)
 configure_file(UIProcess/API/wpe/WebKitVersion.h.in ${DERIVED_SOURCES_WPE_API_DIR}/WebKitVersion.h)
 configure_file(wpe/wpe-webkit.pc.in ${WPE_PKGCONFIG_FILE} @ONLY)
 configure_file(wpe/wpe-web-extension.pc.in ${WPEWebExtension_PKGCONFIG_FILE} @ONLY)
@@ -19,7 +20,6 @@ configure_file(wpe/wpe-webkit-uninstalled.pc.in ${CMAKE_BINARY_DIR}/wpe-webkit-$
 configure_file(wpe/wpe-web-extension-uninstalled.pc.in ${CMAKE_BINARY_DIR}/wpe-web-extension-${WPE_API_VERSION}-uninstalled.pc @ONLY)
 
 if (EXISTS "${TOOLS_DIR}/glib/apply-build-revision-to-files.py")
-    configure_file(Shared/glib/BuildRevision.h.in ${FORWARDING_HEADERS_WPE_DIR}/BuildRevision.h @ONLY)
     add_custom_target(WebKit-build-revision
         ${PYTHON_EXECUTABLE} "${TOOLS_DIR}/glib/apply-build-revision-to-files.py" ${FORWARDING_HEADERS_WPE_DIR}/BuildRevision.h
         DEPENDS ${FORWARDING_HEADERS_WPE_DIR}/BuildRevision.h
@@ -27,8 +27,6 @@ if (EXISTS "${TOOLS_DIR}/glib/apply-build-revision-to-files.py")
     list(APPEND WebKit_DEPENDENCIES
         WebKit-build-revision
     )
-else ()
-    configure_file(Shared/glib/BuildRevision.h.in ${FORWARDING_HEADERS_WPE_DIR}/BuildRevision.h)
 endif ()
 
 add_definitions(-DWEBKIT2_COMPILATION)
@@ -54,6 +52,12 @@ add_custom_command(
     OUTPUT ${FORWARDING_HEADERS_WPE_DIR}/wpe
     DEPENDS ${WEBKIT_DIR}/UIProcess/API/wpe
     COMMAND ln -n -s -f ${WEBKIT_DIR}/UIProcess/API/wpe ${FORWARDING_HEADERS_WPE_DIR}/wpe
+)
+
+add_custom_command(
+    OUTPUT ${DERIVED_SOURCES_WPE_API_DIR}/webkit2
+    DEPENDS ${DERIVED_SOURCES_WPE_API_DIR}/webkit
+    COMMAND ln -n -s -f ${DERIVED_SOURCES_WPE_API_DIR}/webkit ${DERIVED_SOURCES_WPE_API_DIR}/webkit2
 )
 
 add_custom_command(
@@ -178,6 +182,7 @@ set(WPE_API_INSTALLED_HEADERS
     ${WEBKIT_DIR}/UIProcess/API/wpe/WebKitURIRequest.h
     ${WEBKIT_DIR}/UIProcess/API/wpe/WebKitURIResponse.h
     ${WEBKIT_DIR}/UIProcess/API/wpe/WebKitURISchemeRequest.h
+    ${WEBKIT_DIR}/UIProcess/API/wpe/WebKitURISchemeResponse.h
     ${WEBKIT_DIR}/UIProcess/API/wpe/WebKitURIUtilities.h
     ${WEBKIT_DIR}/UIProcess/API/wpe/WebKitUserContent.h
     ${WEBKIT_DIR}/UIProcess/API/wpe/WebKitUserContentFilterStore.h
@@ -287,6 +292,7 @@ list(APPEND WebKit_INCLUDE_DIRECTORIES
     "${WEBKIT_DIR}/Shared/libwpe"
     "${WEBKIT_DIR}/Shared/soup"
     "${WEBKIT_DIR}/UIProcess/API/C/cairo"
+    "${WEBKIT_DIR}/UIProcess/API/C/glib"
     "${WEBKIT_DIR}/UIProcess/API/C/wpe"
     "${WEBKIT_DIR}/UIProcess/API/glib"
     "${WEBKIT_DIR}/UIProcess/API/wpe"
@@ -449,6 +455,7 @@ if (ENABLE_WPE_QT_API)
 
     set(qtwpe_INCLUDE_DIRECTORIES
         $<TARGET_PROPERTY:WebKit,INCLUDE_DIRECTORIES>
+        ${JavaScriptCoreGLib_FRAMEWORK_HEADERS_DIR}
         ${CMAKE_BINARY_DIR}
         ${GLIB_INCLUDE_DIRS}
         ${Qt5_INCLUDE_DIRS}

@@ -94,12 +94,14 @@ namespace WebCore {
     M(Plugins) \
     M(PopupBlocking) \
     M(PrivateClickMeasurement) \
+    M(Process) \
     M(Progress) \
     M(RemoteInspector) \
     M(RequestAnimationFrame) \
     M(ResourceLoading) \
     M(ResourceLoadObserver) \
     M(ResourceLoadStatistics) \
+    M(ScrollAnimations) \
     M(ScrollSnap) \
     M(Scrolling) \
     M(ScrollingTree) \
@@ -114,6 +116,8 @@ namespace WebCore {
     M(StyleSheets) \
     M(SVG) \
     M(TextAutosizing) \
+    M(TextFragment) \
+    M(TextShaping) \
     M(Tiling) \
     M(Threading) \
     M(URLParser) \
@@ -132,7 +136,5 @@ namespace WebCore {
 WEBCORE_LOG_CHANNELS(DECLARE_LOG_CHANNEL)
 
 #endif // !LOG_DISABLED || !RELEASE_LOG_DISABLED
-
-WEBCORE_EXPORT WTFLogChannel* getLogChannel(const String& name);
 
 } // namespace WebCore

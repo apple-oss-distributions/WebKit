@@ -29,6 +29,7 @@
 #if ENABLE(DFG_JIT)
 
 #include "ButterflyInlines.h"
+#include "CacheableIdentifierInlines.h"
 #include "DFGClobberize.h"
 #include "DFGClobbersExitState.h"
 #include "DFGDominators.h"
@@ -138,7 +139,7 @@ public:
                     m_myRefCounts.find(edge.node())->value++;
 
                     validateEdgeWithDoubleResultIfNecessary(node, edge);
-                    VALIDATE((node, edge), edge->hasInt52Result() == (edge.useKind() == Int52RepUse));
+                    validateEdgeWithInt52ResultIfNecessary(node, edge);
                     
                     if (m_graph.m_form == SSA) {
                         // In SSA, all edges must hasResult().
@@ -234,6 +235,11 @@ public:
                     if (!node->child1())
                         VALIDATE((node), !node->child2());
                 }
+
+                if (node->hasCacheableIdentifier()) {
+                    auto* uid = node->cacheableIdentifier().uid();
+                    VALIDATE((node), uid->isSymbol() || !parseIndex(*uid));
+                }
                  
                 switch (node->op()) {
                 case Identity:
@@ -312,8 +318,8 @@ public:
                     break;
                 case MultiPutByOffset:
                     for (unsigned i = node->multiPutByOffsetData().variants.size(); i--;) {
-                        const PutByIdVariant& variant = node->multiPutByOffsetData().variants[i];
-                        if (variant.kind() != PutByIdVariant::Transition)
+                        const PutByVariant& variant = node->multiPutByOffsetData().variants[i];
+                        if (variant.kind() != PutByVariant::Transition)
                             continue;
                         VALIDATE((node), !variant.oldStructureForTransition()->dfgShouldWatch());
                     }
@@ -640,6 +646,7 @@ private:
                 case Upsilon:
                 case AssertInBounds:
                 case CheckInBounds:
+                case CheckInBoundsInt52:
                 case PhantomNewObject:
                 case PhantomNewFunction:
                 case PhantomNewGeneratorFunction:
@@ -968,6 +975,14 @@ private:
             return;
         
         VALIDATE((node, edge), edge.useKind() == DoubleRepUse || edge.useKind() == DoubleRepRealUse || edge.useKind() == DoubleRepAnyIntUse);
+    }
+
+    void validateEdgeWithInt52ResultIfNecessary(Node* node, Edge edge)
+    {
+        if (m_graph.m_planStage < PlanStage::AfterFixup)
+            return;
+
+        VALIDATE((node, edge), edge->hasInt52Result() == (edge.useKind() == Int52RepUse));
     }
 
     void checkOperand(

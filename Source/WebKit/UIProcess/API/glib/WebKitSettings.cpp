@@ -38,10 +38,10 @@
 #include "WebPreferences.h"
 #include <WebCore/HTTPParsers.h>
 #include <WebCore/PlatformScreen.h>
-#include <WebCore/TextEncodingRegistry.h>
 #include <WebCore/UserAgent.h>
 #include <cmath>
 #include <glib/gi18n-lib.h>
+#include <pal/text/TextEncodingRegistry.h>
 #include <wtf/glib/WTFGType.h>
 #include <wtf/text/CString.h>
 
@@ -189,9 +189,20 @@ static void webKitSettingsConstructed(GObject* object)
     WebPreferences* prefs = settings->priv->preferences.get();
     prefs->setShouldRespectImageOrientation(true);
 
-    bool mediaStreamEnabled = prefs->mediaStreamEnabled();
-    prefs->setMediaDevicesEnabled(mediaStreamEnabled);
-    prefs->setPeerConnectionEnabled(mediaStreamEnabled);
+#if ENABLE(MEDIA_STREAM)
+    prefs->setMediaDevicesEnabled(true);
+    prefs->setMediaStreamEnabled(true);
+#if ENABLE(WEB_RTC)
+    prefs->setPeerConnectionEnabled(true);
+#endif
+#endif
+
+    // FIXME: Expose API for this when this feature is officially non-experimental.
+#if ENABLE(MEDIA_SESSION)
+    prefs->setMediaSessionEnabled(true);
+    prefs->setMediaSessionCoordinatorEnabled(true);
+    prefs->setMediaSessionPlaylistEnabled(true);
+#endif
 }
 
 static void webKitSettingsSetProperty(GObject* object, guint propId, const GValue* value, GParamSpec* paramSpec)
@@ -1241,7 +1252,7 @@ static void webkit_settings_class_init(WebKitSettingsClass* klass)
             "enable-smooth-scrolling",
             _("Enable smooth scrolling"),
             _("Whether to enable smooth scrolling"),
-            FALSE,
+            TRUE,
             readWriteConstructParamFlags);
 
     /**
@@ -1477,7 +1488,7 @@ static void webkit_settings_class_init(WebKitSettingsClass* klass)
             _("Hardware Acceleration Policy"),
             _("The policy to decide how to enable and disable hardware acceleration"),
             WEBKIT_TYPE_HARDWARE_ACCELERATION_POLICY,
-            WEBKIT_HARDWARE_ACCELERATION_POLICY_ON_DEMAND,
+            WEBKIT_HARDWARE_ACCELERATION_POLICY_ALWAYS,
             readWriteConstructParamFlags);
 
     /**

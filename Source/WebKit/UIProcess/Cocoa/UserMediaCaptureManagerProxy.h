@@ -32,8 +32,10 @@
 #include "UserMediaCaptureManager.h"
 #include <WebCore/CaptureDevice.h>
 #include <WebCore/OrientationNotifier.h>
+#include <WebCore/ProcessIdentity.h>
 #include <WebCore/RealtimeMediaSource.h>
 #include <WebCore/RealtimeMediaSourceIdentifier.h>
+#include <pal/spi/cocoa/TCCSPI.h>
 #include <wtf/UniqueRef.h>
 
 namespace WebCore {
@@ -58,6 +60,11 @@ public:
         virtual bool willStartCapture(WebCore::CaptureDevice::DeviceType) const = 0;
         virtual Logger& logger() = 0;
         virtual bool setCaptureAttributionString() { return true; }
+        virtual const WebCore::ProcessIdentity& resourceOwner() const = 0;
+#if ENABLE(APP_PRIVACY_REPORT)
+        virtual void setTCCIdentity() { }
+#endif
+        virtual void startProducingData(WebCore::RealtimeMediaSource::Type) { }
     };
     explicit UserMediaCaptureManagerProxy(UniqueRef<ConnectionProxy>&&);
     ~UserMediaCaptureManagerProxy();

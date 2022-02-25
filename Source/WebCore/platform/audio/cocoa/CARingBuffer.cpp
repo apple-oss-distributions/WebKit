@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014 Apple Inc. All rights reserved.
+ * Copyright (C) 2014-2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -166,31 +166,33 @@ static void FetchABL(AudioBufferList* list, size_t destOffset, Vector<Byte*>& po
         if (destOffset > dest->mDataByteSize)
             continue;
 
+        auto* destinationData = static_cast<Byte*>(dest->mData) + destOffset;
+        auto* sourceData = pointer + srcOffset;
         nbytes = std::min<size_t>(nbytes, dest->mDataByteSize - destOffset);
         if (mode == CARingBuffer::Copy)
-            memcpy(static_cast<Byte*>(dest->mData) + destOffset, pointer + srcOffset, nbytes);
+            memcpy(destinationData, sourceData, nbytes);
         else {
             switch (format) {
             case AudioStreamDescription::Int16: {
-                int16_t* destination = static_cast<int16_t*>(dest->mData);
-                int16_t* source = reinterpret_cast<int16_t*>(pointer + srcOffset);
+                auto* destination = reinterpret_cast<int16_t*>(destinationData);
+                auto* source = reinterpret_cast<int16_t*>(sourceData);
                 for (size_t i = 0; i < nbytes / sizeof(int16_t); i++)
                     destination[i] += source[i];
                 break;
             }
             case AudioStreamDescription::Int32: {
-                int32_t* destination = static_cast<int32_t*>(dest->mData);
-                vDSP_vaddi(destination, 1, reinterpret_cast<int32_t*>(pointer + srcOffset), 1, destination, 1, nbytes / sizeof(int32_t));
+                auto* destination = reinterpret_cast<int32_t*>(destinationData);
+                vDSP_vaddi(destination, 1, reinterpret_cast<int32_t*>(sourceData), 1, destination, 1, nbytes / sizeof(int32_t));
                 break;
             }
             case AudioStreamDescription::Float32: {
-                float* destination = static_cast<float*>(dest->mData);
-                vDSP_vadd(destination, 1, reinterpret_cast<float*>(pointer + srcOffset), 1, destination, 1, nbytes / sizeof(float));
+                auto* destination = reinterpret_cast<float*>(destinationData);
+                vDSP_vadd(destination, 1, reinterpret_cast<float*>(sourceData), 1, destination, 1, nbytes / sizeof(float));
                 break;
             }
             case AudioStreamDescription::Float64: {
-                double* destination = static_cast<double*>(dest->mData);
-                vDSP_vaddD(destination, 1, reinterpret_cast<double*>(pointer + srcOffset), 1, destination, 1, nbytes / sizeof(double));
+                auto* destination = reinterpret_cast<double*>(destinationData);
+                vDSP_vaddD(destination, 1, reinterpret_cast<double*>(sourceData), 1, destination, 1, nbytes / sizeof(double));
                 break;
             }
             case AudioStreamDescription::None:
@@ -325,7 +327,7 @@ void CARingBuffer::getCurrentFrameBoundsWithoutUpdate(uint64_t& startFrame, uint
     m_buffers->getCurrentFrameBounds(startFrame, endFrame);
 }
 
-void CARingBufferStorageVector::getCurrentFrameBounds(uint64_t& startFrame, uint64_t& endFrame)
+SUPPRESS_TSAN void CARingBufferStorageVector::getCurrentFrameBounds(uint64_t& startFrame, uint64_t& endFrame)
 {
     uint32_t curPtr = m_timeBoundsQueuePtr.load();
     uint32_t index = curPtr & kGeneralRingTimeBoundsQueueMask;
@@ -357,7 +359,7 @@ uint64_t CARingBuffer::currentStartFrame() const
     return m_buffers->currentStartFrame();
 }
 
-uint64_t CARingBufferStorageVector::currentStartFrame() const
+SUPPRESS_TSAN uint64_t CARingBufferStorageVector::currentStartFrame() const
 {
     uint32_t index = m_timeBoundsQueuePtr.load() & kGeneralRingTimeBoundsQueueMask;
     return m_timeBoundsQueue[index].m_startFrame;
@@ -368,7 +370,7 @@ uint64_t CARingBuffer::currentEndFrame() const
     return m_buffers->currentEndFrame();
 }
 
-uint64_t CARingBufferStorageVector::currentEndFrame() const
+SUPPRESS_TSAN uint64_t CARingBufferStorageVector::currentEndFrame() const
 {
     uint32_t index = m_timeBoundsQueuePtr.load() & kGeneralRingTimeBoundsQueueMask;
     return m_timeBoundsQueue[index].m_endFrame;

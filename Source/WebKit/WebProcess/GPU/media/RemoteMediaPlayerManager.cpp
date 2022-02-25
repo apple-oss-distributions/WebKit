@@ -33,6 +33,7 @@
 #include "RemoteMediaPlayerMIMETypeCache.h"
 #include "RemoteMediaPlayerManagerProxyMessages.h"
 #include "RemoteMediaPlayerProxyConfiguration.h"
+#include "SampleBufferDisplayLayerManager.h"
 #include "WebProcess.h"
 #include "WebProcessCreationParameters.h"
 #include <WebCore/MediaPlayer.h>
@@ -149,6 +150,7 @@ std::unique_ptr<MediaPlayerPrivateInterface> RemoteMediaPlayerManager::createRem
     proxyConfiguration.networkInterfaceName = player->mediaPlayerNetworkInterfaceName();
 #endif
     proxyConfiguration.mediaContentTypesRequiringHardwareSupport = player->mediaContentTypesRequiringHardwareSupport();
+    proxyConfiguration.renderingCanBeAccelerated = player->renderingCanBeAccelerated();
     proxyConfiguration.preferredAudioCharacteristics = player->preferredAudioCharacteristics();
 #if !RELEASE_LOG_DISABLED
     proxyConfiguration.logIdentifier = reinterpret_cast<uint64_t>(player->mediaPlayerLogIdentifier());
@@ -168,7 +170,7 @@ std::unique_ptr<MediaPlayerPrivateInterface> RemoteMediaPlayerManager::createRem
     gpuProcessConnection().connection().send(Messages::RemoteMediaPlayerManagerProxy::CreateMediaPlayer(identifier, remoteEngineIdentifier, proxyConfiguration), 0);
 
     auto remotePlayer = MediaPlayerPrivateRemote::create(player, remoteEngineIdentifier, identifier, *this);
-    m_players.add(identifier, makeWeakPtr(*remotePlayer));
+    m_players.add(identifier, *remotePlayer);
 
     return remotePlayer;
 }

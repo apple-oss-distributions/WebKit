@@ -116,7 +116,7 @@ void WebDataListSuggestionsDropdownIOS::show(WebCore::DataListSuggestionInformat
     }
 #endif
 
-    if (currentUserInterfaceIdiomIsPhoneOrWatch())
+    if (currentUserInterfaceIdiomIsSmallScreen())
         m_suggestionsControl = adoptNS([[WKDataListSuggestionsPicker alloc] initWithInformation:WTFMove(information) inView:m_contentView]);
     else
         m_suggestionsControl = adoptNS([[WKDataListSuggestionsPopover alloc] initWithInformation:WTFMove(information) inView:m_contentView]);
@@ -173,7 +173,7 @@ void WebDataListSuggestionsDropdownIOS::didSelectOption(const String& selectedOp
 
 - (void)showSuggestionsDropdown:(WebKit::WebDataListSuggestionsDropdownIOS&)dropdown activationType:(WebCore::DataListSuggestionActivationType)activationType
 {
-    _dropdown = makeWeakPtr(dropdown);
+    _dropdown = dropdown;
 }
 
 - (void)didSelectOptionAtIndex:(NSInteger)index
@@ -473,7 +473,8 @@ ALLOW_DEPRECATED_DECLARATIONS_END
             if (!strongSelf)
                 return;
 
-            [strongSelf->_suggestionsContextMenuInteraction _presentMenuAtLocation:[[strongSelf view] lastInteractionLocation]];
+            auto view = [strongSelf view];
+            [view presentContextMenu:strongSelf->_suggestionsContextMenuInteraction.get() atLocation:[view lastInteractionLocation]];
         }];
     } else {
         [_suggestionsContextMenuInteraction updateVisibleMenuWithBlock:[&](UIMenu *visibleMenu) -> UIMenu * {
@@ -516,7 +517,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 
     [self.view removeInteraction:_suggestionsContextMenuInteraction.get()];
     _suggestionsContextMenuInteraction = nil;
-    [self.view _removeContextMenuViewIfPossible];
+    [self.view _removeContextMenuHintContainerIfPossible];
     [self.view.webView _didDismissContextMenu];
 }
 

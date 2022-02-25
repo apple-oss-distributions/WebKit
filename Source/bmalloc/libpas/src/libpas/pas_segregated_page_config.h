@@ -35,7 +35,9 @@
 #include "pas_page_base_config.h"
 #include "pas_page_granule_use_count.h"
 #include "pas_page_sharing_mode.h"
+#include "pas_segregated_deallocation_logging_mode.h"
 #include "pas_segregated_page_config_variant.h"
+#include "pas_segregated_page_role.h"
 #include "pas_segregated_view.h"
 #include "pas_utils.h"
 
@@ -52,7 +54,7 @@ struct pas_local_allocator;
 struct pas_heap_runtime_config;
 struct pas_page_sharing_pool;
 struct pas_physical_memory_transaction;
-struct pas_segregated_global_size_directory;
+struct pas_segregated_size_directory;
 struct pas_segregated_heap;
 struct pas_segregated_page;
 struct pas_segregated_page_config;
@@ -66,7 +68,7 @@ typedef struct pas_local_allocator pas_local_allocator;
 typedef struct pas_heap_runtime_config pas_heap_runtime_config;
 typedef struct pas_page_sharing_pool pas_page_sharing_pool;
 typedef struct pas_physical_memory_transaction pas_physical_memory_transaction;
-typedef struct pas_segregated_global_size_directory pas_segregated_global_size_directory;
+typedef struct pas_segregated_size_directory pas_segregated_size_directory;
 typedef struct pas_segregated_heap pas_segregated_heap;
 typedef struct pas_segregated_page pas_segregated_page;
 typedef struct pas_segregated_page_config pas_segregated_page_config;
@@ -74,9 +76,11 @@ typedef struct pas_segregated_partial_view pas_segregated_partial_view;
 typedef struct pas_segregated_shared_page_directory pas_segregated_shared_page_directory;
 typedef struct pas_thread_local_cache pas_thread_local_cache;
 
+typedef void* (*pas_segregated_page_config_page_allocator)(
+    pas_segregated_heap*, pas_physical_memory_transaction* transaction, pas_segregated_page_role role);
 typedef pas_segregated_shared_page_directory*
 (*pas_segregated_page_config_shared_page_directory_selector)(
-    pas_segregated_heap* heap, pas_segregated_global_size_directory* directory);
+    pas_segregated_heap* heap, pas_segregated_size_directory* directory);
 typedef void (*pas_segregated_page_config_dealloc_func)(pas_thread_local_cache* thread_local_cache,
                                                         uintptr_t begin);
 
@@ -86,7 +90,7 @@ typedef pas_allocation_result
 typedef bool
 (*pas_segregated_page_config_specialized_local_allocator_start_allocating_in_primordial_partial_view)(
     pas_local_allocator* allocator, pas_segregated_partial_view* partial,
-    pas_segregated_global_size_directory* size_directory);
+    pas_segregated_size_directory* size_directory);
 typedef bool (*pas_segregated_page_config_specialized_local_allocator_refill)(
     pas_local_allocator* allocator,
     pas_allocator_counts* counts);
@@ -94,7 +98,7 @@ typedef void (*pas_segregated_page_config_specialized_local_allocator_return_mem
     pas_local_allocator* allocator,
     pas_segregated_view view,
     pas_segregated_page* page,
-    pas_segregated_global_size_directory* directory,
+    pas_segregated_size_directory* directory,
     pas_lock_hold_mode heap_lock_hold_mode);
 
 struct pas_segregated_page_config {
@@ -137,9 +141,16 @@ struct pas_segregated_page_config {
        and where you place the header. */
     size_t num_alloc_bits;
 
-    /* Additional verification we want to happen when freeing small objects (does nothing by
-       default. */
-    pas_segregated_page_config_dealloc_func dealloc_func;
+    /* What's the first byte at which the object payload could start relative to the boundary? */
+    uintptr_t shared_payload_offset;
+    uintptr_t exclusive_payload_offset;
+
+    /* How many bytes are provisioned for objects past that offset? */
+    size_t shared_payload_size;
+    size_t exclusive_payload_size;
+
+    pas_segregated_deallocation_logging_mode shared_logging_mode;
+    pas_segregated_deallocation_logging_mode exclusive_logging_mode;
 
     /* Tells whether we should use a reversed current word. Only valid for the small segregated
        variant. */
@@ -151,7 +162,14 @@ struct pas_segregated_page_config {
     /* Tells if we enable the empty word eligibility optimization for pages of this kind. That
        optimization will make it so that a page does not appear as eligible until at least one word
        of bits goes clear. */
-    bool enable_empty_word_eligibility_optimization;
+    bool enable_empty_word_eligibility_optimization_for_shared;
+    bool enable_empty_word_eligibility_optimization_for_exclusive;
+
+    /* Tells if we use the view cache for this size class. */
+    bool enable_view_cache;
+
+    /* This is the allocator used to create pages. */
+    pas_segregated_page_config_page_allocator page_allocator;
 
     pas_segregated_page_config_shared_page_directory_selector shared_page_directory_selector;
 
@@ -183,7 +201,7 @@ PAS_API extern bool pas_medium_segregated_page_config_variant_is_enabled_overrid
     PAS_API bool lower_case_page_config_name ## _specialized_local_allocator_start_allocating_in_primordial_partial_view( \
         pas_local_allocator* allocator, \
         pas_segregated_partial_view* partial, \
-        pas_segregated_global_size_directory* size_directory); \
+        pas_segregated_size_directory* size_directory); \
     PAS_API bool lower_case_page_config_name ## _specialized_local_allocator_refill( \
         pas_local_allocator* allocator, \
         pas_allocator_counts* counts); \
@@ -192,7 +210,7 @@ PAS_API extern bool pas_medium_segregated_page_config_variant_is_enabled_overrid
         pas_local_allocator* allocator, \
         pas_segregated_view view, \
         pas_segregated_page* page, \
-        pas_segregated_global_size_directory* directory, \
+        pas_segregated_size_directory* directory, \
         pas_lock_hold_mode heap_lock_hold_mode)
 
 #define PAS_SEGREGATED_PAGE_CONFIG_SPECIALIZATIONS(lower_case_page_config_name) \
@@ -225,9 +243,39 @@ pas_segregated_page_config_min_align(pas_segregated_page_config config)
 }
 
 static PAS_ALWAYS_INLINE uintptr_t
-pas_segregated_page_config_object_payload_end_offset_from_boundary(pas_segregated_page_config config)
+pas_segregated_page_config_payload_offset_for_role(pas_segregated_page_config config,
+                                                   pas_segregated_page_role role)
 {
-    return pas_page_base_config_object_payload_end_offset_from_boundary(config.base);
+    switch (role) {
+    case pas_segregated_page_shared_role:
+        return config.shared_payload_offset;
+    case pas_segregated_page_exclusive_role:
+        return config.exclusive_payload_offset;
+    }
+    PAS_ASSERT(!"Should not be reached");
+    return 0;
+}
+
+static PAS_ALWAYS_INLINE size_t
+pas_segregated_page_config_payload_size_for_role(pas_segregated_page_config config,
+                                                 pas_segregated_page_role role)
+{
+    switch (role) {
+    case pas_segregated_page_shared_role:
+        return config.shared_payload_size;
+    case pas_segregated_page_exclusive_role:
+        return config.exclusive_payload_size;
+    }
+    PAS_ASSERT(!"Should not be reached");
+    return 0;
+}
+
+static PAS_ALWAYS_INLINE uintptr_t
+pas_segregated_page_config_payload_end_offset_for_role(pas_segregated_page_config config,
+                                                       pas_segregated_page_role role)
+{
+    return pas_segregated_page_config_payload_offset_for_role(config, role)
+        + pas_segregated_page_config_payload_size_for_role(config, role);
 }
 
 #define PAS_SEGREGATED_PAGE_CONFIG_NUM_ALLOC_WORDS(num_alloc_bits) \
@@ -245,6 +293,35 @@ static inline size_t
 pas_segregated_page_config_num_alloc_bytes(pas_segregated_page_config config)
 {
     return PAS_SEGREGATED_PAGE_CONFIG_NUM_ALLOC_BYTES(config.num_alloc_bits);
+}
+
+static PAS_ALWAYS_INLINE bool
+pas_segregated_page_config_enable_empty_word_eligibility_optimization_for_role(
+    pas_segregated_page_config config,
+    pas_segregated_page_role role)
+{
+    switch (role) {
+    case pas_segregated_page_shared_role:
+        return config.enable_empty_word_eligibility_optimization_for_shared;
+    case pas_segregated_page_exclusive_role:
+        return config.enable_empty_word_eligibility_optimization_for_exclusive;
+    }
+    PAS_ASSERT(!"Should not be reached");
+    return pas_segregated_deallocation_no_logging_mode;
+}
+
+static PAS_ALWAYS_INLINE pas_segregated_deallocation_logging_mode
+pas_segregated_page_config_logging_mode_for_role(pas_segregated_page_config config,
+                                                 pas_segregated_page_role role)
+{
+    switch (role) {
+    case pas_segregated_page_shared_role:
+        return config.shared_logging_mode;
+    case pas_segregated_page_exclusive_role:
+        return config.exclusive_logging_mode;
+    }
+    PAS_ASSERT(!"Should not be reached");
+    return pas_segregated_deallocation_no_logging_mode;
 }
 
 PAS_API void pas_segregated_page_config_validate(pas_segregated_page_config*);

@@ -3,6 +3,7 @@ set(WTF_PUBLIC_HEADERS
     AggregateLogger.h
     Algorithms.h
     AnsiColors.h
+    ApproximateTime.h
     Assertions.h
     Atomics.h
     AutodrainedPool.h
@@ -61,6 +62,7 @@ set(WTF_PUBLIC_HEADERS
     DisallowCType.h
     Dominators.h
     DoublyLinkedList.h
+    EmbeddedFixedVector.h
     EnumClassOperatorOverloads.h
     EnumTraits.h
     Expected.h
@@ -78,6 +80,7 @@ set(WTF_PUBLIC_HEADERS
     Function.h
     FunctionDispatcher.h
     FunctionTraits.h
+    GenericTimeMixin.h
     GetPtr.h
     Gigacage.h
     GlobalVersion.h
@@ -103,9 +106,11 @@ set(WTF_PUBLIC_HEADERS
     InlineASM.h
     Insertion.h
     InstanceCounted.h
+    Int128.h
     InterferenceGraph.h
     IsoMalloc.h
     IsoMallocInlines.h
+    IterationStatus.h
     IteratorAdaptors.h
     IteratorRange.h
     JSONValues.h
@@ -123,8 +128,11 @@ set(WTF_PUBLIC_HEADERS
     LockedPrintStream.h
     Locker.h
     LocklessBag.h
+    LogChannels.h
+    LogInitialization.h
     Logger.h
     LoggerHelper.h
+    Logging.h
     LoggingAccumulator.h
     LoggingHashID.h
     LoggingHashMap.h
@@ -212,7 +220,7 @@ set(WTF_PUBLIC_HEADERS
     RedBlackTree.h
     Ref.h
     RefCounted.h
-    RefCountedArray.h
+    RefCountedFixedVector.h
     RefCountedLeakCounter.h
     RefCounter.h
     RefPtr.h
@@ -223,6 +231,7 @@ set(WTF_PUBLIC_HEADERS
     RobinHoodHashTable.h
     RunLoop.h
     SHA1.h
+    SafeStrerror.h
     SaturatedArithmetic.h
     SchedulePair.h
     Scope.h
@@ -263,6 +272,7 @@ set(WTF_PUBLIC_HEADERS
     StringExtras.h
     StringHashDumpContext.h
     StringPrintStream.h
+    SuspendableWorkQueue.h
     SynchronizedFixedQueue.h
     SystemFree.h
     SystemMalloc.h
@@ -281,6 +291,7 @@ set(WTF_PUBLIC_HEADERS
     TimingScope.h
     TinyLRUCache.h
     TinyPtrSet.h
+    TrailingArray.h
     TranslatedProcess.h
     TriState.h
     TypeCasts.h
@@ -298,7 +309,6 @@ set(WTF_PUBLIC_HEADERS
     UnsafePointer.h
     VMTags.h
     ValueCheck.h
-    Variant.h
     Vector.h
     VectorHash.h
     VectorTraits.h
@@ -388,6 +398,7 @@ set(WTF_PUBLIC_HEADERS
 
 set(WTF_SOURCES
     ASCIICType.cpp
+    ApproximateTime.cpp
     Assertions.cpp
     AutomaticThread.cpp
     Bag.cpp
@@ -416,13 +427,17 @@ set(WTF_SOURCES
     GregorianDateTime.cpp
     HashTable.cpp
     HexNumber.cpp
+    Int128.cpp
     JSONValues.cpp
     JSValueMalloc.cpp
     Language.cpp
     LikelyDenseUnsignedIntegerSet.cpp
     Lock.cpp
     LockedPrintStream.cpp
+    LogChannels.cpp
+    LogInitialization.cpp
     Logger.cpp
+    Logging.cpp
     MainThread.cpp
     MediaTime.cpp
     MemoryPressureHandler.cpp
@@ -443,10 +458,10 @@ set(WTF_SOURCES
     RandomNumber.cpp
     ReadWriteLock.cpp
     RefCounted.cpp
-    RefCountedArray.cpp
     RefCountedLeakCounter.cpp
     RunLoop.cpp
     SHA1.cpp
+    SafeStrerror.cpp
     Seconds.cpp
     SegmentedVector.cpp
     SixCharacterHash.cpp
@@ -456,6 +471,7 @@ set(WTF_SOURCES
     StackStats.cpp
     StackTrace.cpp
     StringPrintStream.cpp
+    SuspendableWorkQueue.cpp
     ThreadGroup.cpp
     ThreadMessage.cpp
     Threading.cpp

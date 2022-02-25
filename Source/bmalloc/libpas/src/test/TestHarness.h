@@ -275,21 +275,6 @@ public:
     InstallVerifier();
 };
 
-class DisableExplosion : public TestScope {
-public:
-    DisableExplosion();
-};
-
-class ForceExplosion : public TestScope {
-public:
-    ForceExplosion();
-};
-
-class ForceOneMagazine : public TestScope {
-public:
-    ForceOneMagazine();
-};
-
 class EpochIsCounter : public TestScope {
 public:
     EpochIsCounter();
@@ -298,6 +283,16 @@ public:
 class BootJITHeap : public TestScope {
 public:
     BootJITHeap();
+};
+
+class EnablePageBalancing : public TestScope {
+public:
+    EnablePageBalancing();
+};
+
+class DisablePageBalancing : public TestScope {
+public:
+    DisablePageBalancing();
 };
 
 bool hasScope(const std::string& filter);

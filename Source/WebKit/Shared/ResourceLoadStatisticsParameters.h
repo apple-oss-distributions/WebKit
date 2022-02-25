@@ -37,12 +37,14 @@ struct ResourceLoadStatisticsParameters {
 
     String directory;
     SandboxExtension::Handle directoryExtensionHandle;
+    String privateClickMeasurementStorageDirectory;
+    SandboxExtension::Handle privateClickMeasurementStorageDirectoryExtensionHandle;
     bool enabled { false };
     bool isItpStateExplicitlySet { false };
     bool enableLogTestingEvent { false };
     bool shouldIncludeLocalhost { true };
     bool enableDebugMode { false };
-#if ENABLE(RESOURCE_LOAD_STATISTICS)
+#if ENABLE(INTELLIGENT_TRACKING_PREVENTION)
     WebCore::ThirdPartyCookieBlockingMode thirdPartyCookieBlockingMode { WebCore::ThirdPartyCookieBlockingMode::All };
     WebCore::SameSiteStrictEnforcementEnabled sameSiteStrictEnforcementEnabled { WebCore::SameSiteStrictEnforcementEnabled::No };
 #endif
@@ -55,12 +57,14 @@ struct ResourceLoadStatisticsParameters {
     {
         encoder << directory;
         encoder << directoryExtensionHandle;
+        encoder << privateClickMeasurementStorageDirectory;
+        encoder << privateClickMeasurementStorageDirectoryExtensionHandle;
         encoder << enabled;
         encoder << isItpStateExplicitlySet;
         encoder << enableLogTestingEvent;
         encoder << shouldIncludeLocalhost;
         encoder << enableDebugMode;
-#if ENABLE(RESOURCE_LOAD_STATISTICS)
+#if ENABLE(INTELLIGENT_TRACKING_PREVENTION)
         encoder << thirdPartyCookieBlockingMode;
         encoder << sameSiteStrictEnforcementEnabled;
 #endif
@@ -81,7 +85,17 @@ struct ResourceLoadStatisticsParameters {
         decoder >> directoryExtensionHandle;
         if (!directoryExtensionHandle)
             return std::nullopt;
+
+        std::optional<String> privateClickMeasurementStorageDirectory;
+        decoder >> privateClickMeasurementStorageDirectory;
+        if (!privateClickMeasurementStorageDirectory)
+            return std::nullopt;
         
+        std::optional<SandboxExtension::Handle> privateClickMeasurementStorageDirectoryExtensionHandle;
+        decoder >> privateClickMeasurementStorageDirectoryExtensionHandle;
+        if (!privateClickMeasurementStorageDirectoryExtensionHandle)
+            return std::nullopt;
+
         std::optional<bool> enabled;
         decoder >> enabled;
         if (!enabled)
@@ -107,7 +121,7 @@ struct ResourceLoadStatisticsParameters {
         if (!enableDebugMode)
             return std::nullopt;
 
-#if ENABLE(RESOURCE_LOAD_STATISTICS)
+#if ENABLE(INTELLIGENT_TRACKING_PREVENTION)
         std::optional<WebCore::ThirdPartyCookieBlockingMode> thirdPartyCookieBlockingMode;
         decoder >> thirdPartyCookieBlockingMode;
         if (!thirdPartyCookieBlockingMode)
@@ -142,12 +156,14 @@ struct ResourceLoadStatisticsParameters {
         return {{
             WTFMove(*directory),
             WTFMove(*directoryExtensionHandle),
+            WTFMove(*privateClickMeasurementStorageDirectory),
+            WTFMove(*privateClickMeasurementStorageDirectoryExtensionHandle),
             WTFMove(*enabled),
             WTFMove(*isItpStateExplicitlySet),
             WTFMove(*enableLogTestingEvent),
             WTFMove(*shouldIncludeLocalhost),
             WTFMove(*enableDebugMode),
-#if ENABLE(RESOURCE_LOAD_STATISTICS)
+#if ENABLE(INTELLIGENT_TRACKING_PREVENTION)
             WTFMove(*thirdPartyCookieBlockingMode),
             WTFMove(*sameSiteStrictEnforcementEnabled),
 #endif

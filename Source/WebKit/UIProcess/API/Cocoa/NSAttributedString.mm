@@ -30,7 +30,7 @@
 #import "WKErrorInternal.h"
 #import <WebKit/WKNavigationActionPrivate.h>
 #import <WebKit/WKNavigationDelegate.h>
-#import <WebKit/WKPreferences.h>
+#import <WebKit/WKPreferencesPrivate.h>
 #import <WebKit/WKProcessPoolPrivate.h>
 #import <WebKit/WKWebViewConfigurationPrivate.h>
 #import <WebKit/WKWebViewPrivate.h>
@@ -38,7 +38,7 @@
 #import <WebKit/_WKProcessPoolConfiguration.h>
 #import <wtf/Deque.h>
 #import <wtf/MemoryPressureHandler.h>
-#import <wtf/RetainPtr.h>
+#import <wtf/cocoa/TypeCastsCocoa.h>
 
 #if PLATFORM(IOS_FAMILY)
 #import <UIKitSPI.h>
@@ -151,6 +151,8 @@ static RetainPtr<WKWebViewConfiguration>& globalConfiguration()
         [configuration setAllowsInlineMediaPlayback:NO];
         [configuration _setClientNavigationsRunAtForegroundPriority:YES];
 #endif
+
+        [configuration preferences]._defaultFontSize = 12;
     }
 
     return configuration.get();

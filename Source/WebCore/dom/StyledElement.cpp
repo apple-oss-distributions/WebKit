@@ -31,10 +31,12 @@
 #include "CSSPrimitiveValue.h"
 #include "CSSPropertyParser.h"
 #include "CSSStyleSheet.h"
+#include "CSSUnparsedValue.h"
 #include "CSSValuePool.h"
 #include "CachedResource.h"
 #include "ContentSecurityPolicy.h"
 #include "DOMTokenList.h"
+#include "ElementInlines.h"
 #include "ElementRareData.h"
 #include "HTMLElement.h"
 #include "HTMLImageElement.h"
@@ -44,8 +46,8 @@
 #include "ScriptableDocumentParser.h"
 #include "StyleProperties.h"
 #include "StylePropertyMap.h"
+#include "StylePropertyShorthand.h"
 #include "StyleResolver.h"
-#include "TypedOMCSSUnparsedValue.h"
 #include <wtf/HashFunctions.h>
 #include <wtf/IsoMallocInlines.h>
 
@@ -87,7 +89,7 @@ public:
     }
 
 private:
-    RefPtr<TypedOMCSSStyleValue> get(const String& property) const final
+    RefPtr<CSSStyleValue> get(const String& property) const final
     {
         ASSERT(m_element); // Hitting this assertion would imply a GC bug. Element is collected while this property map is alive.
         if (!m_element)
@@ -102,7 +104,7 @@ private:
 
     void clearElement() override { m_element = nullptr; }
 
-    static RefPtr<TypedOMCSSStyleValue> extractInlineProperty(const String& name, StyledElement& element)
+    static RefPtr<CSSStyleValue> extractInlineProperty(const String& name, StyledElement& element)
     {
         if (!element.inlineStyle())
             return nullptr;
@@ -113,6 +115,13 @@ private:
         }
 
         CSSPropertyID propertyID = cssPropertyID(name);
+
+        auto shorthand = shorthandForProperty(propertyID);
+        for (auto longhand : shorthand) {
+            if (auto cssValue = element.inlineStyle()->getPropertyCSSValue(longhand))
+                return StylePropertyMapReadOnly::reifyValue(cssValue.get(), element.document(), &element);
+        }
+        
         if (!propertyID)
             return nullptr;
 
@@ -193,11 +202,11 @@ void StyledElement::setInlineStyleFromString(const AtomString& newStyleString)
 
 void StyledElement::styleAttributeChanged(const AtomString& newStyleString, AttributeModificationReason reason)
 {
-    auto startLineNumber = WTF::OrdinalNumber::beforeFirst();
+    auto startLineNumber = OrdinalNumber::beforeFirst();
     if (document().scriptableDocumentParser() && !document().isInDocumentWrite())
         startLineNumber = document().scriptableDocumentParser()->textPosition().m_line;
 
-    if (reason == ModifiedByCloning || document().contentSecurityPolicy()->allowInlineStyle(document().url().string(), startLineNumber, { }, isInUserAgentShadowTree()))
+    if (reason == ModifiedByCloning || document().contentSecurityPolicy()->allowInlineStyle(document().url().string(), startLineNumber, newStyleString.string(), CheckUnsafeHashes::Yes, *this, nonce(), isInUserAgentShadowTree()))
         setInlineStyleFromString(newStyleString);
 
     elementData()->setStyleAttributeIsDirty(false);

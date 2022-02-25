@@ -51,11 +51,11 @@ static long dispatchQueueIdentifier(WorkQueue::QOS qos)
     }
 }
 
-IOChannel::IOChannel(const String& filePath, Type type, std::optional<WorkQueue::QOS> qos)
-    : m_path(filePath)
+IOChannel::IOChannel(String&& filePath, Type type, std::optional<WorkQueue::QOS> qos)
+    : m_path(WTFMove(filePath))
     , m_type(type)
 {
-    auto path = FileSystem::fileSystemRepresentation(filePath);
+    auto path = FileSystem::fileSystemRepresentation(m_path);
     int oflag;
     mode_t mode;
     WorkQueue::QOS dispatchQOS;
@@ -96,7 +96,7 @@ IOChannel::~IOChannel()
     RELEASE_ASSERT(!m_wasDeleted.exchange(true));
 }
 
-void IOChannel::read(size_t offset, size_t size, WorkQueue& queue, Function<void (Data&, int error)>&& completionHandler)
+void IOChannel::read(size_t offset, size_t size, WTF::WorkQueueBase& queue, Function<void(Data&, int error)>&& completionHandler)
 {
     RefPtr<IOChannel> channel(this);
     bool didCallCompletionHandler = false;
@@ -111,7 +111,7 @@ void IOChannel::read(size_t offset, size_t size, WorkQueue& queue, Function<void
     }).get());
 }
 
-void IOChannel::write(size_t offset, const Data& data, WorkQueue& queue, Function<void (int error)>&& completionHandler)
+void IOChannel::write(size_t offset, const Data& data, WTF::WorkQueueBase& queue, Function<void(int error)>&& completionHandler)
 {
     RefPtr<IOChannel> channel(this);
     auto dispatchData = data.dispatchData();

@@ -199,6 +199,11 @@ public:
         m_putByIds.append(InlineCacheWrapper<JITPutByIdGenerator>(gen, slowPath));
     }
 
+    void addPutByVal(const JITPutByValGenerator& gen, SlowPathGenerator* slowPath)
+    {
+        m_putByVals.append(InlineCacheWrapper<JITPutByValGenerator>(gen, slowPath));
+    }
+
     void addDelById(const JITDelByIdGenerator& gen, SlowPathGenerator* slowPath)
     {
         m_delByIds.append(InlineCacheWrapper<JITDelByIdGenerator>(gen, slowPath));
@@ -229,12 +234,12 @@ public:
         m_privateBrandAccesses.append(InlineCacheWrapper<JITPrivateBrandAccessGenerator>(gen, slowPath));
     }
 
-    void addJSCall(Label slowPathStart, Label doneLocation, CallLinkInfo* info)
+    void addJSCall(Label slowPathStart, Label doneLocation, OptimizingCallLinkInfo* info)
     {
         m_jsCalls.append(JSCallRecord(slowPathStart, doneLocation, info));
     }
     
-    void addJSDirectCall(Label slowPath, CallLinkInfo* info)
+    void addJSDirectCall(Label slowPath, OptimizingCallLinkInfo* info)
     {
         m_jsDirectCalls.append(JSDirectCallRecord(slowPath, info));
     }
@@ -297,6 +302,16 @@ public:
 
     VM& vm() { return m_graph.m_vm; }
 
+    void emitRestoreCalleeSaves()
+    {
+        emitRestoreCalleeSavesFor(&RegisterAtOffsetList::dfgCalleeSaveRegisters());
+    }
+
+    void emitSaveCalleeSaves()
+    {
+        emitSaveCalleeSavesFor(&RegisterAtOffsetList::dfgCalleeSaveRegisters());
+    }
+
 private:
     friend class OSRExitJumpPlaceholder;
     
@@ -333,7 +348,7 @@ private:
 
 
     struct JSCallRecord {
-        JSCallRecord(Label slowPathStart, Label doneLocation, CallLinkInfo* info)
+        JSCallRecord(Label slowPathStart, Label doneLocation, OptimizingCallLinkInfo* info)
             : slowPathStart(slowPathStart)
             , doneLocation(doneLocation)
             , info(info)
@@ -342,24 +357,25 @@ private:
         
         Label slowPathStart;
         Label doneLocation;
-        CallLinkInfo* info;
+        OptimizingCallLinkInfo* info;
     };
     
     struct JSDirectCallRecord {
-        JSDirectCallRecord(Label slowPath, CallLinkInfo* info)
+        JSDirectCallRecord(Label slowPath, OptimizingCallLinkInfo* info)
             : slowPath(slowPath)
             , info(info)
         {
         }
         
         Label slowPath;
-        CallLinkInfo* info;
+        OptimizingCallLinkInfo* info;
     };
     
     Vector<InlineCacheWrapper<JITGetByIdGenerator>, 4> m_getByIds;
     Vector<InlineCacheWrapper<JITGetByIdWithThisGenerator>, 4> m_getByIdsWithThis;
     Vector<InlineCacheWrapper<JITGetByValGenerator>, 4> m_getByVals;
     Vector<InlineCacheWrapper<JITPutByIdGenerator>, 4> m_putByIds;
+    Vector<InlineCacheWrapper<JITPutByValGenerator>, 4> m_putByVals;
     Vector<InlineCacheWrapper<JITDelByIdGenerator>, 4> m_delByIds;
     Vector<InlineCacheWrapper<JITDelByValGenerator>, 4> m_delByVals;
     Vector<InlineCacheWrapper<JITInByIdGenerator>, 4> m_inByIds;

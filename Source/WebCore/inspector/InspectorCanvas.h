@@ -31,8 +31,8 @@
 #include <JavaScriptCore/ScriptCallFrame.h>
 #include <JavaScriptCore/ScriptCallStack.h>
 #include <initializer_list>
+#include <variant>
 #include <wtf/HashSet.h>
-#include <wtf/Variant.h>
 #include <wtf/Vector.h>
 #include <wtf/text/WTFString.h>
 
@@ -50,7 +50,7 @@ class ImageData;
 class OffscreenCanvas;
 #endif
 #if ENABLE(CSS_TYPED_OM)
-class TypedOMCSSImageValue;
+class CSSStyleImageValue;
 #endif
 
 class InspectorCanvas final : public RefCounted<InspectorCanvas> {
@@ -106,7 +106,7 @@ private:
 
     void appendActionSnapshotIfNeeded();
 
-    using DuplicateDataVariant = Variant<
+    using DuplicateDataVariant = std::variant<
         RefPtr<CanvasGradient>,
         RefPtr<CanvasPattern>,
         RefPtr<HTMLCanvasElement>,
@@ -118,7 +118,7 @@ private:
         RefPtr<ImageBitmap>,
         RefPtr<Inspector::ScriptCallStack>,
 #if ENABLE(CSS_TYPED_OM)
-        RefPtr<TypedOMCSSImageValue>,
+        RefPtr<CSSStyleImageValue>,
 #endif
         Inspector::ScriptCallFrame,
 #if ENABLE(OFFSCREEN_CANVAS)
@@ -138,9 +138,9 @@ private:
 
     String m_identifier;
 
-    Variant<
+    std::variant<
         std::reference_wrapper<CanvasRenderingContext>,
-        Monostate
+        std::monostate
     > m_context;
 
     RefPtr<Inspector::Protocol::Recording::InitialState> m_initialState;

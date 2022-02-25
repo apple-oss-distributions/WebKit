@@ -43,7 +43,7 @@ public:
     class Client : public CanMakeWeakPtr<Client> {
     public:
         virtual ~Client() = default;
-        virtual void sampleBufferDisplayLayerStatusDidChange(SampleBufferDisplayLayer&) = 0;
+        virtual void sampleBufferDisplayLayerStatusDidFail() = 0;
     };
 
     WEBCORE_EXPORT static std::unique_ptr<SampleBufferDisplayLayer> create(Client&);
@@ -87,7 +87,7 @@ private:
 };
 
 inline SampleBufferDisplayLayer::SampleBufferDisplayLayer(Client& client)
-    : m_client(makeWeakPtr(client))
+    : m_client(client)
 {
 }
 

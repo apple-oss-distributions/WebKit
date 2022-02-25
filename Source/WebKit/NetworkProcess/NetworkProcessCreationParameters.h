@@ -25,6 +25,7 @@
 
 #pragma once
 
+#include "AuxiliaryProcessCreationParameters.h"
 #include "CacheModel.h"
 #include "SandboxExtension.h"
 #include <WebCore/Cookie.h>
@@ -34,6 +35,7 @@
 
 #if USE(SOUP)
 #include <WebCore/HTTPCookieAcceptPolicy.h>
+#include <wtf/MemoryPressureHandler.h>
 #endif
 
 namespace IPC {
@@ -53,6 +55,8 @@ struct NetworkProcessCreationParameters {
 
     void encode(IPC::Encoder&) const;
     static WARN_UNUSED_RETURN bool decode(IPC::Decoder&, NetworkProcessCreationParameters&);
+
+    AuxiliaryProcessCreationParameters auxiliaryProcessParameters;
 
     CacheModel cacheModel { CacheModel::DocumentViewer };
 
@@ -77,6 +81,7 @@ struct NetworkProcessCreationParameters {
 #if USE(SOUP)
     WebCore::HTTPCookieAcceptPolicy cookieAcceptPolicy { WebCore::HTTPCookieAcceptPolicy::AlwaysAccept };
     Vector<String> languages;
+    std::optional<MemoryPressureHandler::Configuration> memoryPressureHandlerConfiguration;
 #endif
 
     Vector<String> urlSchemesRegisteredAsSecure;
@@ -85,7 +90,7 @@ struct NetworkProcessCreationParameters {
     Vector<String> urlSchemesRegisteredAsNoAccess;
 
     bool enablePrivateClickMeasurement { true };
-    bool enablePrivateClickMeasurementDebugMode { false };
+    bool ftpEnabled { false };
 
     Vector<WebsiteDataStoreParameters> websiteDataStoreParameters;
 };

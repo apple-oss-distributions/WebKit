@@ -54,13 +54,14 @@ public:
     }
 
     ImageDrawResult draw(GraphicsContext&, const FloatRect&, const FloatRect&, const ImagePaintingOptions& = { }) final;
+    ImageDrawResult drawForCanvas(GraphicsContext&, const FloatRect&, const FloatRect&, const ImagePaintingOptions&, DestinationColorSpace) final;
 
     void drawPattern(GraphicsContext&, const FloatRect&, const FloatRect&, const AffineTransform&, const FloatPoint&, const FloatSize&, const ImagePaintingOptions& = { }) final;
 
     // FIXME: Implement this to be less conservative.
     bool currentFrameKnownToBeOpaque() const final { return false; }
 
-    RefPtr<NativeImage> nativeImageForCurrentFrame(const GraphicsContext* = nullptr) final;
+    RefPtr<NativeImage> nativeImageForCurrentFrame() final;
 
 private:
     WEBCORE_EXPORT SVGImageForContainer(SVGImage*, const FloatSize& containerSize, float containerZoom, const URL& initialFragmentURL);

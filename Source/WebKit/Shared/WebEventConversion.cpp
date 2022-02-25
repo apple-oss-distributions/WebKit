@@ -169,6 +169,8 @@ public:
         m_hasPreciseScrollingDeltas = webEvent.hasPreciseScrollingDeltas();
 #endif
 #if PLATFORM(COCOA)
+        m_ioHIDEventTimestamp = webEvent.ioHIDEventTimestamp();
+        m_rawPlatformDelta = webEvent.rawPlatformDelta();
         m_scrollCount = webEvent.scrollCount();
         m_unacceleratedScrollingDeltaX = webEvent.unacceleratedScrollingDelta().width();
         m_unacceleratedScrollingDeltaY = webEvent.unacceleratedScrollingDelta().height();
@@ -223,7 +225,7 @@ public:
         m_code = webEvent.code();
         m_keyIdentifier = webEvent.keyIdentifier();
         m_windowsVirtualKeyCode = webEvent.windowsVirtualKeyCode();
-#if USE(APPKIT) || USE(UIKIT_KEYBOARD_ADDITIONS) || PLATFORM(GTK) || USE(LIBWPE)
+#if USE(APPKIT) || PLATFORM(IOS_FAMILY) || PLATFORM(GTK) || USE(LIBWPE)
         m_handledByInputMethod = webEvent.handledByInputMethod();
 #endif
 #if PLATFORM(GTK) || USE(LIBWPE)

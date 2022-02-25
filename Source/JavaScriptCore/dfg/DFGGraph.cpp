@@ -385,8 +385,10 @@ void Graph::dump(PrintStream& out, const char* prefixStr, Node* node, DumpContex
         out.print(comma, *node->getByStatus());
     if (node->hasInByStatus())
         out.print(comma, *node->inByStatus());
-    if (node->hasPutByIdStatus())
-        out.print(comma, *node->putByIdStatus());
+    if (node->hasPutByStatus())
+        out.print(comma, *node->putByStatus());
+    if (node->hasEnumeratorMetadata())
+        out.print(comma, "enumeratorModes = ", node->enumeratorMetadata().toRaw());
     if (node->isJump())
         out.print(comma, "T:", *node->targetBlock());
     if (node->isBranch())
@@ -1841,10 +1843,12 @@ bool Graph::canDoFastSpread(Node* node, const AbstractValue& value)
     if (!value.m_structure.isFinite())
         return false;
 
-    ArrayPrototype* arrayPrototype = globalObjectFor(node->child1()->origin.semantic)->arrayPrototype();
+    JSGlobalObject* globalObject = globalObjectFor(node->child1()->origin.semantic);
+    ArrayPrototype* arrayPrototype = globalObject->arrayPrototype();
     bool allGood = true;
     value.m_structure.forEach([&] (RegisteredStructure structure) {
-        allGood &= structure->hasMonoProto()
+        allGood &= structure->globalObject() == globalObject 
+            && structure->hasMonoProto()
             && structure->storedPrototype() == arrayPrototype
             && !structure->isDictionary()
             && structure->getConcurrently(m_vm.propertyNames->iteratorSymbol.impl()) == invalidOffset

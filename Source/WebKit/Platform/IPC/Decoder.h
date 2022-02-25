@@ -27,18 +27,15 @@
 
 #include "Attachment.h"
 #include "MessageNames.h"
-#include "StringReference.h"
-#include <WebCore/SharedBuffer.h>
 #include <wtf/OptionSet.h>
 #include <wtf/Vector.h>
 
-#if HAVE(QOS_CLASSES)
-#include <pthread/qos.h>
+#if PLATFORM(MAC)
+#include "ImportanceAssertion.h"
 #endif
 
 namespace IPC {
 
-class ImportanceAssertion;
 enum class MessageFlags : uint8_t;
 enum class ShouldDispatchWhenWaitingForSyncReply : uint8_t;
 
@@ -56,6 +53,8 @@ public:
 
     Decoder(const Decoder&) = delete;
     Decoder(Decoder&&) = delete;
+    Decoder& operator=(const Decoder&) = delete;
+    Decoder& operator=(Decoder&&) = delete;
 
     ReceiverName messageReceiverName() const { return receiverName(m_messageName); }
     MessageName messageName() const { return m_messageName; }
@@ -67,7 +66,7 @@ public:
     bool shouldMaintainOrderingWithAsyncMessages() const;
 
 #if PLATFORM(MAC)
-    void setImportanceAssertion(std::unique_ptr<ImportanceAssertion>);
+    void setImportanceAssertion(ImportanceAssertion&&);
 #endif
 
     static std::unique_ptr<Decoder> unwrapForTesting(Decoder&);
@@ -135,27 +134,12 @@ public:
         return bufferIsLargeEnoughToContain(alignof(T), numElements * sizeof(T));
     }
 
-    bool removeAttachment(Attachment&);
+    std::optional<Attachment> takeLastAttachment();
 
-    static const bool isIPCDecoder = true;
-
-    template <typename T>
-    static std::optional<T> decodeSingleObject(const uint8_t* source, size_t numberOfBytes)
-    {
-        std::optional<T> result;
-        Decoder decoder(source, numberOfBytes, ConstructWithoutHeader);
-        if (!decoder.isValid())
-            return std::nullopt;
-
-        decoder >> result;
-        return result;
-    }
+    static constexpr bool isIPCDecoder = true;
 
 private:
     Decoder(const uint8_t* buffer, size_t bufferSize, void (*bufferDeallocator)(const uint8_t*, size_t), Vector<Attachment>&&);
-
-    enum ConstructWithoutHeaderTag { ConstructWithoutHeader };
-    Decoder(const uint8_t* buffer, size_t bufferSize, ConstructWithoutHeaderTag);
 
     bool alignBufferPosition(size_t alignment, size_t);
     bool bufferIsLargeEnoughToContain(size_t alignment, size_t) const;
@@ -173,7 +157,7 @@ private:
     uint64_t m_destinationID;
 
 #if PLATFORM(MAC)
-    std::unique_ptr<ImportanceAssertion> m_importanceAssertion;
+    ImportanceAssertion m_importanceAssertion;
 #endif
 };
 

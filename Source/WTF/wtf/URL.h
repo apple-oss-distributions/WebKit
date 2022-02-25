@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2003-2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2003-2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,8 +25,6 @@
 
 #pragma once
 
-#include <wtf/Forward.h>
-#include <wtf/RetainPtr.h>
 #include <wtf/text/WTFString.h>
 
 #if USE(GLIB) && HAVE(GURI)
@@ -50,7 +48,7 @@ class URLTextEncoding {
 public:
     virtual Vector<uint8_t> encodeForURLParsing(StringView) const = 0;
 protected:
-    virtual ~URLTextEncoding() { }
+    virtual ~URLTextEncoding() = default;
 };
 
 class URL {
@@ -75,13 +73,14 @@ public:
     // Makes a deep copy. Helpful only if you need to use a URL on another
     // thread. Since the underlying StringImpl objects are immutable, there's
     // no other reason to ever prefer isolatedCopy() over plain old assignment.
-    WTF_EXPORT_PRIVATE URL isolatedCopy() const;
+    WTF_EXPORT_PRIVATE URL isolatedCopy() const &;
+    WTF_EXPORT_PRIVATE URL isolatedCopy() &&;
 
     bool isNull() const;
     bool isEmpty() const;
     bool isValid() const;
 
-    // Since we overload operator NSURL* we have this to prevent accidentally using that operator
+    // Since we overload operator NSURL * we have this to prevent accidentally using that operator
     // when placing a URL in an if statment.
     operator bool() const = delete;
 
@@ -135,6 +134,7 @@ public:
     bool protocolIsData() const { return protocolIs("data"); }
     WTF_EXPORT_PRIVATE bool protocolIsAbout() const;
     WTF_EXPORT_PRIVATE bool protocolIsJavaScript() const;
+    WTF_EXPORT_PRIVATE bool protocolIsInFTPFamily() const;
     bool protocolIsInHTTPFamily() const;
     WTF_EXPORT_PRIVATE bool isLocalFile() const;
     bool cannotBeABaseURL() const { return m_cannotBeABaseURL; }
@@ -193,7 +193,8 @@ public:
 #ifndef NDEBUG
     void print() const;
 #endif
-    WTF_EXPORT_PRIVATE void dump(PrintStream& out) const;
+
+    WTF_EXPORT_PRIVATE void dump(PrintStream&) const;
 
     template<typename Encoder> void encode(Encoder&) const;
     template<typename Decoder> static WARN_UNUSED_RETURN bool decode(Decoder&, URL&);
@@ -211,6 +212,10 @@ private:
     void parse(const String&);
 
     friend WTF_EXPORT_PRIVATE bool protocolHostAndPortAreEqual(const URL&, const URL&);
+
+#if USE(CF)
+    static RetainPtr<CFURLRef> emptyCFURL();
+#endif
 
     String m_string;
 
@@ -244,6 +249,10 @@ bool operator!=(const String&, const URL&);
 
 WTF_EXPORT_PRIVATE bool equalIgnoringFragmentIdentifier(const URL&, const URL&);
 WTF_EXPORT_PRIVATE bool protocolHostAndPortAreEqual(const URL&, const URL&);
+WTF_EXPORT_PRIVATE Vector<KeyValuePair<String, String>> differingQueryParameters(const URL&, const URL&);
+WTF_EXPORT_PRIVATE Vector<KeyValuePair<String, String>> queryParameters(const URL&);
+WTF_EXPORT_PRIVATE bool isEqualIgnoringQueryAndFragments(const URL&, const URL&);
+WTF_EXPORT_PRIVATE void removeQueryParameters(URL&, const HashSet<String>&);
 
 WTF_EXPORT_PRIVATE const URL& aboutBlankURL();
 WTF_EXPORT_PRIVATE const URL& aboutSrcDocURL();
@@ -255,11 +264,12 @@ WTF_EXPORT_PRIVATE const URL& aboutSrcDocURL();
 
 WTF_EXPORT_PRIVATE bool protocolIs(StringView url, const char* protocol);
 WTF_EXPORT_PRIVATE bool protocolIsJavaScript(StringView url);
+WTF_EXPORT_PRIVATE bool protocolIsInFTPFamily(StringView url);
 WTF_EXPORT_PRIVATE bool protocolIsInHTTPFamily(StringView url);
 
 WTF_EXPORT_PRIVATE std::optional<uint16_t> defaultPortForProtocol(StringView protocol);
 WTF_EXPORT_PRIVATE bool isDefaultPortForProtocol(uint16_t port, StringView protocol);
-WTF_EXPORT_PRIVATE bool portAllowed(const URL&); // Blacklist ports that should never be used for Web resources.
+WTF_EXPORT_PRIVATE bool portAllowed(const URL&); // Disallow ports that should never be used for Web resources.
 
 WTF_EXPORT_PRIVATE void registerDefaultPortForProtocolForTesting(uint16_t port, const String& protocol);
 WTF_EXPORT_PRIVATE void clearDefaultPortForProtocolMapForTesting();

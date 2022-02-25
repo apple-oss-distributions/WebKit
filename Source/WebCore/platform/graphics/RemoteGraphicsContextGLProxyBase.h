@@ -33,19 +33,7 @@
 #include <wtf/HashSet.h>
 #include <wtf/text/StringHash.h>
 
-#if PLATFORM(COCOA)
-#include <wtf/RetainPtr.h>
-#endif
-
-#if PLATFORM(COCOA)
-OBJC_CLASS WebGLLayer;
-#endif
-
 namespace WebCore {
-
-#if PLATFORM(COCOA)
-class GraphicsContextGLIOSurfaceSwapChain;
-#endif
 
 // A base class for RemoteGraphicsContextGL proxy side implementation
 // This implements the parts that are using WebCore internal functionality:
@@ -58,20 +46,11 @@ public:
 
     // Other WebCore::GraphicsContextGL overrides.
     using GraphicsContextGL::isEnabled;
-    PlatformLayer* platformLayer() const final;
     ExtensionsGL& getExtensions() final;
     void setContextVisibility(bool) final;
     bool isGLES2Compliant() const final;
     void markContextChanged() final;
-    bool layerComposited() const final;
-    void setBuffersToAutoClear(GCGLbitfield) final;
-    GCGLbitfield getBuffersToAutoClear() const final;
-    void markLayerComposited() final;
-    void enablePreserveDrawingBuffer() final;
 
-#if ENABLE(VIDEO) && USE(AVFOUNDATION)
-    GraphicsContextGLCV* asCV() final;
-#endif
     // Other ExtensionGL overrides.
     using ExtensionsGL::isEnabled;
     bool supports(const String&) final;
@@ -89,25 +68,13 @@ protected:
     virtual void waitUntilInitialized() = 0;
     virtual void ensureExtensionEnabled(const String&) = 0;
     virtual void notifyMarkContextChanged() = 0;
-#if PLATFORM(COCOA)
-    GraphicsContextGLIOSurfaceSwapChain& platformSwapChain();
-#endif
 
 private:
-    void platformInitialize();
-#if PLATFORM(COCOA)
-    RetainPtr<WebGLLayer> m_webGLLayer;
-#endif
-
     // Guarded by waitUntilInitialized().
     HashSet<String> m_availableExtensions;
     HashSet<String> m_requestableExtensions;
 
     HashSet<String> m_enabledExtensions;
-
-    // FIXME: Drawing buffer clear tracking should be moved to the client.
-    bool m_layerComposited = false;
-    GCGLbitfield m_buffersToAutoClear = { 0 };
 };
 
 }

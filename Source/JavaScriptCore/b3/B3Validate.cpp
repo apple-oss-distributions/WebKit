@@ -227,6 +227,13 @@ public:
                 VALIDATE(value->type() == value->child(1)->type(), ("At ", *value));
                 VALIDATE(value->type().isNumeric(), ("At ", *value));
                 break;
+            case FMax:
+            case FMin:
+                VALIDATE(value->numChildren() == 2, ("At ", *value));
+                VALIDATE(value->type() == value->child(0)->type(), ("At ", *value));
+                VALIDATE(value->type() == value->child(1)->type(), ("At ", *value));
+                VALIDATE(value->type() == Float || value->type() == Double, ("At ", *value));
+                break;
             case Neg:
                 VALIDATE(!value->kind().hasExtraBits(), ("At ", *value));
                 VALIDATE(value->numChildren() == 1, ("At ", *value));
@@ -677,7 +684,6 @@ private:
                         undominatedPhis.remove(value->as<UpsilonValue>()->phi());
                         break;
                     case Phi:
-                        VALIDATE(!undominatedPhis.contains(value), ("At ", *value));
                         undominatedPhis.add(value);
                         break;
                     default:

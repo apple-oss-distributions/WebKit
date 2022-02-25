@@ -415,6 +415,18 @@ NSPoint flipScreenPoint(const NSPoint& screenPoint, NSScreen *screen)
     return flippedPoint;
 }
 
+FloatRect safeScreenFrame(NSScreen* screen)
+{
+    FloatRect frame = screen.frame;
+#if HAVE(NSSCREEN_SAFE_AREA)
+    auto insets = screen.safeAreaInsets;
+    frame.contract(insets.left + insets.right, insets.top + insets.bottom);
+    frame.move(insets.left, insets.bottom);
+#endif
+    return frame;
+}
+
+
 } // namespace WebCore
 
 #endif // PLATFORM(MAC)

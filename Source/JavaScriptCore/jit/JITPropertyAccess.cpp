@@ -36,6 +36,7 @@
 #include "JSLexicalEnvironment.h"
 #include "LinkBuffer.h"
 #include "PrivateFieldPutKind.h"
+#include "ProbeContext.h"
 #include "SlowPathCall.h"
 #include "StructureStubInfo.h"
 #include "ThunkGenerators.h"
@@ -43,97 +44,115 @@
 #include <wtf/StringPrintStream.h>
 
 namespace JSC {
-#if USE(JSVALUE64)
 
 void JIT::emit_op_get_by_val(const Instruction* currentInstruction)
 {
     auto bytecode = currentInstruction->as<OpGetByVal>();
-    auto& metadata = bytecode.metadata(m_codeBlock);
     VirtualRegister dst = bytecode.m_dst;
     VirtualRegister base = bytecode.m_base;
     VirtualRegister property = bytecode.m_property;
-    ArrayProfile* profile = &metadata.m_arrayProfile;
 
-    emitGetVirtualRegister(base, regT0);
-    emitGetVirtualRegister(property, regT1);
+    using BaselineGetByValRegisters::baseJSR;
+    using BaselineGetByValRegisters::propertyJSR;
+    using BaselineGetByValRegisters::resultJSR;
+    using BaselineGetByValRegisters::stubInfoGPR;
+    using BaselineGetByValRegisters::scratchGPR;
 
-    if (metadata.m_seenIdentifiers.count() > Options::getByValICMaxNumberOfIdentifiers()) {
-        auto notCell = branchIfNotCell(regT0);
-        emitArrayProfilingSiteWithCell(regT0, regT2, profile);
+    emitGetVirtualRegister(base, baseJSR);
+    emitGetVirtualRegister(property, propertyJSR);
+
+    if (bytecode.metadata(m_profiledCodeBlock).m_seenIdentifiers.count() > Options::getByValICMaxNumberOfIdentifiers()) {
+        auto notCell = branchIfNotCell(baseJSR);
+        emitArrayProfilingSiteWithCell(bytecode, baseJSR.payloadGPR(), scratchGPR);
         notCell.link(this);
-        callOperationWithProfile(bytecode.metadata(m_codeBlock), operationGetByVal, dst, TrustedImmPtr(m_codeBlock->globalObject()), regT0, regT1);
+        loadGlobalObject(scratchGPR);
+        callOperationWithProfile(bytecode, operationGetByVal, dst, scratchGPR, baseJSR, propertyJSR);
     } else {
-        emitJumpSlowCaseIfNotJSCell(regT0, base);
-        emitArrayProfilingSiteWithCell(regT0, regT2, profile);
-
-        JSValueRegs resultRegs = JSValueRegs(regT0);
+        emitJumpSlowCaseIfNotJSCell(baseJSR, base);
+        emitArrayProfilingSiteWithCell(bytecode, baseJSR.payloadGPR(), scratchGPR);
 
         JITGetByValGenerator gen(
-            m_codeBlock, JITType::BaselineJIT, CodeOrigin(m_bytecodeIndex), CallSiteIndex(m_bytecodeIndex), AccessType::GetByVal, RegisterSet::stubUnavailableRegisters(),
-            JSValueRegs(regT0), JSValueRegs(regT1), resultRegs, regT2);
+            nullptr, nullptr, JITType::BaselineJIT, CodeOrigin(m_bytecodeIndex), CallSiteIndex(m_bytecodeIndex), AccessType::GetByVal, RegisterSet::stubUnavailableRegisters(),
+            baseJSR, propertyJSR, resultJSR, stubInfoGPR);
+
+        auto [ stubInfo, stubInfoIndex ] = addUnlinkedStructureStubInfo();
+        stubInfo->accessType = AccessType::GetByVal;
+        stubInfo->bytecodeIndex = m_bytecodeIndex;
         if (isOperandConstantInt(property))
-            gen.stubInfo()->propertyIsInt32 = true;
-        gen.generateFastPath(*this);
-        if (!JITCode::useDataIC(JITType::BaselineJIT))
-            addSlowCase(gen.slowPathJump());
-        else
-            addSlowCase();
+            stubInfo->propertyIsInt32 = true;
+        gen.m_unlinkedStubInfoConstantIndex = stubInfoIndex;
+        gen.m_unlinkedStubInfo = stubInfo;
+
+        gen.generateBaselineDataICFastPath(*this, stubInfoIndex, stubInfoGPR);
+        resetSP(); // We might OSR exit here, so we need to conservatively reset SP
+
+        addSlowCase();
         m_getByVals.append(gen);
 
-        emitValueProfilingSite(bytecode.metadata(m_codeBlock), resultRegs);
-        emitPutVirtualRegister(dst);
+        setFastPathResumePoint();
+        emitValueProfilingSite(bytecode, resultJSR);
+        emitPutVirtualRegister(dst, resultJSR);
     }
+}
 
+template<typename OpcodeType>
+void JIT::generateGetByValSlowCase(const OpcodeType& bytecode, Vector<SlowCaseEntry>::iterator& iter)
+{
+    if (!hasAnySlowCases(iter))
+        return;
+
+    linkAllSlowCases(iter);
+
+    JITGetByValGenerator& gen = m_getByVals[m_getByValIndex++];
+
+    Label coldPathBegin = label();
+
+#if !ENABLE(EXTRA_CTI_THUNKS)
+    using SlowOperation = decltype(operationGetByValOptimize);
+    constexpr GPRReg globalObjectGPR = preferredArgumentGPR<SlowOperation, 0>();
+    constexpr GPRReg stubInfoGPR = preferredArgumentGPR<SlowOperation, 1>();
+    constexpr GPRReg profileGPR = preferredArgumentGPR<SlowOperation, 2>();
+    constexpr JSValueRegs arg3JSR = preferredArgumentJSR<SlowOperation, 3>();
+    constexpr JSValueRegs arg4JSR = preferredArgumentJSR<SlowOperation, 4>();
+
+    static_assert(!BaselineGetByValRegisters::baseJSR.overlaps(arg4JSR));
+    moveValueRegs(BaselineGetByValRegisters::propertyJSR, arg4JSR);
+    moveValueRegs(BaselineGetByValRegisters::baseJSR, arg3JSR);
+    loadGlobalObject(globalObjectGPR);
+    loadConstant(gen.m_unlinkedStubInfoConstantIndex, stubInfoGPR);
+    materializePointerIntoMetadata(bytecode, OpcodeType::Metadata::offsetOfArrayProfile(), profileGPR);
+    callOperation<SlowOperation>(
+        Address(stubInfoGPR, StructureStubInfo::offsetOfSlowOperation()),
+        globalObjectGPR, stubInfoGPR, profileGPR, arg3JSR, arg4JSR);
+#else
+    VM& vm = this->vm();
+    uint32_t bytecodeOffset = m_bytecodeIndex.offset();
+    ASSERT(BytecodeIndex(bytecodeOffset) == m_bytecodeIndex);
+
+    constexpr GPRReg bytecodeOffsetGPR = argumentGPR4;
+    move(TrustedImm32(bytecodeOffset), bytecodeOffsetGPR);
+
+    constexpr GPRReg stubInfoGPR = argumentGPR3; // arg1 arg1 already used.
+    constexpr GPRReg profileGPR = argumentGPR2;
+    constexpr GPRReg baseGPR = regT0;
+    constexpr GPRReg propertyGPR = regT1;
+    static_assert(baseGPR == argumentGPR0 || !isARM64());
+    static_assert(propertyGPR == argumentGPR1);
+    static_assert(BaselineGetByValRegisters::baseJSR.payloadGPR() == regT0);
+    static_assert(BaselineGetByValRegisters::propertyJSR.payloadGPR() == regT1);
+
+    loadConstant(gen.m_unlinkedStubInfoConstantIndex, stubInfoGPR);
+    materializePointerIntoMetadata(bytecode, OpcodeType::Metadata::offsetOfArrayProfile(), profileGPR);
+    emitNakedNearCall(vm.getCTIStub(slow_op_get_by_val_prepareCallGenerator).retaggedCode<NoPtrTag>());
+    emitNakedNearCall(vm.getCTIStub(checkExceptionGenerator).retaggedCode<NoPtrTag>());
+#endif // ENABLE(EXTRA_CTI_THUNKS)
+
+    gen.reportSlowPathCall(coldPathBegin, Call());
 }
 
 void JIT::emitSlow_op_get_by_val(const Instruction* currentInstruction, Vector<SlowCaseEntry>::iterator& iter)
 {
-    if (hasAnySlowCases(iter)) {
-        auto bytecode = currentInstruction->as<OpGetByVal>();
-        VirtualRegister dst = bytecode.m_dst;
-        auto& metadata = bytecode.metadata(m_codeBlock);
-        ArrayProfile* profile = &metadata.m_arrayProfile;
-
-        linkAllSlowCases(iter);
-
-        JITGetByValGenerator& gen = m_getByVals[m_getByValIndex++];
-
-        Label coldPathBegin = label();
-
-#if !ENABLE(EXTRA_CTI_THUNKS)
-        Call call = callOperationWithProfile(metadata, operationGetByValOptimize, dst, TrustedImmPtr(m_codeBlock->globalObject()), gen.stubInfo(), profile, regT0, regT1);
-#else
-        VM& vm = this->vm();
-        uint32_t bytecodeOffset = m_bytecodeIndex.offset();
-        ASSERT(BytecodeIndex(bytecodeOffset) == m_bytecodeIndex);
-
-        constexpr GPRReg bytecodeOffsetGPR = argumentGPR4;
-        move(TrustedImm32(bytecodeOffset), bytecodeOffsetGPR);
-
-        constexpr GPRReg stubInfoGPR = argumentGPR3; // arg1 arg1 already used.
-        constexpr GPRReg profileGPR = argumentGPR2;
-        constexpr GPRReg baseGPR = regT0;
-        constexpr GPRReg propertyGPR = regT1;
-        static_assert(baseGPR == argumentGPR0 || !isARM64());
-        static_assert(propertyGPR == argumentGPR1);
-
-        move(TrustedImmPtr(gen.stubInfo()), stubInfoGPR);
-        move(TrustedImmPtr(profile), profileGPR);
-        emitNakedNearCall(vm.getCTIStub(slow_op_get_by_val_prepareCallGenerator).retaggedCode<NoPtrTag>());
-
-        Call call;
-        if (JITCode::useDataIC(JITType::BaselineJIT))
-            gen.stubInfo()->m_slowOperation = operationGetByValOptimize;
-        else
-            call = appendCall(operationGetByValOptimize);
-        emitNakedNearCall(vm.getCTIStub(checkExceptionGenerator).retaggedCode<NoPtrTag>());
-
-        emitValueProfilingSite(metadata, returnValueGPR);
-        emitPutVirtualRegister(dst, returnValueGPR);
-#endif // ENABLE(EXTRA_CTI_THUNKS)
-
-        gen.reportSlowPathCall(coldPathBegin, call);
-    }
+    generateGetByValSlowCase(currentInstruction->as<OpGetByVal>(), iter);
 }
 
 #if ENABLE(EXTRA_CTI_THUNKS)
@@ -143,7 +162,7 @@ MacroAssemblerCodeRef<JITThunkPtrTag> JIT::slow_op_get_by_val_prepareCallGenerat
     // it makes assumptions about the right globalObject being available from CallFrame::codeBlock().
     // DFG/FTL may inline functions belonging to other globalObjects, which may not match
     // CallFrame::codeBlock().
-    JIT jit(vm);
+    CCallHelpers jit;
 
     if (!JITCode::useDataIC(JITType::BaselineJIT))
         jit.tagReturnAddress();
@@ -154,8 +173,8 @@ MacroAssemblerCodeRef<JITThunkPtrTag> JIT::slow_op_get_by_val_prepareCallGenerat
     constexpr GPRReg globalObjectGPR = argumentGPR5;
     constexpr GPRReg stubInfoGPR = argumentGPR3;
     constexpr GPRReg profileGPR = argumentGPR2;
-    constexpr GPRReg baseGPR = regT0;
-    constexpr GPRReg propertyGPR = regT1;
+    constexpr GPRReg baseGPR = BaselineGetByValRegisters::baseJSR.payloadGPR();
+    constexpr GPRReg propertyGPR = BaselineGetByValRegisters::propertyJSR.payloadGPR();
     static_assert(baseGPR == argumentGPR0 || !isARM64());
     static_assert(propertyGPR == argumentGPR1);
 
@@ -181,46 +200,61 @@ void JIT::emit_op_get_private_name(const Instruction* currentInstruction)
     VirtualRegister dst = bytecode.m_dst;
     VirtualRegister base = bytecode.m_base;
     VirtualRegister property = bytecode.m_property;
-    GPRReg baseGPR = regT0;
-    GPRReg propertyGPR = regT1;
-    emitGetVirtualRegister(base, baseGPR);
-    emitGetVirtualRegister(property, propertyGPR);
 
-    emitJumpSlowCaseIfNotJSCell(regT0, base);
+    using BaselineGetByValRegisters::baseJSR;
+    using BaselineGetByValRegisters::propertyJSR;
+    using BaselineGetByValRegisters::resultJSR;
+    using BaselineGetByValRegisters::stubInfoGPR;
 
-    JSValueRegs resultRegs = JSValueRegs(regT0);
+    emitGetVirtualRegister(base, baseJSR);
+    emitGetVirtualRegister(property, propertyJSR);
+
+    emitJumpSlowCaseIfNotJSCell(baseJSR, base);
 
     JITGetByValGenerator gen(
-        m_codeBlock, JITType::BaselineJIT, CodeOrigin(m_bytecodeIndex), CallSiteIndex(m_bytecodeIndex), AccessType::GetPrivateName,
-        RegisterSet::stubUnavailableRegisters(), JSValueRegs(baseGPR), JSValueRegs(propertyGPR), resultRegs, regT2);
-    gen.generateFastPath(*this);
-    if (!JITCode::useDataIC(JITType::BaselineJIT))
-        addSlowCase(gen.slowPathJump());
-    else
-        addSlowCase();
+        nullptr, nullptr, JITType::BaselineJIT, CodeOrigin(m_bytecodeIndex), CallSiteIndex(m_bytecodeIndex), AccessType::GetPrivateName,
+        RegisterSet::stubUnavailableRegisters(), baseJSR, propertyJSR, resultJSR, stubInfoGPR);
+
+    auto [ stubInfo, stubInfoIndex ] = addUnlinkedStructureStubInfo();
+    stubInfo->accessType = AccessType::GetPrivateName;
+    stubInfo->bytecodeIndex = m_bytecodeIndex;
+    gen.m_unlinkedStubInfoConstantIndex = stubInfoIndex;
+    gen.m_unlinkedStubInfo = stubInfo;
+
+    gen.generateBaselineDataICFastPath(*this, stubInfoIndex, stubInfoGPR);
+    addSlowCase();
     m_getByVals.append(gen);
 
-    emitValueProfilingSite(bytecode.metadata(m_codeBlock), resultRegs);
-    emitPutVirtualRegister(dst);
+    setFastPathResumePoint();
+    emitValueProfilingSite(bytecode, resultJSR);
+    emitPutVirtualRegister(dst, resultJSR);
 }
 
 void JIT::emitSlow_op_get_private_name(const Instruction* currentInstruction, Vector<SlowCaseEntry>::iterator& iter)
 {
     ASSERT(hasAnySlowCases(iter));
-    auto bytecode = currentInstruction->as<OpGetPrivateName>();
-    auto& metadata = bytecode.metadata(m_codeBlock);
-    VirtualRegister dst = bytecode.m_dst;
-
     linkAllSlowCases(iter);
 
     JITGetByValGenerator& gen = m_getByVals[m_getByValIndex++];
     Label coldPathBegin = label();
 
 #if !ENABLE(EXTRA_CTI_THUNKS)
-    constexpr GPRReg baseGPR = regT0;
-    constexpr GPRReg propertyGPR = regT1;
-    Call call = callOperationWithProfile(metadata, operationGetPrivateNameOptimize, dst, TrustedImmPtr(m_codeBlock->globalObject()), gen.stubInfo(), baseGPR, propertyGPR);
+    auto bytecode = currentInstruction->as<OpGetPrivateName>();
+    using SlowOperation = decltype(operationGetPrivateNameOptimize);
+    constexpr GPRReg globalObjectGPR = preferredArgumentGPR<SlowOperation, 0>();
+    constexpr GPRReg stubInfoGPR = preferredArgumentGPR<SlowOperation, 1>();
+    constexpr JSValueRegs baseJSR = preferredArgumentJSR<SlowOperation, 2>();
+    constexpr JSValueRegs propertyJSR = preferredArgumentJSR<SlowOperation, 3>();
+
+    loadGlobalObject(globalObjectGPR);
+    loadConstant(gen.m_unlinkedStubInfoConstantIndex, stubInfoGPR);
+    emitGetVirtualRegister(bytecode.m_base, baseJSR);
+    emitGetVirtualRegister(bytecode.m_property, propertyJSR);
+    callOperation<SlowOperation>(
+        Address(stubInfoGPR, StructureStubInfo::offsetOfSlowOperation()),
+        globalObjectGPR, stubInfoGPR, baseJSR, propertyJSR);
 #else
+    UNUSED_PARAM(currentInstruction);
     VM& vm = this->vm();
     uint32_t bytecodeOffset = m_bytecodeIndex.offset();
     ASSERT(BytecodeIndex(bytecodeOffset) == m_bytecodeIndex);
@@ -229,26 +263,18 @@ void JIT::emitSlow_op_get_private_name(const Instruction* currentInstruction, Ve
     move(TrustedImm32(bytecodeOffset), bytecodeOffsetGPR);
 
     constexpr GPRReg stubInfoGPR = argumentGPR2; // arg1 already used.
-    constexpr GPRReg baseGPR = regT0;
-    constexpr GPRReg propertyGPR = regT1;
+    constexpr GPRReg baseGPR = BaselineGetByValRegisters::baseJSR.payloadGPR();
+    constexpr GPRReg propertyGPR = BaselineGetByValRegisters::propertyJSR.payloadGPR();
     static_assert(baseGPR == argumentGPR0 || !isARM64());
     static_assert(propertyGPR == argumentGPR1);
 
-    move(TrustedImmPtr(gen.stubInfo()), stubInfoGPR);
+    loadConstant(gen.m_unlinkedStubInfoConstantIndex, stubInfoGPR);
     emitNakedNearCall(vm.getCTIStub(slow_op_get_private_name_prepareCallGenerator).retaggedCode<NoPtrTag>());
-
-    Call call;
-    if (JITCode::useDataIC(JITType::BaselineJIT))
-        gen.stubInfo()->m_slowOperation = operationGetPrivateNameOptimize;
-    else
-        call = appendCall(operationGetPrivateNameOptimize);
     emitNakedNearCall(vm.getCTIStub(checkExceptionGenerator).retaggedCode<NoPtrTag>());
-
-    emitValueProfilingSite(metadata, returnValueGPR);
-    emitPutVirtualRegister(dst, returnValueGPR);
 #endif // ENABLE(EXTRA_CTI_THUNKS)
 
-    gen.reportSlowPathCall(coldPathBegin, call);
+    static_assert(BaselineGetByValRegisters::resultJSR == returnValueJSR);
+    gen.reportSlowPathCall(coldPathBegin, Call());
 }
 
 #if ENABLE(EXTRA_CTI_THUNKS)
@@ -258,7 +284,7 @@ MacroAssemblerCodeRef<JITThunkPtrTag> JIT::slow_op_get_private_name_prepareCallG
     // it makes assumptions about the right globalObject being available from CallFrame::codeBlock().
     // DFG/FTL may inline functions belonging to other globalObjects, which may not match
     // CallFrame::codeBlock().
-    JIT jit(vm);
+    CCallHelpers jit;
 
     if (!JITCode::useDataIC(JITType::BaselineJIT))
         jit.tagReturnAddress();
@@ -294,21 +320,27 @@ void JIT::emit_op_set_private_brand(const Instruction* currentInstruction)
     auto bytecode = currentInstruction->as<OpSetPrivateBrand>();
     VirtualRegister base = bytecode.m_base;
     VirtualRegister brand = bytecode.m_brand;
-    GPRReg baseGPR = regT0;
-    GPRReg brandGPR = regT1;
-    emitGetVirtualRegister(base, baseGPR);
-    emitGetVirtualRegister(brand, brandGPR);
 
-    emitJumpSlowCaseIfNotJSCell(baseGPR, base);
+    using BaselinePrivateBrandRegisters::baseJSR;
+    using BaselinePrivateBrandRegisters::brandJSR;
+    using BaselinePrivateBrandRegisters::stubInfoGPR;
+
+    emitGetVirtualRegister(base, baseJSR);
+    emitGetVirtualRegister(brand, brandJSR);
+    emitJumpSlowCaseIfNotJSCell(baseJSR, base);
 
     JITPrivateBrandAccessGenerator gen(
-        m_codeBlock, JITType::BaselineJIT, CodeOrigin(m_bytecodeIndex), CallSiteIndex(m_bytecodeIndex), AccessType::SetPrivateBrand, RegisterSet::stubUnavailableRegisters(),
-        JSValueRegs(baseGPR), JSValueRegs(brandGPR), regT2);
-    gen.generateFastPath(*this);
-    if (!JITCode::useDataIC(JITType::BaselineJIT))
-        addSlowCase(gen.slowPathJump());
-    else
-        addSlowCase();
+        nullptr, nullptr, JITType::BaselineJIT, CodeOrigin(m_bytecodeIndex), CallSiteIndex(m_bytecodeIndex), AccessType::SetPrivateBrand, RegisterSet::stubUnavailableRegisters(),
+        baseJSR, brandJSR, stubInfoGPR);
+
+    auto [ stubInfo, stubInfoIndex ] = addUnlinkedStructureStubInfo();
+    stubInfo->accessType = AccessType::SetPrivateBrand;
+    stubInfo->bytecodeIndex = m_bytecodeIndex;
+    gen.m_unlinkedStubInfoConstantIndex = stubInfoIndex;
+    gen.m_unlinkedStubInfo = stubInfo;
+
+    gen.generateBaselineDataICFastPath(*this, stubInfoIndex, stubInfoGPR);
+    addSlowCase();
     m_privateBrandAccesses.append(gen);
 
     // We should emit write-barrier at the end of sequence since write-barrier clobbers registers.
@@ -318,17 +350,31 @@ void JIT::emit_op_set_private_brand(const Instruction* currentInstruction)
     emitWriteBarrier(base, ShouldFilterBase);
 }
 
-void JIT::emitSlow_op_set_private_brand(const Instruction*, Vector<SlowCaseEntry>::iterator& iter)
+void JIT::emitSlow_op_set_private_brand(const Instruction* currentInstruction, Vector<SlowCaseEntry>::iterator& iter)
 {
+    UNUSED_PARAM(currentInstruction);
+
     linkAllSlowCases(iter);
 
     JITPrivateBrandAccessGenerator& gen = m_privateBrandAccesses[m_privateBrandAccessIndex++];
     Label coldPathBegin = label();
 
 #if !ENABLE(EXTRA_CTI_THUNKS)
-    constexpr GPRReg baseGPR = regT0;
-    constexpr GPRReg brandGPR = regT1;
-    Call call = callOperation(operationSetPrivateBrandOptimize, TrustedImmPtr(m_codeBlock->globalObject()), gen.stubInfo(), baseGPR, brandGPR);
+    auto bytecode = currentInstruction->as<OpSetPrivateBrand>();
+
+    using SlowOperation = decltype(operationSetPrivateBrandOptimize);
+    constexpr GPRReg globalObjectGPR = preferredArgumentGPR<SlowOperation, 0>();
+    constexpr GPRReg stubInfoGPR = preferredArgumentGPR<SlowOperation, 1>();
+    constexpr JSValueRegs baseJSR = preferredArgumentJSR<SlowOperation, 2>();
+    constexpr JSValueRegs brandJSR = preferredArgumentJSR<SlowOperation, 3>();
+
+    loadGlobalObject(globalObjectGPR);
+    loadConstant(gen.m_unlinkedStubInfoConstantIndex, stubInfoGPR);
+    emitGetVirtualRegister(bytecode.m_base, baseJSR);
+    emitGetVirtualRegister(bytecode.m_brand, brandJSR);
+    callOperation<SlowOperation>(
+        Address(stubInfoGPR, StructureStubInfo::offsetOfSlowOperation()),
+        globalObjectGPR, stubInfoGPR, baseJSR, brandJSR);
 #else
     VM& vm = this->vm();
     uint32_t bytecodeOffset = m_bytecodeIndex.offset();
@@ -338,24 +384,18 @@ void JIT::emitSlow_op_set_private_brand(const Instruction*, Vector<SlowCaseEntry
     move(TrustedImm32(bytecodeOffset), bytecodeOffsetGPR);
 
     constexpr GPRReg stubInfoGPR = argumentGPR2; // arg1 already used.
-    constexpr GPRReg baseGPR = regT0;
-    constexpr GPRReg propertyGPR = regT1;
+    constexpr GPRReg baseGPR = BaselinePrivateBrandRegisters::baseJSR.payloadGPR();
+    constexpr GPRReg brandGPR = BaselinePrivateBrandRegisters::brandJSR.payloadGPR();
     static_assert(baseGPR == argumentGPR0 || !isARM64());
-    static_assert(propertyGPR == argumentGPR1);
+    static_assert(brandGPR == argumentGPR1);
 
-    move(TrustedImmPtr(gen.stubInfo()), stubInfoGPR);
+    loadConstant(gen.m_unlinkedStubInfoConstantIndex, stubInfoGPR);
     static_assert(std::is_same<FunctionTraits<decltype(operationSetPrivateBrandOptimize)>::ArgumentTypes, FunctionTraits<decltype(operationGetPrivateNameOptimize)>::ArgumentTypes>::value);
     emitNakedNearCall(vm.getCTIStub(slow_op_get_private_name_prepareCallGenerator).retaggedCode<NoPtrTag>());
-
-    Call call;
-    if (JITCode::useDataIC(JITType::BaselineJIT))
-        gen.stubInfo()->m_slowOperation = operationSetPrivateBrandOptimize;
-    else
-        call = appendCall(operationSetPrivateBrandOptimize);
     emitNakedNearCall(vm.getCTIStub(checkExceptionGenerator).retaggedCode<NoPtrTag>());
 #endif
 
-    gen.reportSlowPathCall(coldPathBegin, call);
+    gen.reportSlowPathCall(coldPathBegin, Call());
 }
 
 void JIT::emit_op_check_private_brand(const Instruction* currentInstruction)
@@ -364,33 +404,54 @@ void JIT::emit_op_check_private_brand(const Instruction* currentInstruction)
     VirtualRegister base = bytecode.m_base;
     VirtualRegister brand = bytecode.m_brand;
 
-    emitGetVirtualRegister(base, regT0);
-    emitGetVirtualRegister(brand, regT1);
+    using BaselinePrivateBrandRegisters::baseJSR;
+    using BaselinePrivateBrandRegisters::brandJSR;
+    using BaselinePrivateBrandRegisters::stubInfoGPR;
 
-    emitJumpSlowCaseIfNotJSCell(regT0, base);
+    emitGetVirtualRegister(base, baseJSR);
+    emitGetVirtualRegister(brand, brandJSR);
+
+    emitJumpSlowCaseIfNotJSCell(baseJSR, base);
 
     JITPrivateBrandAccessGenerator gen(
-        m_codeBlock, JITType::BaselineJIT, CodeOrigin(m_bytecodeIndex), CallSiteIndex(m_bytecodeIndex), AccessType::CheckPrivateBrand, RegisterSet::stubUnavailableRegisters(),
-        JSValueRegs(regT0), JSValueRegs(regT1), regT2);
-    gen.generateFastPath(*this);
-    if (!JITCode::useDataIC(JITType::BaselineJIT))
-        addSlowCase(gen.slowPathJump());
-    else
-        addSlowCase();
+        nullptr, nullptr, JITType::BaselineJIT, CodeOrigin(m_bytecodeIndex), CallSiteIndex(m_bytecodeIndex), AccessType::CheckPrivateBrand, RegisterSet::stubUnavailableRegisters(),
+        baseJSR, brandJSR, stubInfoGPR);
+
+    auto [ stubInfo, stubInfoIndex ] = addUnlinkedStructureStubInfo();
+    stubInfo->accessType = AccessType::CheckPrivateBrand;
+    stubInfo->bytecodeIndex = m_bytecodeIndex;
+    gen.m_unlinkedStubInfoConstantIndex = stubInfoIndex;
+    gen.m_unlinkedStubInfo = stubInfo;
+
+    gen.generateBaselineDataICFastPath(*this, stubInfoIndex, stubInfoGPR);
+    addSlowCase();
     m_privateBrandAccesses.append(gen);
 }
 
-void JIT::emitSlow_op_check_private_brand(const Instruction*, Vector<SlowCaseEntry>::iterator& iter)
+void JIT::emitSlow_op_check_private_brand(const Instruction* currentInstruction, Vector<SlowCaseEntry>::iterator& iter)
 {
     linkAllSlowCases(iter);
+
+    auto bytecode = currentInstruction->as<OpCheckPrivateBrand>();
+    UNUSED_PARAM(bytecode);
 
     JITPrivateBrandAccessGenerator& gen = m_privateBrandAccesses[m_privateBrandAccessIndex++];
     Label coldPathBegin = label();
 
 #if !ENABLE(EXTRA_CTI_THUNKS)
-    constexpr GPRReg baseGPR = regT0;
-    constexpr GPRReg brandGPR = regT1;
-    Call call = callOperation(operationCheckPrivateBrandOptimize, TrustedImmPtr(m_codeBlock->globalObject()), gen.stubInfo(), baseGPR, brandGPR);
+    using SlowOperation = decltype(operationCheckPrivateBrandOptimize);
+    constexpr GPRReg globalObjectGPR = preferredArgumentGPR<SlowOperation, 0>();
+    constexpr GPRReg stubInfoGPR = preferredArgumentGPR<SlowOperation, 1>();
+    constexpr JSValueRegs baseJSR = preferredArgumentJSR<SlowOperation, 2>();
+    constexpr JSValueRegs brandJSR = preferredArgumentJSR<SlowOperation, 3>();
+
+    loadGlobalObject(globalObjectGPR);
+    loadConstant(gen.m_unlinkedStubInfoConstantIndex, stubInfoGPR);
+    emitGetVirtualRegister(bytecode.m_base, baseJSR);
+    emitGetVirtualRegister(bytecode.m_brand, brandJSR);
+    callOperation<SlowOperation>(
+        Address(stubInfoGPR, StructureStubInfo::offsetOfSlowOperation()),
+        globalObjectGPR, stubInfoGPR, baseJSR, brandJSR);
 #else
     VM& vm = this->vm();
     uint32_t bytecodeOffset = m_bytecodeIndex.offset();
@@ -400,252 +461,72 @@ void JIT::emitSlow_op_check_private_brand(const Instruction*, Vector<SlowCaseEnt
     move(TrustedImm32(bytecodeOffset), bytecodeOffsetGPR);
 
     constexpr GPRReg stubInfoGPR = argumentGPR2; // arg1 already used.
-    constexpr GPRReg baseGPR = regT0;
-    constexpr GPRReg propertyGPR = regT1;
+    constexpr GPRReg baseGPR = BaselinePrivateBrandRegisters::baseJSR.payloadGPR();
+    constexpr GPRReg brandGPR = BaselinePrivateBrandRegisters::brandJSR.payloadGPR();
     static_assert(baseGPR == argumentGPR0 || !isARM64());
-    static_assert(propertyGPR == argumentGPR1);
+    static_assert(brandGPR == argumentGPR1);
 
-    move(TrustedImmPtr(gen.stubInfo()), stubInfoGPR);
+    loadConstant(gen.m_unlinkedStubInfoConstantIndex, stubInfoGPR);
     static_assert(std::is_same<FunctionTraits<decltype(operationCheckPrivateBrandOptimize)>::ArgumentTypes, FunctionTraits<decltype(operationGetPrivateNameOptimize)>::ArgumentTypes>::value);
     emitNakedNearCall(vm.getCTIStub(slow_op_get_private_name_prepareCallGenerator).retaggedCode<NoPtrTag>());
-
-    Call call;
-    if (JITCode::useDataIC(JITType::BaselineJIT))
-        gen.stubInfo()->m_slowOperation = operationCheckPrivateBrandOptimize;
-    else
-        call = appendCall(operationCheckPrivateBrandOptimize);
     emitNakedNearCall(vm.getCTIStub(checkExceptionGenerator).retaggedCode<NoPtrTag>());
 #endif // ENABLE(EXTRA_CTI_THUNKS)
 
-    gen.reportSlowPathCall(coldPathBegin, call);
-}
-
-void JIT::emit_op_put_by_val_direct(const Instruction* currentInstruction)
-{
-    emit_op_put_by_val<OpPutByValDirect>(currentInstruction);
+    gen.reportSlowPathCall(coldPathBegin, Call());
 }
 
 template<typename Op>
 void JIT::emit_op_put_by_val(const Instruction* currentInstruction)
 {
     auto bytecode = currentInstruction->as<Op>();
-    auto& metadata = bytecode.metadata(m_codeBlock);
     VirtualRegister base = bytecode.m_base;
     VirtualRegister property = bytecode.m_property;
-    ArrayProfile* profile = &metadata.m_arrayProfile;
-    ByValInfo* byValInfo = m_codeBlock->addByValInfo(m_bytecodeIndex);
-
-    emitGetVirtualRegister(base, regT0);
-    bool propertyNameIsIntegerConstant = isOperandConstantInt(property);
-    if (propertyNameIsIntegerConstant)
-        move(Imm32(getOperandConstantInt(property)), regT1);
-    else
-        emitGetVirtualRegister(property, regT1);
-
-    emitJumpSlowCaseIfNotJSCell(regT0, base);
-    PatchableJump notIndex;
-    if (!propertyNameIsIntegerConstant) {
-        if (JITCode::useDataIC(JITType::BaselineJIT)) {
-            auto isInt32 = branchIfInt32(regT1);
-            farJump(AbsoluteAddress(&byValInfo->m_notIndexJumpTarget), JITStubRoutinePtrTag);
-            isInt32.link(this);
-        } else {
-            notIndex = emitPatchableJumpIfNotInt(regT1);
-            addSlowCase(notIndex);
-        }
-        // See comment in op_get_by_val.
-        zeroExtend32ToWord(regT1, regT1);
-    }
-    emitArrayProfilingSiteWithCell(regT0, regT2, profile);
-
-    PatchableJump badType;
-    JumpList slowCases;
-
-    // FIXME: Maybe we should do this inline?
-    addSlowCase(branchTest32(NonZero, regT2, TrustedImm32(CopyOnWrite)));
-    and32(TrustedImm32(IndexingShapeMask), regT2);
-
-    JITArrayMode mode = chooseArrayMode(profile);
-    switch (mode) {
-    case JITInt32:
-        slowCases = emitInt32PutByVal(bytecode, badType, byValInfo);
-        break;
-    case JITDouble:
-        slowCases = emitDoublePutByVal(bytecode, badType, byValInfo);
-        break;
-    case JITContiguous:
-        slowCases = emitContiguousPutByVal(bytecode, badType, byValInfo);
-        break;
-    case JITArrayStorage:
-        slowCases = emitArrayStoragePutByVal(bytecode, badType, byValInfo);
-        break;
-    default:
-        CRASH();
-        break;
-    }
-    
-    if (!JITCode::useDataIC(JITType::BaselineJIT))
-        addSlowCase(badType);
-    addSlowCase(slowCases);
-    
-    Label done = label();
-    
-    m_byValCompilationInfo.append(ByValCompilationInfo(byValInfo, m_bytecodeIndex, notIndex, badType, mode, profile, done, done));
-}
-
-template<typename Op>
-JIT::JumpList JIT::emitGenericContiguousPutByVal(Op bytecode, PatchableJump& badType, ByValInfo* byValInfo, IndexingType indexingShape)
-{
-    auto& metadata = bytecode.metadata(m_codeBlock);
-    VirtualRegister value = bytecode.m_value;
-    ArrayProfile* profile = &metadata.m_arrayProfile;
-    
-    JumpList slowCases;
-
-    if (JITCode::useDataIC(JITType::BaselineJIT)) {
-        if (byValInfo) {
-            auto isCorrectType = branch32(Equal, regT2, TrustedImm32(indexingShape));
-            farJump(AbsoluteAddress(&byValInfo->m_badTypeJumpTarget), JITStubRoutinePtrTag);
-            isCorrectType.link(this);
-        } else
-            badType = patchableBranch32(NotEqual, regT2, TrustedImm32(indexingShape));
-    } else
-        badType = patchableBranch32(NotEqual, regT2, TrustedImm32(indexingShape));
-
-    
-    loadPtr(Address(regT0, JSObject::butterflyOffset()), regT2);
-    Jump outOfBounds = branch32(AboveOrEqual, regT1, Address(regT2, Butterfly::offsetOfPublicLength()));
-
-    Label storeResult = label();
-    emitGetVirtualRegister(value, regT3);
-    switch (indexingShape) {
-    case Int32Shape:
-        slowCases.append(branchIfNotInt32(regT3));
-        store64(regT3, BaseIndex(regT2, regT1, TimesEight));
-        break;
-    case DoubleShape: {
-        Jump notInt = branchIfNotInt32(regT3);
-        convertInt32ToDouble(regT3, fpRegT0);
-        Jump ready = jump();
-        notInt.link(this);
-        add64(numberTagRegister, regT3);
-        move64ToDouble(regT3, fpRegT0);
-        slowCases.append(branchIfNaN(fpRegT0));
-        ready.link(this);
-        storeDouble(fpRegT0, BaseIndex(regT2, regT1, TimesEight));
-        break;
-    }
-    case ContiguousShape:
-        store64(regT3, BaseIndex(regT2, regT1, TimesEight));
-        emitWriteBarrier(bytecode.m_base, value, ShouldFilterValue);
-        break;
-    default:
-        CRASH();
-        break;
-    }
-    
-    Jump done = jump();
-    outOfBounds.link(this);
-    
-    slowCases.append(branch32(AboveOrEqual, regT1, Address(regT2, Butterfly::offsetOfVectorLength())));
-    
-    emitArrayProfileStoreToHoleSpecialCase(profile);
-    
-    add32(TrustedImm32(1), regT1, regT3);
-    store32(regT3, Address(regT2, Butterfly::offsetOfPublicLength()));
-    jump().linkTo(storeResult, this);
-    
-    done.link(this);
-    
-    return slowCases;
-}
-
-template<typename Op>
-JIT::JumpList JIT::emitArrayStoragePutByVal(Op bytecode, PatchableJump& badType, ByValInfo* byValInfo)
-{
-    auto& metadata = bytecode.metadata(m_codeBlock);
-    VirtualRegister value = bytecode.m_value;
-    ArrayProfile* profile = &metadata.m_arrayProfile;
-    
-    JumpList slowCases;
-    
-    if (JITCode::useDataIC(JITType::BaselineJIT)) {
-        if (byValInfo) {
-            auto isCorrectType = branch32(Equal, regT2, TrustedImm32(ArrayStorageShape));
-            farJump(AbsoluteAddress(&byValInfo->m_badTypeJumpTarget), JITStubRoutinePtrTag);
-            isCorrectType.link(this);
-        } else
-            badType = patchableBranch32(NotEqual, regT2, TrustedImm32(ArrayStorageShape));
-    } else
-        badType = patchableBranch32(NotEqual, regT2, TrustedImm32(ArrayStorageShape));
-
-    loadPtr(Address(regT0, JSObject::butterflyOffset()), regT2);
-    slowCases.append(branch32(AboveOrEqual, regT1, Address(regT2, ArrayStorage::vectorLengthOffset())));
-
-    Jump empty = branchTest64(Zero, BaseIndex(regT2, regT1, TimesEight, ArrayStorage::vectorOffset()));
-
-    Label storeResult(this);
-    emitGetVirtualRegister(value, regT3);
-    store64(regT3, BaseIndex(regT2, regT1, TimesEight, ArrayStorage::vectorOffset()));
-    emitWriteBarrier(bytecode.m_base, value, ShouldFilterValue);
-    Jump end = jump();
-    
-    empty.link(this);
-    emitArrayProfileStoreToHoleSpecialCase(profile);
-    add32(TrustedImm32(1), Address(regT2, ArrayStorage::numValuesInVectorOffset()));
-    branch32(Below, regT1, Address(regT2, ArrayStorage::lengthOffset())).linkTo(storeResult, this);
-
-    add32(TrustedImm32(1), regT1);
-    store32(regT1, Address(regT2, ArrayStorage::lengthOffset()));
-    sub32(TrustedImm32(1), regT1);
-    jump().linkTo(storeResult, this);
-
-    end.link(this);
-    
-    return slowCases;
-}
-
-template<typename Op>
-JITPutByIdGenerator JIT::emitPutByValWithCachedId(Op bytecode, PutKind putKind, CacheableIdentifier propertyName, JumpList& doneCases, JumpList& slowCases)
-{
-    // base: regT0
-    // property: regT1
-    // scratch: regT2
-
-    VirtualRegister base = bytecode.m_base;
     VirtualRegister value = bytecode.m_value;
 
-    slowCases.append(branchIfNotCell(regT1));
-    emitByValIdentifierCheck(regT1, regT1, propertyName, slowCases);
+    using BaselinePutByValRegisters::baseJSR;
+    using BaselinePutByValRegisters::propertyJSR;
+    using BaselinePutByValRegisters::valueJSR;
+    using BaselinePutByValRegisters::stubInfoGPR;
+    using BaselinePutByValRegisters::profileGPR;
 
-    // Write barrier breaks the registers. So after issuing the write barrier,
-    // reload the registers.
-    emitGetVirtualRegisters(base, regT0, value, regT1);
+    emitGetVirtualRegister(base, baseJSR);
+    emitGetVirtualRegister(property, propertyJSR);
+    emitGetVirtualRegister(value, valueJSR);
 
-    JITPutByIdGenerator gen(
-        m_codeBlock, JITType::BaselineJIT, CodeOrigin(m_bytecodeIndex), CallSiteIndex(m_bytecodeIndex), RegisterSet::stubUnavailableRegisters(), propertyName,
-        JSValueRegs(regT0), JSValueRegs(regT1), regT3, regT2, ecmaMode(bytecode), putKind);
-    gen.generateFastPath(*this);
+    emitJumpSlowCaseIfNotJSCell(baseJSR, base);
+    emitArrayProfilingSiteWithCell(bytecode, baseJSR.payloadGPR(), profileGPR);
+    materializePointerIntoMetadata(bytecode, Op::Metadata::offsetOfArrayProfile(), profileGPR);
+
+    JITPutByValGenerator gen(
+        nullptr, nullptr, JITType::BaselineJIT, CodeOrigin(m_bytecodeIndex), CallSiteIndex(m_bytecodeIndex), AccessType::PutByVal, RegisterSet::stubUnavailableRegisters(),
+        baseJSR, propertyJSR, valueJSR, profileGPR, stubInfoGPR);
+
+    auto [ stubInfo, stubInfoIndex ] = addUnlinkedStructureStubInfo();
+    stubInfo->accessType = AccessType::PutByVal;
+    stubInfo->putKind = std::is_same_v<Op, OpPutByValDirect> ? PutKind::Direct : PutKind::NotDirect;
+    stubInfo->ecmaMode = ecmaMode(bytecode);
+    stubInfo->bytecodeIndex = m_bytecodeIndex;
+    if (isOperandConstantInt(property))
+        stubInfo->propertyIsInt32 = true;
+    gen.m_unlinkedStubInfoConstantIndex = stubInfoIndex;
+    gen.m_unlinkedStubInfo = stubInfo;
+
+    gen.generateBaselineDataICFastPath(*this, stubInfoIndex, stubInfoGPR);
+    resetSP(); // We might OSR exit here, so we need to conservatively reset SP
+    addSlowCase();
+    m_putByVals.append(gen);
+
     // IC can write new Structure without write-barrier if a base is cell.
     // FIXME: Use UnconditionalWriteBarrier in Baseline effectively to reduce code size.
     // https://bugs.webkit.org/show_bug.cgi?id=209395
     emitWriteBarrier(base, ShouldFilterBase);
-    doneCases.append(jump());
+}
 
-    Label coldPathBegin = label();
-    gen.slowPathJump().link(this);
+template void JIT::emit_op_put_by_val<OpPutByVal>(const Instruction*);
 
-    Call call;
-    if (JITCode::useDataIC(JITType::BaselineJIT)) {
-        gen.stubInfo()->m_slowOperation = gen.slowPathFunction();
-        move(TrustedImmPtr(gen.stubInfo()), GPRInfo::nonArgGPR0);
-        callOperation<decltype(gen.slowPathFunction())>(Address(GPRInfo::nonArgGPR0, StructureStubInfo::offsetOfSlowOperation()), TrustedImmPtr(m_codeBlock->globalObject()), GPRInfo::nonArgGPR0, regT1, regT0, propertyName.rawBits());
-    } else
-        call = callOperation(gen.slowPathFunction(), TrustedImmPtr(m_codeBlock->globalObject()), gen.stubInfo(), regT1, regT0, propertyName.rawBits());
-    gen.reportSlowPathCall(coldPathBegin, call);
-    doneCases.append(jump());
-
-    return gen;
+void JIT::emit_op_put_by_val_direct(const Instruction* currentInstruction)
+{
+    emit_op_put_by_val<OpPutByValDirect>(currentInstruction);
 }
 
 void JIT::emitSlow_op_put_by_val(const Instruction* currentInstruction, Vector<SlowCaseEntry>::iterator& iter)
@@ -668,48 +549,52 @@ void JIT::emitSlow_op_put_by_val(const Instruction* currentInstruction, Vector<S
     else
         load(currentInstruction->as<OpPutByVal>());
 
-    ByValInfo* byValInfo = m_byValCompilationInfo[m_byValInstructionIndex].byValInfo;
+    JITPutByValGenerator& gen = m_putByVals[m_putByValIndex++];
 
     linkAllSlowCases(iter);
-    Label slowPath = label();
+
+    Label coldPathBegin = label();
 
 #if !ENABLE(EXTRA_CTI_THUNKS)
-    emitGetVirtualRegister(base, regT0);
-    emitGetVirtualRegister(property, regT1);
-    emitGetVirtualRegister(value, regT2);
-    Call call = callOperation(isDirect ? operationDirectPutByValOptimize : operationPutByValOptimize, TrustedImmPtr(m_codeBlock->globalObject()), regT0, regT1, regT2, byValInfo, TrustedImm32(ecmaMode.value()));
+    using SlowOperation = decltype(operationPutByValStrictOptimize);
+    constexpr GPRReg globalObjectGPR = preferredArgumentGPR<SlowOperation, 0>();
+    constexpr JSValueRegs baseJSR = preferredArgumentJSR<SlowOperation, 1>();
+    constexpr JSValueRegs propertyJSR = preferredArgumentJSR<SlowOperation, 2>();
+    constexpr JSValueRegs valueJSR = preferredArgumentJSR<SlowOperation, 3>();
+    constexpr GPRReg stubInfoGPR = preferredArgumentGPR<SlowOperation, 4>();
+    constexpr GPRReg profileGPR = preferredArgumentGPR<SlowOperation, 5>();
+
+    loadGlobalObject(globalObjectGPR);
+    loadConstant(gen.m_unlinkedStubInfoConstantIndex, stubInfoGPR);
+    if (isDirect)
+        materializePointerIntoMetadata(currentInstruction->as<OpPutByValDirect>(), OpPutByValDirect::Metadata::offsetOfArrayProfile(), profileGPR);
+    else
+        materializePointerIntoMetadata(currentInstruction->as<OpPutByVal>(), OpPutByVal::Metadata::offsetOfArrayProfile(), profileGPR);
+    emitGetVirtualRegister(base, baseJSR);
+    emitGetVirtualRegister(property, propertyJSR);
+    emitGetVirtualRegister(value, valueJSR);
+    callOperation<SlowOperation>(
+        Address(stubInfoGPR, StructureStubInfo::offsetOfSlowOperation()),
+        globalObjectGPR, baseJSR, propertyJSR, valueJSR, stubInfoGPR, profileGPR);
 #else
     VM& vm = this->vm();
     uint32_t bytecodeOffset = m_bytecodeIndex.offset();
     ASSERT(BytecodeIndex(bytecodeOffset) == m_bytecodeIndex);
 
-    constexpr GPRReg bytecodeOffsetGPR = argumentGPR0;
+    // They are configured in the fast path and not clobbered.
+    // constexpr GPRReg baseGPR = regT0;
+    // constexpr GPRReg propertyGPR = regT1;
+    // constexpr GPRReg valueGPR = regT2;
+    // constexpr GPRReg profileGPR = regT3;
+    constexpr GPRReg stubInfoGPR = regT4;
+    constexpr GPRReg bytecodeOffsetGPR = regT5;
     move(TrustedImm32(bytecodeOffset), bytecodeOffsetGPR);
-
-    constexpr GPRReg baseGPR = argumentGPR1;
-    constexpr GPRReg propertyGPR = argumentGPR2;
-    constexpr GPRReg valuePR = argumentGPR3;
-    constexpr GPRReg byValInfoGPR = argumentGPR4;
-    constexpr GPRReg ecmaModeGPR = argumentGPR5;
-
-    emitGetVirtualRegister(base, baseGPR);
-    emitGetVirtualRegister(property, propertyGPR);
-    emitGetVirtualRegister(value, valuePR);
-    move(TrustedImmPtr(byValInfo), byValInfoGPR);
-    move(TrustedImm32(ecmaMode.value()), ecmaModeGPR);
+    loadConstant(gen.m_unlinkedStubInfoConstantIndex, stubInfoGPR);
     emitNakedNearCall(vm.getCTIStub(slow_op_put_by_val_prepareCallGenerator).retaggedCode<NoPtrTag>());
-
-    Call call;
-    if (JITCode::useDataIC(JITType::BaselineJIT))
-        byValInfo->m_slowOperation = isDirect ? operationDirectPutByValOptimize : operationPutByValOptimize;
-    else
-        call = appendCall(isDirect ? operationDirectPutByValOptimize : operationPutByValOptimize);
     emitNakedNearCall(vm.getCTIStub(checkExceptionGenerator).retaggedCode<NoPtrTag>());
 #endif // ENABLE(EXTRA_CTI_THUNKS)
 
-    m_byValCompilationInfo[m_byValInstructionIndex].slowPathTarget = slowPath;
-    m_byValCompilationInfo[m_byValInstructionIndex].returnAddress = call;
-    m_byValInstructionIndex++;
+    gen.reportSlowPathCall(coldPathBegin, Call());
 }
 
 #if ENABLE(EXTRA_CTI_THUNKS)
@@ -719,29 +604,34 @@ MacroAssemblerCodeRef<JITThunkPtrTag> JIT::slow_op_put_by_val_prepareCallGenerat
     // it makes assumptions about the right globalObject being available from CallFrame::codeBlock().
     // DFG/FTL may inline functions belonging to other globalObjects, which may not match
     // CallFrame::codeBlock().
-    JIT jit(vm);
+    CCallHelpers jit;
 
     if (!JITCode::useDataIC(JITType::BaselineJIT))
         jit.tagReturnAddress();
 
-    constexpr GPRReg bytecodeOffsetGPR = argumentGPR0;
+    constexpr GPRReg globalObjectGPR = regT5;
+    constexpr GPRReg baseGPR = BaselinePutByValRegisters::baseJSR.payloadGPR();
+    constexpr GPRReg propertyGPR = BaselinePutByValRegisters::propertyJSR.payloadGPR();
+    constexpr GPRReg valueGPR = BaselinePutByValRegisters::valueJSR.payloadGPR();
+    constexpr GPRReg stubInfoGPR = regT4;
+    constexpr GPRReg profileGPR = BaselinePutByValRegisters::profileGPR;
+    constexpr GPRReg bytecodeOffsetGPR = regT5;
+    {
+        RegisterSet used(baseGPR, propertyGPR, valueGPR, profileGPR);
+        ASSERT(!used.contains(regT4));
+        ASSERT(!used.contains(regT5));
+    }
+
+
     jit.store32(bytecodeOffsetGPR, tagFor(CallFrameSlot::argumentCountIncludingThis));
-
-    constexpr GPRReg globalObjectGPR = argumentGPR0;
-    constexpr GPRReg baseGPR = argumentGPR1;
-    constexpr GPRReg propertyGPR = argumentGPR2;
-    constexpr GPRReg valuePR = argumentGPR3;
-    constexpr GPRReg byValInfoGPR = argumentGPR4;
-    constexpr GPRReg ecmaModeGPR = argumentGPR5;
-
     jit.loadPtr(addressFor(CallFrameSlot::codeBlock), globalObjectGPR);
     jit.loadPtr(Address(globalObjectGPR, CodeBlock::offsetOfGlobalObject()), globalObjectGPR);
 
-    jit.setupArguments<decltype(operationPutByValOptimize)>(globalObjectGPR, baseGPR, propertyGPR, valuePR, byValInfoGPR, ecmaModeGPR);
+    jit.setupArguments<decltype(operationPutByValStrictOptimize)>(globalObjectGPR, baseGPR, propertyGPR, valueGPR, stubInfoGPR, profileGPR);
     jit.prepareCallOperation(vm);
 
     if (JITCode::useDataIC(JITType::BaselineJIT))
-        jit.farJump(Address(argumentGPR4, ByValInfo::offsetOfSlowOperation()), OperationPtrTag);
+        jit.farJump(Address(argumentGPR4, StructureStubInfo::offsetOfSlowOperation()), OperationPtrTag);
     else
         jit.ret();
 
@@ -755,76 +645,86 @@ void JIT::emit_op_put_private_name(const Instruction* currentInstruction)
     auto bytecode = currentInstruction->as<OpPutPrivateName>();
     VirtualRegister base = bytecode.m_base;
     VirtualRegister property = bytecode.m_property;
-    ByValInfo* byValInfo = m_codeBlock->addByValInfo(m_bytecodeIndex);
+    VirtualRegister value = bytecode.m_value;
 
-    emitGetVirtualRegister(base, regT0);
-    emitGetVirtualRegister(property, regT1);
+    using BaselinePutByValRegisters::baseJSR;
+    using BaselinePutByValRegisters::propertyJSR;
+    using BaselinePutByValRegisters::valueJSR;
+    using BaselinePutByValRegisters::stubInfoGPR;
 
-    emitJumpSlowCaseIfNotJSCell(regT0, base);
+    emitGetVirtualRegister(base, baseJSR);
+    emitGetVirtualRegister(property, propertyJSR);
+    emitGetVirtualRegister(value, valueJSR);
 
-    PatchableJump fastPathJmp;
-    if (JITCode::useDataIC(JITType::BaselineJIT))
-        farJump(AbsoluteAddress(&byValInfo->m_notIndexJumpTarget), JITStubRoutinePtrTag);
-    else {
-        fastPathJmp = patchableJump();
-        addSlowCase(fastPathJmp);
-    }
-    
-    Label done = label();
-    
-    m_byValCompilationInfo.append(ByValCompilationInfo(byValInfo, m_bytecodeIndex, fastPathJmp, done, done));
+    emitJumpSlowCaseIfNotJSCell(baseJSR, base);
+
+    JITPutByValGenerator gen(
+        nullptr, nullptr, JITType::BaselineJIT, CodeOrigin(m_bytecodeIndex), CallSiteIndex(m_bytecodeIndex), AccessType::PutPrivateName, RegisterSet::stubUnavailableRegisters(),
+        baseJSR, propertyJSR, valueJSR, InvalidGPRReg, stubInfoGPR);
+
+    auto [ stubInfo, stubInfoIndex ] = addUnlinkedStructureStubInfo();
+    stubInfo->accessType = AccessType::PutPrivateName;
+    stubInfo->privateFieldPutKind = bytecode.m_putKind;
+    stubInfo->bytecodeIndex = m_bytecodeIndex;
+    gen.m_unlinkedStubInfoConstantIndex = stubInfoIndex;
+    gen.m_unlinkedStubInfo = stubInfo;
+
+    gen.generateBaselineDataICFastPath(*this, stubInfoIndex, stubInfoGPR);
+    addSlowCase();
+    m_putByVals.append(gen);
+
+    // IC can write new Structure without write-barrier if a base is cell.
+    // FIXME: Use UnconditionalWriteBarrier in Baseline effectively to reduce code size.
+    // https://bugs.webkit.org/show_bug.cgi?id=209395
+    emitWriteBarrier(base, ShouldFilterBase);
 }
 
 void JIT::emitSlow_op_put_private_name(const Instruction* currentInstruction, Vector<SlowCaseEntry>::iterator& iter)
 {
-    auto bytecode = currentInstruction->as<OpPutPrivateName>();
-    ByValInfo* byValInfo = m_byValCompilationInfo[m_byValInstructionIndex].byValInfo;
-    PrivateFieldPutKind putKind = bytecode.m_putKind;
+    UNUSED_PARAM(currentInstruction);
+
+    JITPutByValGenerator& gen = m_putByVals[m_putByValIndex++];
 
     linkAllSlowCases(iter);
-    Label slowPath = label();
+
+    Label coldPathBegin = label();
 
 #if !ENABLE(EXTRA_CTI_THUNKS)
-    constexpr GPRReg baseGPR = regT0;
-    constexpr GPRReg propertyGPR = regT1;
-    constexpr GPRReg valueGPR = regT2;
+    auto bytecode = currentInstruction->as<OpPutPrivateName>();
 
-    emitGetVirtualRegister(bytecode.m_base, baseGPR);
-    emitGetVirtualRegister(bytecode.m_property, propertyGPR);
-    emitGetVirtualRegister(bytecode.m_value, valueGPR);
-    Call call = callOperation(operationPutPrivateNameOptimize, TrustedImmPtr(m_codeBlock->globalObject()), baseGPR, propertyGPR, valueGPR, byValInfo, TrustedImm32(putKind.value()));
+    using SlowOperation = decltype(operationPutByValDefinePrivateFieldOptimize);
+    constexpr GPRReg globalObjectGPR = preferredArgumentGPR<SlowOperation, 0>();
+    constexpr JSValueRegs baseJSR = preferredArgumentJSR<SlowOperation, 1>();
+    constexpr JSValueRegs propertyJSR = preferredArgumentJSR<SlowOperation, 2>();
+    constexpr JSValueRegs valueJSR = preferredArgumentJSR<SlowOperation, 3>();
+    constexpr GPRReg stubInfoGPR = preferredArgumentGPR<SlowOperation, 4>();
+
+    loadGlobalObject(globalObjectGPR);
+    loadConstant(gen.m_unlinkedStubInfoConstantIndex, stubInfoGPR);
+    emitGetVirtualRegister(bytecode.m_base, baseJSR);
+    emitGetVirtualRegister(bytecode.m_property, propertyJSR);
+    emitGetVirtualRegister(bytecode.m_value, valueJSR);
+    callOperation<SlowOperation>(
+        Address(stubInfoGPR, StructureStubInfo::offsetOfSlowOperation()),
+        globalObjectGPR, baseJSR, propertyJSR, valueJSR, stubInfoGPR, TrustedImmPtr(nullptr));
 #else
     VM& vm = this->vm();
     uint32_t bytecodeOffset = m_bytecodeIndex.offset();
     ASSERT(BytecodeIndex(bytecodeOffset) == m_bytecodeIndex);
 
-    constexpr GPRReg bytecodeOffsetGPR = argumentGPR0;
+    // constexpr GPRReg baseGPR = regT0;
+    // constexpr GPRReg propertyGPR = regT1;
+    // constexpr GPRReg valueGPR = regT2;
+    constexpr GPRReg stubInfoGPR = regT3;
+    constexpr GPRReg bytecodeOffsetGPR = regT4;
+
     move(TrustedImm32(bytecodeOffset), bytecodeOffsetGPR);
-
-    constexpr GPRReg baseGPR = argumentGPR1;
-    constexpr GPRReg propertyGPR = argumentGPR2;
-    constexpr GPRReg valuePR = argumentGPR3;
-    constexpr GPRReg byValInfoGPR = argumentGPR4;
-    constexpr GPRReg putKindGPR = argumentGPR5;
-
-    emitGetVirtualRegister(bytecode.m_base, baseGPR);
-    emitGetVirtualRegister(bytecode.m_property, propertyGPR);
-    emitGetVirtualRegister(bytecode.m_value, valuePR);
-    move(TrustedImmPtr(byValInfo), byValInfoGPR);
-    move(TrustedImm32(putKind.value()), putKindGPR);
+    loadConstant(gen.m_unlinkedStubInfoConstantIndex, stubInfoGPR);
     emitNakedNearCall(vm.getCTIStub(slow_op_put_private_name_prepareCallGenerator).retaggedCode<NoPtrTag>());
-
-    Call call;
-    if (JITCode::useDataIC(JITType::BaselineJIT))
-        byValInfo->m_slowOperation = operationPutPrivateNameOptimize;
-    else
-        call = appendCall(operationPutPrivateNameOptimize);
     emitNakedNearCall(vm.getCTIStub(checkExceptionGenerator).retaggedCode<NoPtrTag>());
 #endif // ENABLE(EXTRA_CTI_THUNKS)
 
-    m_byValCompilationInfo[m_byValInstructionIndex].slowPathTarget = slowPath;
-    m_byValCompilationInfo[m_byValInstructionIndex].returnAddress = call;
-    m_byValInstructionIndex++;
+    gen.reportSlowPathCall(coldPathBegin, Call());
 }
 
 #if ENABLE(EXTRA_CTI_THUNKS)
@@ -834,29 +734,29 @@ MacroAssemblerCodeRef<JITThunkPtrTag> JIT::slow_op_put_private_name_prepareCallG
     // it makes assumptions about the right globalObject being available from CallFrame::codeBlock().
     // DFG/FTL may inline functions belonging to other globalObjects, which may not match
     // CallFrame::codeBlock().
-    JIT jit(vm);
+    CCallHelpers jit;
 
     if (!JITCode::useDataIC(JITType::BaselineJIT))
         jit.tagReturnAddress();
 
-    constexpr GPRReg bytecodeOffsetGPR = argumentGPR0;
+    constexpr GPRReg baseGPR = BaselinePutByValRegisters::baseJSR.payloadGPR();
+    constexpr GPRReg propertyGPR = BaselinePutByValRegisters::propertyJSR.payloadGPR();
+    constexpr GPRReg valueGPR = BaselinePutByValRegisters::valueJSR.payloadGPR();
+    constexpr GPRReg stubInfoGPR = regT3;
+    constexpr GPRReg bytecodeOffsetGPR = regT4;
+
     jit.store32(bytecodeOffsetGPR, tagFor(CallFrameSlot::argumentCountIncludingThis));
 
-    constexpr GPRReg globalObjectGPR = argumentGPR0;
-    constexpr GPRReg baseGPR = argumentGPR1;
-    constexpr GPRReg propertyGPR = argumentGPR2;
-    constexpr GPRReg valuePR = argumentGPR3;
-    constexpr GPRReg byValInfoGPR = argumentGPR4;
-    constexpr GPRReg putKindGPR = argumentGPR5;
+    constexpr GPRReg globalObjectGPR = regT4;
 
     jit.loadPtr(addressFor(CallFrameSlot::codeBlock), globalObjectGPR);
     jit.loadPtr(Address(globalObjectGPR, CodeBlock::offsetOfGlobalObject()), globalObjectGPR);
 
-    jit.setupArguments<decltype(operationPutPrivateNameOptimize)>(globalObjectGPR, baseGPR, propertyGPR, valuePR, byValInfoGPR, putKindGPR);
+    jit.setupArguments<decltype(operationPutByValDefinePrivateFieldOptimize)>(globalObjectGPR, baseGPR, propertyGPR, valueGPR, stubInfoGPR, TrustedImmPtr(nullptr));
     jit.prepareCallOperation(vm);
 
     if (JITCode::useDataIC(JITType::BaselineJIT))
-        jit.farJump(Address(argumentGPR4, ByValInfo::offsetOfSlowOperation()), OperationPtrTag);
+        jit.farJump(Address(argumentGPR4, StructureStubInfo::offsetOfSlowOperation()), OperationPtrTag);
     else
         jit.ret();
 
@@ -868,49 +768,70 @@ MacroAssemblerCodeRef<JITThunkPtrTag> JIT::slow_op_put_private_name_prepareCallG
 void JIT::emit_op_put_getter_by_id(const Instruction* currentInstruction)
 {
     auto bytecode = currentInstruction->as<OpPutGetterById>();
-    emitGetVirtualRegister(bytecode.m_base, regT0);
+    emitGetVirtualRegisterPayload(bytecode.m_base, regT0);
     int32_t options = bytecode.m_attributes;
-    emitGetVirtualRegister(bytecode.m_accessor, regT1);
-    callOperation(operationPutGetterById, TrustedImmPtr(m_codeBlock->globalObject()), regT0, m_codeBlock->identifier(bytecode.m_property).impl(), options, regT1);
+    emitGetVirtualRegisterPayload(bytecode.m_accessor, regT1);
+    loadGlobalObject(regT2);
+    callOperation(operationPutGetterById, regT2, regT0, m_unlinkedCodeBlock->identifier(bytecode.m_property).impl(), options, regT1);
 }
 
 void JIT::emit_op_put_setter_by_id(const Instruction* currentInstruction)
 {
     auto bytecode = currentInstruction->as<OpPutSetterById>();
-    emitGetVirtualRegister(bytecode.m_base, regT0);
+    emitGetVirtualRegisterPayload(bytecode.m_base, regT0);
     int32_t options = bytecode.m_attributes;
-    emitGetVirtualRegister(bytecode.m_accessor, regT1);
-    callOperation(operationPutSetterById, TrustedImmPtr(m_codeBlock->globalObject()), regT0, m_codeBlock->identifier(bytecode.m_property).impl(), options, regT1);
+    emitGetVirtualRegisterPayload(bytecode.m_accessor, regT1);
+    loadGlobalObject(regT2);
+    callOperation(operationPutSetterById, regT2, regT0, m_unlinkedCodeBlock->identifier(bytecode.m_property).impl(), options, regT1);
 }
 
 void JIT::emit_op_put_getter_setter_by_id(const Instruction* currentInstruction)
 {
     auto bytecode = currentInstruction->as<OpPutGetterSetterById>();
-    emitGetVirtualRegister(bytecode.m_base, regT0);
+    emitGetVirtualRegisterPayload(bytecode.m_base, regT0);
     int32_t attribute = bytecode.m_attributes;
-    emitGetVirtualRegister(bytecode.m_getter, regT1);
-    emitGetVirtualRegister(bytecode.m_setter, regT2);
-    callOperation(operationPutGetterSetter, TrustedImmPtr(m_codeBlock->globalObject()), regT0, m_codeBlock->identifier(bytecode.m_property).impl(), attribute, regT1, regT2);
+    emitGetVirtualRegisterPayload(bytecode.m_getter, regT1);
+    emitGetVirtualRegisterPayload(bytecode.m_setter, regT2);
+    loadGlobalObject(regT3);
+    callOperation(operationPutGetterSetter, regT3, regT0, m_unlinkedCodeBlock->identifier(bytecode.m_property).impl(), attribute, regT1, regT2);
 }
 
 void JIT::emit_op_put_getter_by_val(const Instruction* currentInstruction)
 {
     auto bytecode = currentInstruction->as<OpPutGetterByVal>();
-    emitGetVirtualRegister(bytecode.m_base, regT0);
-    emitGetVirtualRegister(bytecode.m_property, regT1);
+
+    using SlowOperation = decltype(operationPutGetterByVal);
+    constexpr GPRReg globalObjectGRP = preferredArgumentGPR<SlowOperation, 0>();
+    constexpr GPRReg baseGPR = preferredArgumentGPR<SlowOperation, 1>();
+    constexpr JSValueRegs propertyJSR = preferredArgumentJSR<SlowOperation, 2>();
+    // Attributes in argument 3
+    constexpr GPRReg setterGPR = preferredArgumentGPR<SlowOperation, 4>();
+
+    emitGetVirtualRegisterPayload(bytecode.m_base, baseGPR);
+    emitGetVirtualRegister(bytecode.m_property, propertyJSR);
     int32_t attributes = bytecode.m_attributes;
-    emitGetVirtualRegister(bytecode.m_accessor, regT2);
-    callOperation(operationPutGetterByVal, TrustedImmPtr(m_codeBlock->globalObject()), regT0, regT1, attributes, regT2);
+    emitGetVirtualRegisterPayload(bytecode.m_accessor, setterGPR);
+    loadGlobalObject(globalObjectGRP);
+    callOperation(operationPutGetterByVal, globalObjectGRP, baseGPR, propertyJSR, attributes, setterGPR);
 }
 
 void JIT::emit_op_put_setter_by_val(const Instruction* currentInstruction)
 {
     auto bytecode = currentInstruction->as<OpPutSetterByVal>();
-    emitGetVirtualRegister(bytecode.m_base, regT0);
-    emitGetVirtualRegister(bytecode.m_property, regT1);
+
+    using SlowOperation = decltype(operationPutSetterByVal);
+    constexpr GPRReg globalObjectGRP = preferredArgumentGPR<SlowOperation, 0>();
+    constexpr GPRReg baseGPR = preferredArgumentGPR<SlowOperation, 1>();
+    constexpr JSValueRegs propertyJSR = preferredArgumentJSR<SlowOperation, 2>();
+    // Attributes in argument 3
+    constexpr GPRReg setterGPR = preferredArgumentGPR<SlowOperation, 4>();
+
+    emitGetVirtualRegisterPayload(bytecode.m_base, baseGPR);
+    emitGetVirtualRegister(bytecode.m_property, propertyJSR);
     int32_t attributes = bytecode.m_attributes;
-    emitGetVirtualRegister(bytecode.m_accessor, regT2);
-    callOperation(operationPutSetterByVal, TrustedImmPtr(m_codeBlock->globalObject()), regT0, regT1, attributes, regT2);
+    emitGetVirtualRegisterPayload(bytecode.m_accessor, setterGPR);
+    loadGlobalObject(globalObjectGRP);
+    callOperation(operationPutSetterByVal, globalObjectGRP, baseGPR, propertyJSR, attributes, setterGPR);
 }
 
 void JIT::emit_op_del_by_id(const Instruction* currentInstruction)
@@ -918,23 +839,32 @@ void JIT::emit_op_del_by_id(const Instruction* currentInstruction)
     auto bytecode = currentInstruction->as<OpDelById>();
     VirtualRegister dst = bytecode.m_dst;
     VirtualRegister base = bytecode.m_base;
-    const Identifier* ident = &(m_codeBlock->identifier(bytecode.m_property));
+    const Identifier* ident = &(m_unlinkedCodeBlock->identifier(bytecode.m_property));
 
-    emitGetVirtualRegister(base, regT1);
-    emitJumpSlowCaseIfNotJSCell(regT1, base);
+    using BaselineDelByIdRegisters::baseJSR;
+    using BaselineDelByIdRegisters::resultJSR;
+    using BaselineDelByIdRegisters::stubInfoGPR;
+    using BaselineDelByIdRegisters::scratchGPR;
+
+    emitGetVirtualRegister(base, baseJSR);
+    emitJumpSlowCaseIfNotJSCell(baseJSR, base);
     JITDelByIdGenerator gen(
-        m_codeBlock, JITType::BaselineJIT, CodeOrigin(m_bytecodeIndex), CallSiteIndex(m_bytecodeIndex), RegisterSet::stubUnavailableRegisters(),
-        CacheableIdentifier::createFromIdentifierOwnedByCodeBlock(m_codeBlock, *ident),
-        JSValueRegs(regT1), JSValueRegs(regT0), regT3, regT2);
-    gen.generateFastPath(*this);
-    if (!JITCode::useDataIC(JITType::BaselineJIT))
-        addSlowCase(gen.slowPathJump());
-    else
-        addSlowCase();
+        nullptr, nullptr, JITType::BaselineJIT, CodeOrigin(m_bytecodeIndex), CallSiteIndex(m_bytecodeIndex), RegisterSet::stubUnavailableRegisters(),
+        CacheableIdentifier::createFromIdentifierOwnedByCodeBlock(m_unlinkedCodeBlock, *ident),
+        baseJSR, resultJSR, stubInfoGPR, scratchGPR);
+
+    auto [ stubInfo, stubInfoIndex ] = addUnlinkedStructureStubInfo();
+    stubInfo->accessType = AccessType::DeleteByID;
+    stubInfo->bytecodeIndex = m_bytecodeIndex;
+    gen.m_unlinkedStubInfoConstantIndex = stubInfoIndex;
+    gen.m_unlinkedStubInfo = stubInfo;
+
+    gen.generateBaselineDataICFastPath(*this, stubInfoIndex, stubInfoGPR);
+    addSlowCase();
     m_delByIds.append(gen);
 
-    boxBoolean(regT0, JSValueRegs(regT0));
-    emitPutVirtualRegister(dst, JSValueRegs(regT0));
+    boxBoolean(resultJSR.payloadGPR(), resultJSR);
+    emitPutVirtualRegister(dst, resultJSR);
 
     // IC can write new Structure without write-barrier if a base is cell.
     // We should emit write-barrier at the end of sequence since write-barrier clobbers registers.
@@ -950,15 +880,25 @@ void JIT::emitSlow_op_del_by_id(const Instruction* currentInstruction, Vector<Sl
     auto bytecode = currentInstruction->as<OpDelById>();
     VirtualRegister dst = bytecode.m_dst;
     VirtualRegister base = bytecode.m_base;
-    const Identifier* ident = &(m_codeBlock->identifier(bytecode.m_property));
+    const Identifier* ident = &(m_unlinkedCodeBlock->identifier(bytecode.m_property));
 
     JITDelByIdGenerator& gen = m_delByIds[m_delByIdIndex++];
 
     Label coldPathBegin = label();
 
 #if !ENABLE(EXTRA_CTI_THUNKS)
-    emitGetVirtualRegister(base, regT0);
-    Call call = callOperation(operationDeleteByIdOptimize, TrustedImmPtr(m_codeBlock->globalObject()), gen.stubInfo(), regT0, CacheableIdentifier::createFromIdentifierOwnedByCodeBlock(m_codeBlock, *ident).rawBits(), TrustedImm32(bytecode.m_ecmaMode.value()));
+    using SlowOperation = decltype(operationDeleteByIdOptimize);
+    constexpr GPRReg globalObjectGPR = preferredArgumentGPR<SlowOperation, 0>();
+    constexpr GPRReg stubInfoGPR = preferredArgumentGPR<SlowOperation, 1>();
+    constexpr JSValueRegs baseJSR = preferredArgumentJSR<SlowOperation, 2>();
+
+    loadGlobalObject(globalObjectGPR);
+    loadConstant(gen.m_unlinkedStubInfoConstantIndex, stubInfoGPR);
+    emitGetVirtualRegister(base, baseJSR);
+    callOperation<SlowOperation>(
+        Address(stubInfoGPR, StructureStubInfo::offsetOfSlowOperation()),
+        globalObjectGPR, stubInfoGPR, baseJSR,
+        CacheableIdentifier::createFromIdentifierOwnedByCodeBlock(m_unlinkedCodeBlock, *ident).rawBits(), TrustedImm32(bytecode.m_ecmaMode.value()));
 #else
     VM& vm = this->vm();
     uint32_t bytecodeOffset = m_bytecodeIndex.offset();
@@ -972,24 +912,21 @@ void JIT::emitSlow_op_del_by_id(const Instruction* currentInstruction, Vector<Sl
     constexpr GPRReg propertyGPR = argumentGPR3;
     constexpr GPRReg ecmaModeGPR = argumentGPR4;
 
-    move(TrustedImmPtr(gen.stubInfo()), stubInfoGPR);
+    loadConstant(gen.m_unlinkedStubInfoConstantIndex, stubInfoGPR);
     emitGetVirtualRegister(base, baseGPR);
-    move(TrustedImmPtr(CacheableIdentifier::createFromIdentifierOwnedByCodeBlock(m_codeBlock, *ident).rawBits()), propertyGPR);
+    move(TrustedImmPtr(CacheableIdentifier::createFromIdentifierOwnedByCodeBlock(m_unlinkedCodeBlock, *ident).rawBits()), propertyGPR);
     move(TrustedImm32(bytecode.m_ecmaMode.value()), ecmaModeGPR);
     emitNakedNearCall(vm.getCTIStub(slow_op_del_by_id_prepareCallGenerator).retaggedCode<NoPtrTag>());
-
-    Call call;
-    if (JITCode::useDataIC(JITType::BaselineJIT))
-        gen.stubInfo()->m_slowOperation = operationDeleteByIdOptimize;
-    else
-        call = appendCall(operationDeleteByIdOptimize);
     emitNakedNearCall(vm.getCTIStub(checkExceptionGenerator).retaggedCode<NoPtrTag>());
     static_assert(returnValueGPR == regT0);
 #endif // ENABLE(EXTRA_CTI_THUNKS)
 
-    boxBoolean(regT0, JSValueRegs(regT0));
-    emitPutVirtualRegister(dst, JSValueRegs(regT0));
-    gen.reportSlowPathCall(coldPathBegin, call);
+    using BaselineDelByIdRegisters::resultJSR;
+    static_assert(resultJSR.payloadGPR() == GPRInfo::returnValueGPR);
+
+    boxBoolean(resultJSR.payloadGPR(), resultJSR);
+    emitPutVirtualRegister(dst, resultJSR);
+    gen.reportSlowPathCall(coldPathBegin, Call());
 }
 
 #if ENABLE(EXTRA_CTI_THUNKS)
@@ -999,7 +936,7 @@ MacroAssemblerCodeRef<JITThunkPtrTag> JIT::slow_op_del_by_id_prepareCallGenerato
     // it makes assumptions about the right globalObject being available from CallFrame::codeBlock().
     // DFG/FTL may inline functions belonging to other globalObjects, which may not match
     // CallFrame::codeBlock().
-    JIT jit(vm);
+    CCallHelpers jit;
 
     if (!JITCode::useDataIC(JITType::BaselineJIT))
         jit.tagReturnAddress();
@@ -1036,22 +973,33 @@ void JIT::emit_op_del_by_val(const Instruction* currentInstruction)
     VirtualRegister base = bytecode.m_base;
     VirtualRegister property = bytecode.m_property;
 
-    emitGetVirtualRegister(base, regT1);
-    emitJumpSlowCaseIfNotJSCell(regT1, base);
-    emitGetVirtualRegister(property, regT0);
-    emitJumpSlowCaseIfNotJSCell(regT0, property);
+    using BaselineDelByValRegisters::baseJSR;
+    using BaselineDelByValRegisters::propertyJSR;
+    using BaselineDelByValRegisters::resultJSR;
+    using BaselineDelByValRegisters::stubInfoGPR;
+    using BaselineDelByValRegisters::scratchGPR;
+
+    emitGetVirtualRegister(base, baseJSR);
+    emitJumpSlowCaseIfNotJSCell(baseJSR, base);
+    emitGetVirtualRegister(property, propertyJSR);
+    emitJumpSlowCaseIfNotJSCell(propertyJSR, property);
+
     JITDelByValGenerator gen(
-        m_codeBlock, JITType::BaselineJIT, CodeOrigin(m_bytecodeIndex), CallSiteIndex(m_bytecodeIndex), RegisterSet::stubUnavailableRegisters(),
-        JSValueRegs(regT1), JSValueRegs(regT0), JSValueRegs(regT0), regT3, regT2);
-    gen.generateFastPath(*this);
-    if (!JITCode::useDataIC(JITType::BaselineJIT))
-        addSlowCase(gen.slowPathJump());
-    else
-        addSlowCase();
+        nullptr, nullptr, JITType::BaselineJIT, CodeOrigin(m_bytecodeIndex), CallSiteIndex(m_bytecodeIndex), RegisterSet::stubUnavailableRegisters(),
+        baseJSR, propertyJSR, resultJSR, stubInfoGPR, scratchGPR);
+
+    auto [ stubInfo, stubInfoIndex ] = addUnlinkedStructureStubInfo();
+    stubInfo->accessType = AccessType::DeleteByVal;
+    stubInfo->bytecodeIndex = m_bytecodeIndex;
+    gen.m_unlinkedStubInfoConstantIndex = stubInfoIndex;
+    gen.m_unlinkedStubInfo = stubInfo;
+
+    gen.generateBaselineDataICFastPath(*this, stubInfoIndex, stubInfoGPR);
+    addSlowCase();
     m_delByVals.append(gen);
 
-    boxBoolean(regT0, JSValueRegs(regT0));
-    emitPutVirtualRegister(dst, JSValueRegs(regT0));
+    boxBoolean(resultJSR.payloadGPR(), resultJSR);
+    emitPutVirtualRegister(dst, resultJSR);
 
     // We should emit write-barrier at the end of sequence since write-barrier clobbers registers.
     // IC can write new Structure without write-barrier if a base is cell.
@@ -1074,9 +1022,19 @@ void JIT::emitSlow_op_del_by_val(const Instruction* currentInstruction, Vector<S
     Label coldPathBegin = label();
 
 #if !ENABLE(EXTRA_CTI_THUNKS)
-    emitGetVirtualRegister(base, regT0);
-    emitGetVirtualRegister(property, regT1);
-    Call call = callOperation(operationDeleteByValOptimize, TrustedImmPtr(m_codeBlock->globalObject()), gen.stubInfo(), regT0, regT1, TrustedImm32(bytecode.m_ecmaMode.value()));
+    using SlowOperation = decltype(operationDeleteByValOptimize);
+    constexpr GPRReg globalObjectGPR = preferredArgumentGPR<SlowOperation, 0>();
+    constexpr GPRReg stubInfoGPR = preferredArgumentGPR<SlowOperation, 1>();
+    constexpr JSValueRegs baseJSR = preferredArgumentJSR<SlowOperation, 2>();
+    constexpr JSValueRegs propertyJSR = preferredArgumentJSR<SlowOperation, 3>();
+
+    loadGlobalObject(globalObjectGPR);
+    loadConstant(gen.m_unlinkedStubInfoConstantIndex, stubInfoGPR);
+    emitGetVirtualRegister(base, baseJSR);
+    emitGetVirtualRegister(property, propertyJSR);
+    callOperation<SlowOperation>(
+        Address(stubInfoGPR, StructureStubInfo::offsetOfSlowOperation()),
+        globalObjectGPR, stubInfoGPR, baseJSR, propertyJSR, TrustedImm32(bytecode.m_ecmaMode.value()));
 #else
     VM& vm = this->vm();
     uint32_t bytecodeOffset = m_bytecodeIndex.offset();
@@ -1090,24 +1048,21 @@ void JIT::emitSlow_op_del_by_val(const Instruction* currentInstruction, Vector<S
     constexpr GPRReg propertyGPR = argumentGPR3;
     constexpr GPRReg ecmaModeGPR = argumentGPR4;
 
-    move(TrustedImmPtr(gen.stubInfo()), stubInfoGPR);
+    loadConstant(gen.m_unlinkedStubInfoConstantIndex, stubInfoGPR);
     emitGetVirtualRegister(base, baseGPR);
     emitGetVirtualRegister(property, propertyGPR);
     move(TrustedImm32(bytecode.m_ecmaMode.value()), ecmaModeGPR);
     emitNakedNearCall(vm.getCTIStub(slow_op_del_by_val_prepareCallGenerator).retaggedCode<NoPtrTag>());
-
-    Call call;
-    if (JITCode::useDataIC(JITType::BaselineJIT))
-        gen.stubInfo()->m_slowOperation = operationDeleteByValOptimize;
-    else
-        call = appendCall(operationDeleteByValOptimize);
     emitNakedNearCall(vm.getCTIStub(checkExceptionGenerator).retaggedCode<NoPtrTag>());
     static_assert(returnValueGPR == regT0);
 #endif // ENABLE(EXTRA_CTI_THUNKS)
 
-    boxBoolean(regT0, JSValueRegs(regT0));
-    emitPutVirtualRegister(dst, JSValueRegs(regT0));
-    gen.reportSlowPathCall(coldPathBegin, call);
+    using BaselineDelByIdRegisters::resultJSR;
+    static_assert(resultJSR.payloadGPR() == GPRInfo::returnValueGPR);
+
+    boxBoolean(resultJSR.payloadGPR(), resultJSR);
+    emitPutVirtualRegister(dst, resultJSR);
+    gen.reportSlowPathCall(coldPathBegin, Call());
 }
 
 #if ENABLE(EXTRA_CTI_THUNKS)
@@ -1117,7 +1072,7 @@ MacroAssemblerCodeRef<JITThunkPtrTag> JIT::slow_op_del_by_val_prepareCallGenerat
     // it makes assumptions about the right globalObject being available from CallFrame::codeBlock().
     // DFG/FTL may inline functions belonging to other globalObjects, which may not match
     // CallFrame::codeBlock().
-    JIT jit(vm);
+    CCallHelpers jit;
 
     if (!JITCode::useDataIC(JITType::BaselineJIT))
         jit.tagReturnAddress();
@@ -1152,23 +1107,33 @@ void JIT::emit_op_try_get_by_id(const Instruction* currentInstruction)
     auto bytecode = currentInstruction->as<OpTryGetById>();
     VirtualRegister resultVReg = bytecode.m_dst;
     VirtualRegister baseVReg = bytecode.m_base;
-    const Identifier* ident = &(m_codeBlock->identifier(bytecode.m_property));
+    const Identifier* ident = &(m_unlinkedCodeBlock->identifier(bytecode.m_property));
 
-    emitGetVirtualRegister(baseVReg, regT0);
+    using BaselineGetByIdRegisters::baseJSR;
+    using BaselineGetByIdRegisters::resultJSR;
+    using BaselineGetByIdRegisters::stubInfoGPR;
 
-    emitJumpSlowCaseIfNotJSCell(regT0, baseVReg);
-
-    JSValueRegs resultRegs = JSValueRegs(regT0);
+    emitGetVirtualRegister(baseVReg, baseJSR);
+    emitJumpSlowCaseIfNotJSCell(baseJSR, baseVReg);
 
     JITGetByIdGenerator gen(
-        m_codeBlock, JITType::BaselineJIT, CodeOrigin(m_bytecodeIndex), CallSiteIndex(m_bytecodeIndex), RegisterSet::stubUnavailableRegisters(),
-        CacheableIdentifier::createFromIdentifierOwnedByCodeBlock(m_codeBlock, *ident), JSValueRegs(regT0), resultRegs, regT1, AccessType::TryGetById);
-    gen.generateFastPath(*this);
-    addSlowCase(gen.slowPathJump());
+        nullptr, nullptr, JITType::BaselineJIT, CodeOrigin(m_bytecodeIndex), CallSiteIndex(m_bytecodeIndex), RegisterSet::stubUnavailableRegisters(),
+        CacheableIdentifier::createFromIdentifierOwnedByCodeBlock(m_unlinkedCodeBlock, *ident), baseJSR, resultJSR, stubInfoGPR, AccessType::TryGetById);
+
+    auto [ stubInfo, stubInfoIndex ] = addUnlinkedStructureStubInfo();
+    stubInfo->accessType = AccessType::TryGetById;
+    stubInfo->bytecodeIndex = m_bytecodeIndex;
+    gen.m_unlinkedStubInfoConstantIndex = stubInfoIndex;
+    gen.m_unlinkedStubInfo = stubInfo;
+
+    gen.generateBaselineDataICFastPath(*this, stubInfoIndex, stubInfoGPR);
+    addSlowCase();
     m_getByIds.append(gen);
-    
-    emitValueProfilingSite(bytecode.metadata(m_codeBlock), resultRegs);
-    emitPutVirtualRegister(resultVReg);
+
+    emitValueProfilingSite(bytecode, resultJSR);
+
+    setFastPathResumePoint();
+    emitPutVirtualRegister(resultVReg, resultJSR);
 }
 
 void JIT::emitSlow_op_try_get_by_id(const Instruction* currentInstruction, Vector<SlowCaseEntry>::iterator& iter)
@@ -1176,15 +1141,25 @@ void JIT::emitSlow_op_try_get_by_id(const Instruction* currentInstruction, Vecto
     linkAllSlowCases(iter);
 
     auto bytecode = currentInstruction->as<OpTryGetById>();
-    VirtualRegister resultVReg = bytecode.m_dst;
-    const Identifier* ident = &(m_codeBlock->identifier(bytecode.m_property));
+    const Identifier* ident = &(m_unlinkedCodeBlock->identifier(bytecode.m_property));
 
     JITGetByIdGenerator& gen = m_getByIds[m_getByIdIndex++];
 
     Label coldPathBegin = label();
 
 #if !ENABLE(EXTRA_CTI_THUNKS)
-    Call call = callOperation(operationTryGetByIdOptimize, resultVReg, TrustedImmPtr(m_codeBlock->globalObject()), gen.stubInfo(), regT0, CacheableIdentifier::createFromIdentifierOwnedByCodeBlock(m_codeBlock, *ident).rawBits());
+    using SlowOperation = decltype(operationTryGetByIdOptimize);
+    constexpr GPRReg globalObjectGPR = preferredArgumentGPR<SlowOperation, 0>();
+    constexpr GPRReg stubInfoGPR = preferredArgumentGPR<SlowOperation, 1>();
+    constexpr JSValueRegs baseJSR = preferredArgumentJSR<SlowOperation, 2>();
+
+    loadGlobalObject(globalObjectGPR);
+    loadConstant(gen.m_unlinkedStubInfoConstantIndex, stubInfoGPR);
+    emitGetVirtualRegister(bytecode.m_base, baseJSR);
+    callOperation<SlowOperation>(
+        Address(stubInfoGPR, StructureStubInfo::offsetOfSlowOperation()),
+        globalObjectGPR, stubInfoGPR, baseJSR,
+        CacheableIdentifier::createFromIdentifierOwnedByCodeBlock(m_unlinkedCodeBlock, *ident).rawBits());
 #else
     VM& vm = this->vm();
     uint32_t bytecodeOffset = m_bytecodeIndex.offset();
@@ -1194,26 +1169,19 @@ void JIT::emitSlow_op_try_get_by_id(const Instruction* currentInstruction, Vecto
     move(JIT::TrustedImm32(bytecodeOffset), bytecodeOffsetGPR);
 
     constexpr GPRReg stubInfoGPR = argumentGPR1;
-    constexpr GPRReg baseGPR = regT0;
+    constexpr GPRReg baseGPR = BaselineGetByIdRegisters::baseJSR.payloadGPR();
     constexpr GPRReg propertyGPR = argumentGPR3;
     static_assert(baseGPR == argumentGPR0 || !isARM64());
 
-    move(TrustedImmPtr(gen.stubInfo()), stubInfoGPR);
-    move(TrustedImmPtr(CacheableIdentifier::createFromIdentifierOwnedByCodeBlock(m_codeBlock, *ident).rawBits()), propertyGPR);
+    loadConstant(gen.m_unlinkedStubInfoConstantIndex, stubInfoGPR);
+    move(TrustedImmPtr(CacheableIdentifier::createFromIdentifierOwnedByCodeBlock(m_unlinkedCodeBlock, *ident).rawBits()), propertyGPR);
     static_assert(std::is_same<decltype(operationTryGetByIdOptimize), decltype(operationGetByIdOptimize)>::value);
     emitNakedNearCall(vm.getCTIStub(slow_op_get_by_id_prepareCallGenerator).retaggedCode<NoPtrTag>());
-
-    Call call;
-    if (JITCode::useDataIC(JITType::BaselineJIT))
-        gen.stubInfo()->m_slowOperation = operationTryGetByIdOptimize;
-    else
-        call = appendCall(operationTryGetByIdOptimize);
     emitNakedNearCall(vm.getCTIStub(checkExceptionGenerator).retaggedCode<NoPtrTag>());
-
-    emitPutVirtualRegister(resultVReg, returnValueGPR);
 #endif // ENABLE(EXTRA_CTI_THUNKS)
 
-    gen.reportSlowPathCall(coldPathBegin, call);
+    static_assert(BaselineGetByIdRegisters::resultJSR == returnValueJSR);
+    gen.reportSlowPathCall(coldPathBegin, Call());
 }
 
 void JIT::emit_op_get_by_id_direct(const Instruction* currentInstruction)
@@ -1221,23 +1189,32 @@ void JIT::emit_op_get_by_id_direct(const Instruction* currentInstruction)
     auto bytecode = currentInstruction->as<OpGetByIdDirect>();
     VirtualRegister resultVReg = bytecode.m_dst;
     VirtualRegister baseVReg = bytecode.m_base;
-    const Identifier* ident = &(m_codeBlock->identifier(bytecode.m_property));
+    const Identifier* ident = &(m_unlinkedCodeBlock->identifier(bytecode.m_property));
 
-    emitGetVirtualRegister(baseVReg, regT0);
+    using BaselineGetByIdRegisters::baseJSR;
+    using BaselineGetByIdRegisters::resultJSR;
+    using BaselineGetByIdRegisters::stubInfoGPR;
 
-    emitJumpSlowCaseIfNotJSCell(regT0, baseVReg);
-
-    JSValueRegs resultRegs = JSValueRegs(regT0);
+    emitGetVirtualRegister(baseVReg, baseJSR);
+    emitJumpSlowCaseIfNotJSCell(baseJSR, baseVReg);
 
     JITGetByIdGenerator gen(
-        m_codeBlock, JITType::BaselineJIT, CodeOrigin(m_bytecodeIndex), CallSiteIndex(m_bytecodeIndex), RegisterSet::stubUnavailableRegisters(),
-        CacheableIdentifier::createFromIdentifierOwnedByCodeBlock(m_codeBlock, *ident), JSValueRegs(regT0), resultRegs, regT1, AccessType::GetByIdDirect);
-    gen.generateFastPath(*this);
-    addSlowCase(gen.slowPathJump());
+        nullptr, nullptr, JITType::BaselineJIT, CodeOrigin(m_bytecodeIndex), CallSiteIndex(m_bytecodeIndex), RegisterSet::stubUnavailableRegisters(),
+        CacheableIdentifier::createFromIdentifierOwnedByCodeBlock(m_unlinkedCodeBlock, *ident), baseJSR, resultJSR, stubInfoGPR, AccessType::GetByIdDirect);
+
+    auto [ stubInfo, stubInfoIndex ] = addUnlinkedStructureStubInfo();
+    stubInfo->accessType = AccessType::GetByIdDirect;
+    stubInfo->bytecodeIndex = m_bytecodeIndex;
+    gen.m_unlinkedStubInfoConstantIndex = stubInfoIndex;
+    gen.m_unlinkedStubInfo = stubInfo;
+
+    gen.generateBaselineDataICFastPath(*this, stubInfoIndex, stubInfoGPR);
+    addSlowCase();
     m_getByIds.append(gen);
 
-    emitValueProfilingSite(bytecode.metadata(m_codeBlock), resultRegs);
-    emitPutVirtualRegister(resultVReg);
+    setFastPathResumePoint();
+    emitValueProfilingSite(bytecode, resultJSR);
+    emitPutVirtualRegister(resultVReg, resultJSR);
 }
 
 void JIT::emitSlow_op_get_by_id_direct(const Instruction* currentInstruction, Vector<SlowCaseEntry>::iterator& iter)
@@ -1245,16 +1222,25 @@ void JIT::emitSlow_op_get_by_id_direct(const Instruction* currentInstruction, Ve
     linkAllSlowCases(iter);
 
     auto bytecode = currentInstruction->as<OpGetByIdDirect>();
-    auto& metadata = bytecode.metadata(m_codeBlock);
-    VirtualRegister resultVReg = bytecode.m_dst;
-    const Identifier* ident = &(m_codeBlock->identifier(bytecode.m_property));
+    const Identifier* ident = &(m_unlinkedCodeBlock->identifier(bytecode.m_property));
 
     JITGetByIdGenerator& gen = m_getByIds[m_getByIdIndex++];
 
     Label coldPathBegin = label();
 
 #if !ENABLE(EXTRA_CTI_THUNKS)
-    Call call = callOperationWithProfile(metadata, operationGetByIdDirectOptimize, resultVReg, TrustedImmPtr(m_codeBlock->globalObject()), gen.stubInfo(), regT0, CacheableIdentifier::createFromIdentifierOwnedByCodeBlock(m_codeBlock, *ident).rawBits());
+    using SlowOperation = decltype(operationGetByIdDirectOptimize);
+    constexpr GPRReg globalObjectGPR = preferredArgumentGPR<SlowOperation, 0>();
+    constexpr GPRReg stubInfoGPR = preferredArgumentGPR<SlowOperation, 1>();
+    constexpr JSValueRegs baseJSR = preferredArgumentJSR<SlowOperation, 2>();
+
+    loadGlobalObject(globalObjectGPR);
+    loadConstant(gen.m_unlinkedStubInfoConstantIndex, stubInfoGPR);
+    emitGetVirtualRegister(bytecode.m_base, baseJSR);
+    callOperation<SlowOperation>(
+        Address(stubInfoGPR, StructureStubInfo::offsetOfSlowOperation()),
+        globalObjectGPR, stubInfoGPR, baseJSR,
+        CacheableIdentifier::createFromIdentifierOwnedByCodeBlock(m_unlinkedCodeBlock, *ident).rawBits());
 #else
     VM& vm = this->vm();
     uint32_t bytecodeOffset = m_bytecodeIndex.offset();
@@ -1264,58 +1250,111 @@ void JIT::emitSlow_op_get_by_id_direct(const Instruction* currentInstruction, Ve
     move(TrustedImm32(bytecodeOffset), bytecodeOffsetGPR);
 
     constexpr GPRReg stubInfoGPR = argumentGPR1;
-    constexpr GPRReg baseGPR = regT0;
+    constexpr GPRReg baseGPR = BaselineGetByIdRegisters::baseJSR.payloadGPR();
     constexpr GPRReg propertyGPR = argumentGPR3;
     static_assert(baseGPR == argumentGPR0 || !isARM64());
 
-    move(TrustedImmPtr(gen.stubInfo()), stubInfoGPR);
-    move(TrustedImmPtr(CacheableIdentifier::createFromIdentifierOwnedByCodeBlock(m_codeBlock, *ident).rawBits()), propertyGPR);
+    loadConstant(gen.m_unlinkedStubInfoConstantIndex, stubInfoGPR);
+    move(TrustedImmPtr(CacheableIdentifier::createFromIdentifierOwnedByCodeBlock(m_unlinkedCodeBlock, *ident).rawBits()), propertyGPR);
     static_assert(std::is_same<decltype(operationGetByIdDirectOptimize), decltype(operationGetByIdOptimize)>::value);
     emitNakedNearCall(vm.getCTIStub(slow_op_get_by_id_prepareCallGenerator).retaggedCode<NoPtrTag>());
-
-    Call call;
-    if (JITCode::useDataIC(JITType::BaselineJIT))
-        gen.stubInfo()->m_slowOperation = operationGetByIdDirectOptimize;
-    else
-        call = appendCall(operationGetByIdDirectOptimize);
     emitNakedNearCall(vm.getCTIStub(checkExceptionGenerator).retaggedCode<NoPtrTag>());
-
-    emitValueProfilingSite(metadata, returnValueGPR);
-    emitPutVirtualRegister(resultVReg, returnValueGPR);
 #endif // ENABLE(EXTRA_CTI_THUNKS)
 
-    gen.reportSlowPathCall(coldPathBegin, call);
+    static_assert(BaselineGetByIdRegisters::resultJSR == returnValueJSR);
+    gen.reportSlowPathCall(coldPathBegin, Call());
 }
 
 void JIT::emit_op_get_by_id(const Instruction* currentInstruction)
 {
     auto bytecode = currentInstruction->as<OpGetById>();
-    auto& metadata = bytecode.metadata(m_codeBlock);
     VirtualRegister resultVReg = bytecode.m_dst;
     VirtualRegister baseVReg = bytecode.m_base;
-    const Identifier* ident = &(m_codeBlock->identifier(bytecode.m_property));
+    const Identifier* ident = &(m_unlinkedCodeBlock->identifier(bytecode.m_property));
 
-    emitGetVirtualRegister(baseVReg, regT0);
-    
-    emitJumpSlowCaseIfNotJSCell(regT0, baseVReg);
+    using BaselineGetByIdRegisters::baseJSR;
+    using BaselineGetByIdRegisters::resultJSR;
+    using BaselineGetByIdRegisters::stubInfoGPR;
+    using BaselineGetByIdRegisters::scratchGPR;
+
+    emitGetVirtualRegister(baseVReg, baseJSR);
+    emitJumpSlowCaseIfNotJSCell(baseJSR, baseVReg);
     
     if (*ident == m_vm->propertyNames->length && shouldEmitProfiling()) {
-        Jump notArrayLengthMode = branch8(NotEqual, AbsoluteAddress(&metadata.m_modeMetadata.mode), TrustedImm32(static_cast<uint8_t>(GetByIdMode::ArrayLength)));
-        emitArrayProfilingSiteWithCell(regT0, regT1, &metadata.m_modeMetadata.arrayLengthMode.arrayProfile);
+        load8FromMetadata(bytecode, OpGetById::Metadata::offsetOfModeMetadata() + GetByIdModeMetadata::offsetOfMode(), scratchGPR);
+        Jump notArrayLengthMode = branch32(NotEqual, TrustedImm32(static_cast<uint8_t>(GetByIdMode::ArrayLength)), scratchGPR);
+        emitArrayProfilingSiteWithCell(
+            bytecode,
+            OpGetById::Metadata::offsetOfModeMetadata() + GetByIdModeMetadataArrayLength::offsetOfArrayProfile(),
+            baseJSR.payloadGPR(), scratchGPR);
         notArrayLengthMode.link(this);
     }
 
-    JSValueRegs resultRegs = JSValueRegs(regT0);
-
     JITGetByIdGenerator gen(
-        m_codeBlock, JITType::BaselineJIT, CodeOrigin(m_bytecodeIndex), CallSiteIndex(m_bytecodeIndex), RegisterSet::stubUnavailableRegisters(),
-        CacheableIdentifier::createFromIdentifierOwnedByCodeBlock(m_codeBlock, *ident), JSValueRegs(regT0), resultRegs, regT1, AccessType::GetById);
-    gen.generateFastPath(*this);
-    addSlowCase(gen.slowPathJump());
+        nullptr, nullptr, JITType::BaselineJIT, CodeOrigin(m_bytecodeIndex), CallSiteIndex(m_bytecodeIndex), RegisterSet::stubUnavailableRegisters(),
+        CacheableIdentifier::createFromIdentifierOwnedByCodeBlock(m_unlinkedCodeBlock, *ident), baseJSR, resultJSR, stubInfoGPR, AccessType::GetById);
+
+    auto [ stubInfo, stubInfoIndex ] = addUnlinkedStructureStubInfo();
+    stubInfo->accessType = AccessType::GetById;
+    stubInfo->bytecodeIndex = m_bytecodeIndex;
+    gen.m_unlinkedStubInfoConstantIndex = stubInfoIndex;
+    gen.m_unlinkedStubInfo = stubInfo;
+
+    gen.generateBaselineDataICFastPath(*this, stubInfoIndex, stubInfoGPR);
+    resetSP(); // We might OSR exit here, so we need to conservatively reset SP
+    addSlowCase();
     m_getByIds.append(gen);
 
-    emitValueProfilingSite(bytecode.metadata(m_codeBlock), resultRegs);
-    emitPutVirtualRegister(resultVReg);
+    setFastPathResumePoint();
+    emitValueProfilingSite(bytecode, resultJSR);
+    emitPutVirtualRegister(resultVReg, resultJSR);
+}
+
+void JIT::emitSlow_op_get_by_id(const Instruction* currentInstruction, Vector<SlowCaseEntry>::iterator& iter)
+{
+    linkAllSlowCases(iter);
+
+    auto bytecode = currentInstruction->as<OpGetById>();
+    const Identifier* ident = &(m_unlinkedCodeBlock->identifier(bytecode.m_property));
+
+    JITGetByIdGenerator& gen = m_getByIds[m_getByIdIndex++];
+    
+    Label coldPathBegin = label();
+
+#if !ENABLE(EXTRA_CTI_THUNKS)
+    using SlowOperation = decltype(operationGetByIdOptimize);
+    constexpr GPRReg globalObjectGPR = preferredArgumentGPR<SlowOperation, 0>();
+    constexpr GPRReg stubInfoGPR = preferredArgumentGPR<SlowOperation, 1>();
+    constexpr JSValueRegs baseJSR = preferredArgumentJSR<SlowOperation, 2>();
+
+    loadGlobalObject(globalObjectGPR);
+    loadConstant(gen.m_unlinkedStubInfoConstantIndex, stubInfoGPR);
+    emitGetVirtualRegister(bytecode.m_base, baseJSR);
+    callOperation<SlowOperation>(
+        Address(stubInfoGPR, StructureStubInfo::offsetOfSlowOperation()),
+        globalObjectGPR, stubInfoGPR, baseJSR,
+        CacheableIdentifier::createFromIdentifierOwnedByCodeBlock(m_unlinkedCodeBlock, *ident).rawBits());
+#else
+    VM& vm = this->vm();
+    uint32_t bytecodeOffset = m_bytecodeIndex.offset();
+    ASSERT(BytecodeIndex(bytecodeOffset) == m_bytecodeIndex);
+
+    constexpr GPRReg bytecodeOffsetGPR = argumentGPR2;
+    move(TrustedImm32(bytecodeOffset), bytecodeOffsetGPR);
+
+    constexpr GPRReg stubInfoGPR = argumentGPR1;
+    constexpr GPRReg baseGPR = BaselineGetByIdRegisters::baseJSR.payloadGPR();
+    static_assert(baseGPR == argumentGPR0 || !isARM64());
+    constexpr GPRReg propertyGPR = argumentGPR3;
+
+    loadConstant(gen.m_unlinkedStubInfoConstantIndex, stubInfoGPR);
+    move(TrustedImmPtr(CacheableIdentifier::createFromIdentifierOwnedByCodeBlock(m_unlinkedCodeBlock, *ident).rawBits()), propertyGPR);
+    emitNakedNearCall(vm.getCTIStub(slow_op_get_by_id_prepareCallGenerator).retaggedCode<NoPtrTag>());
+    emitNakedNearCall(vm.getCTIStub(checkExceptionGenerator).retaggedCode<NoPtrTag>());
+#endif // ENABLE(EXTRA_CTI_THUNKS)
+
+    static_assert(BaselineGetByIdRegisters::resultJSR == returnValueJSR);
+    gen.reportSlowPathCall(coldPathBegin, Call());
 }
 
 void JIT::emit_op_get_by_id_with_this(const Instruction* currentInstruction)
@@ -1324,70 +1363,36 @@ void JIT::emit_op_get_by_id_with_this(const Instruction* currentInstruction)
     VirtualRegister resultVReg = bytecode.m_dst;
     VirtualRegister baseVReg = bytecode.m_base;
     VirtualRegister thisVReg = bytecode.m_thisValue;
-    const Identifier* ident = &(m_codeBlock->identifier(bytecode.m_property));
+    const Identifier* ident = &(m_unlinkedCodeBlock->identifier(bytecode.m_property));
 
-    emitGetVirtualRegister(baseVReg, regT0);
-    emitGetVirtualRegister(thisVReg, regT1);
-    emitJumpSlowCaseIfNotJSCell(regT0, baseVReg);
-    emitJumpSlowCaseIfNotJSCell(regT1, thisVReg);
+    using BaselineGetByIdWithThisRegisters::baseJSR;
+    using BaselineGetByIdWithThisRegisters::thisJSR;
+    using BaselineGetByIdWithThisRegisters::resultJSR;
+    using BaselineGetByIdWithThisRegisters::stubInfoGPR;
 
-    JSValueRegs resultRegs = JSValueRegs(regT0);
+    emitGetVirtualRegister(baseVReg, baseJSR);
+    emitGetVirtualRegister(thisVReg, thisJSR);
+    emitJumpSlowCaseIfNotJSCell(baseJSR, baseVReg);
+    emitJumpSlowCaseIfNotJSCell(thisJSR, thisVReg);
 
     JITGetByIdWithThisGenerator gen(
-        m_codeBlock, JITType::BaselineJIT, CodeOrigin(m_bytecodeIndex), CallSiteIndex(m_bytecodeIndex), RegisterSet::stubUnavailableRegisters(),
-        CacheableIdentifier::createFromIdentifierOwnedByCodeBlock(m_codeBlock, *ident), resultRegs, JSValueRegs(regT0), JSValueRegs(regT1), regT2);
-    gen.generateFastPath(*this);
-    addSlowCase(gen.slowPathJump());
+        nullptr, nullptr, JITType::BaselineJIT, CodeOrigin(m_bytecodeIndex), CallSiteIndex(m_bytecodeIndex), RegisterSet::stubUnavailableRegisters(),
+        CacheableIdentifier::createFromIdentifierOwnedByCodeBlock(m_unlinkedCodeBlock, *ident), resultJSR, baseJSR, thisJSR, stubInfoGPR);
+
+    auto [ stubInfo, stubInfoIndex ] = addUnlinkedStructureStubInfo();
+    stubInfo->accessType = AccessType::GetByIdWithThis;
+    stubInfo->bytecodeIndex = m_bytecodeIndex;
+    gen.m_unlinkedStubInfoConstantIndex = stubInfoIndex;
+    gen.m_unlinkedStubInfo = stubInfo;
+
+    gen.generateBaselineDataICFastPath(*this, stubInfoIndex, stubInfoGPR);
+    resetSP(); // We might OSR exit here, so we need to conservatively reset SP
+    addSlowCase();
     m_getByIdsWithThis.append(gen);
 
-    emitValueProfilingSite(bytecode.metadata(m_codeBlock), resultRegs);
-    emitPutVirtualRegister(resultVReg);
-}
-
-void JIT::emitSlow_op_get_by_id(const Instruction* currentInstruction, Vector<SlowCaseEntry>::iterator& iter)
-{
-    linkAllSlowCases(iter);
-
-    auto bytecode = currentInstruction->as<OpGetById>();
-    auto& metadata = bytecode.metadata(m_codeBlock);
-    VirtualRegister resultVReg = bytecode.m_dst;
-    const Identifier* ident = &(m_codeBlock->identifier(bytecode.m_property));
-
-    JITGetByIdGenerator& gen = m_getByIds[m_getByIdIndex++];
-    
-    Label coldPathBegin = label();
-
-#if !ENABLE(EXTRA_CTI_THUNKS)
-    Call call = callOperationWithProfile(metadata, operationGetByIdOptimize, resultVReg, TrustedImmPtr(m_codeBlock->globalObject()), gen.stubInfo(), regT0, CacheableIdentifier::createFromIdentifierOwnedByCodeBlock(m_codeBlock, *ident).rawBits());
-#else
-    VM& vm = this->vm();
-    uint32_t bytecodeOffset = m_bytecodeIndex.offset();
-    ASSERT(BytecodeIndex(bytecodeOffset) == m_bytecodeIndex);
-
-    constexpr GPRReg bytecodeOffsetGPR = argumentGPR2;
-    move(TrustedImm32(bytecodeOffset), bytecodeOffsetGPR);
-
-    constexpr GPRReg stubInfoGPR = argumentGPR1;
-    constexpr GPRReg baseGPR = regT0;
-    constexpr GPRReg propertyGPR = argumentGPR3;
-    static_assert(baseGPR == argumentGPR0 || !isARM64());
-
-    move(TrustedImmPtr(gen.stubInfo()), stubInfoGPR);
-    move(TrustedImmPtr(CacheableIdentifier::createFromIdentifierOwnedByCodeBlock(m_codeBlock, *ident).rawBits()), propertyGPR);
-    emitNakedNearCall(vm.getCTIStub(slow_op_get_by_id_prepareCallGenerator).retaggedCode<NoPtrTag>());
-
-    Call call;
-    if (JITCode::useDataIC(JITType::BaselineJIT))
-        gen.stubInfo()->m_slowOperation = operationGetByIdOptimize;
-    else
-        call = appendCall(operationGetByIdOptimize);
-    emitNakedNearCall(vm.getCTIStub(checkExceptionGenerator).retaggedCode<NoPtrTag>());
-
-    emitValueProfilingSite(metadata, returnValueGPR);
-    emitPutVirtualRegister(resultVReg, returnValueGPR);
-#endif // ENABLE(EXTRA_CTI_THUNKS)
-
-    gen.reportSlowPathCall(coldPathBegin, call);
+    setFastPathResumePoint();
+    emitValueProfilingSite(bytecode, resultJSR);
+    emitPutVirtualRegister(resultVReg, resultJSR);
 }
 
 #if ENABLE(EXTRA_CTI_THUNKS)
@@ -1397,7 +1402,7 @@ MacroAssemblerCodeRef<JITThunkPtrTag> JIT::slow_op_get_by_id_prepareCallGenerato
     // it makes assumptions about the right globalObject being available from CallFrame::codeBlock().
     // DFG/FTL may inline functions belonging to other globalObjects, which may not match
     // CallFrame::codeBlock().
-    JIT jit(vm);
+    CCallHelpers jit;
 
     if (!JITCode::useDataIC(JITType::BaselineJIT))
         jit.tagReturnAddress();
@@ -1432,16 +1437,27 @@ void JIT::emitSlow_op_get_by_id_with_this(const Instruction* currentInstruction,
     linkAllSlowCases(iter);
 
     auto bytecode = currentInstruction->as<OpGetByIdWithThis>();
-    auto& metadata = bytecode.metadata(m_codeBlock);
-    VirtualRegister resultVReg = bytecode.m_dst;
-    const Identifier* ident = &(m_codeBlock->identifier(bytecode.m_property));
+    const Identifier* ident = &(m_unlinkedCodeBlock->identifier(bytecode.m_property));
 
     JITGetByIdWithThisGenerator& gen = m_getByIdsWithThis[m_getByIdWithThisIndex++];
     
     Label coldPathBegin = label();
 
 #if !ENABLE(EXTRA_CTI_THUNKS)
-    Call call = callOperationWithProfile(metadata, operationGetByIdWithThisOptimize, resultVReg, TrustedImmPtr(m_codeBlock->globalObject()), gen.stubInfo(), regT0, regT1, CacheableIdentifier::createFromIdentifierOwnedByCodeBlock(m_codeBlock, *ident).rawBits());
+    using SlowOperation = decltype(operationGetByIdWithThisOptimize);
+    constexpr GPRReg globalObjectGPR = preferredArgumentGPR<SlowOperation, 0>();
+    constexpr GPRReg stubInfoGPR = preferredArgumentGPR<SlowOperation, 1>();
+    constexpr JSValueRegs baseJSR = preferredArgumentJSR<SlowOperation, 2>();
+    constexpr JSValueRegs thisJSR = preferredArgumentJSR<SlowOperation, 3>();
+
+    loadGlobalObject(globalObjectGPR);
+    loadConstant(gen.m_unlinkedStubInfoConstantIndex, stubInfoGPR);
+    emitGetVirtualRegister(bytecode.m_base, baseJSR);
+    emitGetVirtualRegister(bytecode.m_thisValue, thisJSR);
+    callOperation<SlowOperation>(
+        Address(stubInfoGPR, StructureStubInfo::offsetOfSlowOperation()),
+        globalObjectGPR, stubInfoGPR, baseJSR, thisJSR,
+        CacheableIdentifier::createFromIdentifierOwnedByCodeBlock(m_unlinkedCodeBlock, *ident).rawBits());
 #else
     VM& vm = this->vm();
     uint32_t bytecodeOffset = m_bytecodeIndex.offset();
@@ -1451,28 +1467,20 @@ void JIT::emitSlow_op_get_by_id_with_this(const Instruction* currentInstruction,
     move(TrustedImm32(bytecodeOffset), bytecodeOffsetGPR);
 
     constexpr GPRReg stubInfoGPR = argumentGPR2; // arg1 already in use.
-    constexpr GPRReg baseGPR = regT0;
-    constexpr GPRReg thisGPR = regT1;
+    constexpr GPRReg baseGPR = BaselineGetByIdWithThisRegisters::baseJSR.payloadGPR();
+    constexpr GPRReg thisGPR = BaselineGetByIdWithThisRegisters::thisJSR.payloadGPR();
     constexpr GPRReg propertyGPR = argumentGPR4;
     static_assert(baseGPR == argumentGPR0 || !isARM64());
     static_assert(thisGPR == argumentGPR1);
 
-    move(TrustedImmPtr(gen.stubInfo()), stubInfoGPR);
-    move(TrustedImmPtr(CacheableIdentifier::createFromIdentifierOwnedByCodeBlock(m_codeBlock, *ident).rawBits()), propertyGPR);
+    loadConstant(gen.m_unlinkedStubInfoConstantIndex, stubInfoGPR);
+    move(TrustedImmPtr(CacheableIdentifier::createFromIdentifierOwnedByCodeBlock(m_unlinkedCodeBlock, *ident).rawBits()), propertyGPR);
     emitNakedNearCall(vm.getCTIStub(slow_op_get_by_id_with_this_prepareCallGenerator).retaggedCode<NoPtrTag>());
-
-    Call call;
-    if (JITCode::useDataIC(JITType::BaselineJIT))
-        gen.stubInfo()->m_slowOperation = operationGetByIdWithThisOptimize;
-    else
-        call = appendCall(operationGetByIdWithThisOptimize);
     emitNakedNearCall(vm.getCTIStub(checkExceptionGenerator).retaggedCode<NoPtrTag>());
-
-    emitValueProfilingSite(metadata, returnValueGPR);
-    emitPutVirtualRegister(resultVReg, returnValueGPR);
 #endif // ENABLE(EXTRA_CTI_THUNKS)
 
-    gen.reportSlowPathCall(coldPathBegin, call);
+    static_assert(BaselineGetByIdWithThisRegisters::resultJSR == returnValueJSR);
+    gen.reportSlowPathCall(coldPathBegin, Call());
 }
 
 #if ENABLE(EXTRA_CTI_THUNKS)
@@ -1482,7 +1490,7 @@ MacroAssemblerCodeRef<JITThunkPtrTag> JIT::slow_op_get_by_id_with_this_prepareCa
     // it makes assumptions about the right globalObject being available from CallFrame::codeBlock().
     // DFG/FTL may inline functions belonging to other globalObjects, which may not match
     // CallFrame::codeBlock().
-    JIT jit(vm);
+    CCallHelpers jit;
 
     if (!JITCode::useDataIC(JITType::BaselineJIT))
         jit.tagReturnAddress();
@@ -1520,23 +1528,38 @@ void JIT::emit_op_put_by_id(const Instruction* currentInstruction)
     VirtualRegister baseVReg = bytecode.m_base;
     VirtualRegister valueVReg = bytecode.m_value;
     bool direct = bytecode.m_flags.isDirect();
-    const Identifier* ident = &(m_codeBlock->identifier(bytecode.m_property));
+    const Identifier* ident = &(m_unlinkedCodeBlock->identifier(bytecode.m_property));
 
     // In order to be able to patch both the Structure, and the object offset, we store one pointer,
     // to just after the arguments have been loaded into registers 'hotPathBegin', and we generate code
     // such that the Structure & offset are always at the same distance from this.
 
-    emitGetVirtualRegisters(baseVReg, regT0, valueVReg, regT1);
+    using BaselinePutByIdRegisters::baseJSR;
+    using BaselinePutByIdRegisters::valueJSR;
+    using BaselinePutByIdRegisters::stubInfoGPR;
+    using BaselinePutByIdRegisters::scratchGPR;
 
-    emitJumpSlowCaseIfNotJSCell(regT0, baseVReg);
+    emitGetVirtualRegister(baseVReg, baseJSR);
+    emitGetVirtualRegister(valueVReg, valueJSR);
+    emitJumpSlowCaseIfNotJSCell(baseJSR, baseVReg);
 
     JITPutByIdGenerator gen(
-        m_codeBlock, JITType::BaselineJIT, CodeOrigin(m_bytecodeIndex), CallSiteIndex(m_bytecodeIndex), RegisterSet::stubUnavailableRegisters(),
-        CacheableIdentifier::createFromIdentifierOwnedByCodeBlock(m_codeBlock, *ident),
-        JSValueRegs(regT0), JSValueRegs(regT1), regT3, regT2, ecmaMode(bytecode),
+        nullptr, nullptr, JITType::BaselineJIT, CodeOrigin(m_bytecodeIndex), CallSiteIndex(m_bytecodeIndex), RegisterSet::stubUnavailableRegisters(),
+        CacheableIdentifier::createFromIdentifierOwnedByCodeBlock(m_unlinkedCodeBlock, *ident),
+        baseJSR, valueJSR, stubInfoGPR, scratchGPR, ecmaMode(bytecode),
         direct ? PutKind::Direct : PutKind::NotDirect);
-    gen.generateFastPath(*this);
-    addSlowCase(gen.slowPathJump());
+
+    auto [ stubInfo, stubInfoIndex ] = addUnlinkedStructureStubInfo();
+    stubInfo->accessType = AccessType::PutById;
+    stubInfo->putKind = direct ? PutKind::Direct : PutKind::NotDirect;
+    stubInfo->ecmaMode = ecmaMode(bytecode);
+    stubInfo->bytecodeIndex = m_bytecodeIndex;
+    gen.m_unlinkedStubInfoConstantIndex = stubInfoIndex;
+    gen.m_unlinkedStubInfo = stubInfo;
+
+    gen.generateBaselineDataICFastPath(*this, stubInfoIndex, stubInfoGPR);
+    resetSP(); // We might OSR exit here, so we need to conservatively reset SP
+    addSlowCase();
     m_putByIds.append(gen);
     
     // IC can write new Structure without write-barrier if a base is cell.
@@ -1550,14 +1573,27 @@ void JIT::emitSlow_op_put_by_id(const Instruction* currentInstruction, Vector<Sl
     linkAllSlowCases(iter);
 
     auto bytecode = currentInstruction->as<OpPutById>();
-    const Identifier* ident = &(m_codeBlock->identifier(bytecode.m_property));
+    const Identifier* ident = &(m_unlinkedCodeBlock->identifier(bytecode.m_property));
 
     Label coldPathBegin(this);
     
     JITPutByIdGenerator& gen = m_putByIds[m_putByIdIndex++];
 
 #if !ENABLE(EXTRA_CTI_THUNKS)
-    Call call = callOperation(gen.slowPathFunction(), TrustedImmPtr(m_codeBlock->globalObject()), gen.stubInfo(), regT1, regT0, CacheableIdentifier::createFromIdentifierOwnedByCodeBlock(m_codeBlock, *ident).rawBits());
+    using SlowOperation = decltype(operationPutByIdStrictOptimize);
+    constexpr GPRReg globalObjectGPR = preferredArgumentGPR<SlowOperation, 0>();
+    constexpr GPRReg stubInfoGPR = preferredArgumentGPR<SlowOperation, 1>();
+    constexpr JSValueRegs valueJSR = preferredArgumentJSR<SlowOperation, 2>();
+    constexpr JSValueRegs baseJSR = preferredArgumentJSR<SlowOperation, 3>();
+
+    loadGlobalObject(globalObjectGPR);
+    loadConstant(gen.m_unlinkedStubInfoConstantIndex, stubInfoGPR);
+    emitGetVirtualRegister(bytecode.m_value, valueJSR);
+    emitGetVirtualRegister(bytecode.m_base, baseJSR);
+    callOperation<SlowOperation>(
+        Address(stubInfoGPR, StructureStubInfo::offsetOfSlowOperation()),
+        globalObjectGPR, stubInfoGPR, valueJSR, baseJSR,
+        CacheableIdentifier::createFromIdentifierOwnedByCodeBlock(m_unlinkedCodeBlock, *ident).rawBits());
 #else
     VM& vm = this->vm();
     uint32_t bytecodeOffset = m_bytecodeIndex.offset();
@@ -1567,25 +1603,19 @@ void JIT::emitSlow_op_put_by_id(const Instruction* currentInstruction, Vector<Sl
     move(TrustedImm32(bytecodeOffset), bytecodeOffsetGPR);
 
     constexpr GPRReg stubInfoGPR = argumentGPR3; // arg1 already in use.
-    constexpr GPRReg valueGPR = regT1;
-    constexpr GPRReg baseGPR = regT0;
+    constexpr GPRReg valueGPR = BaselinePutByIdRegisters::valueJSR.payloadGPR();
+    constexpr GPRReg baseGPR = BaselinePutByIdRegisters::baseJSR.payloadGPR();
     constexpr GPRReg propertyGPR = argumentGPR4;
     static_assert(baseGPR == argumentGPR0 || !isARM64());
     static_assert(valueGPR == argumentGPR1);
 
-    move(TrustedImmPtr(gen.stubInfo()), stubInfoGPR);
-    move(TrustedImmPtr(CacheableIdentifier::createFromIdentifierOwnedByCodeBlock(m_codeBlock, *ident).rawBits()), propertyGPR);
+    loadConstant(gen.m_unlinkedStubInfoConstantIndex, stubInfoGPR);
+    move(TrustedImmPtr(CacheableIdentifier::createFromIdentifierOwnedByCodeBlock(m_unlinkedCodeBlock, *ident).rawBits()), propertyGPR);
     emitNakedNearCall(vm.getCTIStub(slow_op_put_by_id_prepareCallGenerator).retaggedCode<NoPtrTag>());
-
-    Call call;
-    if (JITCode::useDataIC(JITType::BaselineJIT))
-        gen.stubInfo()->m_slowOperation = gen.slowPathFunction();
-    else
-        call = appendCall(gen.slowPathFunction());
     emitNakedNearCall(vm.getCTIStub(checkExceptionGenerator).retaggedCode<NoPtrTag>());
 #endif // ENABLE(EXTRA_CTI_THUNKS)
 
-    gen.reportSlowPathCall(coldPathBegin, call);
+    gen.reportSlowPathCall(coldPathBegin, Call());
 }
 
 #if ENABLE(EXTRA_CTI_THUNKS)
@@ -1595,7 +1625,7 @@ MacroAssemblerCodeRef<JITThunkPtrTag> JIT::slow_op_put_by_id_prepareCallGenerato
     // it makes assumptions about the right globalObject being available from CallFrame::codeBlock().
     // DFG/FTL may inline functions belonging to other globalObjects, which may not match
     // CallFrame::codeBlock().
-    JIT jit(vm);
+    CCallHelpers jit;
 
     if (!JITCode::useDataIC(JITType::BaselineJIT))
         jit.tagReturnAddress();
@@ -1632,20 +1662,31 @@ void JIT::emit_op_in_by_id(const Instruction* currentInstruction)
     auto bytecode = currentInstruction->as<OpInById>();
     VirtualRegister resultVReg = bytecode.m_dst;
     VirtualRegister baseVReg = bytecode.m_base;
-    const Identifier* ident = &(m_codeBlock->identifier(bytecode.m_property));
+    const Identifier* ident = &(m_unlinkedCodeBlock->identifier(bytecode.m_property));
 
-    emitGetVirtualRegister(baseVReg, regT0);
+    using BaselineInByIdRegisters::baseJSR;
+    using BaselineInByIdRegisters::resultJSR;
+    using BaselineInByIdRegisters::stubInfoGPR;
 
-    emitJumpSlowCaseIfNotJSCell(regT0, baseVReg);
+    emitGetVirtualRegister(baseVReg, baseJSR);
+    emitJumpSlowCaseIfNotJSCell(baseJSR, baseVReg);
 
     JITInByIdGenerator gen(
-        m_codeBlock, JITType::BaselineJIT, CodeOrigin(m_bytecodeIndex), CallSiteIndex(m_bytecodeIndex), RegisterSet::stubUnavailableRegisters(),
-        CacheableIdentifier::createFromIdentifierOwnedByCodeBlock(m_codeBlock, *ident), JSValueRegs(regT0), JSValueRegs(regT0), regT1);
-    gen.generateFastPath(*this);
-    addSlowCase(gen.slowPathJump());
+        nullptr, nullptr, JITType::BaselineJIT, CodeOrigin(m_bytecodeIndex), CallSiteIndex(m_bytecodeIndex), RegisterSet::stubUnavailableRegisters(),
+        CacheableIdentifier::createFromIdentifierOwnedByCodeBlock(m_unlinkedCodeBlock, *ident), baseJSR, resultJSR, stubInfoGPR);
+
+    auto [ stubInfo, stubInfoIndex ] = addUnlinkedStructureStubInfo();
+    stubInfo->accessType = AccessType::InById;
+    stubInfo->bytecodeIndex = m_bytecodeIndex;
+    gen.m_unlinkedStubInfoConstantIndex = stubInfoIndex;
+    gen.m_unlinkedStubInfo = stubInfo;
+
+    gen.generateBaselineDataICFastPath(*this, stubInfoIndex, stubInfoGPR);
+    addSlowCase();
     m_inByIds.append(gen);
 
-    emitPutVirtualRegister(resultVReg);
+    setFastPathResumePoint();
+    emitPutVirtualRegister(resultVReg, resultJSR);
 }
 
 void JIT::emitSlow_op_in_by_id(const Instruction* currentInstruction, Vector<SlowCaseEntry>::iterator& iter)
@@ -1653,15 +1694,25 @@ void JIT::emitSlow_op_in_by_id(const Instruction* currentInstruction, Vector<Slo
     linkAllSlowCases(iter);
 
     auto bytecode = currentInstruction->as<OpInById>();
-    VirtualRegister resultVReg = bytecode.m_dst;
-    const Identifier* ident = &(m_codeBlock->identifier(bytecode.m_property));
+    const Identifier* ident = &(m_unlinkedCodeBlock->identifier(bytecode.m_property));
 
     JITInByIdGenerator& gen = m_inByIds[m_inByIdIndex++];
 
     Label coldPathBegin = label();
 
 #if !ENABLE(EXTRA_CTI_THUNKS)
-    Call call = callOperation(operationInByIdOptimize, resultVReg, TrustedImmPtr(m_codeBlock->globalObject()), gen.stubInfo(), regT0, CacheableIdentifier::createFromIdentifierOwnedByCodeBlock(m_codeBlock, *ident).rawBits());
+    using SlowOperation = decltype(operationInByIdOptimize);
+    constexpr GPRReg globalObjectGPR = preferredArgumentGPR<SlowOperation, 0>();
+    constexpr GPRReg stubInfoGPR = preferredArgumentGPR<SlowOperation, 1>();
+    constexpr JSValueRegs baseJSR = preferredArgumentJSR<SlowOperation, 2>();
+
+    loadGlobalObject(globalObjectGPR);
+    loadConstant(gen.m_unlinkedStubInfoConstantIndex, stubInfoGPR);
+    emitGetVirtualRegister(bytecode.m_base, baseJSR);
+    callOperation<SlowOperation>(
+        Address(stubInfoGPR, StructureStubInfo::offsetOfSlowOperation()),
+        globalObjectGPR, stubInfoGPR, baseJSR,
+        CacheableIdentifier::createFromIdentifierOwnedByCodeBlock(m_unlinkedCodeBlock, *ident).rawBits());
 #else
     VM& vm = this->vm();
     uint32_t bytecodeOffset = m_bytecodeIndex.offset();
@@ -1671,28 +1722,21 @@ void JIT::emitSlow_op_in_by_id(const Instruction* currentInstruction, Vector<Slo
     move(TrustedImm32(bytecodeOffset), bytecodeOffsetGPR);
 
     constexpr GPRReg stubInfoGPR = argumentGPR1;
-    constexpr GPRReg baseGPR = regT0;
+    constexpr GPRReg baseGPR = BaselineInByIdRegisters::baseJSR.payloadGPR();
     constexpr GPRReg propertyGPR = argumentGPR3;
     static_assert(baseGPR == argumentGPR0 || !isARM64());
 
-    move(TrustedImmPtr(gen.stubInfo()), stubInfoGPR);
-    move(TrustedImmPtr(CacheableIdentifier::createFromIdentifierOwnedByCodeBlock(m_codeBlock, *ident).rawBits()), propertyGPR);
+    loadConstant(gen.m_unlinkedStubInfoConstantIndex, stubInfoGPR);
+    move(TrustedImmPtr(CacheableIdentifier::createFromIdentifierOwnedByCodeBlock(m_unlinkedCodeBlock, *ident).rawBits()), propertyGPR);
     // slow_op_get_by_id_prepareCallGenerator will do exactly what we need.
     // So, there's no point in creating a duplicate thunk just to give it a different name.
     static_assert(std::is_same<decltype(operationInByIdOptimize), decltype(operationGetByIdOptimize)>::value);
     emitNakedNearCall(vm.getCTIStub(slow_op_get_by_id_prepareCallGenerator).retaggedCode<NoPtrTag>());
-
-    Call call;
-    if (JITCode::useDataIC(JITType::BaselineJIT))
-        gen.stubInfo()->m_slowOperation = operationInByIdOptimize;
-    else
-        call = appendCall(operationInByIdOptimize);
     emitNakedNearCall(vm.getCTIStub(checkExceptionGenerator).retaggedCode<NoPtrTag>());
-
-    emitPutVirtualRegister(resultVReg, returnValueGPR);
 #endif // ENABLE(EXTRA_CTI_THUNKS)
 
-    gen.reportSlowPathCall(coldPathBegin, call);
+    static_assert(BaselineInByIdRegisters::resultJSR == returnValueJSR);
+    gen.reportSlowPathCall(coldPathBegin, Call());
 }
 
 void JIT::emit_op_in_by_val(const Instruction* currentInstruction)
@@ -1701,25 +1745,34 @@ void JIT::emit_op_in_by_val(const Instruction* currentInstruction)
     VirtualRegister dst = bytecode.m_dst;
     VirtualRegister base = bytecode.m_base;
     VirtualRegister property = bytecode.m_property;
-    auto& metadata = bytecode.metadata(m_codeBlock);
-    ArrayProfile* profile = &metadata.m_arrayProfile;
 
-    emitGetVirtualRegister(base, regT0);
-    emitJumpSlowCaseIfNotJSCell(regT0, base);
-    emitGetVirtualRegister(property, regT1);
-    emitArrayProfilingSiteWithCell(regT0, regT2, profile);
+    using BaselineInByValRegisters::baseJSR;
+    using BaselineInByValRegisters::propertyJSR;
+    using BaselineInByValRegisters::resultJSR;
+    using BaselineInByValRegisters::stubInfoGPR;
+    using BaselineInByValRegisters::scratchGPR;
+
+    emitGetVirtualRegister(base, baseJSR);
+    emitGetVirtualRegister(property, propertyJSR);
+    emitJumpSlowCaseIfNotJSCell(baseJSR, base);
+    emitArrayProfilingSiteWithCell(bytecode, baseJSR.payloadGPR(), scratchGPR);
 
     JITInByValGenerator gen(
-        m_codeBlock, JITType::BaselineJIT, CodeOrigin(m_bytecodeIndex), CallSiteIndex(m_bytecodeIndex), AccessType::InByVal, RegisterSet::stubUnavailableRegisters(),
-        JSValueRegs(regT0), JSValueRegs(regT1), JSValueRegs(regT0), regT2);
-    gen.generateFastPath(*this);
-    if (!JITCode::useDataIC(JITType::BaselineJIT))
-        addSlowCase(gen.slowPathJump());
-    else
-        addSlowCase();
+        nullptr, nullptr, JITType::BaselineJIT, CodeOrigin(m_bytecodeIndex), CallSiteIndex(m_bytecodeIndex), AccessType::InByVal, RegisterSet::stubUnavailableRegisters(),
+        baseJSR, propertyJSR, resultJSR, stubInfoGPR);
+
+    auto [ stubInfo, stubInfoIndex ] = addUnlinkedStructureStubInfo();
+    stubInfo->accessType = AccessType::InByVal;
+    stubInfo->bytecodeIndex = m_bytecodeIndex;
+    gen.m_unlinkedStubInfoConstantIndex = stubInfoIndex;
+    gen.m_unlinkedStubInfo = stubInfo;
+
+    gen.generateBaselineDataICFastPath(*this, stubInfoIndex, stubInfoGPR);
+    addSlowCase();
     m_inByVals.append(gen);
 
-    emitPutVirtualRegister(dst);
+    setFastPathResumePoint();
+    emitPutVirtualRegister(dst, resultJSR);
 }
 
 void JIT::emitSlow_op_in_by_val(const Instruction* currentInstruction, Vector<SlowCaseEntry>::iterator& iter)
@@ -1727,16 +1780,27 @@ void JIT::emitSlow_op_in_by_val(const Instruction* currentInstruction, Vector<Sl
     linkAllSlowCases(iter);
 
     auto bytecode = currentInstruction->as<OpInByVal>();
-    VirtualRegister dst = bytecode.m_dst;
-    auto& metadata = bytecode.metadata(m_codeBlock);
-    ArrayProfile* profile = &metadata.m_arrayProfile;
 
     JITInByValGenerator& gen = m_inByVals[m_inByValIndex++];
 
     Label coldPathBegin = label();
 
 #if !ENABLE(EXTRA_CTI_THUNKS)
-    Call call = callOperation(operationInByValOptimize, dst, TrustedImmPtr(m_codeBlock->globalObject()), gen.stubInfo(), profile, regT0, regT1);
+    using SlowOperation = decltype(operationInByValOptimize);
+    constexpr GPRReg globalObjectGPR = preferredArgumentGPR<SlowOperation, 0>();
+    constexpr GPRReg stubInfoGPR = preferredArgumentGPR<SlowOperation, 1>();
+    constexpr GPRReg profileGPR = preferredArgumentGPR<SlowOperation, 2>();
+    constexpr JSValueRegs baseJSR = preferredArgumentJSR<SlowOperation, 3>();
+    constexpr JSValueRegs propertyJSR = preferredArgumentJSR<SlowOperation, 4>();
+
+    loadGlobalObject(globalObjectGPR);
+    loadConstant(gen.m_unlinkedStubInfoConstantIndex, stubInfoGPR);
+    materializePointerIntoMetadata(bytecode, OpInByVal::Metadata::offsetOfArrayProfile(), profileGPR);
+    emitGetVirtualRegister(bytecode.m_base, baseJSR);
+    emitGetVirtualRegister(bytecode.m_property, propertyJSR);
+    callOperation<SlowOperation>(
+        Address(stubInfoGPR, StructureStubInfo::offsetOfSlowOperation()),
+        globalObjectGPR, stubInfoGPR, profileGPR, baseJSR, propertyJSR);
 #else
     VM& vm = this->vm();
     uint32_t bytecodeOffset = m_bytecodeIndex.offset();
@@ -1747,59 +1811,76 @@ void JIT::emitSlow_op_in_by_val(const Instruction* currentInstruction, Vector<Sl
 
     constexpr GPRReg stubInfoGPR = argumentGPR3;
     constexpr GPRReg profileGPR = argumentGPR2;
-    constexpr GPRReg baseGPR = regT0;
-    constexpr GPRReg propertyGPR = regT1;
+    constexpr GPRReg baseGPR = BaselineInByValRegisters::baseJSR.payloadGPR();
+    constexpr GPRReg propertyGPR = BaselineInByValRegisters::propertyJSR.payloadGPR();
     static_assert(baseGPR == argumentGPR0 || !isARM64());
     static_assert(propertyGPR == argumentGPR1);
 
-    move(TrustedImmPtr(gen.stubInfo()), stubInfoGPR);
-    move(TrustedImmPtr(profile), profileGPR);
+    loadConstant(gen.m_unlinkedStubInfoConstantIndex, stubInfoGPR);
+    materializePointerIntoMetadata(bytecode, OpInByVal::Metadata::offsetOfArrayProfile(), profileGPR);
     // slow_op_get_by_val_prepareCallGenerator will do exactly what we need.
     // So, there's no point in creating a duplicate thunk just to give it a different name.
     static_assert(std::is_same<decltype(operationInByValOptimize), decltype(operationGetByValOptimize)>::value);
     emitNakedNearCall(vm.getCTIStub(slow_op_get_by_val_prepareCallGenerator).retaggedCode<NoPtrTag>());
-
-    Call call;
-    if (JITCode::useDataIC(JITType::BaselineJIT))
-        gen.stubInfo()->m_slowOperation = operationInByValOptimize;
-    else
-        call = appendCall(operationInByValOptimize);
     emitNakedNearCall(vm.getCTIStub(checkExceptionGenerator).retaggedCode<NoPtrTag>());
-
-    emitPutVirtualRegister(dst, returnValueGPR);
 #endif // ENABLE(EXTRA_CTI_THUNKS)
 
-    gen.reportSlowPathCall(coldPathBegin, call);
+    static_assert(BaselineInByValRegisters::resultJSR == returnValueJSR);
+    gen.reportSlowPathCall(coldPathBegin, Call());
 }
 
 void JIT::emitHasPrivate(VirtualRegister dst, VirtualRegister base, VirtualRegister propertyOrBrand, AccessType type)
 {
-    emitGetVirtualRegister(base, regT0);
-    emitJumpSlowCaseIfNotJSCell(regT0, base);
-    emitGetVirtualRegister(propertyOrBrand, regT1);
+    using BaselineInByValRegisters::baseJSR;
+    using BaselineInByValRegisters::propertyJSR;
+    using BaselineInByValRegisters::resultJSR;
+    using BaselineInByValRegisters::stubInfoGPR;
+
+    emitGetVirtualRegister(base, baseJSR);
+    emitGetVirtualRegister(propertyOrBrand, propertyJSR);
+    emitJumpSlowCaseIfNotJSCell(baseJSR, base);
 
     JITInByValGenerator gen(
-        m_codeBlock, JITType::BaselineJIT, CodeOrigin(m_bytecodeIndex), CallSiteIndex(m_bytecodeIndex), type, RegisterSet::stubUnavailableRegisters(),
-        JSValueRegs(regT0), JSValueRegs(regT1), JSValueRegs(regT0), regT2);
-    gen.generateFastPath(*this);
-    if (!JITCode::useDataIC(JITType::BaselineJIT))
-        addSlowCase(gen.slowPathJump());
-    else
-        addSlowCase();
+        nullptr, nullptr, JITType::BaselineJIT, CodeOrigin(m_bytecodeIndex), CallSiteIndex(m_bytecodeIndex), type, RegisterSet::stubUnavailableRegisters(),
+        baseJSR, propertyJSR, resultJSR, stubInfoGPR);
+
+    auto [ stubInfo, stubInfoIndex ] = addUnlinkedStructureStubInfo();
+    stubInfo->accessType = type;
+    stubInfo->bytecodeIndex = m_bytecodeIndex;
+    gen.m_unlinkedStubInfoConstantIndex = stubInfoIndex;
+    gen.m_unlinkedStubInfo = stubInfo;
+
+    gen.generateBaselineDataICFastPath(*this, stubInfoIndex, stubInfoGPR);
+    addSlowCase();
     m_inByVals.append(gen);
 
-    emitPutVirtualRegister(dst);
+    setFastPathResumePoint();
+    emitPutVirtualRegister(dst, resultJSR);
 }
 
-void JIT::emitHasPrivateSlow(VirtualRegister dst, AccessType type)
+void JIT::emitHasPrivateSlow(VirtualRegister base, VirtualRegister property, AccessType type)
 {
-    ASSERT(type == AccessType::HasPrivateName || type == AccessType::HasPrivateBrand);
+    UNUSED_PARAM(base);
+    UNUSED_PARAM(property);
+    ASSERT_UNUSED(type, type == AccessType::HasPrivateName || type == AccessType::HasPrivateBrand);
 
     JITInByValGenerator& gen = m_inByVals[m_inByValIndex++];
     Label coldPathBegin = label();
 
 #if !ENABLE(EXTRA_CTI_THUNKS)
-    Call call = callOperation(type == AccessType::HasPrivateName ? operationHasPrivateNameOptimize : operationHasPrivateBrandOptimize, dst, TrustedImmPtr(m_codeBlock->globalObject()), gen.stubInfo(), regT0, regT1);
+    using SlowOperation = decltype(operationHasPrivateNameOptimize);
+    constexpr GPRReg globalObjectGPR = preferredArgumentGPR<SlowOperation, 0>();
+    constexpr GPRReg stubInfoGPR = preferredArgumentGPR<SlowOperation, 1>();
+    constexpr JSValueRegs baseJSR = preferredArgumentJSR<SlowOperation, 2>();
+    constexpr JSValueRegs propertyJSR = preferredArgumentJSR<SlowOperation, 3>();
+
+    loadGlobalObject(globalObjectGPR);
+    loadConstant(gen.m_unlinkedStubInfoConstantIndex, stubInfoGPR);
+    emitGetVirtualRegister(base, baseJSR);
+    emitGetVirtualRegister(property, propertyJSR);
+    callOperation<SlowOperation>(
+        Address(stubInfoGPR, StructureStubInfo::offsetOfSlowOperation()),
+        globalObjectGPR, stubInfoGPR, baseJSR, propertyJSR);
 #else
     VM& vm = this->vm();
     uint32_t bytecodeOffset = m_bytecodeIndex.offset();
@@ -1809,27 +1890,20 @@ void JIT::emitHasPrivateSlow(VirtualRegister dst, AccessType type)
     move(TrustedImm32(bytecodeOffset), bytecodeOffsetGPR);
 
     constexpr GPRReg stubInfoGPR = argumentGPR2;
-    constexpr GPRReg baseGPR = regT0;
-    constexpr GPRReg propertyOrBrandGPR = regT1;
+    constexpr GPRReg baseGPR = BaselineInByValRegisters::baseJSR.payloadGPR();
+    constexpr GPRReg propertyOrBrandGPR = BaselineInByValRegisters::propertyJSR.payloadGPR();
     static_assert(baseGPR == argumentGPR0 || !isARM64());
     static_assert(propertyOrBrandGPR == argumentGPR1);
 
-    move(TrustedImmPtr(gen.stubInfo()), stubInfoGPR);
+    loadConstant(gen.m_unlinkedStubInfoConstantIndex, stubInfoGPR);
     static_assert(std::is_same<decltype(operationHasPrivateNameOptimize), decltype(operationGetPrivateNameOptimize)>::value);
     static_assert(std::is_same<decltype(operationHasPrivateBrandOptimize), decltype(operationGetPrivateNameOptimize)>::value);
     emitNakedNearCall(vm.getCTIStub(slow_op_get_private_name_prepareCallGenerator).retaggedCode<NoPtrTag>());
-
-    Call call;
-    if (JITCode::useDataIC(JITType::BaselineJIT))
-        gen.stubInfo()->m_slowOperation = type == AccessType::HasPrivateName ? operationHasPrivateNameOptimize : operationHasPrivateBrandOptimize;
-    else
-        call = appendCall(type == AccessType::HasPrivateName ? operationHasPrivateNameOptimize : operationHasPrivateBrandOptimize);
     emitNakedNearCall(vm.getCTIStub(checkExceptionGenerator).retaggedCode<NoPtrTag>());
-
-    emitPutVirtualRegister(dst, returnValueGPR);
 #endif // ENABLE(EXTRA_CTI_THUNKS)
 
-    gen.reportSlowPathCall(coldPathBegin, call);
+    static_assert(BaselineInByValRegisters::resultJSR == returnValueJSR);
+    gen.reportSlowPathCall(coldPathBegin, Call());
 }
 
 void JIT::emit_op_has_private_name(const Instruction* currentInstruction)
@@ -1843,7 +1917,7 @@ void JIT::emitSlow_op_has_private_name(const Instruction* currentInstruction, Ve
     linkAllSlowCases(iter);
 
     auto bytecode = currentInstruction->as<OpHasPrivateName>();
-    emitHasPrivateSlow(bytecode.m_dst, AccessType::HasPrivateName);
+    emitHasPrivateSlow(bytecode.m_base, bytecode.m_property, AccessType::HasPrivateName);
 }
 
 void JIT::emit_op_has_private_brand(const Instruction* currentInstruction)
@@ -1857,215 +1931,110 @@ void JIT::emitSlow_op_has_private_brand(const Instruction* currentInstruction, V
     linkAllSlowCases(iter);
 
     auto bytecode = currentInstruction->as<OpHasPrivateBrand>();
-    emitHasPrivateSlow(bytecode.m_dst, AccessType::HasPrivateBrand);
+    emitHasPrivateSlow(bytecode.m_base, bytecode.m_brand, AccessType::HasPrivateBrand);
 }
-
-void JIT::emitVarInjectionCheck(bool needsVarInjectionChecks)
-{
-    if (!needsVarInjectionChecks)
-        return;
-    addSlowCase(branch8(Equal, AbsoluteAddress(m_codeBlock->globalObject()->varInjectionWatchpoint()->addressOfState()), TrustedImm32(IsInvalidated)));
-}
-
-void JIT::emitResolveClosure(VirtualRegister dst, VirtualRegister scope, bool needsVarInjectionChecks, unsigned depth)
-{
-    emitVarInjectionCheck(needsVarInjectionChecks);
-    emitGetVirtualRegister(scope, regT0);
-    for (unsigned i = 0; i < depth; ++i)
-        loadPtr(Address(regT0, JSScope::offsetOfNext()), regT0);
-    emitPutVirtualRegister(dst);
-}
-
-#if !ENABLE(EXTRA_CTI_THUNKS)
-void JIT::emit_op_resolve_scope(const Instruction* currentInstruction)
-{
-    auto bytecode = currentInstruction->as<OpResolveScope>();
-    auto& metadata = bytecode.metadata(m_codeBlock);
-    VirtualRegister dst = bytecode.m_dst;
-    VirtualRegister scope = bytecode.m_scope;
-    ResolveType resolveType = metadata.m_resolveType;
-    unsigned depth = metadata.m_localScopeDepth;
-
-    auto emitCode = [&] (ResolveType resolveType) {
-        switch (resolveType) {
-        case GlobalProperty:
-        case GlobalPropertyWithVarInjectionChecks: {
-            JSScope* constantScope = JSScope::constantScopeForCodeBlock(resolveType, m_codeBlock);
-            RELEASE_ASSERT(constantScope);
-            emitVarInjectionCheck(needsVarInjectionChecks(resolveType));
-            load32(&metadata.m_globalLexicalBindingEpoch, regT1);
-            addSlowCase(branch32(NotEqual, AbsoluteAddress(m_codeBlock->globalObject()->addressOfGlobalLexicalBindingEpoch()), regT1));
-            move(TrustedImmPtr(constantScope), regT0);
-            emitPutVirtualRegister(dst);
-            break;
-        }
-
-        case GlobalVar:
-        case GlobalVarWithVarInjectionChecks:
-        case GlobalLexicalVar:
-        case GlobalLexicalVarWithVarInjectionChecks: {
-            JSScope* constantScope = JSScope::constantScopeForCodeBlock(resolveType, m_codeBlock);
-            RELEASE_ASSERT(constantScope);
-            emitVarInjectionCheck(needsVarInjectionChecks(resolveType));
-            move(TrustedImmPtr(constantScope), regT0);
-            emitPutVirtualRegister(dst);
-            break;
-        }
-        case ClosureVar:
-        case ClosureVarWithVarInjectionChecks:
-            emitResolveClosure(dst, scope, needsVarInjectionChecks(resolveType), depth);
-            break;
-        case ModuleVar:
-            move(TrustedImmPtr(metadata.m_lexicalEnvironment.get()), regT0);
-            emitPutVirtualRegister(dst);
-            break;
-        case Dynamic:
-            addSlowCase(jump());
-            break;
-        case ResolvedClosureVar:
-        case UnresolvedProperty:
-        case UnresolvedPropertyWithVarInjectionChecks:
-            RELEASE_ASSERT_NOT_REACHED();
-        }
-    };
-
-    switch (resolveType) {
-    case GlobalProperty:
-    case GlobalPropertyWithVarInjectionChecks: {
-        JumpList skipToEnd;
-        load32(&metadata.m_resolveType, regT0);
-
-        Jump notGlobalProperty = branch32(NotEqual, regT0, TrustedImm32(resolveType));
-        emitCode(resolveType);
-        skipToEnd.append(jump());
-
-        notGlobalProperty.link(this);
-        emitCode(needsVarInjectionChecks(resolveType) ? GlobalLexicalVarWithVarInjectionChecks : GlobalLexicalVar);
-
-        skipToEnd.link(this);
-        break;
-    }
-    case UnresolvedProperty:
-    case UnresolvedPropertyWithVarInjectionChecks: {
-        JumpList skipToEnd;
-        load32(&metadata.m_resolveType, regT0);
-
-        Jump notGlobalProperty = branch32(NotEqual, regT0, TrustedImm32(GlobalProperty));
-        emitCode(GlobalProperty);
-        skipToEnd.append(jump());
-        notGlobalProperty.link(this);
-
-        Jump notGlobalPropertyWithVarInjections = branch32(NotEqual, regT0, TrustedImm32(GlobalPropertyWithVarInjectionChecks));
-        emitCode(GlobalPropertyWithVarInjectionChecks);
-        skipToEnd.append(jump());
-        notGlobalPropertyWithVarInjections.link(this);
-
-        Jump notGlobalLexicalVar = branch32(NotEqual, regT0, TrustedImm32(GlobalLexicalVar));
-        emitCode(GlobalLexicalVar);
-        skipToEnd.append(jump());
-        notGlobalLexicalVar.link(this);
-
-        Jump notGlobalLexicalVarWithVarInjections = branch32(NotEqual, regT0, TrustedImm32(GlobalLexicalVarWithVarInjectionChecks));
-        emitCode(GlobalLexicalVarWithVarInjectionChecks);
-        skipToEnd.append(jump());
-        notGlobalLexicalVarWithVarInjections.link(this);
-
-        addSlowCase(jump());
-        skipToEnd.link(this);
-        break;
-    }
-
-    default:
-        emitCode(resolveType);
-        break;
-    }
-}
-#else // ENABLE(EXTRA_CTI_THUNKS)
 
 void JIT::emit_op_resolve_scope(const Instruction* currentInstruction)
 {
     auto bytecode = currentInstruction->as<OpResolveScope>();
-    auto& metadata = bytecode.metadata(m_codeBlock);
+    ResolveType profiledResolveType = bytecode.metadata(m_profiledCodeBlock).m_resolveType;
     VirtualRegister dst = bytecode.m_dst;
     VirtualRegister scope = bytecode.m_scope;
-    ResolveType resolveType = metadata.m_resolveType;
 
     VM& vm = this->vm();
     uint32_t bytecodeOffset = m_bytecodeIndex.offset();
     ASSERT(BytecodeIndex(bytecodeOffset) == m_bytecodeIndex);
-    ASSERT(m_codeBlock->instructionAt(m_bytecodeIndex) == currentInstruction);
+    ASSERT(m_unlinkedCodeBlock->instructionAt(m_bytecodeIndex) == currentInstruction);
 
-    constexpr GPRReg metadataGPR = regT7;
-    constexpr GPRReg scopeGPR = regT6;
-    constexpr GPRReg bytecodeOffsetGPR = regT5;
+    // If we profile certain resolve types, we're guaranteed all linked code will have the same
+    // resolve type.
 
-    if (resolveType == ModuleVar)
-        move(TrustedImmPtr(metadata.m_lexicalEnvironment.get()), regT0);
+    if (profiledResolveType == ModuleVar) 
+        loadPtrFromMetadata(bytecode, OpResolveScope::Metadata::offsetOfLexicalEnvironment(), returnValueGPR);
     else {
-        ptrdiff_t metadataOffset = m_codeBlock->offsetInMetadataTable(&metadata);
+        uint32_t metadataOffset = m_profiledCodeBlock->metadataTable()->offsetInMetadataTable(bytecode);
 
-#define RESOLVE_SCOPE_GENERATOR(resolveType) op_resolve_scope_##resolveType##Generator,
-        static const ThunkGenerator generators[] = {
-            FOR_EACH_RESOLVE_TYPE(RESOLVE_SCOPE_GENERATOR)
-        };
-#undef RESOLVE_SCOPE_GENERATOR
+        constexpr GPRReg metadataGPR = regT2;
+        constexpr GPRReg scopeGPR = regT0;
+        constexpr GPRReg bytecodeOffsetGPR = regT3;
 
-        emitGetVirtualRegister(scope, scopeGPR);
-        move(TrustedImmPtr(metadataOffset), metadataGPR);
+        emitGetVirtualRegisterPayload(scope, scopeGPR);
+        addPtr(TrustedImm32(metadataOffset), s_metadataGPR, metadataGPR);
         move(TrustedImm32(bytecodeOffset), bytecodeOffsetGPR);
-        emitNakedNearCall(vm.getCTIStub(generators[resolveType]).retaggedCode<NoPtrTag>());
+
+        MacroAssemblerCodeRef<JITThunkPtrTag> code;
+        if (profiledResolveType == ClosureVar)
+            code = vm.getCTIStub(generateOpResolveScopeThunk<ClosureVar>);
+        else if (profiledResolveType == ClosureVarWithVarInjectionChecks)
+            code = vm.getCTIStub(generateOpResolveScopeThunk<ClosureVarWithVarInjectionChecks>);
+        else if (profiledResolveType == GlobalVar)
+            code = vm.getCTIStub(generateOpResolveScopeThunk<GlobalVar>);
+        else if (profiledResolveType == GlobalProperty)
+            code = vm.getCTIStub(generateOpResolveScopeThunk<GlobalProperty>);
+        else if (profiledResolveType == GlobalLexicalVar)
+            code = vm.getCTIStub(generateOpResolveScopeThunk<GlobalLexicalVar>);
+        else if (profiledResolveType == GlobalVarWithVarInjectionChecks)
+            code = vm.getCTIStub(generateOpResolveScopeThunk<GlobalVarWithVarInjectionChecks>);
+        else if (profiledResolveType == GlobalPropertyWithVarInjectionChecks)
+            code = vm.getCTIStub(generateOpResolveScopeThunk<GlobalPropertyWithVarInjectionChecks>);
+        else if (profiledResolveType == GlobalLexicalVarWithVarInjectionChecks)
+            code = vm.getCTIStub(generateOpResolveScopeThunk<GlobalLexicalVarWithVarInjectionChecks>);
+        else
+            code = vm.getCTIStub(generateOpResolveScopeThunk<GlobalVar>);
+
+        emitNakedNearCall(code.retaggedCode<NoPtrTag>());
     }
 
-    emitPutVirtualRegister(dst);
+    boxCell(returnValueGPR, returnValueJSR);
+    emitPutVirtualRegister(dst, returnValueJSR);
 }
 
-MacroAssemblerCodeRef<JITThunkPtrTag> JIT::generateOpResolveScopeThunk(ResolveType resolveType, const char* thunkName)
+template <ResolveType profiledResolveType>
+MacroAssemblerCodeRef<JITThunkPtrTag> JIT::generateOpResolveScopeThunk(VM& vm)
 {
     // The thunk generated by this function can only work with the LLInt / Baseline JIT because
     // it makes assumptions about the right globalObject being available from CallFrame::codeBlock().
     // DFG/FTL may inline functions belonging to other globalObjects, which may not match
     // CallFrame::codeBlock().
+
+    CCallHelpers jit;
+
     using Metadata = OpResolveScope::Metadata;
-    constexpr GPRReg metadataGPR = regT7; // incoming
-    constexpr GPRReg scopeGPR = regT6; // incoming
-    constexpr GPRReg bytecodeOffsetGPR = regT5; // incoming - pass thru to slow path.
-    constexpr GPRReg globalObjectGPR = regT4;
+    constexpr GPRReg metadataGPR = regT2; // incoming
+    constexpr GPRReg scopeGPR = regT0; // incoming
+    constexpr GPRReg bytecodeOffsetGPR = regT3; // incoming - pass thru to slow path.
+    constexpr GPRReg scratchGPR = regT5; // local temporary
     UNUSED_PARAM(bytecodeOffsetGPR);
-    RELEASE_ASSERT(thunkIsUsedForOpResolveScope(resolveType));
+    static_assert(noOverlap(returnValueGPR, metadataGPR, bytecodeOffsetGPR, scratchGPR));
+    static_assert(scopeGPR == returnValueGPR); // emitResolveClosure assumes this
 
-    tagReturnAddress();
-
-    loadPtr(addressFor(CallFrameSlot::codeBlock), regT3);
-    loadPtr(Address(regT3, CodeBlock::offsetOfMetadataTable()), regT3);
-    addPtr(regT3, metadataGPR);
+    jit.tagReturnAddress();
 
     JumpList slowCase;
 
-    auto emitVarInjectionCheck = [&] (bool needsVarInjectionChecks, GPRReg globalObjectGPR = InvalidGPRReg) {
+    auto doVarInjectionCheck = [&] (bool needsVarInjectionChecks, GPRReg globalObjectGPR = InvalidGPRReg) {
         if (!needsVarInjectionChecks)
             return;
         if (globalObjectGPR == InvalidGPRReg) {
-            globalObjectGPR = regT4;
-            loadPtr(addressFor(CallFrameSlot::codeBlock), regT3);
-            loadPtr(Address(regT3, CodeBlock::offsetOfGlobalObject()), globalObjectGPR);
+            globalObjectGPR = scratchGPR;
+            jit.loadPtr(addressFor(CallFrameSlot::codeBlock), scratchGPR);
+            jit.loadPtr(Address(scratchGPR, CodeBlock::offsetOfGlobalObject()), globalObjectGPR);
         }
-        loadPtr(Address(globalObjectGPR, OBJECT_OFFSETOF(JSGlobalObject, m_varInjectionWatchpoint)), regT3);
-        slowCase.append(branch8(Equal, Address(regT3, WatchpointSet::offsetOfState()), TrustedImm32(IsInvalidated)));
+        jit.loadPtr(Address(globalObjectGPR, OBJECT_OFFSETOF(JSGlobalObject, m_varInjectionWatchpoint)), scratchGPR);
+        slowCase.append(jit.branch8(Equal, Address(scratchGPR, WatchpointSet::offsetOfState()), TrustedImm32(IsInvalidated)));
     };
 
     auto emitResolveClosure = [&] (bool needsVarInjectionChecks) {
-        emitVarInjectionCheck(needsVarInjectionChecks);
-        move(scopeGPR, regT0);
-        load32(Address(metadataGPR, OBJECT_OFFSETOF(Metadata, m_localScopeDepth)), regT1);
+        doVarInjectionCheck(needsVarInjectionChecks);
+        jit.load32(Address(metadataGPR, Metadata::offsetOfLocalScopeDepth()), scratchGPR);
+        RELEASE_ASSERT(scopeGPR == returnValueGPR);
 
-        Label loop = label();
-        Jump done = branchTest32(Zero, regT1);
-        {
-            loadPtr(Address(regT0, JSScope::offsetOfNext()), regT0);
-            sub32(TrustedImm32(1), regT1);
-            jump().linkTo(loop, this);
-        }
-        done.link(this);
+        Label loop = jit.label();
+        Jump done = jit.branchTest32(Zero, scratchGPR);
+        jit.loadPtr(Address(returnValueGPR, JSScope::offsetOfNext()), returnValueGPR);
+        jit.sub32(TrustedImm32(1), scratchGPR);
+        jit.jump().linkTo(loop, &jit);
+        done.link(&jit);
     };
 
     auto emitCode = [&] (ResolveType resolveType) {
@@ -2073,12 +2042,11 @@ MacroAssemblerCodeRef<JITThunkPtrTag> JIT::generateOpResolveScopeThunk(ResolveTy
         case GlobalProperty:
         case GlobalPropertyWithVarInjectionChecks: {
             // JSScope::constantScopeForCodeBlock() loads codeBlock->globalObject().
-            loadPtr(addressFor(CallFrameSlot::codeBlock), regT3);
-            loadPtr(Address(regT3, CodeBlock::offsetOfGlobalObject()), globalObjectGPR);
-            emitVarInjectionCheck(needsVarInjectionChecks(resolveType), globalObjectGPR);
-            load32(Address(metadataGPR, OBJECT_OFFSETOF(Metadata, m_globalLexicalBindingEpoch)), regT1);
-            slowCase.append(branch32(NotEqual, Address(globalObjectGPR, JSGlobalObject::offsetOfGlobalLexicalBindingEpoch()), regT1));
-            move(globalObjectGPR, regT0);
+            jit.loadPtr(addressFor(CallFrameSlot::codeBlock), scratchGPR);
+            jit.loadPtr(Address(scratchGPR, CodeBlock::offsetOfGlobalObject()), returnValueGPR);
+            doVarInjectionCheck(needsVarInjectionChecks(resolveType), returnValueGPR);
+            jit.load32(Address(metadataGPR, Metadata::offsetOfGlobalLexicalBindingEpoch()), scratchGPR);
+            slowCase.append(jit.branch32(NotEqual, Address(returnValueGPR, JSGlobalObject::offsetOfGlobalLexicalBindingEpoch()), scratchGPR));
             break;
         }
 
@@ -2088,11 +2056,11 @@ MacroAssemblerCodeRef<JITThunkPtrTag> JIT::generateOpResolveScopeThunk(ResolveTy
         case GlobalLexicalVarWithVarInjectionChecks: {
             // JSScope::constantScopeForCodeBlock() loads codeBlock->globalObject() for GlobalVar*,
             // and codeBlock->globalObject()->globalLexicalEnvironment() for GlobalLexicalVar*.
-            loadPtr(addressFor(CallFrameSlot::codeBlock), regT3);
-            loadPtr(Address(regT3, CodeBlock::offsetOfGlobalObject()), regT0);
-            emitVarInjectionCheck(needsVarInjectionChecks(resolveType), regT0);
+            jit.loadPtr(addressFor(CallFrameSlot::codeBlock), scratchGPR);
+            jit.loadPtr(Address(scratchGPR, CodeBlock::offsetOfGlobalObject()), returnValueGPR);
+            doVarInjectionCheck(needsVarInjectionChecks(resolveType), returnValueGPR);
             if (resolveType == GlobalLexicalVar || resolveType == GlobalLexicalVarWithVarInjectionChecks)
-                loadPtr(Address(regT0, JSGlobalObject::offsetOfGlobalLexicalEnvironment()), regT0);
+                jit.loadPtr(Address(returnValueGPR, JSGlobalObject::offsetOfGlobalLexicalEnvironment()), returnValueGPR);
             break;
         }
         case ClosureVar:
@@ -2100,7 +2068,7 @@ MacroAssemblerCodeRef<JITThunkPtrTag> JIT::generateOpResolveScopeThunk(ResolveTy
             emitResolveClosure(needsVarInjectionChecks(resolveType));
             break;
         case Dynamic:
-            slowCase.append(jump());
+            slowCase.append(jit.jump());
             break;
         case ResolvedClosureVar:
         case ModuleVar:
@@ -2110,75 +2078,55 @@ MacroAssemblerCodeRef<JITThunkPtrTag> JIT::generateOpResolveScopeThunk(ResolveTy
         }
     };
 
-    switch (resolveType) {
-    case GlobalProperty:
-    case GlobalPropertyWithVarInjectionChecks: {
+    if (profiledResolveType == ClosureVar)
+        emitCode(ClosureVar);
+    else if (profiledResolveType == ClosureVarWithVarInjectionChecks)
+        emitCode(ClosureVarWithVarInjectionChecks);
+    else {
         JumpList skipToEnd;
-        load32(Address(metadataGPR, OBJECT_OFFSETOF(Metadata, m_resolveType)), regT0);
+        jit.load32(Address(metadataGPR, Metadata::offsetOfResolveType()), regT1);
 
-        Jump notGlobalProperty = branch32(NotEqual, regT0, TrustedImm32(resolveType));
-        emitCode(resolveType);
-        skipToEnd.append(jump());
+        auto emitCaseWithoutCheck = [&] (ResolveType resolveType) {
+            Jump notCase = jit.branch32(NotEqual, regT1, TrustedImm32(resolveType));
+            emitCode(resolveType);
+            skipToEnd.append(jit.jump());
+            notCase.link(&jit);
+        };
 
-        notGlobalProperty.link(this);
-        emitCode(needsVarInjectionChecks(resolveType) ? GlobalLexicalVarWithVarInjectionChecks : GlobalLexicalVar);
+        auto emitCase = [&] (ResolveType resolveType) {
+            if (resolveType != profiledResolveType)
+                emitCaseWithoutCheck(resolveType);
+        };
 
-        skipToEnd.link(this);
-        break;
-    }
-    case UnresolvedProperty:
-    case UnresolvedPropertyWithVarInjectionChecks: {
-        JumpList skipToEnd;
-        load32(Address(metadataGPR, OBJECT_OFFSETOF(Metadata, m_resolveType)), regT0);
+        // Check that we're the profiled resolve type first.
+        switch (profiledResolveType) {
+        case ResolvedClosureVar:
+        case ModuleVar:
+        case UnresolvedProperty:
+        case UnresolvedPropertyWithVarInjectionChecks:
+            break;
+        default:
+            emitCaseWithoutCheck(profiledResolveType);
+            break;
+        }
 
-        Jump notGlobalProperty = branch32(NotEqual, regT0, TrustedImm32(GlobalProperty));
-        emitCode(GlobalProperty);
-        skipToEnd.append(jump());
-        notGlobalProperty.link(this);
+        emitCase(GlobalVar);
+        emitCase(GlobalProperty);
+        emitCase(GlobalLexicalVar);
+        emitCase(GlobalVarWithVarInjectionChecks);
+        emitCase(GlobalPropertyWithVarInjectionChecks);
+        emitCase(GlobalLexicalVarWithVarInjectionChecks);
+        slowCase.append(jit.jump());
 
-        Jump notGlobalPropertyWithVarInjections = branch32(NotEqual, regT0, TrustedImm32(GlobalPropertyWithVarInjectionChecks));
-        emitCode(GlobalPropertyWithVarInjectionChecks);
-        skipToEnd.append(jump());
-        notGlobalPropertyWithVarInjections.link(this);
-
-        Jump notGlobalLexicalVar = branch32(NotEqual, regT0, TrustedImm32(GlobalLexicalVar));
-        emitCode(GlobalLexicalVar);
-        skipToEnd.append(jump());
-        notGlobalLexicalVar.link(this);
-
-        Jump notGlobalLexicalVarWithVarInjections = branch32(NotEqual, regT0, TrustedImm32(GlobalLexicalVarWithVarInjectionChecks));
-        emitCode(GlobalLexicalVarWithVarInjectionChecks);
-        skipToEnd.append(jump());
-        notGlobalLexicalVarWithVarInjections.link(this);
-
-        slowCase.append(jump());
-        skipToEnd.link(this);
-        break;
+        skipToEnd.link(&jit);
     }
 
-    default:
-        emitCode(resolveType);
-        break;
-    }
+    jit.ret();
 
-    ret();
-
-    LinkBuffer patchBuffer(*this, GLOBAL_THUNK_ID, LinkBuffer::Profile::Thunk);
-    auto slowCaseHandler = vm().getCTIStub(slow_op_resolve_scopeGenerator);
-    patchBuffer.link(slowCase, CodeLocationLabel(slowCaseHandler.retaggedCode<NoPtrTag>()));
-    return FINALIZE_CODE(patchBuffer, JITThunkPtrTag, thunkName);
+    LinkBuffer patchBuffer(jit, GLOBAL_THUNK_ID, LinkBuffer::Profile::Thunk);
+    patchBuffer.link(slowCase, CodeLocationLabel(vm.getCTIStub(slow_op_resolve_scopeGenerator).retaggedCode<NoPtrTag>()));
+    return FINALIZE_CODE(patchBuffer, JITThunkPtrTag, "resolve_scope thunk");
 }
-
-#define DEFINE_RESOLVE_SCOPE_GENERATOR(resolveType) \
-MacroAssemblerCodeRef<JITThunkPtrTag> JIT::op_resolve_scope_##resolveType##Generator(VM& vm) \
-    { \
-        if constexpr (!thunkIsUsedForOpResolveScope(resolveType)) \
-            return { }; \
-        JIT jit(vm); \
-        return jit.generateOpResolveScopeThunk(resolveType, "Baseline: op_resolve_scope_" #resolveType); \
-    }
-FOR_EACH_RESOLVE_TYPE(DEFINE_RESOLVE_SCOPE_GENERATOR)
-#undef DEFINE_RESOLVE_SCOPE_GENERATOR
 
 MacroAssemblerCodeRef<JITThunkPtrTag> JIT::slow_op_resolve_scopeGenerator(VM& vm)
 {
@@ -2186,26 +2134,31 @@ MacroAssemblerCodeRef<JITThunkPtrTag> JIT::slow_op_resolve_scopeGenerator(VM& vm
     // it makes assumptions about the right globalObject being available from CallFrame::codeBlock().
     // DFG/FTL may inline functions belonging to other globalObjects, which may not match
     // CallFrame::codeBlock().
-    JIT jit(vm);
+    CCallHelpers jit;
 
     // The fast path already pushed the return address.
 #if CPU(X86_64)
     jit.push(X86Registers::ebp);
-#elif CPU(ARM64)
+#elif CPU(ARM64) || CPU(ARM_THUMB2) || CPU(RISCV64)
     jit.pushPair(framePointerRegister, linkRegister);
+#elif CPU(MIPS)
+    jit.pushPair(framePointerRegister, returnAddressRegister);
+#else
+#   error "Not implemented on platform"
 #endif
 
-    constexpr GPRReg bytecodeOffsetGPR = regT5;
-    jit.store32(bytecodeOffsetGPR, tagFor(CallFrameSlot::argumentCountIncludingThis));
+    constexpr GPRReg incomingBytecodeOffsetGPR = regT3;
+    jit.store32(incomingBytecodeOffsetGPR, tagFor(CallFrameSlot::argumentCountIncludingThis));
 
-    constexpr GPRReg codeBlockGPR = argumentGPR3;
+    constexpr GPRReg scratchGPR = regT2;
     constexpr GPRReg globalObjectGPR = argumentGPR0;
     constexpr GPRReg instructionGPR = argumentGPR1;
+    static_assert(noOverlap(incomingBytecodeOffsetGPR, scratchGPR , globalObjectGPR, instructionGPR));
 
-    jit.loadPtr(addressFor(CallFrameSlot::codeBlock), codeBlockGPR);
-    jit.loadPtr(Address(codeBlockGPR, CodeBlock::offsetOfGlobalObject()), globalObjectGPR);
-    jit.loadPtr(Address(codeBlockGPR, CodeBlock::offsetOfInstructionsRawPointer()), instructionGPR);
-    jit.addPtr(bytecodeOffsetGPR, instructionGPR);
+    jit.loadPtr(addressFor(CallFrameSlot::codeBlock), scratchGPR);
+    jit.loadPtr(Address(scratchGPR, CodeBlock::offsetOfGlobalObject()), globalObjectGPR);
+    jit.loadPtr(Address(scratchGPR, CodeBlock::offsetOfInstructionsRawPointer()), instructionGPR);
+    jit.addPtr(incomingBytecodeOffsetGPR, instructionGPR);
 
     jit.setupArguments<decltype(operationResolveScopeForBaseline)>(globalObjectGPR, instructionGPR);
     jit.prepareCallOperation(vm);
@@ -2214,8 +2167,12 @@ MacroAssemblerCodeRef<JITThunkPtrTag> JIT::slow_op_resolve_scopeGenerator(VM& vm
 
 #if CPU(X86_64)
     jit.pop(X86Registers::ebp);
-#elif CPU(ARM64)
-    jit.popPair(CCallHelpers::framePointerRegister, CCallHelpers::linkRegister);
+#elif CPU(ARM64) || CPU(ARM_THUMB2) || CPU(RISCV64)
+    jit.popPair(framePointerRegister, linkRegister);
+#elif CPU(MIPS)
+    jit.popPair(framePointerRegister, returnAddressRegister);
+#else
+#   error "Not implemented on platform"
 #endif
     jit.ret();
 
@@ -2225,304 +2182,128 @@ MacroAssemblerCodeRef<JITThunkPtrTag> JIT::slow_op_resolve_scopeGenerator(VM& vm
     patchBuffer.link(exceptionCheck, CodeLocationLabel(handler.retaggedCode<NoPtrTag>()));
     return FINALIZE_CODE(patchBuffer, JITThunkPtrTag, "Baseline: slow_op_resolve_scope");
 }
-#endif // ENABLE(EXTRA_CTI_THUNKS)
-
-void JIT::emitLoadWithStructureCheck(VirtualRegister scope, Structure** structureSlot)
-{
-    loadPtr(structureSlot, regT1);
-    emitGetVirtualRegister(scope, regT0);
-    addSlowCase(branchTestPtr(Zero, regT1));
-    load32(Address(regT1, Structure::structureIDOffset()), regT1);
-    addSlowCase(branch32(NotEqual, Address(regT0, JSCell::structureIDOffset()), regT1));
-}
-
-void JIT::emitGetVarFromPointer(JSValue* operand, GPRReg reg)
-{
-    loadPtr(operand, reg);
-}
-
-void JIT::emitGetVarFromIndirectPointer(JSValue** operand, GPRReg reg)
-{
-    loadPtr(operand, reg);
-    loadPtr(reg, reg);
-}
-
-void JIT::emitGetClosureVar(VirtualRegister scope, uintptr_t operand)
-{
-    emitGetVirtualRegister(scope, regT0);
-    loadPtr(Address(regT0, JSLexicalEnvironment::offsetOfVariables() + operand * sizeof(Register)), regT0);
-}
-
-#if !ENABLE(EXTRA_CTI_THUNKS)
-void JIT::emit_op_get_from_scope(const Instruction* currentInstruction)
-{
-    auto bytecode = currentInstruction->as<OpGetFromScope>();
-    auto& metadata = bytecode.metadata(m_codeBlock);
-    VirtualRegister dst = bytecode.m_dst;
-    VirtualRegister scope = bytecode.m_scope;
-    ResolveType resolveType = metadata.m_getPutInfo.resolveType();
-    Structure** structureSlot = metadata.m_structure.slot();
-    uintptr_t* operandSlot = reinterpret_cast<uintptr_t*>(&metadata.m_operand);
-
-    auto emitCode = [&] (ResolveType resolveType, bool indirectLoadForOperand) {
-        switch (resolveType) {
-        case GlobalProperty:
-        case GlobalPropertyWithVarInjectionChecks: {
-            emitLoadWithStructureCheck(scope, structureSlot); // Structure check covers var injection since we don't cache structures for anything but the GlobalObject. Additionally, resolve_scope handles checking for the var injection.
-            GPRReg base = regT0;
-            GPRReg result = regT0;
-            GPRReg offset = regT1;
-            GPRReg scratch = regT2;
-
-            jitAssert(scopedLambda<Jump(void)>([&] () -> Jump {
-                return branchPtr(Equal, base, TrustedImmPtr(m_codeBlock->globalObject()));
-            }));
-
-            load32(operandSlot, offset);
-            if (ASSERT_ENABLED) {
-                Jump isOutOfLine = branch32(GreaterThanOrEqual, offset, TrustedImm32(firstOutOfLineOffset));
-                abortWithReason(JITOffsetIsNotOutOfLine);
-                isOutOfLine.link(this);
-            }
-            loadPtr(Address(base, JSObject::butterflyOffset()), scratch);
-            neg32(offset);
-            signExtend32ToPtr(offset, offset);
-            load64(BaseIndex(scratch, offset, TimesEight, (firstOutOfLineOffset - 2) * sizeof(EncodedJSValue)), result);
-            break;
-        }
-        case GlobalVar:
-        case GlobalVarWithVarInjectionChecks:
-        case GlobalLexicalVar:
-        case GlobalLexicalVarWithVarInjectionChecks:
-            emitVarInjectionCheck(needsVarInjectionChecks(resolveType));
-            if (indirectLoadForOperand)
-                emitGetVarFromIndirectPointer(bitwise_cast<JSValue**>(operandSlot), regT0);
-            else
-                emitGetVarFromPointer(bitwise_cast<JSValue*>(*operandSlot), regT0);
-            if (resolveType == GlobalLexicalVar || resolveType == GlobalLexicalVarWithVarInjectionChecks) // TDZ check.
-                addSlowCase(branchIfEmpty(regT0));
-            break;
-        case ClosureVar:
-        case ClosureVarWithVarInjectionChecks:
-            emitVarInjectionCheck(needsVarInjectionChecks(resolveType));
-            emitGetClosureVar(scope, *operandSlot);
-            break;
-        case Dynamic:
-            addSlowCase(jump());
-            break;
-        case ResolvedClosureVar:
-        case ModuleVar:
-        case UnresolvedProperty:
-        case UnresolvedPropertyWithVarInjectionChecks:
-            RELEASE_ASSERT_NOT_REACHED();
-        }
-    };
-
-    switch (resolveType) {
-    case GlobalProperty:
-    case GlobalPropertyWithVarInjectionChecks: {
-        JumpList skipToEnd;
-        load32(&metadata.m_getPutInfo, regT0);
-        and32(TrustedImm32(GetPutInfo::typeBits), regT0); // Load ResolveType into T0
-
-        Jump isNotGlobalProperty = branch32(NotEqual, regT0, TrustedImm32(resolveType));
-        emitCode(resolveType, false);
-        skipToEnd.append(jump());
-
-        isNotGlobalProperty.link(this);
-        emitCode(needsVarInjectionChecks(resolveType) ? GlobalLexicalVarWithVarInjectionChecks : GlobalLexicalVar, true);
-
-        skipToEnd.link(this);
-        break;
-    }
-    case UnresolvedProperty:
-    case UnresolvedPropertyWithVarInjectionChecks: {
-        JumpList skipToEnd;
-        load32(&metadata.m_getPutInfo, regT0);
-        and32(TrustedImm32(GetPutInfo::typeBits), regT0); // Load ResolveType into T0
-
-        Jump isGlobalProperty = branch32(Equal, regT0, TrustedImm32(GlobalProperty));
-        Jump notGlobalPropertyWithVarInjections = branch32(NotEqual, regT0, TrustedImm32(GlobalPropertyWithVarInjectionChecks));
-        isGlobalProperty.link(this);
-        emitCode(GlobalProperty, false);
-        skipToEnd.append(jump());
-        notGlobalPropertyWithVarInjections.link(this);
-
-        Jump notGlobalLexicalVar = branch32(NotEqual, regT0, TrustedImm32(GlobalLexicalVar));
-        emitCode(GlobalLexicalVar, true);
-        skipToEnd.append(jump());
-        notGlobalLexicalVar.link(this);
-
-        Jump notGlobalLexicalVarWithVarInjections = branch32(NotEqual, regT0, TrustedImm32(GlobalLexicalVarWithVarInjectionChecks));
-        emitCode(GlobalLexicalVarWithVarInjectionChecks, true);
-        skipToEnd.append(jump());
-        notGlobalLexicalVarWithVarInjections.link(this);
-
-        addSlowCase(jump());
-
-        skipToEnd.link(this);
-        break;
-    }
-
-    default:
-        emitCode(resolveType, false);
-        break;
-    }
-    emitPutVirtualRegister(dst);
-    emitValueProfilingSite(metadata, regT0);
-}
-
-void JIT::emitSlow_op_get_from_scope(const Instruction* currentInstruction, Vector<SlowCaseEntry>::iterator& iter)
-{
-    linkAllSlowCases(iter);
-
-    auto bytecode = currentInstruction->as<OpGetFromScope>();
-    auto& metadata = bytecode.metadata(m_codeBlock);
-    VirtualRegister dst = bytecode.m_dst;
-    callOperationWithProfile(metadata, operationGetFromScope, dst, TrustedImmPtr(m_codeBlock->globalObject()), currentInstruction);
-}
-
-#else // ENABLE(EXTRA_CTI_THUNKS)
 
 void JIT::emit_op_get_from_scope(const Instruction* currentInstruction)
 {
     auto bytecode = currentInstruction->as<OpGetFromScope>();
-    auto& metadata = bytecode.metadata(m_codeBlock);
     VirtualRegister dst = bytecode.m_dst;
     VirtualRegister scope = bytecode.m_scope;
-    ResolveType resolveType = metadata.m_getPutInfo.resolveType();
+    ResolveType profiledResolveType = bytecode.metadata(m_profiledCodeBlock).m_getPutInfo.resolveType();
 
     VM& vm = this->vm();
     uint32_t bytecodeOffset = m_bytecodeIndex.offset();
     ASSERT(BytecodeIndex(bytecodeOffset) == m_bytecodeIndex);
-    ASSERT(m_codeBlock->instructionAt(m_bytecodeIndex) == currentInstruction);
+    ASSERT(m_unlinkedCodeBlock->instructionAt(m_bytecodeIndex) == currentInstruction);
 
-    constexpr GPRReg metadataGPR = regT7;
-    constexpr GPRReg scopeGPR = regT6;
-    constexpr GPRReg bytecodeOffsetGPR = regT5;
+    constexpr GPRReg metadataGPR = regT4;
+    constexpr GPRReg scopeGPR = regT2;
+    constexpr GPRReg bytecodeOffsetGPR = regT3;
 
-    if (resolveType == GlobalVar) {
-        uintptr_t* operandSlot = reinterpret_cast<uintptr_t*>(&metadata.m_operand);
-        emitGetVarFromPointer(bitwise_cast<JSValue*>(*operandSlot), regT0);
-    } else {
-        ptrdiff_t metadataOffset = m_codeBlock->offsetInMetadataTable(&metadata);
+    uint32_t metadataOffset = m_profiledCodeBlock->metadataTable()->offsetInMetadataTable(bytecode);
 
-#define GET_FROM_SCOPE_GENERATOR(resolveType) op_get_from_scope_##resolveType##Generator,
-        static const ThunkGenerator generators[] = {
-            FOR_EACH_RESOLVE_TYPE(GET_FROM_SCOPE_GENERATOR)
-        };
-#undef GET_FROM_SCOPE_GENERATOR
+    emitGetVirtualRegisterPayload(scope, scopeGPR);
+    addPtr(TrustedImm32(metadataOffset), s_metadataGPR, metadataGPR);
+    move(TrustedImm32(bytecodeOffset), bytecodeOffsetGPR);
 
-        emitGetVirtualRegister(scope, scopeGPR);
-        move(TrustedImmPtr(metadataOffset), metadataGPR);
-        move(TrustedImm32(bytecodeOffset), bytecodeOffsetGPR);
-        emitNakedNearCall(vm.getCTIStub(generators[resolveType]).retaggedCode<NoPtrTag>());
-    }
-    emitPutVirtualRegister(dst);
+    MacroAssemblerCodeRef<JITThunkPtrTag> code;
+    if (profiledResolveType == ClosureVar)
+        code = vm.getCTIStub(generateOpGetFromScopeThunk<ClosureVar>);
+    else if (profiledResolveType == ClosureVarWithVarInjectionChecks)
+        code = vm.getCTIStub(generateOpGetFromScopeThunk<ClosureVarWithVarInjectionChecks>);
+    else if (profiledResolveType == GlobalVar)
+        code = vm.getCTIStub(generateOpGetFromScopeThunk<GlobalVar>);
+    else if (profiledResolveType == GlobalVarWithVarInjectionChecks)
+        code = vm.getCTIStub(generateOpGetFromScopeThunk<GlobalVarWithVarInjectionChecks>);
+    else if (profiledResolveType == GlobalProperty)
+        code = vm.getCTIStub(generateOpGetFromScopeThunk<GlobalProperty>);
+    else if (profiledResolveType == GlobalLexicalVar)
+        code = vm.getCTIStub(generateOpGetFromScopeThunk<GlobalLexicalVar>);
+    else if (profiledResolveType == GlobalLexicalVarWithVarInjectionChecks)
+        code = vm.getCTIStub(generateOpGetFromScopeThunk<GlobalLexicalVarWithVarInjectionChecks>);
+    else
+        code = vm.getCTIStub(generateOpGetFromScopeThunk<GlobalVar>);
+
+    emitNakedNearCall(code.retaggedCode<NoPtrTag>());
+    emitPutVirtualRegister(dst, returnValueJSR);
 }
 
-MacroAssemblerCodeRef<JITThunkPtrTag> JIT::generateOpGetFromScopeThunk(ResolveType resolveType, const char* thunkName)
+template <ResolveType profiledResolveType>
+MacroAssemblerCodeRef<JITThunkPtrTag> JIT::generateOpGetFromScopeThunk(VM& vm)
 {
     // The thunk generated by this function can only work with the LLInt / Baseline JIT because
     // it makes assumptions about the right globalObject being available from CallFrame::codeBlock().
     // DFG/FTL may inline functions belonging to other globalObjects, which may not match
     // CallFrame::codeBlock().
     using Metadata = OpGetFromScope::Metadata;
-    constexpr GPRReg metadataGPR = regT7;
-    constexpr GPRReg scopeGPR = regT6;
-    RELEASE_ASSERT(thunkIsUsedForOpGetFromScope(resolveType));
+    constexpr GPRReg metadataGPR = regT4;
+    constexpr GPRReg scopeGPR = regT2;
+    constexpr GPRReg bytecodeOffsetGPR = regT3; // Used only on slow path
+    constexpr GPRReg scratchGPR = regT5;
+    UNUSED_PARAM(bytecodeOffsetGPR);
+    static_assert(noOverlap(returnValueJSR, metadataGPR, scopeGPR, bytecodeOffsetGPR, scratchGPR));
 
-    tagReturnAddress();
+    CCallHelpers jit;
 
-    loadPtr(addressFor(CallFrameSlot::codeBlock), regT3);
-    loadPtr(Address(regT3, CodeBlock::offsetOfMetadataTable()), regT3);
-    addPtr(regT3, metadataGPR);
+    jit.tagReturnAddress();
 
     JumpList slowCase;
 
-    auto emitLoadWithStructureCheck = [&] (GPRReg scopeGPR, int32_t metadataStructureOffset) {
-        loadPtr(Address(metadataGPR, metadataStructureOffset), regT1);
-        move(scopeGPR, regT0);
-        slowCase.append(branchTestPtr(Zero, regT1));
-        load32(Address(regT1, Structure::structureIDOffset()), regT1);
-        slowCase.append(branch32(NotEqual, Address(regT0, JSCell::structureIDOffset()), regT1));
-    };
-
-    auto emitVarInjectionCheck = [&] (bool needsVarInjectionChecks) {
+    auto doVarInjectionCheck = [&] (bool needsVarInjectionChecks) {
         if (!needsVarInjectionChecks)
             return;
-        loadPtr(addressFor(CallFrameSlot::codeBlock), regT3);
-        loadPtr(Address(regT3, CodeBlock::offsetOfGlobalObject()), regT3);
-        loadPtr(Address(regT3, OBJECT_OFFSETOF(JSGlobalObject, m_varInjectionWatchpoint)), regT3);
-        slowCase.append(branch8(Equal, Address(regT3, WatchpointSet::offsetOfState()), TrustedImm32(IsInvalidated)));
+        jit.loadPtr(addressFor(CallFrameSlot::codeBlock), scratchGPR);
+        jit.loadPtr(Address(scratchGPR, CodeBlock::offsetOfGlobalObject()), scratchGPR);
+        jit.loadPtr(Address(scratchGPR, OBJECT_OFFSETOF(JSGlobalObject, m_varInjectionWatchpoint)), scratchGPR);
+        slowCase.append(jit.branch8(Equal, Address(scratchGPR, WatchpointSet::offsetOfState()), TrustedImm32(IsInvalidated)));
     };
     
-    auto emitGetVarFromPointer = [&] (int32_t operand, GPRReg reg) {
-        loadPtr(Address(metadataGPR, operand), reg);
-        loadPtr(reg, reg);
-    };
-
-    auto emitGetVarFromIndirectPointer = [&] (int32_t operand, GPRReg reg) {
-        loadPtr(Address(metadataGPR, operand), reg);
-        loadPtr(reg, reg);
-    };
-
-    auto emitGetClosureVar = [&] (GPRReg scopeGPR, GPRReg operandGPR) {
-        static_assert(1 << 3 == sizeof(Register));
-        lshift64(TrustedImm32(3), operandGPR);
-        addPtr(scopeGPR, operandGPR);
-        loadPtr(Address(operandGPR, JSLexicalEnvironment::offsetOfVariables()), regT0);
-    };
-
-    auto emitCode = [&] (ResolveType resolveType, bool indirectLoadForOperand) {
+    auto emitCode = [&] (ResolveType resolveType) {
         switch (resolveType) {
         case GlobalProperty:
         case GlobalPropertyWithVarInjectionChecks: {
-            emitLoadWithStructureCheck(scopeGPR, OBJECT_OFFSETOF(Metadata, m_structure)); // Structure check covers var injection since we don't cache structures for anything but the GlobalObject. Additionally, resolve_scope handles checking for the var injection.
+            // Structure check covers var injection since we don't cache structures for anything but the GlobalObject. Additionally, resolve_scope handles checking for the var injection.
+            jit.loadPtr(Address(metadataGPR, OpGetFromScope::Metadata::offsetOfStructure()), scratchGPR);
+            slowCase.append(jit.branchTestPtr(Zero, scratchGPR));
+            jit.load32(Address(scratchGPR, Structure::structureIDOffset()), scratchGPR);
+            slowCase.append(jit.branch32(NotEqual, Address(scopeGPR, JSCell::structureIDOffset()), scratchGPR));
 
-            constexpr GPRReg base = regT0;
-            constexpr GPRReg result = regT0;
-            constexpr GPRReg offset = regT1;
-            constexpr GPRReg scratch = regT2;
-
-            jitAssert(scopedLambda<Jump(void)>([&] () -> Jump {
-                loadPtr(addressFor(CallFrameSlot::codeBlock), regT3);
-                loadPtr(Address(regT3, CodeBlock::offsetOfGlobalObject()), regT3);
-                return branchPtr(Equal, base, regT3);
+            jit.jitAssert(scopedLambda<Jump(void)>([&] () -> Jump {
+                jit.loadPtr(addressFor(CallFrameSlot::codeBlock), scratchGPR);
+                jit.loadPtr(Address(scratchGPR, CodeBlock::offsetOfGlobalObject()), scratchGPR);
+                return jit.branchPtr(Equal, scopeGPR, scratchGPR);
             }));
 
-            loadPtr(Address(metadataGPR, OBJECT_OFFSETOF(Metadata, m_operand)), offset);
+            jit.loadPtr(Address(metadataGPR, Metadata::offsetOfOperand()), scratchGPR);
+
             if (ASSERT_ENABLED) {
-                Jump isOutOfLine = branch32(GreaterThanOrEqual, offset, TrustedImm32(firstOutOfLineOffset));
-                abortWithReason(JITOffsetIsNotOutOfLine);
-                isOutOfLine.link(this);
+                Jump isOutOfLine = jit.branch32(GreaterThanOrEqual, scratchGPR, TrustedImm32(firstOutOfLineOffset));
+                jit.abortWithReason(JITOffsetIsNotOutOfLine);
+                isOutOfLine.link(&jit);
             }
-            loadPtr(Address(base, JSObject::butterflyOffset()), scratch);
-            neg32(offset);
-            signExtend32ToPtr(offset, offset);
-            load64(BaseIndex(scratch, offset, TimesEight, (firstOutOfLineOffset - 2) * sizeof(EncodedJSValue)), result);
+
+            jit.loadPtr(Address(scopeGPR, JSObject::butterflyOffset()), scopeGPR);
+            jit.negPtr(scratchGPR);
+            jit.loadValue(BaseIndex(scopeGPR, scratchGPR, TimesEight, (firstOutOfLineOffset - 2) * sizeof(EncodedJSValue)), returnValueJSR);
             break;
         }
         case GlobalVar:
         case GlobalVarWithVarInjectionChecks:
         case GlobalLexicalVar:
         case GlobalLexicalVarWithVarInjectionChecks:
-            emitVarInjectionCheck(needsVarInjectionChecks(resolveType));
-            if (indirectLoadForOperand)
-                emitGetVarFromIndirectPointer(OBJECT_OFFSETOF(Metadata, m_operand), regT0);
-            else
-                emitGetVarFromPointer(OBJECT_OFFSETOF(Metadata, m_operand), regT0);
+            doVarInjectionCheck(needsVarInjectionChecks(resolveType));
+            jit.loadPtr(Address(metadataGPR, Metadata::offsetOfOperand()), scratchGPR);
+            jit.loadValue(Address(scratchGPR), returnValueJSR);
             if (resolveType == GlobalLexicalVar || resolveType == GlobalLexicalVarWithVarInjectionChecks) // TDZ check.
-                slowCase.append(branchIfEmpty(regT0));
+                slowCase.append(jit.branchIfEmpty(returnValueJSR));
             break;
         case ClosureVar:
         case ClosureVarWithVarInjectionChecks:
-            emitVarInjectionCheck(needsVarInjectionChecks(resolveType));
-            loadPtr(Address(metadataGPR, OBJECT_OFFSETOF(Metadata, m_operand)), regT3);
-            emitGetClosureVar(scopeGPR, regT3);
+            doVarInjectionCheck(needsVarInjectionChecks(resolveType));
+            jit.loadPtr(Address(metadataGPR,  Metadata::offsetOfOperand()), scratchGPR);
+            jit.loadValue(BaseIndex(scopeGPR, scratchGPR, TimesEight, JSLexicalEnvironment::offsetOfVariables()), returnValueJSR);
             break;
         case Dynamic:
-            slowCase.append(jump());
+            slowCase.append(jit.jump());
             break;
         case ResolvedClosureVar:
         case ModuleVar:
@@ -2532,78 +2313,55 @@ MacroAssemblerCodeRef<JITThunkPtrTag> JIT::generateOpGetFromScopeThunk(ResolveTy
         }
     };
 
-    switch (resolveType) {
-    case GlobalProperty:
-    case GlobalPropertyWithVarInjectionChecks: {
+    if (profiledResolveType == ClosureVar || profiledResolveType == ClosureVarWithVarInjectionChecks)
+        emitCode(profiledResolveType);
+    else {
         JumpList skipToEnd;
-        load32(Address(metadataGPR, OBJECT_OFFSETOF(Metadata, m_getPutInfo)), regT0);
-        and32(TrustedImm32(GetPutInfo::typeBits), regT0); // Load ResolveType into T0
+        jit.load32(Address(metadataGPR, Metadata::offsetOfGetPutInfo()), scratchGPR);
+        jit.and32(TrustedImm32(GetPutInfo::typeBits), scratchGPR); // Load ResolveType into scratchGPR
 
-        Jump isNotGlobalProperty = branch32(NotEqual, regT0, TrustedImm32(resolveType));
-        emitCode(resolveType, false);
-        skipToEnd.append(jump());
+        auto emitCaseWithoutCheck = [&] (ResolveType resolveType) {
+            Jump notCase = jit.branch32(NotEqual, scratchGPR, TrustedImm32(resolveType));
+            emitCode(resolveType);
+            skipToEnd.append(jit.jump());
+            notCase.link(&jit);
+        };
 
-        isNotGlobalProperty.link(this);
-        emitCode(needsVarInjectionChecks(resolveType) ? GlobalLexicalVarWithVarInjectionChecks : GlobalLexicalVar, true);
+        auto emitCase = [&] (ResolveType resolveType) {
+            if (profiledResolveType != resolveType)
+                emitCaseWithoutCheck(resolveType);
+        };
 
-        skipToEnd.link(this);
-        break;
-    }
-    case UnresolvedProperty:
-    case UnresolvedPropertyWithVarInjectionChecks: {
-        JumpList skipToEnd;
-        load32(Address(metadataGPR, OBJECT_OFFSETOF(Metadata, m_getPutInfo)), regT0);
-        and32(TrustedImm32(GetPutInfo::typeBits), regT0); // Load ResolveType into T0
+        switch (profiledResolveType) {
+        case ResolvedClosureVar:
+        case ModuleVar:
+        case UnresolvedProperty:
+        case UnresolvedPropertyWithVarInjectionChecks:
+            break;
+        default:
+            emitCaseWithoutCheck(profiledResolveType);
+            break;
+        }
 
-        Jump isGlobalProperty = branch32(Equal, regT0, TrustedImm32(GlobalProperty));
-        Jump notGlobalPropertyWithVarInjections = branch32(NotEqual, regT0, TrustedImm32(GlobalPropertyWithVarInjectionChecks));
-        isGlobalProperty.link(this);
-        emitCode(GlobalProperty, false);
-        skipToEnd.append(jump());
-        notGlobalPropertyWithVarInjections.link(this);
+        emitCase(GlobalVar);
+        emitCase(GlobalProperty);
+        emitCase(GlobalLexicalVar);
+        emitCase(GlobalVarWithVarInjectionChecks);
+        emitCase(GlobalPropertyWithVarInjectionChecks);
+        emitCase(GlobalLexicalVarWithVarInjectionChecks);
 
-        Jump notGlobalLexicalVar = branch32(NotEqual, regT0, TrustedImm32(GlobalLexicalVar));
-        emitCode(GlobalLexicalVar, true);
-        skipToEnd.append(jump());
-        notGlobalLexicalVar.link(this);
-
-        Jump notGlobalLexicalVarWithVarInjections = branch32(NotEqual, regT0, TrustedImm32(GlobalLexicalVarWithVarInjectionChecks));
-        emitCode(GlobalLexicalVarWithVarInjectionChecks, true);
-        skipToEnd.append(jump());
-        notGlobalLexicalVarWithVarInjections.link(this);
-
-        slowCase.append(jump());
-
-        skipToEnd.link(this);
-        break;
-    }
-
-    default:
-        emitCode(resolveType, false);
-        break;
+        slowCase.append(jit.jump());
+        skipToEnd.link(&jit);
     }
 
     static_assert(ValueProfile::numberOfBuckets == 1);
-    store64(regT0, Address(metadataGPR, OBJECT_OFFSETOF(Metadata, m_profile)));
+    jit.storeValue(returnValueJSR, Address(metadataGPR, Metadata::offsetOfProfile() + ValueProfile::offsetOfFirstBucket()));
+    jit.ret();
 
-    ret();
-
-    LinkBuffer patchBuffer(*this, GLOBAL_THUNK_ID, LinkBuffer::Profile::Thunk);
-    auto slowCaseHandler = vm().getCTIStub(slow_op_get_from_scopeGenerator);
-    patchBuffer.link(slowCase, CodeLocationLabel(slowCaseHandler.retaggedCode<NoPtrTag>()));
-    return FINALIZE_CODE(patchBuffer, JITThunkPtrTag, thunkName);
+    LinkBuffer patchBuffer(jit, GLOBAL_THUNK_ID, LinkBuffer::Profile::Thunk);
+    patchBuffer.link(slowCase, CodeLocationLabel(vm.getCTIStub(slow_op_get_from_scopeGenerator).retaggedCode<NoPtrTag>()));
+    return FINALIZE_CODE(patchBuffer, JITThunkPtrTag, "get_from_scope thunk");
 }
-
-#define DEFINE_GET_FROM_SCOPE_GENERATOR(resolveType) \
-MacroAssemblerCodeRef<JITThunkPtrTag> JIT::op_get_from_scope_##resolveType##Generator(VM& vm) \
-    { \
-        if constexpr (!thunkIsUsedForOpGetFromScope(resolveType)) \
-            return { }; \
-        JIT jit(vm); \
-        return jit.generateOpGetFromScopeThunk(resolveType, "Baseline: op_get_from_scope_" #resolveType); \
-    }
-FOR_EACH_RESOLVE_TYPE(DEFINE_GET_FROM_SCOPE_GENERATOR)
-#undef DEFINE_GET_FROM_SCOPE_GENERATOR
 
 MacroAssemblerCodeRef<JITThunkPtrTag> JIT::slow_op_get_from_scopeGenerator(VM& vm)
 {
@@ -2611,47 +2369,70 @@ MacroAssemblerCodeRef<JITThunkPtrTag> JIT::slow_op_get_from_scopeGenerator(VM& v
     // it makes assumptions about the right globalObject being available from CallFrame::codeBlock().
     // DFG/FTL may inline functions belonging to other globalObjects, which may not match
     // CallFrame::codeBlock().
-    JIT jit(vm);
+    CCallHelpers jit;
 
 #if CPU(X86_64)
     jit.push(X86Registers::ebp);
-#elif CPU(ARM64)
+#elif CPU(ARM64) || CPU(ARM_THUMB2) || CPU(RISCV64)
     jit.pushPair(framePointerRegister, linkRegister);
+#elif CPU(MIPS)
+    jit.pushPair(framePointerRegister, returnAddressRegister);
+#else
+#   error "Not implemented on platform"
 #endif
 
     using Metadata = OpGetFromScope::Metadata;
-    constexpr GPRReg metadataGPR = regT7;
-    constexpr GPRReg bytecodeOffsetGPR = regT5;
-    jit.store32(bytecodeOffsetGPR, tagFor(CallFrameSlot::argumentCountIncludingThis));
+    constexpr GPRReg metadataGPR = regT4;
+    constexpr GPRReg incomingBytecodeOffsetGPR = regT3;
+    jit.store32(incomingBytecodeOffsetGPR, tagFor(CallFrameSlot::argumentCountIncludingThis));
 
-    constexpr GPRReg codeBlockGPR = argumentGPR3;
+    constexpr GPRReg scratchGPR = regT2;
     constexpr GPRReg globalObjectGPR = argumentGPR0;
     constexpr GPRReg instructionGPR = argumentGPR1;
+    static_assert(noOverlap(metadataGPR, incomingBytecodeOffsetGPR, scratchGPR, globalObjectGPR, instructionGPR));
 
-    jit.loadPtr(addressFor(CallFrameSlot::codeBlock), codeBlockGPR);
-    jit.loadPtr(Address(codeBlockGPR, CodeBlock::offsetOfGlobalObject()), globalObjectGPR);
-    jit.loadPtr(Address(codeBlockGPR, CodeBlock::offsetOfInstructionsRawPointer()), instructionGPR);
-    jit.addPtr(bytecodeOffsetGPR, instructionGPR);
+    jit.loadPtr(addressFor(CallFrameSlot::codeBlock), scratchGPR);
+    jit.loadPtr(Address(scratchGPR, CodeBlock::offsetOfGlobalObject()), globalObjectGPR);
+    jit.loadPtr(Address(scratchGPR, CodeBlock::offsetOfInstructionsRawPointer()), instructionGPR);
+    jit.addPtr(incomingBytecodeOffsetGPR, instructionGPR);
 
-    ASSERT(RegisterSet::calleeSaveRegisters().contains(GPRInfo::numberTagRegister));
-    jit.move(metadataGPR, GPRInfo::numberTagRegister); // Preserve metadata in a callee saved register.
+    // Preserve metadata in a callee saved register.
+#if USE(JSVALUE64)
+    constexpr GPRReg metadataCSR = GPRInfo::numberTagRegister;
+    auto restoreHijackedCSR = [&]() {
+        jit.move(TrustedImm64(JSValue::NumberTag), GPRInfo::numberTagRegister);
+    };
+#elif USE(JSVALUE32_64)
+    constexpr GPRReg metadataCSR = s_metadataGPR;
+    auto restoreHijackedCSR = [&]() {
+        jit.loadPtr(addressFor(CallFrameSlot::codeBlock), s_metadataGPR);
+        jit.loadPtr(Address(s_metadataGPR, CodeBlock::offsetOfMetadataTable()), s_metadataGPR);
+    };
+#endif
+    ASSERT(RegisterSet::calleeSaveRegisters().contains(metadataCSR));
+    jit.move(metadataGPR, metadataCSR);
+
     jit.setupArguments<decltype(operationGetFromScope)>(globalObjectGPR, instructionGPR);
     jit.prepareCallOperation(vm);
     Call operation = jit.call(OperationPtrTag);
     Jump exceptionCheck = jit.emitNonPatchableExceptionCheck(vm);
 
-    jit.store64(regT0, Address(GPRInfo::numberTagRegister, OBJECT_OFFSETOF(Metadata, m_profile)));
-    jit.move(TrustedImm64(JSValue::NumberTag), GPRInfo::numberTagRegister);
+    jit.storeValue(returnValueJSR, Address(metadataCSR, Metadata::offsetOfProfile() + ValueProfile::offsetOfFirstBucket()));
+    restoreHijackedCSR();
 
 #if CPU(X86_64)
     jit.pop(X86Registers::ebp);
-#elif CPU(ARM64)
+#elif CPU(ARM64) || CPU(ARM_THUMB2) || CPU(RISCV64)
     jit.popPair(framePointerRegister, linkRegister);
+#elif CPU(MIPS)
+    jit.popPair(framePointerRegister, returnAddressRegister);
+#else
+#   error "Not implemented on platform"
 #endif
     jit.ret();
 
     exceptionCheck.link(&jit);
-    jit.move(TrustedImm64(JSValue::NumberTag), GPRInfo::numberTagRegister);
+    restoreHijackedCSR();
     Jump jumpToHandler = jit.jump();
 
     LinkBuffer patchBuffer(jit, GLOBAL_THUNK_ID, LinkBuffer::Profile::ExtraCTIThunk);
@@ -2660,88 +2441,84 @@ MacroAssemblerCodeRef<JITThunkPtrTag> JIT::slow_op_get_from_scopeGenerator(VM& v
     patchBuffer.link(jumpToHandler, CodeLocationLabel(handler.retaggedCode<NoPtrTag>()));
     return FINALIZE_CODE(patchBuffer, JITThunkPtrTag, "Baseline: slow_op_get_from_scope");
 }
-#endif // ENABLE(EXTRA_CTI_THUNKS)
-
-void JIT::emitPutGlobalVariable(JSValue* operand, VirtualRegister value, WatchpointSet* set)
-{
-    emitGetVirtualRegister(value, regT0);
-    emitNotifyWrite(set);
-    storePtr(regT0, operand);
-}
-void JIT::emitPutGlobalVariableIndirect(JSValue** addressOfOperand, VirtualRegister value, WatchpointSet** indirectWatchpointSet)
-{
-    emitGetVirtualRegister(value, regT0);
-    loadPtr(indirectWatchpointSet, regT1);
-    emitNotifyWrite(regT1);
-    loadPtr(addressOfOperand, regT1);
-    storePtr(regT0, regT1);
-}
-
-void JIT::emitPutClosureVar(VirtualRegister scope, uintptr_t operand, VirtualRegister value, WatchpointSet* set)
-{
-    emitGetVirtualRegister(value, regT1);
-    emitGetVirtualRegister(scope, regT0);
-    emitNotifyWrite(set);
-    storePtr(regT1, Address(regT0, JSLexicalEnvironment::offsetOfVariables() + operand * sizeof(Register)));
-}
 
 void JIT::emit_op_put_to_scope(const Instruction* currentInstruction)
 {
     auto bytecode = currentInstruction->as<OpPutToScope>();
-    auto& metadata = bytecode.metadata(m_codeBlock);
     VirtualRegister scope = bytecode.m_scope;
     VirtualRegister value = bytecode.m_value;
-    GetPutInfo getPutInfo = copiedGetPutInfo(bytecode);
-    ResolveType resolveType = getPutInfo.resolveType();
-    Structure** structureSlot = metadata.m_structure.slot();
-    uintptr_t* operandSlot = reinterpret_cast<uintptr_t*>(&metadata.m_operand);
 
-    auto emitCode = [&] (ResolveType resolveType, bool indirectLoadForOperand) {
+    ResolveType profiledResolveType = bytecode.metadata(m_profiledCodeBlock).m_getPutInfo.resolveType();
+
+    auto emitCode = [&] (ResolveType resolveType) {
         switch (resolveType) {
         case GlobalProperty:
         case GlobalPropertyWithVarInjectionChecks: {
-            emitLoadWithStructureCheck(scope, structureSlot); // Structure check covers var injection since we don't cache structures for anything but the GlobalObject. Additionally, resolve_scope handles checking for the var injection.
-            emitGetVirtualRegister(value, regT2);
+            // Structure check covers var injection since we don't cache structures for anything but the GlobalObject.
+            // Additionally, resolve_scope handles checking for the var injection.
+            constexpr JSValueRegs valueJSR = jsRegT10;
+            constexpr GPRReg scopeGPR = regT2;
+            constexpr GPRReg scratchGPR1 = regT3;
+            constexpr GPRReg scratchGPR2 = regT4;
+            static_assert(noOverlap(valueJSR, scopeGPR, scratchGPR1, scratchGPR2));
+            loadPtrFromMetadata(bytecode, OpPutToScope::Metadata::offsetOfStructure(), scratchGPR1);
+            emitGetVirtualRegisterPayload(scope, scopeGPR);
+            addSlowCase(branchTestPtr(Zero, scratchGPR1));
+            load32(Address(scratchGPR1, Structure::structureIDOffset()), scratchGPR1);
+            addSlowCase(branch32(NotEqual, Address(scopeGPR, JSCell::structureIDOffset()), scratchGPR1));
+
+            emitGetVirtualRegister(value, valueJSR);
 
             jitAssert(scopedLambda<Jump(void)>([&] () -> Jump {
-                return branchPtr(Equal, regT0, TrustedImmPtr(m_codeBlock->globalObject()));
+                loadGlobalObject(scratchGPR2);
+                return branchPtr(Equal, scopeGPR, scratchGPR2);
             }));
 
-            loadPtr(Address(regT0, JSObject::butterflyOffset()), regT0);
-            loadPtr(operandSlot, regT1);
-            negPtr(regT1);
-            storePtr(regT2, BaseIndex(regT0, regT1, TimesEight, (firstOutOfLineOffset - 2) * sizeof(EncodedJSValue)));
-            emitWriteBarrier(m_codeBlock->globalObject(), value, ShouldFilterValue);
+            loadPtr(Address(scopeGPR, JSObject::butterflyOffset()), scratchGPR2);
+            loadPtrFromMetadata(bytecode, OpPutToScope::Metadata::offsetOfOperand(), scratchGPR1);
+            negPtr(scratchGPR1);
+            storeValue(valueJSR, BaseIndex(scratchGPR2, scratchGPR1, TimesEight, (firstOutOfLineOffset - 2) * sizeof(EncodedJSValue)));
+            emitWriteBarrier(scope, value, ShouldFilterValue);
             break;
         }
         case GlobalVar:
         case GlobalVarWithVarInjectionChecks:
         case GlobalLexicalVar:
         case GlobalLexicalVarWithVarInjectionChecks: {
-            JSScope* constantScope = JSScope::constantScopeForCodeBlock(resolveType, m_codeBlock);
-            RELEASE_ASSERT(constantScope);
-            emitVarInjectionCheck(needsVarInjectionChecks(resolveType));
-            emitVarReadOnlyCheck(resolveType);
-            if (!isInitialization(getPutInfo.initializationMode()) && (resolveType == GlobalLexicalVar || resolveType == GlobalLexicalVarWithVarInjectionChecks)) {
+            static_assert(noOverlap(jsRegT10, regT2, regT3));
+            emitVarInjectionCheck(needsVarInjectionChecks(resolveType), regT2);
+            emitVarReadOnlyCheck(resolveType, regT2);
+
+            loadPtrFromMetadata(bytecode, OpPutToScope::Metadata::offsetOfOperand(), regT2);
+
+            if (!isInitialization(bytecode.m_getPutInfo.initializationMode()) && (resolveType == GlobalLexicalVar || resolveType == GlobalLexicalVarWithVarInjectionChecks)) {
                 // We need to do a TDZ check here because we can't always prove we need to emit TDZ checks statically.
-                if (indirectLoadForOperand)
-                    emitGetVarFromIndirectPointer(bitwise_cast<JSValue**>(operandSlot), regT0);
-                else
-                    emitGetVarFromPointer(bitwise_cast<JSValue*>(*operandSlot), regT0);
-                addSlowCase(branchIfEmpty(regT0));
+                loadValue(Address(regT2), jsRegT10);
+                addSlowCase(branchIfEmpty(jsRegT10));
             }
-            if (indirectLoadForOperand)
-                emitPutGlobalVariableIndirect(bitwise_cast<JSValue**>(operandSlot), value, &metadata.m_watchpointSet);
-            else
-                emitPutGlobalVariable(bitwise_cast<JSValue*>(*operandSlot), value, metadata.m_watchpointSet);
-            emitWriteBarrier(constantScope, value, ShouldFilterValue);
+
+            loadPtrFromMetadata(bytecode, OpPutToScope::Metadata::offsetOfWatchpointSet(), regT3);
+            emitNotifyWriteWatchpoint(regT3);
+
+            emitGetVirtualRegister(value, jsRegT10);
+            storeValue(jsRegT10, Address(regT2));
+
+            emitWriteBarrier(scope, value, ShouldFilterValue);
             break;
         }
         case ResolvedClosureVar:
         case ClosureVar:
         case ClosureVarWithVarInjectionChecks:
-            emitVarInjectionCheck(needsVarInjectionChecks(resolveType));
-            emitPutClosureVar(scope, *operandSlot, value, metadata.m_watchpointSet);
+            static_assert(noOverlap(jsRegT10, regT2, regT3));
+            emitVarInjectionCheck(needsVarInjectionChecks(resolveType), regT3);
+
+            loadPtrFromMetadata(bytecode, OpPutToScope::Metadata::offsetOfWatchpointSet(), regT3);
+            loadPtrFromMetadata(bytecode, OpPutToScope::Metadata::offsetOfOperand(), regT2);
+            emitNotifyWriteWatchpoint(regT3);
+            emitGetVirtualRegister(value, jsRegT10);
+            emitGetVirtualRegisterPayload(scope, regT3);
+            storeValue(jsRegT10, BaseIndex(regT3, regT2, TimesEight, JSLexicalEnvironment::offsetOfVariables()));
+
             emitWriteBarrier(scope, value, ShouldFilterValue);
             break;
         case ModuleVar:
@@ -2755,58 +2532,52 @@ void JIT::emit_op_put_to_scope(const Instruction* currentInstruction)
         }
     };
 
-    switch (resolveType) {
-    case GlobalProperty:
-    case GlobalPropertyWithVarInjectionChecks: {
+    // If any linked CodeBlock sees ClosureVar/ ClosureVarWithVarInjectionChecks, then we can compile things
+    // that way for all CodeBlocks, since we've proven that is the type we will be. If we're a ClosureVar,
+    // all CodeBlocks will be ClosureVar. If we're ClosureVarWithVarInjectionChecks, we're always ClosureVar
+    // if the var injection watchpoint isn't fired. If it is fired, then we take the slow path, so it doesn't
+    // matter what type we are dynamically.
+    if (profiledResolveType == ClosureVar)
+        emitCode(ClosureVar);
+    else if (profiledResolveType == ResolvedClosureVar)
+        emitCode(ResolvedClosureVar);
+    else if (profiledResolveType == ClosureVarWithVarInjectionChecks)
+        emitCode(ClosureVarWithVarInjectionChecks);
+    else {
         JumpList skipToEnd;
-        load32(&metadata.m_getPutInfo, regT0);
+        load32FromMetadata(bytecode, OpPutToScope::Metadata::offsetOfGetPutInfo(), regT0);
         and32(TrustedImm32(GetPutInfo::typeBits), regT0); // Load ResolveType into T0
 
-        Jump isGlobalProperty = branch32(Equal, regT0, TrustedImm32(resolveType));
-        Jump isGlobalLexicalVar = branch32(Equal, regT0, TrustedImm32(needsVarInjectionChecks(resolveType) ? GlobalLexicalVarWithVarInjectionChecks : GlobalLexicalVar));
-        addSlowCase(jump()); // Dynamic, it can happen if we attempt to put a value to already-initialized const binding.
+        auto emitCaseWithoutCheck = [&] (ResolveType resolveType) {
+            Jump notCase = branch32(NotEqual, regT0, TrustedImm32(resolveType));
+            emitCode(resolveType);
+            skipToEnd.append(jump());
+            notCase.link(this);
+        };
 
-        isGlobalLexicalVar.link(this);
-        emitCode(needsVarInjectionChecks(resolveType) ? GlobalLexicalVarWithVarInjectionChecks : GlobalLexicalVar, true);
-        skipToEnd.append(jump());
+        auto emitCase = [&] (ResolveType resolveType) {
+            if (profiledResolveType != resolveType)
+                emitCaseWithoutCheck(resolveType);
+        };
 
-        isGlobalProperty.link(this);
-        emitCode(resolveType, false);
-        skipToEnd.link(this);
-        break;
-    }
-    case UnresolvedProperty:
-    case UnresolvedPropertyWithVarInjectionChecks: {
-        JumpList skipToEnd;
-        load32(&metadata.m_getPutInfo, regT0);
-        and32(TrustedImm32(GetPutInfo::typeBits), regT0); // Load ResolveType into T0
+        switch (profiledResolveType) {
+        case UnresolvedProperty:
+        case UnresolvedPropertyWithVarInjectionChecks:
+            break;
+        default:
+            emitCaseWithoutCheck(profiledResolveType);
+            break;
+        }
 
-        Jump isGlobalProperty = branch32(Equal, regT0, TrustedImm32(GlobalProperty));
-        Jump notGlobalPropertyWithVarInjections = branch32(NotEqual, regT0, TrustedImm32(GlobalPropertyWithVarInjectionChecks));
-        isGlobalProperty.link(this);
-        emitCode(GlobalProperty, false);
-        skipToEnd.append(jump());
-        notGlobalPropertyWithVarInjections.link(this);
-
-        Jump notGlobalLexicalVar = branch32(NotEqual, regT0, TrustedImm32(GlobalLexicalVar));
-        emitCode(GlobalLexicalVar, true);
-        skipToEnd.append(jump());
-        notGlobalLexicalVar.link(this);
-
-        Jump notGlobalLexicalVarWithVarInjections = branch32(NotEqual, regT0, TrustedImm32(GlobalLexicalVarWithVarInjectionChecks));
-        emitCode(GlobalLexicalVarWithVarInjectionChecks, true);
-        skipToEnd.append(jump());
-        notGlobalLexicalVarWithVarInjections.link(this);
+        emitCase(GlobalVar);
+        emitCase(GlobalProperty);
+        emitCase(GlobalLexicalVar);
+        emitCase(GlobalVarWithVarInjectionChecks);
+        emitCase(GlobalPropertyWithVarInjectionChecks);
+        emitCase(GlobalLexicalVarWithVarInjectionChecks);
 
         addSlowCase(jump());
-
         skipToEnd.link(this);
-        break;
-    }
-
-    default:
-        emitCode(resolveType, false);
-        break;
     }
 }
 
@@ -2815,18 +2586,21 @@ void JIT::emitSlow_op_put_to_scope(const Instruction* currentInstruction, Vector
     linkAllSlowCases(iter);
 
     auto bytecode = currentInstruction->as<OpPutToScope>();
-    ResolveType resolveType = copiedGetPutInfo(bytecode).resolveType();
-    if (resolveType == ModuleVar) {
+    ResolveType profiledResolveType = bytecode.metadata(m_profiledCodeBlock).m_getPutInfo.resolveType();
+    if (profiledResolveType == ModuleVar) {
+        // If any linked CodeBlock saw a ModuleVar, then all linked CodeBlocks are guaranteed
+        // to also see ModuleVar.
         JITSlowPathCall slowPathCall(this, currentInstruction, slow_path_throw_strict_mode_readonly_property_write_error);
         slowPathCall.call();
     } else {
 #if !ENABLE(EXTRA_CTI_THUNKS)
-        callOperation(operationPutToScope, TrustedImmPtr(m_codeBlock->globalObject()), currentInstruction);
+        loadGlobalObject(argumentGPR0);
+        callOperation(operationPutToScope, argumentGPR0, currentInstruction);
 #else
         VM& vm = this->vm();
         uint32_t bytecodeOffset = m_bytecodeIndex.offset();
         ASSERT(BytecodeIndex(bytecodeOffset) == m_bytecodeIndex);
-        ASSERT(m_codeBlock->instructionAt(m_bytecodeIndex) == currentInstruction);
+        ASSERT(m_unlinkedCodeBlock->instructionAt(m_bytecodeIndex) == currentInstruction);
 
         constexpr GPRReg bytecodeOffsetGPR = argumentGPR2;
         move(TrustedImm32(bytecodeOffset), bytecodeOffsetGPR);
@@ -2843,7 +2617,7 @@ MacroAssemblerCodeRef<JITThunkPtrTag> JIT::slow_op_put_to_scopeGenerator(VM& vm)
     // it makes assumptions about the right globalObject being available from CallFrame::codeBlock().
     // DFG/FTL may inline functions belonging to other globalObjects, which may not match
     // CallFrame::codeBlock().
-    JIT jit(vm);
+    CCallHelpers jit;
 
 #if CPU(X86_64)
     jit.push(X86Registers::ebp);
@@ -2890,10 +2664,10 @@ void JIT::emit_op_get_from_arguments(const Instruction* currentInstruction)
     VirtualRegister arguments = bytecode.m_arguments;
     int index = bytecode.m_index;
     
-    emitGetVirtualRegister(arguments, regT0);
-    load64(Address(regT0, DirectArguments::storageOffset() + index * sizeof(WriteBarrier<Unknown>)), regT0);
-    emitValueProfilingSite(bytecode.metadata(m_codeBlock), regT0);
-    emitPutVirtualRegister(dst);
+    emitGetVirtualRegisterPayload(arguments, regT0);
+    loadValue(Address(regT0, DirectArguments::storageOffset() + index * sizeof(WriteBarrier<Unknown>)), jsRegT10);
+    emitValueProfilingSite(bytecode, jsRegT10);
+    emitPutVirtualRegister(dst, jsRegT10);
 }
 
 void JIT::emit_op_put_to_arguments(const Instruction* currentInstruction)
@@ -2902,64 +2676,27 @@ void JIT::emit_op_put_to_arguments(const Instruction* currentInstruction)
     VirtualRegister arguments = bytecode.m_arguments;
     int index = bytecode.m_index;
     VirtualRegister value = bytecode.m_value;
-    
-    emitGetVirtualRegister(arguments, regT0);
-    emitGetVirtualRegister(value, regT1);
-    store64(regT1, Address(regT0, DirectArguments::storageOffset() + index * sizeof(WriteBarrier<Unknown>)));
+
+    static_assert(noOverlap(regT2, jsRegT10));
+    emitGetVirtualRegisterPayload(arguments, regT2);
+    emitGetVirtualRegister(value, jsRegT10);
+    storeValue(jsRegT10, Address(regT2, DirectArguments::storageOffset() + index * sizeof(WriteBarrier<Unknown>)));
 
     emitWriteBarrier(arguments, value, ShouldFilterValue);
-}
-
-void JIT::emitWriteBarrier(VirtualRegister owner, VirtualRegister value, WriteBarrierMode mode)
-{
-    // value may be invalid VirtualRegister if mode is UnconditionalWriteBarrier or ShouldFilterBase.
-    Jump valueNotCell;
-    if (mode == ShouldFilterValue || mode == ShouldFilterBaseAndValue) {
-        emitGetVirtualRegister(value, regT0);
-        valueNotCell = branchIfNotCell(regT0);
-    }
-    
-    emitGetVirtualRegister(owner, regT0);
-    Jump ownerNotCell;
-    if (mode == ShouldFilterBaseAndValue || mode == ShouldFilterBase)
-        ownerNotCell = branchIfNotCell(regT0);
-
-    Jump ownerIsRememberedOrInEden = barrierBranch(vm(), regT0, regT1);
-    callOperationNoExceptionCheck(operationWriteBarrierSlowPath, &vm(), regT0);
-    ownerIsRememberedOrInEden.link(this);
-
-    if (mode == ShouldFilterBaseAndValue || mode == ShouldFilterBase)
-        ownerNotCell.link(this);
-    if (mode == ShouldFilterValue || mode == ShouldFilterBaseAndValue) 
-        valueNotCell.link(this);
-}
-
-void JIT::emitWriteBarrier(JSCell* owner, VirtualRegister value, WriteBarrierMode mode)
-{
-    emitGetVirtualRegister(value, regT0);
-    Jump valueNotCell;
-    if (mode == ShouldFilterValue)
-        valueNotCell = branchIfNotCell(regT0);
-
-    emitWriteBarrier(owner);
-
-    if (mode == ShouldFilterValue) 
-        valueNotCell.link(this);
 }
 
 void JIT::emit_op_get_internal_field(const Instruction* currentInstruction)
 {
     auto bytecode = currentInstruction->as<OpGetInternalField>();
-    auto& metadata = bytecode.metadata(m_codeBlock);
     VirtualRegister dst = bytecode.m_dst;
     VirtualRegister base = bytecode.m_base;
     unsigned index = bytecode.m_index;
 
-    emitGetVirtualRegister(base, regT1);
-    loadPtr(Address(regT1, JSInternalFieldObjectImpl<>::offsetOfInternalField(index)), regT0);
+    emitGetVirtualRegisterPayload(base, regT0);
+    loadValue(Address(regT0, JSInternalFieldObjectImpl<>::offsetOfInternalField(index)), jsRegT10);
 
-    emitValueProfilingSite(metadata, regT0);
-    emitPutVirtualRegister(dst);
+    emitValueProfilingSite(bytecode, jsRegT10);
+    emitPutVirtualRegister(dst, jsRegT10);
 }
 
 void JIT::emit_op_put_internal_field(const Instruction* currentInstruction)
@@ -2969,108 +2706,325 @@ void JIT::emit_op_put_internal_field(const Instruction* currentInstruction)
     VirtualRegister value = bytecode.m_value;
     unsigned index = bytecode.m_index;
 
-    emitGetVirtualRegister(base, regT0);
-    emitGetVirtualRegister(value, regT1);
-    storePtr(regT1, Address(regT0, JSInternalFieldObjectImpl<>::offsetOfInternalField(index)));
+    static_assert(noOverlap(regT2, jsRegT10));
+    emitGetVirtualRegisterPayload(base, regT2);
+    emitGetVirtualRegister(value, jsRegT10);
+    storeValue(jsRegT10, Address(regT2, JSInternalFieldObjectImpl<>::offsetOfInternalField(index)));
     emitWriteBarrier(base, value, ShouldFilterValue);
 }
 
-template void JIT::emit_op_put_by_val<OpPutByVal>(const Instruction*);
+#if USE(JSVALUE64)
 
-#else // USE(JSVALUE64)
+void JIT::emit_op_get_property_enumerator(const Instruction* currentInstruction)
+{
+    auto bytecode = currentInstruction->as<OpGetPropertyEnumerator>();
+
+    VirtualRegister base = bytecode.m_base;
+    VirtualRegister dst = bytecode.m_dst;
+
+    JumpList doneCases;
+    JumpList genericCases;
+
+    emitGetVirtualRegister(base, regT0);
+    genericCases.append(branchIfNotCell(regT0));
+    load8(Address(regT0, JSCell::indexingTypeAndMiscOffset()), regT1);
+    and32(TrustedImm32(IndexingTypeMask), regT1);
+    genericCases.append(branch32(Above, regT1, TrustedImm32(ArrayWithUndecided)));
+
+    emitLoadStructure(vm(), regT0, regT1, regT2);
+    loadPtr(Address(regT1, Structure::previousOrRareDataOffset()), regT1);
+    genericCases.append(branchTestPtr(Zero, regT1));
+    genericCases.append(branchIfStructure(regT1));
+    loadPtr(Address(regT1, StructureRareData::offsetOfCachedPropertyNameEnumeratorAndFlag()), regT1);
+
+    genericCases.append(branchTestPtr(Zero, regT1));
+    genericCases.append(branchTestPtr(NonZero, regT1, TrustedImm32(StructureRareData::cachedPropertyNameEnumeratorIsValidatedViaTraversingFlag)));
+    emitPutVirtualRegister(dst, regT1);
+    doneCases.append(jump());
+
+    genericCases.link(this);
+    JITSlowPathCall slowPathCall(this, currentInstruction, slow_path_get_property_enumerator);
+    slowPathCall.call();
+
+    doneCases.link(this);
+}
+
+void JIT::emit_op_enumerator_next(const Instruction* currentInstruction)
+{
+    auto bytecode = currentInstruction->as<OpEnumeratorNext>();
+
+    VirtualRegister base = bytecode.m_base;
+    VirtualRegister mode = bytecode.m_mode;
+    VirtualRegister index = bytecode.m_index;
+    VirtualRegister propertyName = bytecode.m_propertyName;
+    VirtualRegister enumerator = bytecode.m_enumerator;
+
+    JumpList done;
+    JumpList operationCases;
+
+    GPRReg modeGPR = regT0;
+    GPRReg indexGPR = regT1;
+    GPRReg baseGPR = regT2;
+
+    // This is the most common mode set we tend to see, so special case it if we profile it in the LLInt.
+    if (bytecode.metadata(m_profiledCodeBlock).m_enumeratorMetadata == JSPropertyNameEnumerator::OwnStructureMode) {
+        GPRReg enumeratorGPR = regT3;
+        GPRReg scratchGPR = regT4;
+        emitGetVirtualRegister(enumerator, enumeratorGPR);
+        operationCases.append(branchTest32(NonZero, Address(enumeratorGPR, JSPropertyNameEnumerator::flagsOffset()), TrustedImm32((~JSPropertyNameEnumerator::OwnStructureMode) & JSPropertyNameEnumerator::enumerationModeMask)));
+        emitGetVirtualRegister(base, baseGPR);
+
+        load8FromMetadata(bytecode, OpEnumeratorNext::Metadata::offsetOfEnumeratorMetadata(), scratchGPR);
+        or32(TrustedImm32(JSPropertyNameEnumerator::OwnStructureMode), scratchGPR);
+        store8ToMetadata(scratchGPR, bytecode, OpEnumeratorNext::Metadata::offsetOfEnumeratorMetadata());
+
+        load32(Address(enumeratorGPR, JSPropertyNameEnumerator::cachedStructureIDOffset()), indexGPR);
+        operationCases.append(branch32(NotEqual, indexGPR, Address(baseGPR, JSCell::structureIDOffset())));
+
+        emitGetVirtualRegister(mode, modeGPR);
+        emitGetVirtualRegister(index, indexGPR);
+        Jump notInit = branchTest32(Zero, modeGPR);
+        // Need to use add64 since this is a JSValue int32.
+        add64(TrustedImm32(1), indexGPR);
+        emitPutVirtualRegister(index, indexGPR);
+        notInit.link(this);
+        storeTrustedValue(jsNumber(static_cast<uint8_t>(JSPropertyNameEnumerator::OwnStructureMode)), addressFor(mode));
+
+        Jump outOfBounds = branch32(AboveOrEqual, indexGPR, Address(enumeratorGPR, JSPropertyNameEnumerator::endStructurePropertyIndexOffset()));
+        loadPtr(Address(enumeratorGPR, JSPropertyNameEnumerator::cachedPropertyNamesVectorOffset()), enumeratorGPR);
+        // We need to clear the high bits from the number encoding.
+        and32(TrustedImm32(-1), indexGPR);
+        loadPtr(BaseIndex(enumeratorGPR, indexGPR, ScalePtr), enumeratorGPR);
+
+        emitPutVirtualRegister(propertyName, enumeratorGPR);
+        done.append(jump());
+
+        outOfBounds.link(this);
+        storeTrustedValue(vm().smallStrings.sentinelString(), addressFor(propertyName));
+        done.append(jump());
+    }
+
+    operationCases.link(this);
+
+    JITSlowPathCall slowPathCall(this, currentInstruction, slow_path_enumerator_next);
+    slowPathCall.call();
+
+    done.link(this);
+}
+
+void JIT::emit_op_enumerator_get_by_val(const Instruction* currentInstruction)
+{
+    auto bytecode = currentInstruction->as<OpEnumeratorGetByVal>();
+    VirtualRegister dst = bytecode.m_dst;
+    VirtualRegister mode = bytecode.m_mode;
+    VirtualRegister base = bytecode.m_base;
+    VirtualRegister index = bytecode.m_index;
+    VirtualRegister propertyName = bytecode.m_propertyName;
+    VirtualRegister enumerator = bytecode.m_enumerator;
+
+    JumpList doneCases;
+
+    constexpr GPRReg resultGPR = BaselineEnumeratorGetByValRegisters::resultJSR.payloadGPR();
+    constexpr GPRReg baseGPR = BaselineEnumeratorGetByValRegisters::baseJSR.payloadGPR();
+    constexpr GPRReg propertyGPR = BaselineEnumeratorGetByValRegisters::propertyJSR.payloadGPR();
+    constexpr GPRReg stubInfoGPR = BaselineEnumeratorGetByValRegisters::stubInfoGPR;
+    constexpr GPRReg scratch1 = BaselineEnumeratorGetByValRegisters::scratch1;
+    constexpr GPRReg scratch2 = BaselineEnumeratorGetByValRegisters::scratch2;
+    constexpr GPRReg scratch3 = BaselineEnumeratorGetByValRegisters::scratch3;
+
+    emitGetVirtualRegister(base, baseGPR);
+    emitGetVirtualRegister(mode, scratch3);
+    emitGetVirtualRegister(propertyName, propertyGPR);
+
+    load8FromMetadata(bytecode, OpEnumeratorGetByVal::Metadata::offsetOfEnumeratorMetadata(), scratch2);
+    or32(scratch3, scratch2);
+    store8ToMetadata(scratch2, bytecode, OpEnumeratorGetByVal::Metadata::offsetOfEnumeratorMetadata());
+
+    addSlowCase(branchIfNotCell(baseGPR));
+    // This is always an int32 encoded value.
+    Jump isNotOwnStructureMode = branchTest32(NonZero, scratch3, TrustedImm32(JSPropertyNameEnumerator::IndexedMode | JSPropertyNameEnumerator::GenericMode));
+
+    // Check the structure
+    emitGetVirtualRegister(enumerator, scratch1);
+    load32(Address(baseGPR, JSCell::structureIDOffset()), scratch2);
+    Jump structureMismatch = branch32(NotEqual, scratch2, Address(scratch1, JSPropertyNameEnumerator::cachedStructureIDOffset()));
+
+    // Compute the offset.
+    emitGetVirtualRegister(index, scratch2);
+    // If index is less than the enumerator's cached inline storage, then it's an inline access
+    Jump outOfLineAccess = branch32(AboveOrEqual, scratch2, Address(scratch1, JSPropertyNameEnumerator::cachedInlineCapacityOffset()));
+    signExtend32ToPtr(scratch2, scratch2);
+    load64(BaseIndex(baseGPR, scratch2, TimesEight, JSObject::offsetOfInlineStorage()), resultGPR);
+    doneCases.append(jump());
+
+    // Otherwise it's out of line
+    outOfLineAccess.link(this);
+    loadPtr(Address(baseGPR, JSObject::butterflyOffset()), baseGPR);
+    sub32(Address(scratch1, JSPropertyNameEnumerator::cachedInlineCapacityOffset()), scratch2);
+    neg32(scratch2);
+    signExtend32ToPtr(scratch2, scratch2);
+    constexpr intptr_t offsetOfFirstProperty = offsetInButterfly(firstOutOfLineOffset) * static_cast<intptr_t>(sizeof(EncodedJSValue));
+    load64(BaseIndex(baseGPR, scratch2, TimesEight, offsetOfFirstProperty), resultGPR);
+    doneCases.append(jump());
+
+    structureMismatch.link(this);
+    store8ToMetadata(TrustedImm32(JSPropertyNameEnumerator::HasSeenOwnStructureModeStructureMismatch), bytecode, OpEnumeratorGetByVal::Metadata::offsetOfEnumeratorMetadata());
+
+    isNotOwnStructureMode.link(this);
+    Jump isNotIndexed = branchTest32(Zero, scratch3, TrustedImm32(JSPropertyNameEnumerator::IndexedMode));
+    // Replace the string with the index.
+    emitGetVirtualRegister(index, propertyGPR);
+
+    isNotIndexed.link(this);
+    emitArrayProfilingSiteWithCell(bytecode, baseGPR, scratch1);
+
+    JITGetByValGenerator gen(
+        nullptr, nullptr, JITType::BaselineJIT, CodeOrigin(m_bytecodeIndex), CallSiteIndex(m_bytecodeIndex), AccessType::GetByVal, RegisterSet::stubUnavailableRegisters(),
+        JSValueRegs(baseGPR), JSValueRegs(propertyGPR), JSValueRegs(resultGPR), stubInfoGPR);
+
+    auto [ stubInfo, stubInfoIndex ] = addUnlinkedStructureStubInfo();
+    stubInfo->accessType = AccessType::GetByVal;
+    stubInfo->bytecodeIndex = m_bytecodeIndex;
+    gen.m_unlinkedStubInfoConstantIndex = stubInfoIndex;
+    gen.m_unlinkedStubInfo = stubInfo;
+
+    gen.generateBaselineDataICFastPath(*this, stubInfoIndex, stubInfoGPR);
+    resetSP(); // We might OSR exit here, so we need to conservatively reset SP
+    addSlowCase();
+    m_getByVals.append(gen);
+
+    doneCases.link(this);
+
+    setFastPathResumePoint();
+    emitValueProfilingSite(bytecode, returnValueJSR);
+    emitPutVirtualRegister(dst, returnValueJSR);
+}
+
+void JIT::emitSlow_op_enumerator_get_by_val(const Instruction* currentInstruction, Vector<SlowCaseEntry>::iterator& iter)
+{
+    generateGetByValSlowCase(currentInstruction->as<OpEnumeratorGetByVal>(), iter);
+}
+
+template <typename Bytecode, typename SlowPathFunctionType>
+void JIT::emit_enumerator_has_propertyImpl(const Instruction* currentInstruction, const Bytecode& bytecode, SlowPathFunctionType generalCase)
+{
+    VirtualRegister dst = bytecode.m_dst;
+    VirtualRegister base = bytecode.m_base;
+    VirtualRegister enumerator = bytecode.m_enumerator;
+    VirtualRegister mode = bytecode.m_mode;
+
+    JumpList slowCases;
+
+    emitGetVirtualRegister(mode, regT0);
+    load8FromMetadata(bytecode, Bytecode::Metadata::offsetOfEnumeratorMetadata(), regT1);
+    or32(regT0, regT1);
+    store8ToMetadata(regT1, bytecode, Bytecode::Metadata::offsetOfEnumeratorMetadata());
+
+    slowCases.append(branchTest32(Zero, regT0, TrustedImm32(JSPropertyNameEnumerator::OwnStructureMode)));
+
+    emitGetVirtualRegister(base, regT0);
+
+    slowCases.append(branchIfNotCell(regT0));
+
+    emitGetVirtualRegister(enumerator, regT1);
+    load32(Address(regT0, JSCell::structureIDOffset()), regT0);
+    slowCases.append(branch32(NotEqual, regT0, Address(regT1, JSPropertyNameEnumerator::cachedStructureIDOffset())));
+
+    move(TrustedImm64(JSValue::encode(jsBoolean(true))), regT0);
+    emitPutVirtualRegister(dst, regT0);
+    Jump done = jump();
+
+    slowCases.link(this);
+
+    JITSlowPathCall slowPathCall(this, currentInstruction, generalCase);
+    slowPathCall.call();
+
+    done.link(this);
+}
+
+void JIT::emit_op_enumerator_in_by_val(const Instruction* currentInstruction)
+{
+    emit_enumerator_has_propertyImpl(currentInstruction, currentInstruction->as<OpEnumeratorInByVal>(), slow_path_enumerator_in_by_val);
+}
+
+void JIT::emit_op_enumerator_has_own_property(const Instruction* currentInstruction)
+{
+    emit_enumerator_has_propertyImpl(currentInstruction, currentInstruction->as<OpEnumeratorHasOwnProperty>(), slow_path_enumerator_has_own_property);
+}
+
+#elif USE(JSVALUE32_64)
+
+void JIT::emit_op_get_property_enumerator(const Instruction* currentInstruction)
+{
+    JITSlowPathCall slowPathCall(this, currentInstruction, slow_path_get_property_enumerator);
+    slowPathCall.call();
+}
+
+void JIT::emit_op_enumerator_next(const Instruction* currentInstruction)
+{
+    JITSlowPathCall slowPathCall(this, currentInstruction, slow_path_enumerator_next);
+    slowPathCall.call();
+}
+
+void JIT::emit_op_enumerator_get_by_val(const Instruction* currentInstruction)
+{
+    JITSlowPathCall slowPathCall(this, currentInstruction, slow_path_enumerator_get_by_val);
+    slowPathCall.call();
+}
+
+void JIT::emitSlow_op_enumerator_get_by_val(const Instruction*, Vector<SlowCaseEntry>::iterator&)
+{
+    UNREACHABLE_FOR_PLATFORM();
+}
+
+void JIT::emit_op_enumerator_in_by_val(const Instruction* currentInstruction)
+{
+    JITSlowPathCall slowPathCall(this, currentInstruction, slow_path_enumerator_in_by_val);
+    slowPathCall.call();
+}
+
+void JIT::emit_op_enumerator_has_own_property(const Instruction* currentInstruction)
+{
+    JITSlowPathCall slowPathCall(this, currentInstruction, slow_path_enumerator_has_own_property);
+    slowPathCall.call();
+}
+
+#endif
 
 void JIT::emitWriteBarrier(VirtualRegister owner, VirtualRegister value, WriteBarrierMode mode)
 {
     // value may be invalid VirtualRegister if mode is UnconditionalWriteBarrier or ShouldFilterBase.
     Jump valueNotCell;
     if (mode == ShouldFilterValue || mode == ShouldFilterBaseAndValue) {
-        emitLoadTag(value, regT0);
+#if USE(JSVALUE64)
+        emitGetVirtualRegister(value, regT0);
+#elif USE(JSVALUE32_64)
+        emitGetVirtualRegisterTag(value, regT0);
+#endif
         valueNotCell = branchIfNotCell(regT0);
     }
-    
-    emitLoad(owner, regT0, regT1);
+
+    constexpr GPRReg arg1GPR = preferredArgumentGPR<decltype(operationWriteBarrierSlowPath), 1>();
+#if USE(JSVALUE64)
+    constexpr JSValueRegs tmpJSR { arg1GPR };
+#elif USE(JSVALUE32_64)
+    constexpr JSValueRegs tmpJSR { regT0, arg1GPR };
+#endif
+    static_assert(noOverlap(regT0, arg1GPR, regT2));
+
+    emitGetVirtualRegister(owner, tmpJSR);
     Jump ownerNotCell;
     if (mode == ShouldFilterBase || mode == ShouldFilterBaseAndValue)
-        ownerNotCell = branchIfNotCell(regT0);
+        ownerNotCell = branchIfNotCell(tmpJSR);
 
-    Jump ownerIsRememberedOrInEden = barrierBranch(vm(), regT1, regT2);
-    callOperationNoExceptionCheck(operationWriteBarrierSlowPath, &vm(), regT1);
+    Jump ownerIsRememberedOrInEden = barrierBranch(vm(), tmpJSR.payloadGPR(), regT2);
+    callOperationNoExceptionCheck(operationWriteBarrierSlowPath, &vm(), tmpJSR.payloadGPR());
     ownerIsRememberedOrInEden.link(this);
 
     if (mode == ShouldFilterBase || mode == ShouldFilterBaseAndValue)
         ownerNotCell.link(this);
-    if (mode == ShouldFilterValue || mode == ShouldFilterBaseAndValue) 
+    if (mode == ShouldFilterValue || mode == ShouldFilterBaseAndValue)
         valueNotCell.link(this);
-}
-
-void JIT::emitWriteBarrier(JSCell* owner, VirtualRegister value, WriteBarrierMode mode)
-{
-    Jump valueNotCell;
-    if (mode == ShouldFilterValue) {
-        emitLoadTag(value, regT0);
-        valueNotCell = branchIfNotCell(regT0);
-    }
-
-    emitWriteBarrier(owner);
-
-    if (mode == ShouldFilterValue) 
-        valueNotCell.link(this);
-}
-
-template <typename Op>
-JITPutByIdGenerator JIT::emitPutByValWithCachedId(Op bytecode, PutKind putKind, CacheableIdentifier propertyName, JumpList& doneCases, JumpList& slowCases)
-{
-    // base: tag(regT1), payload(regT0)
-    // property: tag(regT3), payload(regT2)
-
-    VirtualRegister base = bytecode.m_base;
-    VirtualRegister value = bytecode.m_value;
-
-    slowCases.append(branchIfNotCell(regT3));
-    emitByValIdentifierCheck(regT2, regT2, propertyName, slowCases);
-
-    // Write barrier breaks the registers. So after issuing the write barrier,
-    // reload the registers.
-    //
-    // IC can write new Structure without write-barrier if a base is cell.
-    // We are emitting write-barrier before writing here but this is OK since 32bit JSC does not have concurrent GC.
-    // FIXME: Use UnconditionalWriteBarrier in Baseline effectively to reduce code size.
-    // https://bugs.webkit.org/show_bug.cgi?id=209395
-    emitWriteBarrier(base, ShouldFilterBase);
-    emitLoadPayload(base, regT0);
-    emitLoad(value, regT3, regT2);
-
-    JITPutByIdGenerator gen(
-        m_codeBlock, JITType::BaselineJIT, CodeOrigin(m_bytecodeIndex), CallSiteIndex(m_bytecodeIndex), RegisterSet::stubUnavailableRegisters(), propertyName,
-        JSValueRegs::payloadOnly(regT0), JSValueRegs(regT3, regT2), InvalidGPRReg, regT1, ecmaMode(bytecode), putKind);
-    gen.generateFastPath(*this);
-    doneCases.append(jump());
-
-    Label coldPathBegin = label();
-    gen.slowPathJump().link(this);
-
-    // JITPutByIdGenerator only preserve the value and the base's payload, we have to reload the tag.
-    emitLoadTag(base, regT1);
-
-    Call call;
-    if (JITCode::useDataIC(JITType::BaselineJIT)) {
-        gen.stubInfo()->m_slowOperation = gen.slowPathFunction();
-        move(TrustedImmPtr(gen.stubInfo()), GPRInfo::nonArgGPR0);
-        callOperation<decltype(gen.slowPathFunction())>(Address(GPRInfo::nonArgGPR0, StructureStubInfo::offsetOfSlowOperation()), m_codeBlock->globalObject(), GPRInfo::nonArgGPR0, JSValueRegs(regT3, regT2), JSValueRegs(regT1, regT0), propertyName.rawBits());
-    } else
-        call = callOperation(gen.slowPathFunction(), m_codeBlock->globalObject(), gen.stubInfo(), JSValueRegs(regT3, regT2), JSValueRegs(regT1, regT0), propertyName.rawBits());
-    gen.reportSlowPathCall(coldPathBegin, call);
-    doneCases.append(jump());
-
-    return gen;
-}
-
-#endif // USE(JSVALUE64)
-
-JITPutByIdGenerator JIT::emitPutPrivateNameWithCachedId(OpPutPrivateName bytecode, CacheableIdentifier propertyName, JumpList& doneCases, JumpList& slowCases)
-{
-    auto putKind = bytecode.m_putKind.isDefine() ? PutKind::DirectPrivateFieldDefine : PutKind::DirectPrivateFieldSet;
-    return emitPutByValWithCachedId(bytecode, putKind, propertyName, doneCases, slowCases);
 }
 
 void JIT::emitWriteBarrier(VirtualRegister owner, WriteBarrierMode mode)
@@ -3086,458 +3040,21 @@ void JIT::emitWriteBarrier(JSCell* owner)
     ownerIsRememberedOrInEden.link(this);
 }
 
-void JIT::emitByValIdentifierCheck(RegisterID cell, RegisterID scratch, CacheableIdentifier propertyName, JumpList& slowCases)
+void JIT::emitWriteBarrier(GPRReg owner)
 {
-    if (propertyName.isSymbolCell())
-        slowCases.append(branchPtr(NotEqual, cell, TrustedImmPtr(propertyName.cell())));
-    else {
-        slowCases.append(branchIfNotString(cell));
-        loadPtr(Address(cell, JSString::offsetOfValue()), scratch);
-        slowCases.append(branchPtr(NotEqual, scratch, TrustedImmPtr(propertyName.uid())));
-    }
+    Jump ownerIsRememberedOrInEden = barrierBranch(vm(), owner, selectScratchGPR(owner));
+    callOperationNoExceptionCheck(operationWriteBarrierSlowPath, &vm(), owner);
+    ownerIsRememberedOrInEden.link(this);
 }
 
-template<typename Op>
-void JIT::privateCompilePutByVal(const ConcurrentJSLocker&, ByValInfo* byValInfo, ReturnAddressPtr returnAddress, JITArrayMode arrayMode)
+void JIT::emitVarInjectionCheck(bool needsVarInjectionChecks, GPRReg scratchGPR)
 {
-    const Instruction* currentInstruction = m_codeBlock->instructions().at(byValInfo->bytecodeIndex).ptr();
-    auto bytecode = currentInstruction->as<Op>();
-    
-    PatchableJump badType;
-    JumpList slowCases;
+    if (!needsVarInjectionChecks)
+        return;
 
-    bool needsLinkForWriteBarrier = false;
-
-    switch (arrayMode) {
-    case JITInt32:
-        slowCases = emitInt32PutByVal(bytecode, badType, nullptr);
-        break;
-    case JITDouble:
-        slowCases = emitDoublePutByVal(bytecode, badType, nullptr);
-        break;
-    case JITContiguous:
-        slowCases = emitContiguousPutByVal(bytecode, badType, nullptr);
-        needsLinkForWriteBarrier = true;
-        break;
-    case JITArrayStorage:
-        slowCases = emitArrayStoragePutByVal(bytecode, badType, nullptr);
-        needsLinkForWriteBarrier = true;
-        break;
-    default:
-        TypedArrayType type = typedArrayTypeForJITArrayMode(arrayMode);
-        if (isInt(type))
-            slowCases = emitIntTypedArrayPutByVal(bytecode, badType, nullptr, type);
-        else {
-            // FIXME: Optimize BigInt64Array / BigUint64Array in IC
-            // Currently, BigInt64Array / BigUint64Array never comes here.
-            // https://bugs.webkit.org/show_bug.cgi?id=221183
-            ASSERT(isFloat(type));
-            slowCases = emitFloatTypedArrayPutByVal(bytecode, badType, nullptr, type);
-        }
-        break;
-    }
-    
-    Jump done = jump();
-
-    LinkBuffer patchBuffer(*this, m_codeBlock, LinkBuffer::Profile::InlineCache);
-    patchBuffer.link(badType, byValInfo->slowPathTarget);
-    patchBuffer.link(slowCases, byValInfo->slowPathTarget);
-    patchBuffer.link(done, byValInfo->doneTarget);
-    if (needsLinkForWriteBarrier) {
-        ASSERT(removeCodePtrTag(m_farCalls.last().callee.executableAddress()) == removeCodePtrTag(operationWriteBarrierSlowPath));
-        patchBuffer.link(m_farCalls.last().from, m_farCalls.last().callee);
-    }
-    
-    bool isDirect = currentInstruction->opcodeID() == op_put_by_val_direct;
-    if (!isDirect) {
-        byValInfo->stubRoutine = FINALIZE_CODE_FOR_STUB(
-            m_codeBlock, patchBuffer, JITStubRoutinePtrTag,
-            "Baseline put_by_val stub for %s, return point %p", toCString(*m_codeBlock).data(), returnAddress.untaggedValue());
-        
-    } else {
-        byValInfo->stubRoutine = FINALIZE_CODE_FOR_STUB(
-            m_codeBlock, patchBuffer, JITStubRoutinePtrTag,
-            "Baseline put_by_val_direct stub for %s, return point %p", toCString(*m_codeBlock).data(), returnAddress.untaggedValue());
-    }
-
-    if (JITCode::useDataIC(JITType::BaselineJIT)) {
-        byValInfo->m_badTypeJumpTarget = CodeLocationLabel<JITStubRoutinePtrTag>(byValInfo->stubRoutine->code().code());
-        byValInfo->m_slowOperation = isDirect ? operationDirectPutByValGeneric : operationPutByValGeneric;
-    } else {
-        MacroAssembler::repatchJump(byValInfo->m_badTypeJump, CodeLocationLabel<JITStubRoutinePtrTag>(byValInfo->stubRoutine->code().code()));
-        MacroAssembler::repatchCall(CodeLocationCall<ReturnAddressPtrTag>(MacroAssemblerCodePtr<ReturnAddressPtrTag>(returnAddress)), FunctionPtr<OperationPtrTag>(isDirect ? operationDirectPutByValGeneric : operationPutByValGeneric));
-    }
-}
-// This function is only consumed from another translation unit (JITOperations.cpp),
-// so we list off the two expected specializations in advance.
-template void JIT::privateCompilePutByVal<OpPutByVal>(const ConcurrentJSLocker&, ByValInfo*, ReturnAddressPtr, JITArrayMode);
-template void JIT::privateCompilePutByVal<OpPutByValDirect>(const ConcurrentJSLocker&, ByValInfo*, ReturnAddressPtr, JITArrayMode);
-
-void JIT::privateCompilePutPrivateNameWithCachedId(ByValInfo* byValInfo, ReturnAddressPtr returnAddress, CacheableIdentifier propertyName)
-{
-    const Instruction* currentInstruction = m_codeBlock->instructions().at(byValInfo->bytecodeIndex).ptr();
-    auto bytecode = currentInstruction->as<OpPutPrivateName>();
-
-    JumpList doneCases;
-    JumpList slowCases;
-
-    JITPutByIdGenerator gen = emitPutPrivateNameWithCachedId(bytecode, propertyName, doneCases, slowCases);
-
-    ConcurrentJSLocker locker(m_codeBlock->m_lock);
-    LinkBuffer patchBuffer(*this, m_codeBlock, LinkBuffer::Profile::InlineCache);
-    patchBuffer.link(slowCases, byValInfo->slowPathTarget);
-    patchBuffer.link(doneCases, byValInfo->doneTarget);
-    if (!m_exceptionChecks.empty())
-        patchBuffer.link(m_exceptionChecks, byValInfo->exceptionHandler);
-
-    for (const auto& callSite : m_nearCalls) {
-        if (callSite.callee)
-            patchBuffer.link(callSite.from, callSite.callee);
-    }
-    for (const auto& callSite : m_farCalls) {
-        if (callSite.callee)
-            patchBuffer.link(callSite.from, callSite.callee);
-    }
-    gen.finalize(patchBuffer, patchBuffer);
-
-    byValInfo->stubRoutine = FINALIZE_CODE_FOR_STUB(
-        m_codeBlock, patchBuffer, JITStubRoutinePtrTag,
-        "Baseline put_private_name with cached property name '%s' stub for %s, return point %p", propertyName.uid()->utf8().data(), toCString(*m_codeBlock).data(), returnAddress.untaggedValue());
-    byValInfo->stubInfo = gen.stubInfo();
-
-    if (JITCode::useDataIC(JITType::BaselineJIT)) {
-        byValInfo->m_notIndexJumpTarget = CodeLocationLabel<JITStubRoutinePtrTag>(byValInfo->stubRoutine->code().code());
-        byValInfo->m_slowOperation = operationPutPrivateNameGeneric;
-    } else {
-        MacroAssembler::repatchJump(byValInfo->m_notIndexJump, CodeLocationLabel<JITStubRoutinePtrTag>(byValInfo->stubRoutine->code().code()));
-        MacroAssembler::repatchCall(CodeLocationCall<ReturnAddressPtrTag>(MacroAssemblerCodePtr<ReturnAddressPtrTag>(returnAddress)), FunctionPtr<OperationPtrTag>(operationPutPrivateNameGeneric));
-    }
-}
-
-template<typename Op>
-void JIT::privateCompilePutByValWithCachedId(ByValInfo* byValInfo, ReturnAddressPtr returnAddress, PutKind putKind, CacheableIdentifier propertyName)
-{
-    ASSERT((putKind == PutKind::Direct && Op::opcodeID == op_put_by_val_direct) || (putKind == PutKind::NotDirect && Op::opcodeID == op_put_by_val));
-    const Instruction* currentInstruction = m_codeBlock->instructions().at(byValInfo->bytecodeIndex).ptr();
-    auto bytecode = currentInstruction->as<Op>();
-
-    JumpList doneCases;
-    JumpList slowCases;
-
-    JITPutByIdGenerator gen = emitPutByValWithCachedId(bytecode, putKind, propertyName, doneCases, slowCases);
-
-    ConcurrentJSLocker locker(m_codeBlock->m_lock);
-    LinkBuffer patchBuffer(*this, m_codeBlock, LinkBuffer::Profile::InlineCache);
-    patchBuffer.link(slowCases, byValInfo->slowPathTarget);
-    patchBuffer.link(doneCases, byValInfo->doneTarget);
-    if (!m_exceptionChecks.empty())
-        patchBuffer.link(m_exceptionChecks, byValInfo->exceptionHandler);
-
-    for (const auto& callSite : m_nearCalls) {
-        if (callSite.callee)
-            patchBuffer.link(callSite.from, callSite.callee);
-    }
-    for (const auto& callSite : m_farCalls) {
-        if (callSite.callee)
-            patchBuffer.link(callSite.from, callSite.callee);
-    }
-    gen.finalize(patchBuffer, patchBuffer);
-
-    byValInfo->stubRoutine = FINALIZE_CODE_FOR_STUB(
-        m_codeBlock, patchBuffer, JITStubRoutinePtrTag,
-        "Baseline put_by_val%s with cached property name '%s' stub for %s, return point %p", (putKind == PutKind::Direct) ? "_direct" : "", propertyName.uid()->utf8().data(), toCString(*m_codeBlock).data(), returnAddress.untaggedValue());
-    byValInfo->stubInfo = gen.stubInfo();
-
-    if (JITCode::useDataIC(JITType::BaselineJIT)) {
-        byValInfo->m_notIndexJumpTarget = CodeLocationLabel<JITStubRoutinePtrTag>(byValInfo->stubRoutine->code().code());
-        byValInfo->m_slowOperation = putKind == PutKind::Direct ? operationDirectPutByValGeneric : operationPutByValGeneric;
-    } else {
-        MacroAssembler::repatchJump(byValInfo->m_notIndexJump, CodeLocationLabel<JITStubRoutinePtrTag>(byValInfo->stubRoutine->code().code()));
-        MacroAssembler::repatchCall(CodeLocationCall<ReturnAddressPtrTag>(MacroAssemblerCodePtr<ReturnAddressPtrTag>(returnAddress)), FunctionPtr<OperationPtrTag>(putKind == PutKind::Direct ? operationDirectPutByValGeneric : operationPutByValGeneric));
-    }
-}
-// This function is only consumed from another translation unit (JITOperations.cpp),
-// so we list off the two expected specializations in advance.
-template void JIT::privateCompilePutByValWithCachedId<OpPutByVal>(ByValInfo*, ReturnAddressPtr, PutKind, CacheableIdentifier);
-template void JIT::privateCompilePutByValWithCachedId<OpPutByValDirect>(ByValInfo*, ReturnAddressPtr, PutKind, CacheableIdentifier);
-
-JIT::JumpList JIT::emitDoubleLoad(const Instruction*, PatchableJump& badType, ByValInfo* byValInfo)
-{
-#if USE(JSVALUE64)
-    RegisterID base = regT0;
-    RegisterID property = regT1;
-    RegisterID indexing = regT2;
-    RegisterID scratch = regT3;
-#else
-    RegisterID base = regT0;
-    RegisterID property = regT2;
-    RegisterID indexing = regT1;
-    RegisterID scratch = regT3;
-#endif
-
-    JumpList slowCases;
-
-    if (JITCode::useDataIC(JITType::BaselineJIT)) {
-        if (byValInfo) {
-            auto isCorrectType = branch32(Equal, indexing, TrustedImm32(DoubleShape));
-            farJump(AbsoluteAddress(&byValInfo->m_badTypeJumpTarget), JITStubRoutinePtrTag);
-            isCorrectType.link(this);
-        } else
-            badType = patchableBranch32(NotEqual, indexing, TrustedImm32(DoubleShape));
-    } else
-        badType = patchableBranch32(NotEqual, indexing, TrustedImm32(DoubleShape));
-
-    loadPtr(Address(base, JSObject::butterflyOffset()), scratch);
-    slowCases.append(branch32(AboveOrEqual, property, Address(scratch, Butterfly::offsetOfPublicLength())));
-    loadDouble(BaseIndex(scratch, property, TimesEight), fpRegT0);
-    slowCases.append(branchIfNaN(fpRegT0));
-
-    return slowCases;
-}
-
-JIT::JumpList JIT::emitContiguousLoad(const Instruction*, PatchableJump& badType, ByValInfo* byValInfo, IndexingType expectedShape)
-{
-#if USE(JSVALUE64)
-    RegisterID base = regT0;
-    RegisterID property = regT1;
-    RegisterID indexing = regT2;
-    JSValueRegs result = JSValueRegs(regT0);
-    RegisterID scratch = regT3;
-#else
-    RegisterID base = regT0;
-    RegisterID property = regT2;
-    RegisterID indexing = regT1;
-    JSValueRegs result = JSValueRegs(regT1, regT0);
-    RegisterID scratch = regT3;
-#endif
-
-    JumpList slowCases;
-
-    if (JITCode::useDataIC(JITType::BaselineJIT)) {
-        if (byValInfo) {
-            auto isCorrectType = branch32(Equal, indexing, TrustedImm32(expectedShape));
-            farJump(AbsoluteAddress(&byValInfo->m_badTypeJumpTarget), JITStubRoutinePtrTag);
-            isCorrectType.link(this);
-        } else
-            badType = patchableBranch32(NotEqual, indexing, TrustedImm32(expectedShape));
-    } else
-        badType = patchableBranch32(NotEqual, indexing, TrustedImm32(expectedShape));
-
-    loadPtr(Address(base, JSObject::butterflyOffset()), scratch);
-    slowCases.append(branch32(AboveOrEqual, property, Address(scratch, Butterfly::offsetOfPublicLength())));
-    loadValue(BaseIndex(scratch, property, TimesEight), result);
-    slowCases.append(branchIfEmpty(result));
-
-    return slowCases;
-}
-
-JIT::JumpList JIT::emitArrayStorageLoad(const Instruction*, PatchableJump& badType, ByValInfo* byValInfo)
-{
-#if USE(JSVALUE64)
-    RegisterID base = regT0;
-    RegisterID property = regT1;
-    RegisterID indexing = regT2;
-    JSValueRegs result = JSValueRegs(regT0);
-    RegisterID scratch = regT3;
-#else
-    RegisterID base = regT0;
-    RegisterID property = regT2;
-    RegisterID indexing = regT1;
-    JSValueRegs result = JSValueRegs(regT1, regT0);
-    RegisterID scratch = regT3;
-#endif
-
-    JumpList slowCases;
-
-    add32(TrustedImm32(-ArrayStorageShape), indexing, scratch);
-
-    if (JITCode::useDataIC(JITType::BaselineJIT)) {
-        if (byValInfo) {
-            auto isCorrectType = branch32(BelowOrEqual, scratch, TrustedImm32(SlowPutArrayStorageShape - ArrayStorageShape));
-            farJump(AbsoluteAddress(&byValInfo->m_badTypeJumpTarget), JITStubRoutinePtrTag);
-            isCorrectType.link(this);
-        } else
-            badType = patchableBranch32(Above, scratch, TrustedImm32(SlowPutArrayStorageShape - ArrayStorageShape));
-    } else
-        badType = patchableBranch32(Above, scratch, TrustedImm32(SlowPutArrayStorageShape - ArrayStorageShape));
-
-    loadPtr(Address(base, JSObject::butterflyOffset()), scratch);
-    slowCases.append(branch32(AboveOrEqual, property, Address(scratch, ArrayStorage::vectorLengthOffset())));
-
-    loadValue(BaseIndex(scratch, property, TimesEight, ArrayStorage::vectorOffset()), result);
-    slowCases.append(branchIfEmpty(result));
-
-    return slowCases;
-}
-
-template<typename Op>
-JIT::JumpList JIT::emitIntTypedArrayPutByVal(Op bytecode, PatchableJump& badType, ByValInfo* byValInfo, TypedArrayType type)
-{
-    auto& metadata = bytecode.metadata(m_codeBlock);
-    ArrayProfile* profile = &metadata.m_arrayProfile;
-    ASSERT(isInt(type));
-    
-    VirtualRegister value = bytecode.m_value;
-
-#if USE(JSVALUE64)
-    RegisterID base = regT0;
-    RegisterID property = regT1;
-    RegisterID earlyScratch = regT3;
-    RegisterID lateScratch = regT2;
-    RegisterID lateScratch2 = regT4;
-#else
-    RegisterID base = regT0;
-    RegisterID property = regT2;
-    RegisterID earlyScratch = regT3;
-    RegisterID lateScratch = regT1;
-    RegisterID lateScratch2 = regT4;
-#endif
-    
-    JumpList slowCases;
-    
-    load8(Address(base, JSCell::typeInfoTypeOffset()), earlyScratch);
-
-    if (JITCode::useDataIC(JITType::BaselineJIT)) {
-        if (byValInfo) {
-            auto isCorrectType = branch32(Equal, earlyScratch, TrustedImm32(typeForTypedArrayType(type)));
-            farJump(AbsoluteAddress(&byValInfo->m_badTypeJumpTarget), JITStubRoutinePtrTag);
-            isCorrectType.link(this);
-        } else
-            badType = patchableBranch32(NotEqual, earlyScratch, TrustedImm32(typeForTypedArrayType(type)));
-    } else
-        badType = patchableBranch32(NotEqual, earlyScratch, TrustedImm32(typeForTypedArrayType(type)));
-
-    load32(Address(base, JSArrayBufferView::offsetOfLength()), lateScratch2);
-    Jump inBounds = branch32(Below, property, lateScratch2);
-    emitArrayProfileOutOfBoundsSpecialCase(profile);
-    slowCases.append(jump());
-    inBounds.link(this);
-    
-#if USE(JSVALUE64)
-    emitGetVirtualRegister(value, earlyScratch);
-    slowCases.append(branchIfNotInt32(earlyScratch));
-#else
-    emitLoad(value, lateScratch, earlyScratch);
-    slowCases.append(branchIfNotInt32(lateScratch));
-#endif
-    
-    // We would be loading this into base as in get_by_val, except that the slow
-    // path expects the base to be unclobbered.
-    loadPtr(Address(base, JSArrayBufferView::offsetOfVector()), lateScratch);
-    cageConditionallyAndUntag(Gigacage::Primitive, lateScratch, lateScratch2, lateScratch2, false);
-    
-    if (isClamped(type)) {
-        ASSERT(elementSize(type) == 1);
-        ASSERT(!JSC::isSigned(type));
-        Jump inBounds = branch32(BelowOrEqual, earlyScratch, TrustedImm32(0xff));
-        Jump tooBig = branch32(GreaterThan, earlyScratch, TrustedImm32(0xff));
-        xor32(earlyScratch, earlyScratch);
-        Jump clamped = jump();
-        tooBig.link(this);
-        move(TrustedImm32(0xff), earlyScratch);
-        clamped.link(this);
-        inBounds.link(this);
-    }
-    
-    switch (elementSize(type)) {
-    case 1:
-        store8(earlyScratch, BaseIndex(lateScratch, property, TimesOne));
-        break;
-    case 2:
-        store16(earlyScratch, BaseIndex(lateScratch, property, TimesTwo));
-        break;
-    case 4:
-        store32(earlyScratch, BaseIndex(lateScratch, property, TimesFour));
-        break;
-    default:
-        CRASH();
-    }
-    
-    return slowCases;
-}
-
-template<typename Op>
-JIT::JumpList JIT::emitFloatTypedArrayPutByVal(Op bytecode, PatchableJump& badType, ByValInfo* byValInfo, TypedArrayType type)
-{
-    auto& metadata = bytecode.metadata(m_codeBlock);
-    ArrayProfile* profile = &metadata.m_arrayProfile;
-    ASSERT(isFloat(type));
-    
-    VirtualRegister value = bytecode.m_value;
-
-#if USE(JSVALUE64)
-    RegisterID base = regT0;
-    RegisterID property = regT1;
-    RegisterID earlyScratch = regT3;
-    RegisterID lateScratch = regT2;
-    RegisterID lateScratch2 = regT4;
-#else
-    RegisterID base = regT0;
-    RegisterID property = regT2;
-    RegisterID earlyScratch = regT3;
-    RegisterID lateScratch = regT1;
-    RegisterID lateScratch2 = regT4;
-#endif
-    
-    JumpList slowCases;
-    
-    load8(Address(base, JSCell::typeInfoTypeOffset()), earlyScratch);
-
-    if (JITCode::useDataIC(JITType::BaselineJIT)) {
-        if (byValInfo) {
-            auto isCorrectType = branch32(Equal, earlyScratch, TrustedImm32(typeForTypedArrayType(type)));
-            farJump(AbsoluteAddress(&byValInfo->m_badTypeJumpTarget), JITStubRoutinePtrTag);
-            isCorrectType.link(this);
-        } else
-            badType = patchableBranch32(NotEqual, earlyScratch, TrustedImm32(typeForTypedArrayType(type)));
-    } else
-        badType = patchableBranch32(NotEqual, earlyScratch, TrustedImm32(typeForTypedArrayType(type)));
-
-    load32(Address(base, JSArrayBufferView::offsetOfLength()), lateScratch2);
-    Jump inBounds = branch32(Below, property, lateScratch2);
-    emitArrayProfileOutOfBoundsSpecialCase(profile);
-    slowCases.append(jump());
-    inBounds.link(this);
-    
-#if USE(JSVALUE64)
-    emitGetVirtualRegister(value, earlyScratch);
-    Jump doubleCase = branchIfNotInt32(earlyScratch);
-    convertInt32ToDouble(earlyScratch, fpRegT0);
-    Jump ready = jump();
-    doubleCase.link(this);
-    slowCases.append(branchIfNotNumber(earlyScratch));
-    add64(numberTagRegister, earlyScratch);
-    move64ToDouble(earlyScratch, fpRegT0);
-    ready.link(this);
-#else
-    emitLoad(value, lateScratch, earlyScratch);
-    Jump doubleCase = branchIfNotInt32(lateScratch);
-    convertInt32ToDouble(earlyScratch, fpRegT0);
-    Jump ready = jump();
-    doubleCase.link(this);
-    slowCases.append(branch32(Above, lateScratch, TrustedImm32(JSValue::LowestTag)));
-    moveIntsToDouble(earlyScratch, lateScratch, fpRegT0, fpRegT1);
-    ready.link(this);
-#endif
-    
-    // We would be loading this into base as in get_by_val, except that the slow
-    // path expects the base to be unclobbered.
-    loadPtr(Address(base, JSArrayBufferView::offsetOfVector()), lateScratch);
-    cageConditionallyAndUntag(Gigacage::Primitive, lateScratch, lateScratch2, lateScratch2, false);
-    
-    switch (elementSize(type)) {
-    case 4:
-        convertDoubleToFloat(fpRegT0, fpRegT0);
-        storeFloat(fpRegT0, BaseIndex(lateScratch, property, TimesFour));
-        break;
-    case 8:
-        storeDouble(fpRegT0, BaseIndex(lateScratch, property, TimesEight));
-        break;
-    default:
-        CRASH();
-    }
-    
-    return slowCases;
+    loadGlobalObject(scratchGPR);
+    loadPtr(Address(scratchGPR, OBJECT_OFFSETOF(JSGlobalObject, m_varInjectionWatchpoint)), scratchGPR);
+    addSlowCase(branch8(Equal, Address(scratchGPR, WatchpointSet::offsetOfState()), TrustedImm32(IsInvalidated)));
 }
 
 } // namespace JSC

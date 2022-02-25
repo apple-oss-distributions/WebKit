@@ -72,6 +72,9 @@ class MachSendRight;
 
 namespace WebCore {
 class AudioTrackPrivate;
+#if ENABLE(WIRELESS_PLAYBACK_TARGET)
+class MediaPlaybackTargetContext;
+#endif
 class VideoTrackPrivate;
 }
 
@@ -103,7 +106,7 @@ public:
 #if ENABLE(VIDEO_PRESENTATION_MODE)
     void updateVideoFullscreenInlineImage();
     void setVideoFullscreenMode(WebCore::MediaPlayer::VideoFullscreenMode);
-    void videoFullscreenStandbyChanged();
+    void videoFullscreenStandbyChanged(bool);
 #endif
 
     void setBufferingPolicy(WebCore::MediaPlayer::BufferingPolicy);
@@ -143,7 +146,7 @@ public:
     void setPreservesPitch(bool);
     void setPitchCorrectionAlgorithm(WebCore::MediaPlayer::PitchCorrectionAlgorithm);
 
-    void setVisible(bool);
+    void setPageIsVisible(bool);
     void setShouldMaintainAspectRatio(bool);
 #if ENABLE(VIDEO_PRESENTATION_MODE)
     void setVideoFullscreenGravity(WebCore::MediaPlayerEnums::VideoGravity);
@@ -304,15 +307,20 @@ private:
     void playAtHostTime(MonotonicTime);
     void pauseAtHostTime(MonotonicTime);
 
+    void startVideoFrameMetadataGathering();
+    void stopVideoFrameMetadataGathering();
+#if PLATFORM(COCOA)
+    void mediaPlayerOnNewVideoFrameMetadata(WebCore::VideoFrameMetadata&&, RetainPtr<CVPixelBufferRef>&&);
+#endif
+
     bool mediaPlayerPausedOrStalled() const;
     void currentTimeChanged(const MediaTime&);
 
 #if PLATFORM(COCOA)
-    void nativeImageForCurrentTime(CompletionHandler<void(std::optional<WTF::MachSendRight>&&)>&&);
+    void nativeImageForCurrentTime(CompletionHandler<void(std::optional<WTF::MachSendRight>&&, WebCore::DestinationColorSpace)>&&);
+    void colorSpace(CompletionHandler<void(WebCore::DestinationColorSpace)>&&);
 #endif
-#if USE(AVFOUNDATION)
-    void pixelBufferForCurrentTime(CompletionHandler<void(RetainPtr<CVPixelBufferRef>&&)>&&);
-#endif
+    void videoFrameForCurrentTimeIfChanged(CompletionHandler<void(std::optional<WebCore::MediaSampleVideoFrame>&&, bool)>&&);
 
 #if !RELEASE_LOG_DISABLED
     const Logger& mediaPlayerLogger() final { return m_logger; }
@@ -354,6 +362,8 @@ private:
 
     bool m_bufferedChanged { true };
     bool m_renderingCanBeAccelerated { false };
+    WebCore::MediaPlayer::VideoFullscreenMode m_fullscreenMode { WebCore::MediaPlayer::VideoFullscreenModeNone };
+    bool m_videoFullscreenStandby { false };
 
 #if ENABLE(LEGACY_ENCRYPTED_MEDIA) && ENABLE(ENCRYPTED_MEDIA)
     bool m_shouldContinueAfterKeyNeeded { false };
@@ -366,7 +376,7 @@ private:
     ScopedRenderingResourcesRequest m_renderingResourcesRequest;
 
     bool m_observingTimeChanges { false };
-
+    std::optional<WebCore::MediaSampleVideoFrame> m_videoFrameForCurrentTime;
 #if !RELEASE_LOG_DISABLED
     const Logger& m_logger;
 #endif

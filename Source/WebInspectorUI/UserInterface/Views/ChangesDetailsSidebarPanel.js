@@ -45,11 +45,13 @@ WI.ChangesDetailsSidebarPanel = class ChangesDetailsSidebarPanel extends WI.DOMD
         super.attached();
 
         WI.Frame.addEventListener(WI.Frame.Event.MainResourceDidChange, this._mainResourceDidChange, this);
+        WI.CSSManager.addEventListener(WI.CSSManager.Event.ModifiedStylesChanged, this.needsLayout, this);
     }
 
     detached()
     {
         WI.Frame.removeEventListener(WI.Frame.Event.MainResourceDidChange, this._mainResourceDidChange, this);
+        WI.CSSManager.removeEventListener(WI.CSSManager.Event.ModifiedStylesChanged, this.needsLayout, this);
 
         super.detached();
     }
@@ -143,7 +145,7 @@ WI.ChangesDetailsSidebarPanel = class ChangesDetailsSidebarPanel extends WI.DOMD
             propertyLineElement.classList.add("css-property-line", className);
 
             const delegate = null;
-            let stylePropertyView = new WI.SpreadsheetStyleProperty(delegate, cssProperty, {readOnly: true});
+            let stylePropertyView = new WI.SpreadsheetStyleProperty(delegate, cssProperty, {readOnly: true, hideDocumentation: true});
             propertyLineElement.append(WI.indentString(), stylePropertyView.element, "\n");
         }
 

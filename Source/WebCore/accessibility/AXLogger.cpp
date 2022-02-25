@@ -36,6 +36,7 @@
 #endif
 #include "AXObjectCache.h"
 #include "FrameView.h"
+#include "LogInitialization.h"
 #include "Logging.h"
 #include <wtf/text/TextStream.h>
 
@@ -393,6 +394,9 @@ TextStream& operator<<(TextStream& stream, AXObjectCache::AXNotification notific
     case AXObjectCache::AXNotification::AXSelectedChildrenChanged:
         stream << "AXSelectedChildrenChanged";
         break;
+    case AXObjectCache::AXNotification::AXSelectedStateChanged:
+        stream << "AXSelectedStateChanged";
+        break;
     case AXObjectCache::AXNotification::AXSelectedTextChanged:
         stream << "AXSelectedTextChanged";
         break;
@@ -498,7 +502,7 @@ TextStream& operator<<(TextStream& stream, const AXCoreObject& object)
     stream.dumpProperty("address", &object);
     stream.dumpProperty("wrapper", object.wrapper());
 
-    stream.dumpProperty("parentObject", parent ? parent->objectID() : 0);
+    stream.dumpProperty("parentObject", parent ? parent->objectID() : AXID());
 #if PLATFORM(COCOA)
     stream.dumpProperty("remoteParentObject", object.remoteParentObject());
 #endif

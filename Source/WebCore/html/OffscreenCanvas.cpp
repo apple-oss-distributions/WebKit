@@ -97,7 +97,7 @@ Ref<OffscreenCanvas> OffscreenCanvas::create(ScriptExecutionContext& scriptExecu
     if (!detachedCanvas->originClean())
         clone->setOriginTainted();
 
-    callOnMainThread([detachedCanvas = WTFMove(detachedCanvas), placeholderData = makeRef(*clone->m_placeholderData)] () mutable {
+    callOnMainThread([detachedCanvas = WTFMove(detachedCanvas), placeholderData = Ref { *clone->m_placeholderData }] () mutable {
         placeholderData->canvas = detachedCanvas->takePlaceholderCanvas();
         if (placeholderData->canvas) {
             auto& placeholderContext = downcast<PlaceholderRenderingContext>(*placeholderData->canvas->renderingContext());
@@ -213,7 +213,7 @@ void OffscreenCanvas::createContextWebGL(RenderingContextType contextType, WebGL
 
 #endif // ENABLE(WEBGL)
 
-ExceptionOr<std::optional<OffscreenRenderingContext>> OffscreenCanvas::getContext(JSC::JSGlobalObject& state, RenderingContextType contextType, Vector<JSC::Strong<JSC::Unknown>>&& arguments)
+ExceptionOr<std::optional<OffscreenRenderingContext>> OffscreenCanvas::getContext(JSC::JSGlobalObject& state, RenderingContextType contextType, FixedVector<JSC::Strong<JSC::Unknown>>&& arguments)
 {
     if (m_detached)
         return Exception { InvalidStateError };
@@ -276,7 +276,7 @@ ExceptionOr<RefPtr<ImageBitmap>> OffscreenCanvas::transferToImageBitmap()
             return { RefPtr<ImageBitmap> { nullptr } };
 
         if (!m_hasCreatedImageBuffer) {
-            auto buffer = ImageBitmap::createImageBuffer(*canvasBaseScriptExecutionContext(), size(), RenderingMode::Unaccelerated);
+            auto buffer = ImageBitmap::createImageBuffer(*canvasBaseScriptExecutionContext(), size(), RenderingMode::Unaccelerated, m_context->colorSpace());
             return { ImageBitmap::create(ImageBitmapBacking(WTFMove(buffer))) };
         }
 
@@ -298,7 +298,7 @@ ExceptionOr<RefPtr<ImageBitmap>> OffscreenCanvas::transferToImageBitmap()
         // store from this canvas (or its context), but for now we'll just
         // create a new bitmap and paint into it.
 
-        auto imageBitmap = ImageBitmap::create(*canvasBaseScriptExecutionContext(), size());
+        auto imageBitmap = ImageBitmap::create(*canvasBaseScriptExecutionContext(), size(), DestinationColorSpace::SRGB());
         if (!imageBitmap->buffer())
             return { RefPtr<ImageBitmap> { nullptr } };
 
@@ -423,7 +423,7 @@ void OffscreenCanvas::setPlaceholderCanvas(HTMLCanvasElement& canvas)
 {
     ASSERT(!m_context);
     ASSERT(isMainThread());
-    m_placeholderData->canvas = makeWeakPtr(canvas);
+    m_placeholderData->canvas = canvas;
     auto& placeholderContext = downcast<PlaceholderRenderingContext>(*canvas.renderingContext());
     auto& imageBufferPipe = placeholderContext.imageBufferPipe();
     if (imageBufferPipe)
@@ -432,7 +432,7 @@ void OffscreenCanvas::setPlaceholderCanvas(HTMLCanvasElement& canvas)
 
 void OffscreenCanvas::pushBufferToPlaceholder()
 {
-    callOnMainThread([placeholderData = makeRef(*m_placeholderData)] () mutable {
+    callOnMainThread([placeholderData = Ref { *m_placeholderData }] () mutable {
         Locker locker { placeholderData->bufferLock };
         if (placeholderData->canvas && placeholderData->pendingCommitBuffer)
             placeholderData->canvas->setImageBufferAndMarkDirty(WTFMove(placeholderData->pendingCommitBuffer));
@@ -468,7 +468,7 @@ void OffscreenCanvas::scheduleCommitToPlaceholderCanvas()
     if (!m_hasScheduledCommit) {
         auto& scriptContext = *scriptExecutionContext();
         m_hasScheduledCommit = true;
-        scriptContext.postTask([protectedThis = makeRef(*this), this] (ScriptExecutionContext&) {
+        scriptContext.postTask([protectedThis = Ref { *this }, this] (ScriptExecutionContext&) {
             m_hasScheduledCommit = false;
             commitToPlaceholderCanvas();
         });
@@ -492,7 +492,8 @@ void OffscreenCanvas::createImageBuffer() const
     if (!width() || !height())
         return;
 
-    setImageBuffer(ImageBitmap::createImageBuffer(*canvasBaseScriptExecutionContext(), size(), RenderingMode::Unaccelerated));
+    auto colorSpace = m_context ? m_context->colorSpace() : DestinationColorSpace::SRGB();
+    setImageBuffer(ImageBitmap::createImageBuffer(*canvasBaseScriptExecutionContext(), size(), RenderingMode::Unaccelerated, colorSpace));
 }
 
 RefPtr<ImageBuffer> OffscreenCanvas::takeImageBuffer() const
@@ -509,7 +510,7 @@ RefPtr<ImageBuffer> OffscreenCanvas::takeImageBuffer() const
 void OffscreenCanvas::reset()
 {
     resetGraphicsContextState();
-    if (is<OffscreenCanvasRenderingContext2D>(m_context.get()))
+    if (is<OffscreenCanvasRenderingContext2D>(m_context))
         downcast<OffscreenCanvasRenderingContext2D>(*m_context).reset();
 
     m_hasCreatedImageBuffer = false;

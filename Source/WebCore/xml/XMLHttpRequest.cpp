@@ -48,7 +48,6 @@
 #include "RuntimeApplicationChecks.h"
 #include "SecurityOriginPolicy.h"
 #include "Settings.h"
-#include "SharedBuffer.h"
 #include "StringAdaptors.h"
 #include "TextResourceDecoder.h"
 #include "ThreadableLoader.h"
@@ -208,7 +207,7 @@ Ref<Blob> XMLHttpRequest::createResponseBlob()
     // FIXME: We just received the data from NetworkProcess, and are sending it back. This is inefficient.
     Vector<uint8_t> data;
     if (m_binaryResponseBuilder)
-        data = std::exchange(m_binaryResponseBuilder, nullptr)->extractData();
+        data = m_binaryResponseBuilder.take()->extractData();
     String normalizedContentType = Blob::normalizedContentType(responseMIMEType(FinalMIMEType::Yes)); // responseMIMEType defaults to text/xml which may be incorrect.
     return Blob::create(scriptExecutionContext(), WTFMove(data), normalizedContentType);
 }
@@ -218,9 +217,7 @@ RefPtr<ArrayBuffer> XMLHttpRequest::createResponseArrayBuffer()
     ASSERT(responseType() == ResponseType::Arraybuffer);
     ASSERT(doneWithoutErrors());
 
-    auto result = m_binaryResponseBuilder ? m_binaryResponseBuilder->tryCreateArrayBuffer() : ArrayBuffer::create(nullptr, 0);
-    m_binaryResponseBuilder = nullptr;
-    return result;
+    return m_binaryResponseBuilder.takeAsArrayBuffer();
 }
 
 ExceptionOr<void> XMLHttpRequest::setTimeout(unsigned timeout)
@@ -251,7 +248,7 @@ ExceptionOr<void> XMLHttpRequest::setResponseType(ResponseType type)
     // attempt to discourage synchronous XHR use. responseType is one such piece of functionality.
     // We'll only disable this functionality for HTTP(S) requests since sync requests for local protocols
     // such as file: and data: still make sense to allow.
-    if (!m_async && scriptExecutionContext()->isDocument() && m_url.url().protocolIsInHTTPFamily()) {
+    if (!m_async && scriptExecutionContext()->isDocument() && m_url.protocolIsInHTTPFamily()) {
         logConsoleError(scriptExecutionContext(), "XMLHttpRequest.responseType cannot be changed for synchronous HTTP(S) requests made from the window context.");
         return Exception { InvalidAccessError };
     }
@@ -382,9 +379,10 @@ ExceptionOr<void> XMLHttpRequest::open(const String& method, const URL& url, boo
     clearResponse();
     clearRequest();
 
-    auto upgradedURL = url;
-    context->contentSecurityPolicy()->upgradeInsecureRequestIfNeeded(upgradedURL, ContentSecurityPolicy::InsecureRequestType::Load);
-    m_url = WTFMove(upgradedURL);
+    m_url = url;
+    context->contentSecurityPolicy()->upgradeInsecureRequestIfNeeded(m_url, ContentSecurityPolicy::InsecureRequestType::Load);
+    if (m_url.protocolIsBlob())
+        m_blobURLLifetimeExtension = m_url;
 
     m_async = async;
 
@@ -417,7 +415,7 @@ std::optional<ExceptionOr<void>> XMLHttpRequest::prepareToSend()
     auto& context = *scriptExecutionContext();
 
     if (is<Document>(context) && downcast<Document>(context).shouldIgnoreSyncXHRs()) {
-        logConsoleError(scriptExecutionContext(), makeString("Ignoring XMLHttpRequest.send() call for '", m_url.url().string(), "' because the maximum number of synchronous failures was reached."));
+        logConsoleError(scriptExecutionContext(), makeString("Ignoring XMLHttpRequest.send() call for '", m_url.string(), "' because the maximum number of synchronous failures was reached."));
         return ExceptionOr<void> { };
     }
 
@@ -484,7 +482,7 @@ ExceptionOr<void> XMLHttpRequest::send(Document& document)
         // https://xhr.spec.whatwg.org/#dom-xmlhttprequest-send Step 4.2.
         auto serialized = serializeFragment(document, SerializedNodes::SubtreeIncludingNode);
         auto converted = replaceUnpairedSurrogatesWithReplacementCharacter(WTFMove(serialized));
-        auto encoded = UTF8Encoding().encode(WTFMove(converted), UnencodableHandling::Entities);
+        auto encoded = PAL::UTF8Encoding().encode(WTFMove(converted), PAL::UnencodableHandling::Entities);
         m_requestEntityBody = FormData::create(WTFMove(encoded));
         if (m_upload)
             m_requestEntityBody->setAlwaysStream(true);
@@ -507,7 +505,7 @@ ExceptionOr<void> XMLHttpRequest::send(const String& body)
             m_requestHeaders.set(HTTPHeaderName::ContentType, contentType);
         }
 
-        m_requestEntityBody = FormData::create(UTF8Encoding().encode(body, UnencodableHandling::Entities));
+        m_requestEntityBody = FormData::create(PAL::UTF8Encoding().encode(body, PAL::UnencodableHandling::Entities));
         if (m_upload)
             m_requestEntityBody->setAlwaysStream(true);
     }
@@ -521,7 +519,7 @@ ExceptionOr<void> XMLHttpRequest::send(Blob& body)
         return WTFMove(result.value());
 
     if (m_method != "GET" && m_method != "HEAD") {
-        if (!m_url.url().protocolIsInHTTPFamily()) {
+        if (!m_url.protocolIsInHTTPFamily()) {
             // FIXME: We would like to support posting Blobs to non-http URLs (e.g. custom URL schemes)
             // but because of the architecture of blob-handling that will require a fair amount of work.
             
@@ -594,8 +592,10 @@ ExceptionOr<void> XMLHttpRequest::sendBytesData(const void* data, size_t length)
 ExceptionOr<void> XMLHttpRequest::createRequest()
 {
     // Only GET request is supported for blob URL.
-    if (!m_async && m_url.url().protocolIsBlob() && m_method != "GET")
+    if (!m_async && m_url.protocolIsBlob() && m_method != "GET") {
+        m_blobURLLifetimeExtension.clear();
         return Exception { NetworkError };
+    }
 
     if (m_async && m_upload && m_upload->hasEventListeners())
         m_uploadListenerFlag = true;
@@ -655,7 +655,7 @@ ExceptionOr<void> XMLHttpRequest::createRequest()
         // FIXME: Maybe we need to be able to send XMLHttpRequests from onunload, <http://bugs.webkit.org/show_bug.cgi?id=10904>.
         auto loader = ThreadableLoader::create(*scriptExecutionContext(), *this, WTFMove(request), options);
         if (loader)
-            m_loadingActivity = LoadingActivity { makeRef(*this), loader.releaseNonNull() };
+            m_loadingActivity = LoadingActivity { Ref { *this }, loader.releaseNonNull() };
 
         // Either loader is null or some error was synchronously sent to us.
         ASSERT(m_loadingActivity || !m_sendFlag);
@@ -738,7 +738,7 @@ void XMLHttpRequest::clearResponseBuffers()
     m_responseEncoding = String();
     m_createdDocument = false;
     m_responseDocument = nullptr;
-    m_binaryResponseBuilder = nullptr;
+    m_binaryResponseBuilder.reset();
     m_responseCacheIsValid = false;
 }
 
@@ -747,6 +747,7 @@ void XMLHttpRequest::clearRequest()
     m_requestHeaders.clear();
     m_requestEntityBody = nullptr;
     m_url = URL { };
+    m_blobURLLifetimeExtension.clear();
 }
 
 void XMLHttpRequest::genericError()
@@ -890,7 +891,7 @@ String XMLHttpRequest::statusText() const
 
 void XMLHttpRequest::didFail(const ResourceError& error)
 {
-    auto protectedThis = makeRef(*this);
+    Ref protectedThis { *this };
 
     // If we are already in an error state, for instance we called abort(), bail out early.
     if (m_error)
@@ -922,9 +923,9 @@ void XMLHttpRequest::didFail(const ResourceError& error)
     networkError();
 }
 
-void XMLHttpRequest::didFinishLoading(unsigned long)
+void XMLHttpRequest::didFinishLoading(ResourceLoaderIdentifier)
 {
-    auto protectedThis = makeRef(*this);
+    Ref protectedThis { *this };
 
     if (m_error)
         return;
@@ -939,6 +940,7 @@ void XMLHttpRequest::didFinishLoading(unsigned long)
 
     m_loadingActivity = std::nullopt;
     m_url = URL { };
+    m_blobURLLifetimeExtension.clear();
 
     m_sendFlag = false;
     changeState(DONE);
@@ -965,7 +967,7 @@ void XMLHttpRequest::didSendData(unsigned long long bytesSent, unsigned long lon
     }
 }
 
-void XMLHttpRequest::didReceiveResponse(unsigned long, const ResourceResponse& response)
+void XMLHttpRequest::didReceiveResponse(ResourceLoaderIdentifier, const ResourceResponse& response)
 {
     m_response = response;
 }
@@ -987,7 +989,7 @@ static inline bool shouldDecodeResponse(XMLHttpRequest::ResponseType type)
 }
 
 // https://xhr.spec.whatwg.org/#final-charset
-TextEncoding XMLHttpRequest::finalResponseCharset() const
+PAL::TextEncoding XMLHttpRequest::finalResponseCharset() const
 {
     String label = m_responseEncoding;
 
@@ -995,12 +997,12 @@ TextEncoding XMLHttpRequest::finalResponseCharset() const
     if (!overrideResponseCharset.isEmpty())
         label = overrideResponseCharset;
 
-    return TextEncoding(label);
+    return PAL::TextEncoding(label);
 }
 
 Ref<TextResourceDecoder> XMLHttpRequest::createDecoder() const
 {
-    TextEncoding finalResponseCharset = this->finalResponseCharset();
+    PAL::TextEncoding finalResponseCharset = this->finalResponseCharset();
     if (finalResponseCharset.isValid())
         return TextResourceDecoder::create("text/plain", finalResponseCharset);
 
@@ -1032,7 +1034,7 @@ Ref<TextResourceDecoder> XMLHttpRequest::createDecoder() const
     return TextResourceDecoder::create("text/plain", "UTF-8");
 }
 
-void XMLHttpRequest::didReceiveData(const uint8_t* data, int len)
+void XMLHttpRequest::didReceiveData(const SharedBuffer& buffer)
 {
     if (m_error)
         return;
@@ -1050,23 +1052,18 @@ void XMLHttpRequest::didReceiveData(const uint8_t* data, int len)
     if (useDecoder && !m_decoder)
         m_decoder = createDecoder();
 
-    if (!len)
+    if (buffer.isEmpty())
         return;
 
-    if (len == -1)
-        len = strlen(reinterpret_cast<const char*>(data));
-
     if (useDecoder)
-        m_responseBuilder.append(m_decoder->decode(data, len));
+        m_responseBuilder.append(m_decoder->decode(buffer.data(), buffer.size()));
     else {
         // Buffer binary data.
-        if (!m_binaryResponseBuilder)
-            m_binaryResponseBuilder = SharedBuffer::create();
-        m_binaryResponseBuilder->append(data, len);
+        m_binaryResponseBuilder.append(buffer);
     }
 
     if (!m_error) {
-        m_receivedLength += len;
+        m_receivedLength += buffer.size();
 
         if (readyState() != LOADING)
             changeState(LOADING);

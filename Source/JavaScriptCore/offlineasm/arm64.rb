@@ -884,7 +884,7 @@ class Instruction
         when "move"
             if operands[0].immediate?
                 emitARM64MoveImmediate(operands[0].value, operands[1])
-            else
+            elsif operands[0] != operands[1]
                 emitARM64("mov", operands, :quad)
             end
         when "moved"
@@ -1313,7 +1313,10 @@ class Instruction
               offset = operands[0].arm64Operand(:word)
             end
             $asm.puts "mrs #{tmp}, tpidrro_el0"
+            $asm.puts "#if !HAVE(SIMPLIFIED_FAST_TLS_BASE)"
             $asm.puts "bic #{tmp}, #{tmp}, #7"
+            $asm.puts "#endif"
+
             $asm.puts "ldr #{operands[1].arm64Operand(:ptr)}, [#{tmp}, #{offset}]"
         when "tls_storep"
             tmp = ARM64_EXTRA_GPRS[0].arm64Operand(:ptr)
@@ -1323,7 +1326,9 @@ class Instruction
               offset = operands[1].arm64Operand(:word)
             end
             $asm.puts "mrs #{tmp}, tpidrro_el0"
+            $asm.puts "#if !HAVE(SIMPLIFIED_FAST_TLS_BASE)"
             $asm.puts "bic #{tmp}, #{tmp}, #7"
+            $asm.puts "#endif"
             $asm.puts "str #{operands[0].arm64Operand(:ptr)}, [#{tmp}, #{offset}]"
         when "loadlinkacqb"
             $asm.puts "ldaxrb #{operands[1].arm64Operand(:word)}, #{operands[0].arm64Operand(:word)}"

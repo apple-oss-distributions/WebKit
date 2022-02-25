@@ -37,11 +37,16 @@
 #include <fcntl.h>
 #include <poll.h>
 #include <wtf/Assertions.h>
+#include <wtf/SafeStrerror.h>
 #include <wtf/StdLibExtras.h>
 #include <wtf/UniStdExtras.h>
 
 #if USE(GLIB)
 #include <gio/gio.h>
+#endif
+
+#if OS(DARWIN)
+#define MSG_NOSIGNAL 0
 #endif
 
 // Although it's available on Darwin, SOCK_SEQPACKET seems to work differently
@@ -206,6 +211,9 @@ bool Connection::processMessage()
                 fd = m_fileDescriptors[fdIndex++];
             attachments[attachmentCount - i - 1] = Attachment(fd);
             break;
+        case Attachment::CustomWriterType:
+            attachments[attachmentCount - i - 1] = Attachment(Attachment::CustomWriter(m_socketDescriptor));
+            break;
         case Attachment::Uninitialized:
             attachments[attachmentCount - i - 1] = Attachment();
         default:
@@ -345,7 +353,7 @@ void Connection::readyReadHandler()
             }
 
             if (m_isConnected) {
-                WTFLogAlways("Error receiving IPC message on socket %d in process %d: %s", m_socketDescriptor, getpid(), strerror(errno));
+                WTFLogAlways("Error receiving IPC message on socket %d in process %d: %s", m_socketDescriptor, getpid(), safeStrerror(errno).data());
                 connectionDidClose();
             }
             return;
@@ -473,6 +481,7 @@ bool Connection::sendOutputMessage(UnixMessage& outputMessage)
 
     Vector<AttachmentInfo> attachmentInfo;
     MallocPtr<char> attachmentFDBuffer;
+    bool hasCustomWriterAttachments { false };
 
     auto& attachments = outputMessage.attachments();
     if (!attachments.isEmpty()) {
@@ -514,6 +523,9 @@ bool Connection::sendOutputMessage(UnixMessage& outputMessage)
                 } else
                     attachmentInfo[i].setNull();
                 break;
+            case Attachment::CustomWriterType:
+                hasCustomWriterAttachments = true;
+                break;
             case Attachment::Uninitialized:
             default:
                 break;
@@ -539,11 +551,11 @@ bool Connection::sendOutputMessage(UnixMessage& outputMessage)
         if (errno == EAGAIN || errno == EWOULDBLOCK) {
 #if USE(GLIB)
             m_pendingOutputMessage = makeUnique<UnixMessage>(WTFMove(outputMessage));
-            m_writeSocketMonitor.start(m_socket.get(), G_IO_OUT, m_connectionQueue->runLoop(), [this, protectedThis = makeRef(*this)] (GIOCondition condition) -> gboolean {
+            m_writeSocketMonitor.start(m_socket.get(), G_IO_OUT, m_connectionQueue->runLoop(), [this, protectedThis = Ref { *this }] (GIOCondition condition) -> gboolean {
                 if (condition & G_IO_OUT) {
                     ASSERT(m_pendingOutputMessage);
                     // We can't stop the monitor from this lambda, because stop destroys the lambda.
-                    m_connectionQueue->dispatch([this, protectedThis = makeRef(*this)] {
+                    m_connectionQueue->dispatch([this, protectedThis = Ref { *this }] {
                         m_writeSocketMonitor.stop();
                         auto message = WTFMove(m_pendingOutputMessage);
                         if (m_isConnected) {
@@ -578,9 +590,19 @@ bool Connection::sendOutputMessage(UnixMessage& outputMessage)
         }
 
         if (m_isConnected)
-            WTFLogAlways("Error sending IPC message: %s", strerror(errno));
+            WTFLogAlways("Error sending IPC message: %s", safeStrerror(errno).data());
         return false;
     }
+
+    if (hasCustomWriterAttachments) {
+        for (auto& attachment : attachments) {
+            if (attachment.type() == Attachment::CustomWriterType) {
+                ASSERT(std::holds_alternative<Attachment::CustomWriterFunc>(attachment.customWriter()));
+                std::get<Attachment::CustomWriterFunc>(attachment.customWriter())(m_socketDescriptor);
+            }
+        }
+    }
+
     return true;
 }
 

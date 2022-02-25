@@ -27,10 +27,10 @@
 
 #if ENABLE(VIDEO)
 
+#include <variant>
 #include <wtf/Ref.h>
 #include <wtf/RefCounted.h>
 #include <wtf/RefPtr.h>
-#include <wtf/Variant.h>
 #include <wtf/WeakPtr.h>
 
 namespace WebCore {
@@ -45,7 +45,7 @@ class TextTrack;
 class TextTrackList;
 class VoidCallback;
 
-class MediaControlsHost : public RefCounted<MediaControlsHost> {
+class MediaControlsHost final : public RefCounted<MediaControlsHost>, public CanMakeWeakPtr<MediaControlsHost> {
     WTF_MAKE_FAST_ALLOCATED(MediaControlsHost);
 public:
     static Ref<MediaControlsHost> create(HTMLMediaElement&);
@@ -55,11 +55,15 @@ public:
     static const AtomString& forcedOnlyKeyword();
 
     String layoutTraitsClassName() const;
+    const AtomString& mediaControlsContainerClassName() const;
+
+    double brightness() const { return 1; }
+    void setBrightness(double) { }
 
     Vector<RefPtr<TextTrack>> sortedTrackListForMenu(TextTrackList&);
     Vector<RefPtr<AudioTrack>> sortedTrackListForMenu(AudioTrackList&);
 
-    using TextOrAudioTrack = WTF::Variant<RefPtr<TextTrack>, RefPtr<AudioTrack>>;
+    using TextOrAudioTrack = std::variant<RefPtr<TextTrack>, RefPtr<AudioTrack>>;
     String displayNameForTrack(const std::optional<TextOrAudioTrack>&);
 
     static TextTrack& captionMenuOffItem();

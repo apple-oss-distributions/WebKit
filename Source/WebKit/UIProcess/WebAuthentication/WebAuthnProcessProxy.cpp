@@ -51,24 +51,34 @@
 namespace WebKit {
 using namespace WebCore;
 
+static RefPtr<WebAuthnProcessProxy>& sharedProcess()
+{
+    static NeverDestroyed<RefPtr<WebAuthnProcessProxy>> process;
+    return process.get();
+}
+
 WebAuthnProcessProxy& WebAuthnProcessProxy::singleton()
 {
     ASSERT(RunLoop::isMain());
 
-    static std::once_flag onceFlag;
-    static LazyNeverDestroyed<Ref<WebAuthnProcessProxy>> webAuthnProcess;
-
-    std::call_once(onceFlag, [] {
-        webAuthnProcess.construct(adoptRef(*new WebAuthnProcessProxy));
-
+    auto createAndInitializeNewProcess = [] {
+        auto webAuthnProcess = adoptRef(*new WebAuthnProcessProxy);
         WebAuthnProcessCreationParameters parameters;
-
+        parameters.auxiliaryProcessParameters = webAuthnProcess->auxiliaryProcessParameters();
         // Initialize the WebAuthn process.
-        webAuthnProcess.get()->send(Messages::WebAuthnProcess::InitializeWebAuthnProcess(parameters), 0);
-        webAuthnProcess.get()->updateProcessAssertion();
-    });
+        webAuthnProcess->send(Messages::WebAuthnProcess::InitializeWebAuthnProcess(parameters), 0);
+        webAuthnProcess->updateProcessAssertion();
+        return webAuthnProcess;
+    };
 
-    return webAuthnProcess.get();
+    if (!sharedProcess())
+        sharedProcess() = createAndInitializeNewProcess();
+    return *sharedProcess();
+}
+
+WebAuthnProcessProxy* WebAuthnProcessProxy::singletonIfCreated()
+{
+    return sharedProcess().get();
 }
 
 WebAuthnProcessProxy::WebAuthnProcessProxy()
@@ -98,7 +108,7 @@ void WebAuthnProcessProxy::processWillShutDown(IPC::Connection& connection)
 void WebAuthnProcessProxy::getWebAuthnProcessConnection(WebProcessProxy& webProcessProxy, Messages::WebProcessProxy::GetWebAuthnProcessConnection::DelayedReply&& reply)
 {
     RELEASE_LOG(ProcessSuspension, "%p - WebAuthnProcessProxy is taking a background assertion because a web process is requesting a connection", this);
-    sendWithAsyncReply(Messages::WebAuthnProcess::CreateWebAuthnConnectionToWebProcess { webProcessProxy.coreProcessIdentifier() }, [this, weakThis = makeWeakPtr(*this), reply = WTFMove(reply)](auto&& identifier) mutable {
+    sendWithAsyncReply(Messages::WebAuthnProcess::CreateWebAuthnConnectionToWebProcess { webProcessProxy.coreProcessIdentifier() }, [this, weakThis = WeakPtr { *this }, reply = WTFMove(reply)](auto&& identifier) mutable {
         if (!weakThis) {
             RELEASE_LOG_ERROR(Process, "WebAuthnProcessProxy::getWebAuthnProcessConnection: WebAuthnProcessProxy deallocated during connection establishment");
             return reply({ });
@@ -116,8 +126,7 @@ void WebAuthnProcessProxy::getWebAuthnProcessConnection(WebProcessProxy& webProc
 
 void WebAuthnProcessProxy::webAuthnProcessCrashed()
 {
-    for (auto& processPool : WebProcessPool::allProcessPools())
-        processPool->terminateAllWebContentProcesses();
+    sharedProcess() = nullptr;
 }
 
 void WebAuthnProcessProxy::didClose(IPC::Connection&)
@@ -168,14 +177,12 @@ void WebAuthnProcessProxy::updateProcessAssertion()
     if (hasAnyForegroundWebProcesses) {
         if (!ProcessThrottler::isValidForegroundActivity(m_activityFromWebProcesses)) {
             m_activityFromWebProcesses = throttler().foregroundActivity("WebAuthn for foreground view(s)"_s);
-            send(Messages::WebAuthnProcess::ProcessDidTransitionToForeground(), 0);
         }
         return;
     }
     if (hasAnyBackgroundWebProcesses) {
         if (!ProcessThrottler::isValidBackgroundActivity(m_activityFromWebProcesses)) {
             m_activityFromWebProcesses = throttler().backgroundActivity("WebAuthn for background view(s)"_s);
-            send(Messages::WebAuthnProcess::ProcessDidTransitionToBackground(), 0);
         }
         return;
     }

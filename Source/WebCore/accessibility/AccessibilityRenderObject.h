@@ -50,8 +50,7 @@ class Node;
 class RenderTextControl;
 class RenderView;
 class VisibleSelection;
-class Widget;
-    
+
 class AccessibilityRenderObject : public AccessibilityNodeObject, public CanMakeWeakPtr<AccessibilityRenderObject> {
 public:
     static Ref<AccessibilityRenderObject> create(RenderObject*);
@@ -135,7 +134,8 @@ public:
     int textLength() const override;
     String selectedText() const override;
     String accessKey() const override;
-    String actionVerb() const override;
+
+    bool isWidget() const override;
     Widget* widget() const override;
     Widget* widgetForAttachmentView() const override;
     AccessibilityChildrenVector documentLinks() override;
@@ -165,6 +165,7 @@ public:
     VisiblePositionRange visiblePositionRangeForLine(unsigned) const override;
     IntRect boundsForVisiblePositionRange(const VisiblePositionRange&) const override;
     IntRect boundsForRange(const SimpleRange&) const override;
+    VisiblePositionRange selectedVisiblePositionRange() const override;
     void setSelectedVisiblePositionRange(const VisiblePositionRange&) const override;
     bool isVisiblePositionRangeInDifferentDocument(const VisiblePositionRange&) const;
     bool hasPopup() const override;

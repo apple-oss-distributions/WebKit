@@ -49,6 +49,8 @@ class SecurityOrigin;
 
 struct ResourceLoaderOptions;
 
+enum class CrossOriginEmbedderPolicyValue : bool;
+
 WEBCORE_EXPORT bool isSimpleCrossOriginAccessRequest(const String& method, const HTTPHeaderMap&);
 bool isOnAccessControlSimpleRequestMethodAllowlist(const String&);
 
@@ -65,7 +67,8 @@ enum class HTTPHeadersToKeepFromCleaning : uint8_t {
     Referer = 1 << 1,
     Origin = 1 << 2,
     UserAgent = 1 << 3,
-    AcceptEncoding = 1 << 4
+    AcceptEncoding = 1 << 4,
+    CacheControl = 1 << 5
 };
 
 OptionSet<HTTPHeadersToKeepFromCleaning> httpHeadersToKeepFromCleaning(const HTTPHeaderMap&);
@@ -84,7 +87,8 @@ private:
 WEBCORE_EXPORT Expected<void, String> passesAccessControlCheck(const ResourceResponse&, StoredCredentialsPolicy, const SecurityOrigin&, const CrossOriginAccessControlCheckDisabler*);
 WEBCORE_EXPORT Expected<void, String> validatePreflightResponse(PAL::SessionID, const ResourceRequest&, const ResourceResponse&, StoredCredentialsPolicy, const SecurityOrigin&, const CrossOriginAccessControlCheckDisabler*);
 
-WEBCORE_EXPORT std::optional<ResourceError> validateCrossOriginResourcePolicy(const SecurityOrigin&, const URL&, const ResourceResponse&);
+enum class ForNavigation : bool { No, Yes };
+WEBCORE_EXPORT std::optional<ResourceError> validateCrossOriginResourcePolicy(CrossOriginEmbedderPolicyValue, const SecurityOrigin&, const URL&, const ResourceResponse&, ForNavigation);
 std::optional<ResourceError> validateRangeRequestedFlag(const ResourceRequest&, const ResourceResponse&);
 String validateCrossOriginRedirectionURL(const URL&);
 
@@ -99,7 +103,8 @@ template<> struct EnumTraits<WebCore::HTTPHeadersToKeepFromCleaning> {
         WebCore::HTTPHeadersToKeepFromCleaning::Referer,
         WebCore::HTTPHeadersToKeepFromCleaning::Origin,
         WebCore::HTTPHeadersToKeepFromCleaning::UserAgent,
-        WebCore::HTTPHeadersToKeepFromCleaning::AcceptEncoding
+        WebCore::HTTPHeadersToKeepFromCleaning::AcceptEncoding,
+        WebCore::HTTPHeadersToKeepFromCleaning::CacheControl
     >;
 };
 

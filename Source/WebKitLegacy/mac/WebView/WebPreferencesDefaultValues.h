@@ -35,8 +35,8 @@
 
 namespace WebKit {
 
-#if PLATFORM(COCOA) && HAVE(SYSTEM_FEATURE_FLAGS)
-bool isFeatureFlagEnabled(const String&);
+#if PLATFORM(COCOA)
+bool isFeatureFlagEnabled(const char*, bool defaultValue = false);
 #endif
 
 #if HAVE(INCREMENTAL_PDF_APIS)
@@ -64,6 +64,7 @@ bool defaultLoadDeferringEnabled();
 bool defaultWindowFocusRestricted();
 bool defaultUsePreHTML5ParserQuirks();
 bool defaultNeedsAdobeFrameReloadingQuirk();
+bool defaultScrollAnimatorEnabled();
 bool defaultTreatsAnyTextCSSLinkAsStylesheet();
 bool defaultNeedsFrameNameFallbackToIdQuirk();
 bool defaultNeedsKeyboardEventDisambiguationQuirks();
@@ -83,7 +84,10 @@ bool defaultWheelEventGesturesBecomeNonBlocking();
 
 #if ENABLE(MEDIA_SOURCE)
 bool defaultWebMParserEnabled();
-bool defaultWebMWebAudioEnabled();
+#endif
+
+#if ENABLE(MEDIA_SOURCE) && PLATFORM(IOS_FAMILY)
+bool defaultMediaSourceEnabled();
 #endif
 
 #if ENABLE(VP9)

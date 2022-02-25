@@ -29,10 +29,11 @@
 #if ENABLE(JIT)
 
 #include "ExecutableAllocationFuzz.h"
-#include "IterationStatus.h"
+#include "JITOperationValidation.h"
 #include "LinkBuffer.h"
 #include <wtf/FastBitVector.h>
 #include <wtf/FileSystem.h>
+#include <wtf/IterationStatus.h>
 #include <wtf/PageReservation.h>
 #include <wtf/ProcessID.h>
 #include <wtf/RedBlackTree.h>
@@ -54,18 +55,6 @@
 #include <fcntl.h>
 #include <mach/mach.h>
 #include <mach/mach_time.h>
-
-#if ENABLE(JIT_CAGE)
-#include <WebKitAdditions/JITCageAdditions.h>
-#else // ENABLE(JIT_CAGE)
-#if OS(DARWIN)
-#define MAP_EXECUTABLE_FOR_JIT MAP_JIT
-#define MAP_EXECUTABLE_FOR_JIT_WITH_JIT_CAGE MAP_JIT
-#else // OS(DARWIN)
-#define MAP_EXECUTABLE_FOR_JIT 0
-#define MAP_EXECUTABLE_FOR_JIT_WITH_JIT_CAGE 0
-#endif // OS(DARWIN)
-#endif // ENABLE(JIT_CAGE)
 
 extern "C" {
     /* Routine mach_vm_remap */
@@ -373,7 +362,7 @@ static ALWAYS_INLINE JITReservation initializeJITPageReservation()
         if (Options::logJITCodeForPerf())
             return PageReservation::reserveAndCommitWithGuardPages(reservationSize, OSAllocator::JSJITCodePages, EXECUTABLE_POOL_WRITABLE, true, false);
 #endif
-        if (Options::useJITCage())
+        if (Options::useJITCage() && JSC_ALLOW_JIT_CAGE_SPECIFIC_RESERVATION)
             return PageReservation::reserve(reservationSize, OSAllocator::JSJITCodePages, EXECUTABLE_POOL_WRITABLE, true, Options::useJITCage());
         return PageReservation::reserveWithGuardPages(reservationSize, OSAllocator::JSJITCodePages, EXECUTABLE_POOL_WRITABLE, true, false);
     };
@@ -411,8 +400,13 @@ static ALWAYS_INLINE JITReservation initializeJITPageReservation()
 #endif
 
         void* reservationEnd = reinterpret_cast<uint8_t*>(reservation.base) + reservation.size;
-        g_jscConfig.startExecutableMemory = tagCodePtr<ExecutableMemoryPtrTag>(reservation.base);
-        g_jscConfig.endExecutableMemory = tagCodePtr<ExecutableMemoryPtrTag>(reservationEnd);
+        g_jscConfig.startExecutableMemory = reservation.base;
+        g_jscConfig.endExecutableMemory = reservationEnd;
+
+#if !USE(SYSTEM_MALLOC) && ENABLE(UNIFIED_AND_FREEZABLE_CONFIG_RECORD)
+        WebConfig::g_config[0] = bitwise_cast<uintptr_t>(reservation.base);
+        WebConfig::g_config[1] = bitwise_cast<uintptr_t>(reservationEnd);
+#endif
     }
 
     return reservation;
@@ -477,9 +471,8 @@ public:
         m_reservation.deallocate();
     }
 
-    void* memoryStart() { return untagCodePtr<ExecutableMemoryPtrTag>(g_jscConfig.startExecutableMemory); }
-    void* memoryEnd() { return untagCodePtr<ExecutableMemoryPtrTag>(g_jscConfig.endExecutableMemory); }
-    bool isJITPC(void* pc) { return memoryStart() <= pc && pc < memoryEnd(); }
+    void* memoryStart() { return g_jscConfig.startExecutableMemory; }
+    void* memoryEnd() { return g_jscConfig.endExecutableMemory; }
     bool isValid() { return !!m_reservation; }
 
     RefPtr<ExecutableMemoryHandle> allocate(size_t sizeInBytes)
@@ -1135,12 +1128,6 @@ void* endOfFixedExecutableMemoryPoolImpl()
     return allocator->memoryEnd();
 }
 
-bool isJITPC(void* pc)
-{
-    FixedVMPoolExecutableAllocator* allocator = g_jscConfig.fixedVMPoolExecutableAllocator;
-    return allocator && allocator->isJITPC(pc);
-}
-
 void dumpJITMemory(const void* dst, const void* src, size_t size)
 {
     RELEASE_ASSERT(Options::dumpJITMemoryPath());
@@ -1194,7 +1181,7 @@ void dumpJITMemory(const void* dst, const void* src, size_t size)
     static std::once_flag once;
     std::call_once(once, [] {
         buffer = bitwise_cast<uint8_t*>(malloc(bufferSize));
-        flushQueue.construct(WorkQueue::create("jsc.dumpJITMemory.queue", WorkQueue::Type::Serial, WorkQueue::QOS::Background));
+        flushQueue.construct(WorkQueue::create("jsc.dumpJITMemory.queue", WorkQueue::QOS::Background));
         std::atexit([] {
             Locker locker { dumpJITMemoryLock };
             DumpJIT::flush();

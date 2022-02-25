@@ -56,6 +56,7 @@ extern "C" {
     M(Fullscreen) \
     M(Gamepad) \
     M(IPC) \
+    M(IPCMessages) \
     M(ITPDebug) \
     M(IconDatabase) \
     M(Images) \
@@ -64,6 +65,7 @@ extern "C" {
     M(IndexedDB) \
     M(Inspector) \
     M(KeyHandling) \
+    M(Language) \
     M(Layers) \
     M(Layout) \
     M(Loading) \
@@ -85,9 +87,11 @@ extern "C" {
     M(ProcessSuspension) \
     M(ProcessSwapping) \
     M(ProximityNetworking) \
+    M(Push) \
     M(RemoteLayerTree) \
     M(Resize) \
     M(ResourceLoadStatistics) \
+    M(ScrollAnimations) \
     M(Scrolling) \
     M(Selection) \
     M(ServiceWorker) \
@@ -96,6 +100,7 @@ extern "C" {
     M(Storage) \
     M(StorageAPI) \
     M(TextInput) \
+    M(Translation) \
     M(UIHitTesting) \
     M(ViewGestures) \
     M(ViewState) \
@@ -112,13 +117,8 @@ WEBKIT2_LOG_CHANNELS(DECLARE_LOG_CHANNEL)
 
 #undef DECLARE_LOG_CHANNEL
 
-namespace WebKit {
-WTFLogChannel* getLogChannel(const String&);
-} // namespace WebKit
-
 #ifdef __cplusplus
 }
 #endif
 
 #endif // !LOG_DISABLED || !RELEASE_LOG_DISABLED
-

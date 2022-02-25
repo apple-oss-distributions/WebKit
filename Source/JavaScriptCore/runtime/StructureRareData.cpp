@@ -48,7 +48,7 @@ Structure* StructureRareData::createStructure(VM& vm, JSGlobalObject* globalObje
 
 StructureRareData* StructureRareData::create(VM& vm, Structure* previous)
 {
-    StructureRareData* rareData = new (NotNull, allocateCell<StructureRareData>(vm.heap)) StructureRareData(vm, previous);
+    StructureRareData* rareData = new (NotNull, allocateCell<StructureRareData>(vm)) StructureRareData(vm, previous);
     rareData->finishCreation(vm);
     return rareData;
 }
@@ -79,7 +79,7 @@ void StructureRareData::visitChildrenImpl(JSCell* cell, Visitor& visitor)
         for (unsigned index = 0; index < numberOfCachedSpecialPropertyKeys; ++index)
             visitor.appendUnbarriered(thisObject->cachedSpecialProperty(static_cast<CachedSpecialPropertyKey>(index)));
     }
-    visitor.append(thisObject->m_cachedPropertyNameEnumerator);
+    visitor.appendUnbarriered(thisObject->cachedPropertyNameEnumerator());
     for (unsigned index = 0; index < numberOfCachedPropertyNames; ++index) {
         auto* cached = thisObject->m_cachedPropertyNames[index].unvalidatedGet();
         if (cached != cachedPropertyNamesSentinel())

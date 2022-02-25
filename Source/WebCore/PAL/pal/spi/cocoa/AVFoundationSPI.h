@@ -31,14 +31,19 @@
 #import <AVFoundation/AVContentKeySession.h>
 #endif
 
+#import <pal/spi/cocoa/TCCSPI.h>
+
 #if USE(APPLE_INTERNAL_SDK)
 
 #import <AVFoundation/AVAssetCache_Private.h>
+#import <AVFoundation/AVCaptureSession_Private.h>
+#import <AVFoundation/AVMediaSelectionGroup_Private.h>
 #import <AVFoundation/AVOutputContext_Private.h>
 #import <AVFoundation/AVOutputDevice.h>
-#import <AVFoundation/AVPlayer_Private.h>
+#import <AVFoundation/AVPlayerItemOutput_Private.h>
 #import <AVFoundation/AVPlayerItem_Private.h>
 #import <AVFoundation/AVPlayerLayer_Private.h>
+#import <AVFoundation/AVPlayer_Private.h>
 
 #if ENABLE(MEDIA_SOURCE)
 #if PLATFORM(IOS_FAMILY_SIMULATOR)
@@ -50,12 +55,19 @@
 
 #if PLATFORM(IOS_FAMILY)
 #import <AVFoundation/AVAudioSession_Private.h>
+NS_ASSUME_NONNULL_BEGIN
+@interface AVAudioSession (AVAudioSessionWebKitPrivate)
+- (BOOL)setAuditTokensForProcessAssertion:(NSArray<NSData *>*)inAuditTokens error:(NSError **)outError;
+@end
+NS_ASSUME_NONNULL_END
 #endif
 
 #else
 
+#import <AVFoundation/AVCaptureSession.h>
 #import <AVFoundation/AVPlayer.h>
 #import <AVFoundation/AVPlayerItem.h>
+#import <AVFoundation/AVPlayerItemOutput.h>
 
 #if HAVE(AVFOUNDATION_INTERSTITIAL_EVENTS)
 #import <AVFoundation/AVPlayerInterstitialEventController.h>
@@ -81,6 +93,11 @@ typedef NSString * AVVideoRange NS_TYPED_ENUM;
 @property (nonatomic, getter=_suppressesAudioRendering, setter=_setSuppressesAudioRendering:) BOOL suppressesAudioRendering;
 @end
 #endif
+
+@interface AVPlayerItemVideoOutput (AVPlayerItemVideoOutputEarliestTime)
+@property (nonatomic, readonly) CMTime earliestAvailablePixelBufferItemTime;
+- (void)requestNotificationOfMediaDataChangeAsSoonAsPossible;
+@end
 
 #if ENABLE(WIRELESS_PLAYBACK_TARGET) || PLATFORM(IOS_FAMILY)
 
@@ -194,6 +211,13 @@ NS_ASSUME_NONNULL_END
 #endif
 
 #endif // ENABLE(MEDIA_SOURCE)
+
+#import <AVFoundation/AVMediaSelectionGroup.h>
+NS_ASSUME_NONNULL_BEGIN
+@interface AVMediaSelectionOption (AVMediaSelectionOption_Private)
+@property (nonatomic, readonly) AVAssetTrack *track;
+@end
+NS_ASSUME_NONNULL_END
 
 #endif // USE(APPLE_INTERNAL_SDK)
 
@@ -371,15 +395,17 @@ NS_ASSUME_NONNULL_END
 @property (nonatomic, readonly) unsigned long numberOfDroppedVideoFrames;
 @property (nonatomic, readonly) unsigned long numberOfCorruptedVideoFrames;
 @property (nonatomic, readonly) unsigned long numberOfDisplayCompositedVideoFrames;
+@property (nonatomic, readonly) unsigned long numberOfNonDisplayCompositedVideoFrames;
 @property (nonatomic, readonly) double totalFrameDelay;
 @end
 #else
 @interface AVVideoPerformanceMetrics (AVVideoPerformanceMetricsDisplayCompositedVideoFrames)
 @property (nonatomic, readonly) unsigned long numberOfDisplayCompositedVideoFrames;
+@property (nonatomic, readonly) unsigned long numberOfNonDisplayCompositedVideoFrames;
 @end
 #endif
 
-#if !USE(APPLE_INTERNAL_SDK) || USE(AV_SAMPLE_BUFFER_DISPLAY_LAYER)
+#if !USE(APPLE_INTERNAL_SDK)
 @interface AVSampleBufferDisplayLayer (WebCorePrivate)
 @property (assign, nonatomic) BOOL preventsDisplaySleepDuringVideoPlayback;
 @end
@@ -395,6 +421,8 @@ NS_ASSUME_NONNULL_BEGIN
 @property (readonly) NSString* routingContextUID;
 @property (readonly) BOOL eligibleForBTSmartRoutingConsideration;
 - (BOOL)setEligibleForBTSmartRoutingConsideration:(BOOL)inValue error:(NSError **)outError;
+- (BOOL)setHostProcessAttribution:(NSArray<NSString *>*)inHostProcessInfo error:(NSError **)outError SPI_AVAILABLE(ios(15.0), watchos(8.0), tvos(15.0)) API_UNAVAILABLE(macCatalyst, macos);
+- (BOOL)setAuditTokensForProcessAssertion:(NSArray<NSData *>*)inAuditTokens error:(NSError **)outError;
 @end
 
 NS_ASSUME_NONNULL_END
@@ -430,11 +458,15 @@ NS_ASSUME_NONNULL_END
 @property (nonatomic, nullable) AVSampleBufferVideoOutput *output;
 @end
 
-#if HAVE(AVFOUNDATION_INTERSTITIAL_EVENTS)
-@interface AVPlayerItem (AVPlayerInterstitialSupport)
-@property (nonatomic) BOOL automaticallyHandlesInterstitialEvents;
-@end
-#endif
-
 #endif // USE(APPLE_INTERNAL_SDK)
+
+NS_ASSUME_NONNULL_BEGIN
+
+// FIXME: Move this inside the #if USE(APPLE_INTERNAL_SDK) once rdar://81297776 has been in the build for awhile.
+@interface AVCaptureSession (AVCaptureSessionPrivate)
+- (instancetype)initWithAssumedIdentity:(tcc_identity_t)tccIdentity SPI_AVAILABLE(ios(15.0)) API_UNAVAILABLE(macos, macCatalyst, watchos, tvos);
+@end
+
+NS_ASSUME_NONNULL_END
+
 #endif // HAVE(AVSAMPLEBUFFERVIDEOOUTPUT)

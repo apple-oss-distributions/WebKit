@@ -26,6 +26,8 @@
 
 #pragma once
 
+#include <optional>
+
 #if OS(DARWIN) && !USE(UNIX_DOMAIN_SOCKETS)
 #include <mach/mach_init.h>
 #include <mach/mach_traps.h>
@@ -33,6 +35,11 @@
 
 #if OS(WINDOWS)
 #include <windows.h>
+#endif
+
+#if USE(UNIX_DOMAIN_SOCKETS)
+#include <variant>
+#include <wtf/Function.h>
 #endif
 
 namespace IPC {
@@ -49,6 +56,7 @@ public:
 #if USE(UNIX_DOMAIN_SOCKETS)
         SocketType,
         MappedMemoryType,
+        CustomWriterType,
 #elif OS(DARWIN)
         MachPortType
 #endif
@@ -60,6 +68,11 @@ public:
     Attachment(int fileDescriptor, size_t);
     Attachment(int fileDescriptor);
     ~Attachment();
+
+    using SocketDescriptor = int;
+    using CustomWriterFunc = WTF::Function<void(SocketDescriptor)>;
+    using CustomWriter = std::variant<CustomWriterFunc, SocketDescriptor>;
+    Attachment(CustomWriter&&);
 #elif OS(DARWIN)
     Attachment(mach_port_name_t, mach_msg_type_name_t disposition);
 #elif OS(WINDOWS)
@@ -75,6 +88,7 @@ public:
 
     int releaseFileDescriptor() { int temp = m_fileDescriptor; m_fileDescriptor = -1; return temp; }
     int fileDescriptor() const { return m_fileDescriptor; }
+    const CustomWriter& customWriter() const { return m_customWriter; }
 #elif OS(DARWIN)
     void release();
 
@@ -86,7 +100,7 @@ public:
 #endif
 
     void encode(Encoder&) const;
-    static WARN_UNUSED_RETURN bool decode(Decoder&, Attachment&);
+    static std::optional<Attachment> decode(Decoder&);
     
 private:
     Type m_type;
@@ -94,6 +108,7 @@ private:
 #if USE(UNIX_DOMAIN_SOCKETS)
     int m_fileDescriptor { -1 };
     size_t m_size;
+    CustomWriter m_customWriter;
 #elif OS(DARWIN)
     mach_port_name_t m_port { 0 };
     mach_msg_type_name_t m_disposition { 0 };

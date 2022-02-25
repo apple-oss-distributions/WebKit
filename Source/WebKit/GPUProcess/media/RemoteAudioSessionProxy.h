@@ -57,12 +57,15 @@ public:
     size_t preferredBufferSize() const { return m_preferredBufferSize; }
     bool isActive() const { return m_active; }
 
+    void configurationChanged();
     void beginInterruption();
     void endInterruption(WebCore::AudioSession::MayResume);
 
     // IPC::MessageReceiver
     void didReceiveMessage(IPC::Connection&, IPC::Decoder&) final;
     bool didReceiveSyncMessage(IPC::Connection&, IPC::Decoder&, UniqueRef<IPC::Encoder>&) final;
+
+    GPUConnectionToWebProcess& gpuConnectionToWebProcess() const { return m_gpuConnection; }
 
 private:
     friend UniqueRef<RemoteAudioSessionProxy> WTF::makeUniqueRefWithoutFastMallocCheck<RemoteAudioSessionProxy>(GPUConnectionToWebProcess&);
@@ -73,6 +76,7 @@ private:
     void setPreferredBufferSize(uint64_t);
     using SetActiveCompletion = CompletionHandler<void(bool)>;
     void tryToSetActive(bool, SetActiveCompletion&&);
+    void setIsPlayingToBluetoothOverride(std::optional<bool>&& value);
 
     RemoteAudioSessionProxyManager& audioSessionManager();
     IPC::Connection& connection();
@@ -82,6 +86,7 @@ private:
     WebCore::RouteSharingPolicy m_routeSharingPolicy { WebCore::RouteSharingPolicy::Default };
     size_t m_preferredBufferSize { 0 };
     bool m_active { false };
+    bool m_isPlayingToBluetoothOverrideChanged { false };
 };
 
 }
