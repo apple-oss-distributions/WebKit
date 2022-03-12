@@ -1,3 +1,165 @@
+2021-11-16  Russell Epstein  <repstein@apple.com>
+
+        Cherry-pick r285823. rdar://problem/85236459
+
+    `Cross-Origin-Embedder-Policy: require-corp` prevents loading of data URL images
+    https://bugs.webkit.org/show_bug.cgi?id=233131
+    <rdar://85236459>
+    
+    Reviewed by Geoffrey Garen.
+    
+    Source/WebCore:
+    
+    When doing an initial data URL <img> load, we properly wouldn't perform a cross-origin resource policy check.
+    This is per the Fetch specification that says to use a scheme fetch [1] when the request URL is a data URL.
+    When the protocol is data, the scheme fetch algorithm would return a response without performing an HTTP
+    Fetch. The HTTP check [2] is the algorithm that actually performs a cross-origin resource policy check, at
+    step 7.
+    
+    The issue with our implementation was that data URL <img> loads would perform a cross-origin resource policy
+    check in the case where the image is loaded from our memory cache, due to a check we had in
+    CachedResourceLoader::requestResource(). As a result, data URL <img> loads would fail when served from the
+    memory cache, when CORP is enforced. To address the issue and match the specification, we now disable this
+    CORP check when the request URL is a data URL.
+    
+    [1] https://fetch.spec.whatwg.org/#scheme-fetch
+    [2] https://fetch.spec.whatwg.org/#concept-http-fetch
+    
+    Test: http/wpt/html/cross-origin-embedder-policy/require-corp-data-url.html
+    
+    * loader/cache/CachedResourceLoader.cpp:
+    (WebCore::CachedResourceLoader::requestResource):
+    
+    LayoutTests:
+    
+    Add layout test coverage. This test is based on a reduce test case from Cameron McCormack.
+    
+    * http/wpt/html/cross-origin-embedder-policy/require-corp-data-url-expected.txt: Added.
+    * http/wpt/html/cross-origin-embedder-policy/require-corp-data-url.html: Added.
+    * http/wpt/html/cross-origin-embedder-policy/require-corp-data-url.html.headers: Added.
+    
+    
+    git-svn-id: https://svn.webkit.org/repository/webkit/trunk@285823 268f45cc-cd09-0410-ab3c-d52691b4dbfc
+
+    2021-11-15  Chris Dumez  <cdumez@apple.com>
+
+            `Cross-Origin-Embedder-Policy: require-corp` prevents loading of data URL images
+            https://bugs.webkit.org/show_bug.cgi?id=233131
+            <rdar://85236459>
+
+            Reviewed by Geoffrey Garen.
+
+            When doing an initial data URL <img> load, we properly wouldn't perform a cross-origin resource policy check.
+            This is per the Fetch specification that says to use a scheme fetch [1] when the request URL is a data URL.
+            When the protocol is data, the scheme fetch algorithm would return a response without performing an HTTP
+            Fetch. The HTTP check [2] is the algorithm that actually performs a cross-origin resource policy check, at
+            step 7.
+
+            The issue with our implementation was that data URL <img> loads would perform a cross-origin resource policy
+            check in the case where the image is loaded from our memory cache, due to a check we had in
+            CachedResourceLoader::requestResource(). As a result, data URL <img> loads would fail when served from the
+            memory cache, when CORP is enforced. To address the issue and match the specification, we now disable this
+            CORP check when the request URL is a data URL.
+
+            [1] https://fetch.spec.whatwg.org/#scheme-fetch
+            [2] https://fetch.spec.whatwg.org/#concept-http-fetch
+
+            Test: http/wpt/html/cross-origin-embedder-policy/require-corp-data-url.html
+
+            * loader/cache/CachedResourceLoader.cpp:
+            (WebCore::CachedResourceLoader::requestResource):
+
+2021-11-15  Alan Coon  <alancoon@apple.com>
+
+        Apply patch. rdar://problem/83971417
+
+    2021-11-09  Alan Coon  <alancoon@apple.com>
+
+            Apply patch. rdar://problem/83971417
+
+        2021-10-26  Russell Epstein  <repstein@apple.com>
+
+                Cherry-pick r284669. rdar://problem/83971417
+
+            WebGL low-power and high-performance contexts should use different ANGLE Metal EGLDisplays
+            https://bugs.webkit.org/show_bug.cgi?id=231012
+            <rdar://problem/83971417>
+
+            Patch by Kimmo Kinnunen <kkinnunen@apple.com> on 2021-10-22
+            Reviewed by Dean Jackson.
+
+            Source/WebCore:
+
+            Use per-power preference EGLDisplay when creating Metal
+            contexts.
+
+            Adds a new API test.
+
+            * platform/RuntimeApplicationChecks.cpp:
+            (WebCore::setAuxiliaryProcessTypeForTesting):
+            * platform/RuntimeApplicationChecks.h:
+            Add a test function to reset the process type after test has set a specific type and then
+            run to completion. process for the duration of the test. The volatile context flag in
+            GraphicsContextGLOpenGL depends on condition isWebProcess || isGPUProcess.
+            * platform/graphics/angle/GraphicsContextGLANGLE.cpp:
+            (WebCore::GraphicsContextGLOpenGL::releaseThreadResources):
+            * platform/graphics/cocoa/GraphicsContextGLOpenGLCocoa.mm:
+            (WebCore::initializeEGLDisplay):
+            (WebCore::GraphicsContextGLOpenGL::GraphicsContextGLOpenGL):
+            (WebCore::GraphicsContextGLOpenGL::setContextVisibility):
+            (WebCore::GraphicsContextGLOpenGL::displayWasReconfigured):
+            * platform/graphics/opengl/GraphicsContextGLOpenGL.h:
+
+            Tools:
+
+            Add a API test to test GraphicsContextGLOpenGL
+            Cocoa implementation regarding the bug where
+            the GraphicsContextGLOpenGL instances would use
+            the GPU that was selected by the first instance.
+
+            * TestWebKitAPI/Configurations/TestWebKitAPI.xcconfig:
+            * TestWebKitAPI/TestWebKitAPI.xcodeproj/project.pbxproj:
+            * TestWebKitAPI/Tests/WebCore/cocoa/TestGraphicsContextGLOpenGLCocoa.mm: Added.
+            (TestWebKitAPI::WebCore::TestedGraphicsContextGLOpenGL::create):
+            (TestWebKitAPI::WebCore::TestedGraphicsContextGLOpenGL::TestedGraphicsContextGLOpenGL):
+            (TestWebKitAPI::hasMultipleGPUs):
+            (TestWebKitAPI::TEST):
+            * TestWebKitAPI/WebCoreUtilities.h: Added.
+            (TestWebKitAPI::ScopedSetAuxiliaryProcessTypeForTesting::ScopedSetAuxiliaryProcessTypeForTesting):
+            (TestWebKitAPI::ScopedSetAuxiliaryProcessTypeForTesting::~ScopedSetAuxiliaryProcessTypeForTesting):
+            Add a utility state setter to set the process type for the
+            duration of a test.
+
+            git-svn-id: https://svn.webkit.org/repository/webkit/trunk@284669 268f45cc-cd09-0410-ab3c-d52691b4dbfc
+
+            2021-10-22  Kimmo Kinnunen  <kkinnunen@apple.com>
+
+                    WebGL low-power and high-performance contexts should use different ANGLE Metal EGLDisplays
+                    https://bugs.webkit.org/show_bug.cgi?id=231012
+                    <rdar://problem/83971417>
+
+                    Reviewed by Dean Jackson.
+
+                    Use per-power preference EGLDisplay when creating Metal
+                    contexts.
+
+                    Adds a new API test.
+
+                    * platform/RuntimeApplicationChecks.cpp:
+                    (WebCore::setAuxiliaryProcessTypeForTesting):
+                    * platform/RuntimeApplicationChecks.h:
+                    Add a test function to reset the process type after test has set a specific type and then
+                    run to completion. process for the duration of the test. The volatile context flag in
+                    GraphicsContextGLOpenGL depends on condition isWebProcess || isGPUProcess.
+                    * platform/graphics/angle/GraphicsContextGLANGLE.cpp:
+                    (WebCore::GraphicsContextGLOpenGL::releaseThreadResources):
+                    * platform/graphics/cocoa/GraphicsContextGLOpenGLCocoa.mm:
+                    (WebCore::initializeEGLDisplay):
+                    (WebCore::GraphicsContextGLOpenGL::GraphicsContextGLOpenGL):
+                    (WebCore::GraphicsContextGLOpenGL::setContextVisibility):
+                    (WebCore::GraphicsContextGLOpenGL::displayWasReconfigured):
+                    * platform/graphics/opengl/GraphicsContextGLOpenGL.h:
+
 2021-11-15  Alan Coon  <alancoon@apple.com>
 
         Cherry-pick r285728. rdar://problem/85236241
@@ -50,36 +212,15 @@
             * animation/KeyframeEffect.cpp:
             (WebCore::KeyframeEffect::applyPendingAcceleratedActions):
 
-2021-11-12  Babak Shafiei  <bshafiei@apple.com>
+2021-11-12  Russell Epstein  <repstein@apple.com>
 
-        Revert r285684. rdar://problem/83381842
+        Revert r285691. rdar://problem/83381842
 
-2021-11-12  Babak Shafiei  <bshafiei@apple.com>
+2021-11-12  Russell Epstein  <repstein@apple.com>
 
-        Revert r285682. rdar://problem/85004449
+        Revert r285680. rdar://problem/85004449
 
 2021-11-11  Alan Coon  <alancoon@apple.com>
-
-        Apply patch. rdar://problem/83673859
-
-    2021-11-10  Youenn Fablet  <youenn@apple.com>
-
-            [iOS] Add audio gain in case category switches to PlayAndRecord
-            https://bugs.webkit.org/show_bug.cgi?id=232941
-            <rdar://85250248>
-
-            Reviewed by Eric Carlson.
-
-            Add a audio category change observer.
-            Observer needs to be in the process where the actual iOS shared audio session is living (GPUProcess typically).
-            Manually tested.
-
-            * WebCore.xcodeproj/project.pbxproj:
-            * platform/audio/cocoa/AudioSampleBufferList.h:
-            * platform/audio/ios/AudioSessionIOS.h:
-            * platform/audio/ios/AudioSessionIOS.mm:
-
-2021-11-11  Kocsen Chung  <kocsen_chung@apple.com>
 
         Cherry-pick r285531. rdar://problem/83381842
 
@@ -103,7 +244,7 @@
 
             * Modules/speech/cocoa/SpeechRecognizerCocoa.mm:
 
-2021-11-11  Kocsen Chung  <kocsen_chung@apple.com>
+2021-11-11  Alan Coon  <alancoon@apple.com>
 
         Cherry-pick r285330. rdar://problem/85004449
 
@@ -182,6 +323,53 @@
             * platform/graphics/avfoundation/objc/MediaPlayerPrivateAVFoundationObjC.mm:
             (WebCore::MediaPlayerPrivateAVFoundationObjC::waitForVideoOutputMediaDataWillChange):
             (WebCore::MediaPlayerPrivateAVFoundationObjC::outputMediaDataWillChange):
+
+2021-11-11  Alan Coon  <alancoon@apple.com>
+
+        Cherry-pick r284434. rdar://problem/77969801
+
+    WebM with invalid size should fail to load with error
+    https://bugs.webkit.org/show_bug.cgi?id=231886
+    rdar://77969801
+    
+    Reviewed by Jer Noble.
+    
+    Source/WebCore:
+    
+    libwebm for some elements are using a std::string or a std::vector<uint8_t>
+    to store their content. Those have infallible memory allocators.
+    We limit the size we allow the parser to use to some reasonable values.
+    
+    Test: media/media-webm-invalid-check.html
+    
+    * platform/graphics/cocoa/SourceBufferParserWebM.cpp:
+    (WebCore::SourceBufferParserWebM::OnElementBegin):
+    
+    LayoutTests:
+    
+    * media/content/invalid-size.webm: Added.
+    * media/media-webm-invalid-check-expected.txt: Added.
+    * media/media-webm-invalid-check.html: Added.
+    
+    
+    git-svn-id: https://svn.webkit.org/repository/webkit/trunk@284434 268f45cc-cd09-0410-ab3c-d52691b4dbfc
+
+    2021-10-18  Jean-Yves Avenard  <jya@apple.com>
+
+            WebM with invalid size should fail to load with error
+            https://bugs.webkit.org/show_bug.cgi?id=231886
+            rdar://77969801
+
+            Reviewed by Jer Noble.
+
+            libwebm for some elements are using a std::string or a std::vector<uint8_t>
+            to store their content. Those have infallible memory allocators.
+            We limit the size we allow the parser to use to some reasonable values.
+
+            Test: media/media-webm-invalid-check.html
+
+            * platform/graphics/cocoa/SourceBufferParserWebM.cpp:
+            (WebCore::SourceBufferParserWebM::OnElementBegin):
 
 2021-11-08  Kocsen Chung  <kocsen_chung@apple.com>
 

@@ -1,4 +1,49 @@
-2021-11-16  Russell Epstein  <repstein@apple.com>
+2021-11-18  Russell Epstein  <repstein@apple.com>
+
+        Cherry-pick r285130. rdar://problem/85166839
+
+    [macOS] Opening local html files is failing
+    https://bugs.webkit.org/show_bug.cgi?id=232572
+    <rdar://81330442>
+    
+    Reviewed by Brent Fulgham.
+    
+    Source/WebKit:
+    
+    On some macOS versions, opening local html files is failing. In order for the WebContent process
+    to successfully issue the file extension to the Networking process, the flags for the extension
+    in the WebContent process must include the user intent flag when the extension is issued with an
+    audit token.
+    
+    * Shared/Cocoa/SandboxExtensionCocoa.mm:
+    (WebKit::SandboxExtensionImpl::sandboxExtensionForType):
+    
+    Source/WTF:
+    
+    Declare sandbox flag.
+    
+    * wtf/spi/darwin/SandboxSPI.h:
+    
+    
+    git-svn-id: https://svn.webkit.org/repository/webkit/trunk@285130 268f45cc-cd09-0410-ab3c-d52691b4dbfc
+
+    2021-11-01  Per Arne  <pvollan@apple.com>
+
+            [macOS] Opening local html files is failing
+            https://bugs.webkit.org/show_bug.cgi?id=232572
+            <rdar://81330442>
+
+            Reviewed by Brent Fulgham.
+
+            On some macOS versions, opening local html files is failing. In order for the WebContent process
+            to successfully issue the file extension to the Networking process, the flags for the extension
+            in the WebContent process must include the user intent flag when the extension is issued with an
+            audit token.
+
+            * Shared/Cocoa/SandboxExtensionCocoa.mm:
+            (WebKit::SandboxExtensionImpl::sandboxExtensionForType):
+
+2021-11-16  Kocsen Chung  <kocsen_chung@apple.com>
 
         Cherry-pick r283386. rdar://problem/83953959
 
@@ -26,32 +71,81 @@
             (WebKit::WebFrame::invalidatePolicyListeners): Protect the WebFrame while
             policy handlers are run.
 
-2021-11-12  Babak Shafiei  <bshafiei@apple.com>
+2021-11-12  Russell Epstein  <repstein@apple.com>
 
-        Revert r285683. rdar://problem/83381842
+        Revert r285690. rdar://problem/83381842
 
 2021-11-11  Alan Coon  <alancoon@apple.com>
 
-        Apply patch. rdar://problem/83673859
+        Cherry-pick r285565. rdar://problem/83159358
 
-    2021-11-10  Youenn Fablet  <youenn@apple.com>
+    [macOS] Enable NSURLSession partitioning based on first-party domain at CFNetwork level
+    https://bugs.webkit.org/show_bug.cgi?id=230750
+    <rdar://problem/83159358>
+    
+    Reviewed by Alex Christensen.
+    
+    Source/WebKit:
+    
+    * NetworkProcess/cocoa/NetworkDataTaskCocoa.mm:
+    (WebKit::NetworkDataTaskCocoa::NetworkDataTaskCocoa):
+    (overrideAttributionContext): Deleted.
+    Stop disabling CFNetwork NSURLSession partitioning based on first-party domain on
+    macOS.
+    
+    * NetworkProcess/cocoa/NetworkSessionCocoa.h:
+    * NetworkProcess/cocoa/NetworkSessionCocoa.mm:
+    (WebKit::NetworkSessionCocoa::sessionWrapperForTask):
+    (WebKit::NetworkSessionCocoa::hasIsolatedSession const):
+    (WebKit::NetworkSessionCocoa::clearIsolatedSessions):
+    (WebKit::NetworkSessionCocoa::invalidateAndCancelSessionSet):
+    Disable ITP session partitioning of certain prevalent domains on platforms where
+    CFNetwork already does full partitioning of all domains (now that it is enabled
+    on macOS 12+ and iOS15+).
+    
+    Source/WTF:
+    
+    Add HAVE(CFNETWORK_SESSION_PARTITIONING_BASED_ON_FIRST_PARTY_DOMAIN) build time flag that is true
+    on newer Apple OSes where CFNetwork does NSURLSession partitioning based on first-party domain for
+    us.
+    
+    * wtf/PlatformHave.h:
+    
+    LayoutTests:
+    
+    Skip a few ITP session partitioning tests on newer OSes now that session partitioning
+    happens for all first-party domains at CFNetwork level on these OSes.
+    
+    * platform/ios-wk2/TestExpectations:
+    * platform/mac-wk2/TestExpectations:
+    
+    git-svn-id: https://svn.webkit.org/repository/webkit/trunk@285565 268f45cc-cd09-0410-ab3c-d52691b4dbfc
 
-            [iOS] Add audio gain in case category switches to PlayAndRecord
-            https://bugs.webkit.org/show_bug.cgi?id=232941
-            <rdar://85250248>
+    2021-11-09  Chris Dumez  <cdumez@apple.com>
 
-            Reviewed by Eric Carlson.
+            [macOS] Enable NSURLSession partitioning based on first-party domain at CFNetwork level
+            https://bugs.webkit.org/show_bug.cgi?id=230750
+            <rdar://problem/83159358>
 
-            In case of PlayAndRecord, apply a static gain of 5 to audio rendered from MediaStreamTracks.
-            For that purpose, observe changes to the AudioSession category and react upon it.
+            Reviewed by Alex Christensen.
 
-            * GPUProcess/webrtc/RemoteAudioMediaStreamTrackRendererInternalUnitManager.cpp:
-            (WebKit::RemoteAudioMediaStreamTrackRendererInternalUnitManager::Unit::Unit):
-            (WebKit::RemoteAudioMediaStreamTrackRendererInternalUnitManager::Unit::start):
-            (WebKit::RemoteAudioMediaStreamTrackRendererInternalUnitManager::Unit::render):
-            (WebKit::RemoteAudioMediaStreamTrackRendererInternalUnitManager::Unit::categoryDidChange):
+            * NetworkProcess/cocoa/NetworkDataTaskCocoa.mm:
+            (WebKit::NetworkDataTaskCocoa::NetworkDataTaskCocoa):
+            (overrideAttributionContext): Deleted.
+            Stop disabling CFNetwork NSURLSession partitioning based on first-party domain on
+            macOS.
 
-2021-11-11  Kocsen Chung  <kocsen_chung@apple.com>
+            * NetworkProcess/cocoa/NetworkSessionCocoa.h:
+            * NetworkProcess/cocoa/NetworkSessionCocoa.mm:
+            (WebKit::NetworkSessionCocoa::sessionWrapperForTask):
+            (WebKit::NetworkSessionCocoa::hasIsolatedSession const):
+            (WebKit::NetworkSessionCocoa::clearIsolatedSessions):
+            (WebKit::NetworkSessionCocoa::invalidateAndCancelSessionSet):
+            Disable ITP session partitioning of certain prevalent domains on platforms where
+            CFNetwork already does full partitioning of all domains (now that it is enabled
+            on macOS 12+ and iOS15+).
+
+2021-11-11  Alan Coon  <alancoon@apple.com>
 
         Cherry-pick r285550. rdar://problem/85075538
 
@@ -120,7 +214,7 @@
 
             * GPUProcess/media/RemoteAudioDestinationManager.cpp:
 
-2021-11-11  Kocsen Chung  <kocsen_chung@apple.com>
+2021-11-11  Alan Coon  <alancoon@apple.com>
 
         Cherry-pick r285509. rdar://problem/83381842
 
