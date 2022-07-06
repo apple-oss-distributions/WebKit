@@ -28,6 +28,7 @@
 #include "Connection.h"
 #include "MessageReceiverMap.h"
 #include "MessageSender.h"
+#include "SandboxExtension.h"
 #include <WebCore/ProcessIdentifier.h>
 #include <WebCore/RuntimeApplicationChecks.h>
 #include <WebCore/UserActivity.h>
@@ -134,8 +135,6 @@ protected:
     void didReceiveMemoryPressureEvent(bool isCritical);
 #endif
 
-    static std::optional<std::pair<IPC::Connection::Identifier, IPC::Attachment>> createIPCConnectionPair();
-
 protected:
 #if ENABLE(CFPREFS_DIRECT_MODE)
     static id decodePreferenceValue(const std::optional<String>& encodedValue);
@@ -146,6 +145,8 @@ protected:
     virtual void dispatchSimulatedNotificationsForPreferenceChange(const String& key) { }
 #endif
     void applyProcessCreationParameters(const AuxiliaryProcessCreationParameters&);
+
+    void populateMobileGestaltCache(std::optional<SandboxExtension::Handle>&& mobileGestaltExtensionHandle);
 
 private:
     virtual bool shouldOverrideQuarantine() { return true; }

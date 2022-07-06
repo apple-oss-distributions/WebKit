@@ -54,6 +54,7 @@
 #include "ColorSerialization.h"
 #include "ComposedTreeIterator.h"
 #include "CookieJar.h"
+#include "CrossOriginPreflightResultCache.h"
 #include "Cursor.h"
 #include "DOMPointReadOnly.h"
 #include "DOMRect.h"
@@ -342,6 +343,7 @@
 #endif
 
 #if PLATFORM(COCOA)
+#include "FontCacheCoreText.h"
 #include "SystemBattery.h"
 #include "VP9UtilitiesCocoa.h"
 #include <pal/spi/cf/CoreTextSPI.h>
@@ -614,7 +616,11 @@ void Internals::resetToConsistentState(Page& page)
     DOMWindow::overrideTransientActivationDurationForTesting(std::nullopt);
 
 #if PLATFORM(IOS)
-    RenderThemeIOS::setContentSizeCategory(kCTFontContentSizeCategoryL);
+    WebCore::setContentSizeCategory(kCTFontContentSizeCategoryL);
+#endif
+
+#if PLATFORM(COCOA)
+    setOverrideEnhanceTextLegibility(false);
 #endif
 }
 
@@ -932,6 +938,7 @@ bool Internals::isFetchObjectContextStopped(const FetchObject& object)
 void Internals::clearMemoryCache()
 {
     MemoryCache::singleton().evictResources();
+    CrossOriginPreflightResultCache::singleton().clear();
 }
 
 void Internals::pruneMemoryCacheToSize(unsigned size)
@@ -3828,14 +3835,14 @@ ExceptionOr<String> Internals::getCurrentCursorInfo()
 
 Ref<ArrayBuffer> Internals::serializeObject(const RefPtr<SerializedScriptValue>& value) const
 {
-    auto& bytes = value->data();
+    auto& bytes = value->wireBytes();
     return ArrayBuffer::create(bytes.data(), bytes.size());
 }
 
 Ref<SerializedScriptValue> Internals::deserializeBuffer(ArrayBuffer& buffer) const
 {
     Vector<uint8_t> bytes { static_cast<const uint8_t*>(buffer.data()), buffer.byteLength() };
-    return SerializedScriptValue::adopt(WTFMove(bytes));
+    return SerializedScriptValue::createFromWireBytes(WTFMove(bytes));
 }
 
 bool Internals::isFromCurrentWorld(JSC::JSValue value) const
@@ -5576,6 +5583,15 @@ auto Internals::audioSessionCategory() const -> AudioSessionCategory
 #endif
 }
 
+auto Internals::routeSharingPolicy() const -> RouteSharingPolicy
+{
+#if USE(AUDIO_SESSION)
+    return AudioSession::sharedSession().routeSharingPolicy();
+#else
+    return RouteSharingPolicy::Default;
+#endif
+}
+
 #if ENABLE(VIDEO)
 auto Internals::categoryAtMostRecentPlayback(HTMLMediaElement& element) const -> AudioSessionCategory
 {
@@ -6376,7 +6392,7 @@ void Internals::setContentSizeCategory(Internals::ContentSizeCategory category)
         ctCategory = kCTFontContentSizeCategoryXXXL;
         break;
     }
-    RenderThemeIOS::setContentSizeCategory(ctCategory);
+    WebCore::setContentSizeCategory(ctCategory);
     Page::updateStyleForAllPagesAfterGlobalChangeInEnvironment();
 #else
     UNUSED_PARAM(category);

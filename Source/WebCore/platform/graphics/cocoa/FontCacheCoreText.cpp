@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015-2021 Apple Inc. All rights reserved.
+ * Copyright (C) 2015-2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -32,10 +32,10 @@
 #include "FontCreationContext.h"
 #include "FontFamilySpecificationCoreText.h"
 #include "FontPaletteValues.h"
-#include "RenderThemeCocoa.h"
 #include "SystemFontDatabaseCoreText.h"
 #include <CoreText/SFNTLayoutTypes.h>
 #include <pal/spi/cf/CoreTextSPI.h>
+#include <pal/spi/cocoa/AccessibilitySupportSPI.h>
 #include <wtf/HashSet.h>
 #include <wtf/Lock.h>
 #include <wtf/MainThread.h>
@@ -350,7 +350,6 @@ VariationDefaultsMap defaultVariationValues(CTFontRef font, ShouldLocalizeAxisNa
     return result;
 }
 
-#if USE(NON_VARIABLE_SYSTEM_FONT)
 static inline bool fontIsSystemFont(CTFontRef font)
 {
     if (isSystemFont(font))
@@ -359,13 +358,43 @@ static inline bool fontIsSystemFont(CTFontRef font)
     auto name = adoptCF(CTFontCopyPostScriptName(font));
     return fontNameIsSystemFont(name.get());
 }
-#endif
 
 // These values were calculated by performing a linear regression on the CSS weights/widths/slopes and Core Text weights/widths/slopes of San Francisco.
 // FIXME: <rdar://problem/31312602> Get the real values from Core Text.
-static inline float normalizeWeight(float value)
+static inline float normalizeGXWeight(float value)
 {
     return 523.7 * value - 109.3;
+}
+
+// These values were experimentally gathered from the various named weights of San Francisco.
+static struct {
+    float ctWeight;
+    float cssWeight;
+} keyframes[] = {
+    { -0.8, 30 },
+    { -0.4, 274 },
+    { 0, 400 },
+    { 0.23, 510 },
+    { 0.3, 590 },
+    { 0.4, 700 },
+    { 0.56, 860 },
+    { 0.62, 1000 },
+};
+static_assert(WTF_ARRAY_LENGTH(keyframes) > 0);
+
+float normalizeCTWeight(float value)
+{
+    if (value < keyframes[0].ctWeight)
+        return keyframes[0].cssWeight;
+    for (size_t i = 0; i < WTF_ARRAY_LENGTH(keyframes) - 1; ++i) {
+        auto& before = keyframes[i];
+        auto& after = keyframes[i + 1];
+        if (value >= before.ctWeight && value <= after.ctWeight) {
+            float ratio = (value - before.ctWeight) / (after.ctWeight - before.ctWeight);
+            return ratio * (after.cssWeight - before.cssWeight) + before.cssWeight;
+        }
+    }
+    return keyframes[WTF_ARRAY_LENGTH(keyframes) - 1].cssWeight;
 }
 
 static inline float normalizeSlope(float value)
@@ -373,9 +402,24 @@ static inline float normalizeSlope(float value)
     return value * 300;
 }
 
-static inline float denormalizeWeight(float value)
+static inline float denormalizeGXWeight(float value)
 {
     return (value + 109.3) / 523.7;
+}
+
+float denormalizeCTWeight(float value)
+{
+    if (value < keyframes[0].cssWeight)
+        return keyframes[0].ctWeight;
+    for (size_t i = 0; i < WTF_ARRAY_LENGTH(keyframes) - 1; ++i) {
+        auto& before = keyframes[i];
+        auto& after = keyframes[i + 1];
+        if (value >= before.cssWeight && value <= after.cssWeight) {
+            float ratio = (value - before.cssWeight) / (after.cssWeight - before.cssWeight);
+            return ratio * (after.ctWeight - before.ctWeight) + before.ctWeight;
+        }
+    }
+    return keyframes[WTF_ARRAY_LENGTH(keyframes) - 1].ctWeight;
 }
 
 static inline float denormalizeSlope(float value)
@@ -521,6 +565,28 @@ static void addAttributesForFontPalettes(CFMutableDictionaryRef attributes, cons
     }
 }
 
+static std::optional<bool>& overrideEnhanceTextLegibility()
+{
+    static NeverDestroyed<std::optional<bool>> overrideEnhanceTextLegibility;
+    return overrideEnhanceTextLegibility.get();
+}
+
+void setOverrideEnhanceTextLegibility(bool override)
+{
+    overrideEnhanceTextLegibility() = override;
+}
+
+static bool& platformShouldEnhanceTextLegibility()
+{
+    static NeverDestroyed<bool> shouldEnhanceTextLegibility = _AXSEnhanceTextLegibilityEnabled();
+    return shouldEnhanceTextLegibility.get();
+}
+
+static inline bool shouldEnhanceTextLegibility()
+{
+    return overrideEnhanceTextLegibility().value_or(platformShouldEnhanceTextLegibility());
+}
+
 RetainPtr<CTFontRef> preparePlatformFont(CTFontRef originalFont, const FontDescription& fontDescription, const FontCreationContext& fontCreationContext, bool applyWeightWidthSlopeVariations)
 {
     if (!originalFont)
@@ -603,8 +669,13 @@ RetainPtr<CTFontRef> preparePlatformFont(CTFontRef originalFont, const FontDescr
             width = std::max(std::min(width, static_cast<float>(widthValue->maximum)), static_cast<float>(widthValue->minimum));
         if (auto slopeValue = fontCreationContext.fontFaceCapabilities().weight)
             slope = std::max(std::min(slope, static_cast<float>(slopeValue->maximum)), static_cast<float>(slopeValue->minimum));
+        if (shouldEnhanceTextLegibility() && fontIsSystemFont(originalFont)) {
+            auto ctWeight = denormalizeCTWeight(weight);
+            ctWeight = CTFontGetAccessibilityBoldWeightOfWeight(ctWeight);
+            weight = normalizeCTWeight(ctWeight);
+        }
         if (needsConversion) {
-            weight = denormalizeWeight(weight);
+            weight = denormalizeGXWeight(weight);
             width = denormalizeVariationWidth(width);
             slope = denormalizeSlope(slope);
         }
@@ -750,18 +821,24 @@ static float stretchFromCoreTextTraits(CFDictionaryRef traits)
 }
 #endif
 
-static void invalidateFontCache();
-
 static void fontCacheRegisteredFontsChangedNotificationCallback(CFNotificationCenterRef, void* observer, CFStringRef, const void *, CFDictionaryRef)
 {
     ASSERT_UNUSED(observer, isMainThread() && observer == &FontCache::forCurrentThread());
 
-    invalidateFontCache();
+    ensureOnMainThread([] {
+        FontCache::invalidateAllFontCaches();
+    });
 }
 
 void FontCache::platformInit()
 {
     CFNotificationCenterAddObserver(CFNotificationCenterGetLocalCenter(), this, &fontCacheRegisteredFontsChangedNotificationCallback, kCTFontManagerRegisteredFontsChangedNotification, nullptr, CFNotificationSuspensionBehaviorDeliverImmediately);
+
+#if PLATFORM(IOS_FAMILY)
+    CFNotificationCenterAddObserver(CFNotificationCenterGetLocalCenter(), this, &fontCacheRegisteredFontsChangedNotificationCallback, getUIContentSizeCategoryDidChangeNotificationName(), 0, CFNotificationSuspensionBehaviorDeliverImmediately);
+#endif
+
+    CFNotificationCenterAddObserver(CFNotificationCenterGetLocalCenter(), this, &fontCacheRegisteredFontsChangedNotificationCallback, kAXSEnhanceTextLegibilityChangedNotification, nullptr, CFNotificationSuspensionBehaviorDeliverImmediately);
 
 #if PLATFORM(MAC)
     CFNotificationCenterRef center = CFNotificationCenterGetLocalCenter();
@@ -1063,11 +1140,11 @@ static VariationCapabilities variationCapabilitiesForFontDescriptor(CTFontDescri
 
     if (FontType(font.get()).variationType == FontType::VariationType::TrueTypeGX && !optOutFromGXNormalization) {
         if (result.weight)
-            result.weight = {{ normalizeWeight(result.weight.value().minimum), normalizeWeight(result.weight.value().maximum) }};
+            result.weight = { { normalizeGXWeight(result.weight.value().minimum), normalizeGXWeight(result.weight.value().maximum) } };
         if (result.width)
-            result.width = {{ normalizeVariationWidth(result.width.value().minimum), normalizeVariationWidth(result.width.value().maximum) }};
+            result.width = { { normalizeVariationWidth(result.width.value().minimum), normalizeVariationWidth(result.width.value().maximum) } };
         if (result.slope)
-            result.slope = {{ normalizeSlope(result.slope.value().minimum), normalizeSlope(result.slope.value().maximum) }};
+            result.slope = { { normalizeSlope(result.slope.value().minimum), normalizeSlope(result.slope.value().maximum) } };
     }
 
     auto minimum = static_cast<float>(FontSelectionValue::minimumValue());
@@ -1243,20 +1320,17 @@ static FontLookup platformFontLookupWithFamily(const AtomString& family, FontSel
     return { nullptr };
 }
 
-static void invalidateFontCache()
+void FontCache::platformInvalidate()
 {
-    ensureOnMainThread([] {
-        // FIXME: Workers need to access SystemFontDatabaseCoreText.
-        SystemFontDatabaseCoreText::singleton().clear();
-        // FIXME: Workers need to access FontFamilySpecificationCoreTextCache.
-        clearFontFamilySpecificationCoreTextCache();
+    // FIXME: Workers need to access SystemFontDatabaseCoreText.
+    // FIXME: Workers need to access FontFamilySpecificationCoreTextCache.
+    clearFontFamilySpecificationCoreTextCache();
 
-        // FIXME: Workers need to access FontDatabase.
-        FontDatabase::singletonAllowingUserInstalledFonts().clear();
-        FontDatabase::singletonDisallowingUserInstalledFonts().clear();
+    // FIXME: Workers need to access FontDatabase.
+    FontDatabase::singletonAllowingUserInstalledFonts().clear();
+    FontDatabase::singletonDisallowingUserInstalledFonts().clear();
 
-        FontCache::invalidateAllFontCaches();
-    });
+    platformShouldEnhanceTextLegibility() = _AXSEnhanceTextLegibilityEnabled();
 }
 
 static RetainPtr<CTFontRef> fontWithFamilySpecialCase(const AtomString& family, const FontDescription& fontDescription, float size, AllowUserInstalledFonts allowUserInstalledFonts)
@@ -1287,8 +1361,8 @@ static RetainPtr<CTFontRef> fontWithFamilySpecialCase(const AtomString& family, 
 
     if (family.startsWith("UICTFontTextStyle")) {
         const auto& request = fontDescription.fontSelectionRequest();
-        CTFontSymbolicTraits traits = (isFontWeightBold(request.weight) || FontCache::forCurrentThread().shouldMockBoldSystemFontForAccessibility() ? kCTFontTraitBold : 0) | (isItalic(request.slope) ? kCTFontTraitItalic : 0);
-        auto descriptor = adoptCF(CTFontDescriptorCreateWithTextStyle(family.string().createCFString().get(), RenderThemeCocoa::singleton().contentSizeCategory(), fontDescription.computedLocale().string().createCFString().get()));
+        CTFontSymbolicTraits traits = (isFontWeightBold(request.weight) ? kCTFontTraitBold : 0) | (isItalic(request.slope) ? kCTFontTraitItalic : 0);
+        auto descriptor = adoptCF(CTFontDescriptorCreateWithTextStyle(family.string().createCFString().get(), contentSizeCategory(), fontDescription.computedLocale().string().createCFString().get()));
         if (traits)
             descriptor = adoptCF(CTFontDescriptorCreateCopyWithSymbolicTraits(descriptor.get(), traits, traits));
         return createFontForInstalledFonts(descriptor.get(), size, allowUserInstalledFonts);

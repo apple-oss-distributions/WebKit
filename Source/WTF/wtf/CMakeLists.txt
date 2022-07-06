@@ -65,6 +65,7 @@ set(WTF_PUBLIC_HEADERS
     EmbeddedFixedVector.h
     EnumClassOperatorOverloads.h
     EnumTraits.h
+    EnumeratedArray.h
     Expected.h
     ExportMacros.h
     FailureAction.h
@@ -316,6 +317,7 @@ set(WTF_PUBLIC_HEADERS
     WTFConfig.h
     WTFSemaphore.h
     WallTime.h
+    WeakHashCountedSet.h
     WeakHashMap.h
     WeakHashSet.h
     WeakPtr.h

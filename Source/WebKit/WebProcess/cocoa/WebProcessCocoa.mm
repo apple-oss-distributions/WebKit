@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2010-2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2010-2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -61,6 +61,7 @@
 #import <WebCore/CPUMonitor.h>
 #import <WebCore/DisplayRefreshMonitorManager.h>
 #import <WebCore/FontCache.h>
+#import <WebCore/FontCacheCoreText.h>
 #import <WebCore/FontCascade.h>
 #import <WebCore/HistoryController.h>
 #import <WebCore/HistoryItem.h>
@@ -123,7 +124,6 @@
 #import <MobileCoreServices/MobileCoreServices.h>
 #import <UIKit/UIAccessibility.h>
 #import <pal/spi/ios/GraphicsServicesSPI.h>
-#import <pal/spi/ios/MobileGestaltSPI.h>
 #endif
 
 #if PLATFORM(IOS_FAMILY) && USE(APPLE_INTERNAL_SDK)
@@ -235,39 +235,7 @@ void WebProcess::platformInitializeWebProcess(WebProcessCreationParameters& para
     }
 #endif
 
-    if (parameters.mobileGestaltExtensionHandle) {
-        if (auto extension = SandboxExtension::create(WTFMove(*parameters.mobileGestaltExtensionHandle))) {
-            bool ok = extension->consume();
-            ASSERT_UNUSED(ok, ok);
-            // If we have an extension handle for MobileGestalt, it means the MobileGestalt cache is invalid.
-            // In this case, we perform a set of MobileGestalt queries while having access to the daemon,
-            // which will populate the MobileGestalt in-memory cache with correct values.
-            // The set of queries below was determined by finding all possible queries that have cachable
-            // values, and would reach out to the daemon for the answer. That way, the in-memory cache
-            // should be identical to a valid MobileGestalt cache after having queried all of these values.
-#if PLATFORM(IOS_FAMILY) && !PLATFORM(MACCATALYST)
-            MGGetFloat32Answer(kMGQMainScreenScale, 0);
-            MGGetSInt32Answer(kMGQMainScreenPitch, 0);
-            MGGetSInt32Answer(kMGQMainScreenClass, MGScreenClassPad2);
-            MGGetBoolAnswer(kMGQAppleInternalInstallCapability);
-            MGGetBoolAnswer(kMGQiPadCapability);
-            auto deviceName = adoptCF(MGCopyAnswer(kMGQDeviceName, nullptr));
-            MGGetSInt32Answer(kMGQDeviceClassNumber, MGDeviceClassInvalid);
-            MGGetBoolAnswer(kMGQHasExtendedColorDisplay);
-            MGGetFloat32Answer(kMGQDeviceCornerRadius, 0);
-            MGGetBoolAnswer(kMGQSupportsForceTouch);
-
-            auto answer = adoptCF(MGCopyAnswer(kMGQBluetoothCapability, nullptr));
-            answer = MGCopyAnswer(kMGQDeviceProximityCapability, nullptr);
-            answer = MGCopyAnswer(kMGQDeviceSupportsARKit, nullptr);
-            answer = MGCopyAnswer(kMGQTimeSyncCapability, nullptr);
-            answer = MGCopyAnswer(kMGQWAPICapability, nullptr);
-            answer = MGCopyAnswer(kMGQMainDisplayRotation, nullptr);
-#endif
-            ok = extension->revoke();
-            ASSERT_UNUSED(ok, ok);
-        }
-    }
+    populateMobileGestaltCache(WTFMove(parameters.mobileGestaltExtensionHandle));
 
     m_uiProcessBundleIdentifier = parameters.uiProcessBundleIdentifier;
 
@@ -308,7 +276,7 @@ void WebProcess::platformInitializeWebProcess(WebProcessCreationParameters& para
 #if PLATFORM(IOS_FAMILY)
     setCurrentUserInterfaceIdiomIsSmallScreen(parameters.currentUserInterfaceIdiomIsSmallScreen);
     setLocalizedDeviceModel(parameters.localizedDeviceModel);
-    RenderThemeIOS::setContentSizeCategory(parameters.contentSizeCategory);
+    setContentSizeCategory(parameters.contentSizeCategory);
 #if ENABLE(VIDEO_PRESENTATION_MODE)
     setSupportsPictureInPicture(parameters.supportsPictureInPicture);
 #endif
@@ -1012,6 +980,8 @@ void WebProcess::accessibilityPreferencesDidChange(const AccessibilityPreference
     if (_AXSInvertColorsEnabledApp(appID) != invertColorsEnabled)
         _AXSInvertColorsSetEnabledApp(invertColorsEnabled, appID);
 #endif
+    setOverrideEnhanceTextLegibility(preferences.enhanceTextLegibilityOverall);
+    FontCache::invalidateAllFontCaches();
 }
 
 #if HAVE(MEDIA_ACCESSIBILITY_FRAMEWORK)

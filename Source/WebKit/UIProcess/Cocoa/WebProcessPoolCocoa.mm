@@ -54,6 +54,7 @@
 #import "WindowServerConnection.h"
 #import <WebCore/AGXCompilerService.h>
 #import <WebCore/Color.h>
+#import <WebCore/FontCacheCoreText.h>
 #import <WebCore/LocalizedDeviceModel.h>
 #import <WebCore/NetworkStorageSession.h>
 #import <WebCore/NotImplemented.h>
@@ -218,6 +219,7 @@ static AccessibilityPreferences accessibilityPreferences()
     preferences.darkenSystemColors = _AXDarkenSystemColorsApp(appId.get());
     preferences.invertColorsEnabled = _AXSInvertColorsEnabledApp(appId.get());
 #endif
+    preferences.enhanceTextLegibilityOverall = _AXSEnhanceTextLegibilityEnabled();
     return preferences;
 }
 
@@ -432,7 +434,7 @@ void WebProcessPool::platformInitializeWebProcess(const WebProcessProxy& process
     parameters.cssValueToSystemColorMap = RenderThemeIOS::cssValueToSystemColorMap();
     parameters.focusRingColor = RenderThemeIOS::systemFocusRingColor();
     parameters.localizedDeviceModel = localizedDeviceModel();
-    parameters.contentSizeCategory = RenderThemeCocoa::singleton().contentSizeCategory();
+    parameters.contentSizeCategory = contentSizeCategory();
 #endif
 
 #if ENABLE(CFPREFS_DIRECT_MODE) && PLATFORM(IOS_FAMILY)
@@ -440,12 +442,7 @@ void WebProcessPool::platformInitializeWebProcess(const WebProcessProxy& process
         parameters.preferencesExtensionHandles = SandboxExtension::createHandlesForMachLookup({ "com.apple.cfprefsd.agent"_s, "com.apple.cfprefsd.daemon"_s }, std::nullopt);
 #endif
 
-#if PLATFORM(IOS_FAMILY) && !PLATFORM(MACCATALYST)
-    if (!_MGCacheValid()) {
-        if (auto handle = SandboxExtension::createHandleForMachLookup("com.apple.mobilegestalt.xpc"_s, std::nullopt))
-            parameters.mobileGestaltExtensionHandle = WTFMove(*handle);
-    }
-#endif
+    parameters.mobileGestaltExtensionHandle = process.createMobileGestaltSandboxExtensionIfNeeded();
 
 #if PLATFORM(MAC)
     if (auto launchServicesExtensionHandle = SandboxExtension::createHandleForMachLookup("com.apple.coreservices.launchservicesd"_s, std::nullopt))
