@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2006-2022 Apple Inc. All rights reserved.
+ * Copyright (C) 2006-2021 Apple Inc. All rights reserved.
  * Copyright (C) 2007 Nicholas Shanks <webkit@nickshanks.com>
  *
  * Redistribution and use in source and binary forms, with or without
@@ -35,7 +35,6 @@
 #include "FontPlatformData.h"
 #include "FontSelector.h"
 #include "Logging.h"
-#include "SystemFontDatabase.h"
 #include "ThreadGlobalData.h"
 #include "WebKitFontFamilyNames.h"
 #include "WorkerOrWorkletThread.h"
@@ -482,10 +481,6 @@ void FontCache::invalidate()
 #endif
     invalidateFontCascadeCache();
 
-    SystemFontDatabase::singleton().invalidate();
-
-    platformInvalidate();
-
     ++m_generation;
 
     for (auto& client : copyToVectorOf<RefPtr<FontSelector>>(m_clients))
@@ -505,14 +500,14 @@ void FontCache::registerFontCacheInvalidationCallback(Function<void()>&& callbac
     fontCacheInvalidationCallback() = WTFMove(callback);
 }
 
-void FontCache::invalidateAllFontCaches(ShouldRunInvalidationCallback shouldRunInvalidationCallback)
+void FontCache::invalidateAllFontCaches()
 {
     ASSERT(isMainThread());
 
     // FIXME: Invalidate FontCaches in workers too.
     FontCache::forCurrentThread().invalidate();
 
-    if (shouldRunInvalidationCallback == ShouldRunInvalidationCallback::Yes && fontCacheInvalidationCallback())
+    if (fontCacheInvalidationCallback())
         fontCacheInvalidationCallback()();
 }
 

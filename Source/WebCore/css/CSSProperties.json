@@ -558,8 +558,7 @@
             "codegen-properties": {
                 "name-for-methods": "VariantCaps",
                 "font-property": true,
-                "high-priority": true,
-                "converter": "FontVariantCaps"
+                "high-priority": true
             },
             "specification": {
                 "category": "css-fonts",

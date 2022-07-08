@@ -27,7 +27,6 @@ double
 //
 // CSS_PROP_FONT:
 //
-// This needs to be kept in sync with SystemFontDatabase::FontShorthand.
 caption
 icon
 menu

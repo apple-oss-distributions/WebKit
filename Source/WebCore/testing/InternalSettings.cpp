@@ -71,6 +71,7 @@ InternalSettings::Backup::Backup(Settings& settings)
 #if ENABLE(VIDEO) || ENABLE(WEB_AUDIO)
     , m_shouldDeactivateAudioSession(PlatformMediaSessionManager::shouldDeactivateAudioSession())
 #endif
+    , m_shouldMockBoldSystemFontForAccessibility(RenderTheme::singleton().shouldMockBoldSystemFontForAccessibility())
 {
 }
 
@@ -128,6 +129,10 @@ void InternalSettings::Backup::restoreTo(Settings& settings)
 #if ENABLE(VIDEO) || ENABLE(WEB_AUDIO)
     PlatformMediaSessionManager::setShouldDeactivateAudioSession(m_shouldDeactivateAudioSession);
 #endif
+
+    RenderTheme::singleton().setShouldMockBoldSystemFontForAccessibility(m_shouldMockBoldSystemFontForAccessibility);
+    // FIXME: Call setShouldMockBoldSystemFontForAccessibility() on all workers.
+    FontCache::forCurrentThread().setShouldMockBoldSystemFontForAccessibility(m_shouldMockBoldSystemFontForAccessibility);
 
 #if ENABLE(WEB_AUDIO)
     AudioContext::setDefaultSampleRateForTesting(std::nullopt);
@@ -565,12 +570,9 @@ ExceptionOr<void> InternalSettings::setShouldMockBoldSystemFontForAccessibility(
 {
     if (!m_page)
         return Exception { InvalidAccessError };
-    FontCache::invalidateAllFontCaches();
-#if PLATFORM(COCOA)
-    setOverrideEnhanceTextLegibility(should);
-#else
-    UNUSED_PARAM(should);
-#endif
+    RenderTheme::singleton().setShouldMockBoldSystemFontForAccessibility(should);
+    // FIXME: Call setShouldMockBoldSystemFontForAccessibility() on all workers.
+    FontCache::forCurrentThread().setShouldMockBoldSystemFontForAccessibility(should);
     return { };
 }
 

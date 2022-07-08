@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2022 Apple Inc. All rights reserved.
+ * Copyright (C) 2018 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,8 +27,8 @@
 #include "SystemFontDatabaseCoreText.h"
 
 #include "FontCache.h"
-#include "FontCacheCoreText.h"
 #include "FontCascadeDescription.h"
+#include "RenderThemeCocoa.h"
 
 #include <wtf/cf/TypeCastsCF.h>
 
@@ -38,11 +38,6 @@ SystemFontDatabaseCoreText& SystemFontDatabaseCoreText::singleton()
 {
     static NeverDestroyed<SystemFontDatabaseCoreText> database = SystemFontDatabaseCoreText();
     return database.get();
-}
-
-SystemFontDatabase& SystemFontDatabase::singleton()
-{
-    return SystemFontDatabaseCoreText::singleton();
 }
 
 SystemFontDatabaseCoreText::SystemFontDatabaseCoreText()
@@ -86,7 +81,7 @@ RetainPtr<CTFontRef> SystemFontDatabaseCoreText::createSystemDesignFont(SystemFo
 RetainPtr<CTFontRef> SystemFontDatabaseCoreText::createTextStyleFont(const CascadeListParameters& parameters)
 {
     RetainPtr<CFStringRef> localeString = parameters.locale.isEmpty() ? nullptr : parameters.locale.string().createCFString();
-    auto descriptor = adoptCF(CTFontDescriptorCreateWithTextStyle(parameters.fontName.string().createCFString().get(), contentSizeCategory(), localeString.get()));
+    auto descriptor = adoptCF(CTFontDescriptorCreateWithTextStyle(parameters.fontName.string().createCFString().get(), RenderThemeCocoa::singleton().contentSizeCategory(), localeString.get()));
     // FIXME: Use createFontByApplyingWeightWidthItalicsAndFallbackBehavior().
     CTFontSymbolicTraits traits = (parameters.weight >= kCTFontWeightSemibold ? kCTFontTraitBold : 0)
 #if HAVE(LEVEL_2_SYSTEM_FONT_WIDTH_VALUES) || HAVE(LEVEL_3_SYSTEM_FONT_WIDTH_VALUES)
@@ -130,14 +125,8 @@ Vector<RetainPtr<CTFontDescriptorRef>> SystemFontDatabaseCoreText::cascadeList(c
     }).iterator->value;
 }
 
-void SystemFontDatabase::platformInvalidate()
-{
-    SystemFontDatabaseCoreText::singleton().clear();
-}
-
 void SystemFontDatabaseCoreText::clear()
 {
-    // Don't call this directly. Instead, you should be calling FontCache::invalidateAllFontCaches().
     m_systemFontCache.clear();
     m_serifFamilies.clear();
     m_sansSeriferifFamilies.clear();
@@ -259,7 +248,11 @@ SystemFontDatabaseCoreText::CascadeListParameters SystemFontDatabaseCoreText::sy
     result.italic = isItalic(description.italic());
     result.allowUserInstalledFonts = allowUserInstalledFonts;
 
-    result.weight = mapWeight(description.weight());
+    auto weight = description.weight();
+    if (FontCache::forCurrentThread().shouldMockBoldSystemFontForAccessibility())
+        weight = weight + FontSelectionValue(200);
+
+    result.weight = mapWeight(weight);
     result.width = mapWidth(description.stretch());
 
     switch (systemFontKind) {
@@ -338,90 +331,6 @@ String SystemFontDatabaseCoreText::monospaceFamily(const String& locale)
         return "Courier"_str;
 #endif
     return result;
-}
-
-static inline FontSelectionValue cssWeightOfSystemFontDescriptor(CTFontDescriptorRef fontDescriptor)
-{
-    auto resultRef = adoptCF(static_cast<CFNumberRef>(CTFontDescriptorCopyAttribute(fontDescriptor, kCTFontCSSWeightAttribute)));
-    float result = 0;
-    if (resultRef && CFNumberGetValue(resultRef.get(), kCFNumberFloatType, &result))
-        return FontSelectionValue(result);
-
-    auto traitsRef = adoptCF(static_cast<CFDictionaryRef>(CTFontDescriptorCopyAttribute(fontDescriptor, kCTFontTraitsAttribute)));
-    resultRef = static_cast<CFNumberRef>(CFDictionaryGetValue(traitsRef.get(), kCTFontWeightTrait));
-    CFNumberGetValue(resultRef.get(), kCFNumberFloatType, &result);
-    return FontSelectionValue(normalizeCTWeight(result));
-}
-
-auto SystemFontDatabase::platformSystemFontShorthandInfo(FontShorthand fontShorthand) -> SystemFontShorthandInfo
-{
-    auto interrogateFontDescriptorShorthandItem = [] (CTFontDescriptorRef fontDescriptor, const String& family) {
-        auto sizeNumber = adoptCF(static_cast<CFNumberRef>(CTFontDescriptorCopyAttribute(fontDescriptor, kCTFontSizeAttribute)));
-        float size = 0;
-        CFNumberGetValue(sizeNumber.get(), kCFNumberFloatType, &size);
-        auto weight = cssWeightOfSystemFontDescriptor(fontDescriptor);
-        return SystemFontShorthandInfo { AtomString(family), size, FontSelectionValue(weight) };
-    };
-
-    auto interrogateTextStyleShorthandItem = [] (CFStringRef textStyle) {
-        CGFloat weight = 0;
-        float size = CTFontDescriptorGetTextStyleSize(textStyle, contentSizeCategory(), kCTFontTextStylePlatformDefault, &weight, nullptr);
-        auto cssWeight = normalizeCTWeight(weight);
-        return SystemFontShorthandInfo { textStyle, size, FontSelectionValue(cssWeight) };
-    };
-
-    switch (fontShorthand) {
-    case FontShorthand::Caption:
-    case FontShorthand::Icon:
-    case FontShorthand::MessageBox:
-        return interrogateFontDescriptorShorthandItem(adoptCF(CTFontDescriptorCreateForUIType(kCTFontUIFontSystem, 0, nullptr)).get(), "system-ui"_s);
-    case FontShorthand::Menu:
-        return interrogateFontDescriptorShorthandItem(SystemFontDatabaseCoreText::menuFontDescriptor().get(), "-apple-menu"_s);
-    case FontShorthand::SmallCaption:
-        return interrogateFontDescriptorShorthandItem(SystemFontDatabaseCoreText::smallCaptionFontDescriptor().get(), "system-ui"_s);
-    case FontShorthand::WebkitMiniControl:
-        return interrogateFontDescriptorShorthandItem(SystemFontDatabaseCoreText::miniControlFontDescriptor().get(), "system-ui"_s);
-    case FontShorthand::WebkitSmallControl:
-        return interrogateFontDescriptorShorthandItem(SystemFontDatabaseCoreText::smallControlFontDescriptor().get(), "system-ui"_s);
-    case FontShorthand::WebkitControl:
-        return interrogateFontDescriptorShorthandItem(SystemFontDatabaseCoreText::controlFontDescriptor().get(), "system-ui"_s);
-    case FontShorthand::AppleSystemHeadline:
-        return interrogateTextStyleShorthandItem(kCTUIFontTextStyleHeadline);
-    case FontShorthand::AppleSystemBody:
-        return interrogateTextStyleShorthandItem(kCTUIFontTextStyleBody);
-    case FontShorthand::AppleSystemSubheadline:
-        return interrogateTextStyleShorthandItem(kCTUIFontTextStyleSubhead);
-    case FontShorthand::AppleSystemFootnote:
-        return interrogateTextStyleShorthandItem(kCTUIFontTextStyleFootnote);
-    case FontShorthand::AppleSystemCaption1:
-        return interrogateTextStyleShorthandItem(kCTUIFontTextStyleCaption1);
-    case FontShorthand::AppleSystemCaption2:
-        return interrogateTextStyleShorthandItem(kCTUIFontTextStyleCaption2);
-    case FontShorthand::AppleSystemShortHeadline:
-        return interrogateTextStyleShorthandItem(kCTUIFontTextStyleShortHeadline);
-    case FontShorthand::AppleSystemShortBody:
-        return interrogateTextStyleShorthandItem(kCTUIFontTextStyleShortBody);
-    case FontShorthand::AppleSystemShortSubheadline:
-        return interrogateTextStyleShorthandItem(kCTUIFontTextStyleShortSubhead);
-    case FontShorthand::AppleSystemShortFootnote:
-        return interrogateTextStyleShorthandItem(kCTUIFontTextStyleShortFootnote);
-    case FontShorthand::AppleSystemShortCaption1:
-        return interrogateTextStyleShorthandItem(kCTUIFontTextStyleShortCaption1);
-    case FontShorthand::AppleSystemTallBody:
-        return interrogateTextStyleShorthandItem(kCTUIFontTextStyleTallBody);
-    case FontShorthand::AppleSystemTitle0:
-        return interrogateTextStyleShorthandItem(kCTUIFontTextStyleTitle0);
-    case FontShorthand::AppleSystemTitle1:
-        return interrogateTextStyleShorthandItem(kCTUIFontTextStyleTitle1);
-    case FontShorthand::AppleSystemTitle2:
-        return interrogateTextStyleShorthandItem(kCTUIFontTextStyleTitle2);
-    case FontShorthand::AppleSystemTitle3:
-        return interrogateTextStyleShorthandItem(kCTUIFontTextStyleTitle3);
-    case FontShorthand::AppleSystemTitle4:
-        return interrogateTextStyleShorthandItem(kCTUIFontTextStyleTitle4);
-    case FontShorthand::StatusBar:
-        return interrogateFontDescriptorShorthandItem(SystemFontDatabaseCoreText::statusBarFontDescriptor().get(), "-apple-status-bar"_s);
-    }
 }
 
 }

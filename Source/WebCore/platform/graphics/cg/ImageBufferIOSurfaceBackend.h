@@ -27,7 +27,6 @@
 
 #if HAVE(IOSURFACE)
 
-#include "ImageBuffer.h"
 #include "ImageBufferCGBackend.h"
 #include "IOSurface.h"
 #include <wtf/IsoMalloc.h>

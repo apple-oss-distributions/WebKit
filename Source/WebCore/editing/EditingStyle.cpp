@@ -32,7 +32,6 @@
 #include "CSSFontFamily.h"
 #include "CSSFontStyleValue.h"
 #include "CSSParser.h"
-#include "CSSPropertyParserHelpers.h"
 #include "CSSRuleList.h"
 #include "CSSStyleRule.h"
 #include "CSSValueList.h"
@@ -270,9 +269,7 @@ static bool fontWeightIsBold(CSSValue& fontWeight)
     if (primitiveValue.isCSSWideKeyword())
         return false;
 
-    auto valueID = primitiveValue.valueID();
-
-    switch (valueID) {
+    switch (primitiveValue.valueID()) {
     case CSSValueNormal:
         return false;
     case CSSValueBold:
@@ -280,9 +277,6 @@ static bool fontWeightIsBold(CSSValue& fontWeight)
     default:
         break;
     }
-
-    if (CSSPropertyParserHelpers::isSystemFontShorthand(valueID))
-        return false;
 
     ASSERT(primitiveValue.isNumber());
     return primitiveValue.floatValue() >= static_cast<float>(boldThreshold());

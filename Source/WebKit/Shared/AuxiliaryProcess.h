@@ -28,7 +28,6 @@
 #include "Connection.h"
 #include "MessageReceiverMap.h"
 #include "MessageSender.h"
-#include "SandboxExtension.h"
 #include <WebCore/ProcessIdentifier.h>
 #include <WebCore/RuntimeApplicationChecks.h>
 #include <WebCore/UserActivity.h>
@@ -145,8 +144,6 @@ protected:
     virtual void dispatchSimulatedNotificationsForPreferenceChange(const String& key) { }
 #endif
     void applyProcessCreationParameters(const AuxiliaryProcessCreationParameters&);
-
-    void populateMobileGestaltCache(std::optional<SandboxExtension::Handle>&& mobileGestaltExtensionHandle);
 
 private:
     virtual bool shouldOverrideQuarantine() { return true; }

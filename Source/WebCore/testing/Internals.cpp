@@ -343,7 +343,6 @@
 #endif
 
 #if PLATFORM(COCOA)
-#include "FontCacheCoreText.h"
 #include "SystemBattery.h"
 #include "VP9UtilitiesCocoa.h"
 #include <pal/spi/cf/CoreTextSPI.h>
@@ -616,11 +615,7 @@ void Internals::resetToConsistentState(Page& page)
     DOMWindow::overrideTransientActivationDurationForTesting(std::nullopt);
 
 #if PLATFORM(IOS)
-    WebCore::setContentSizeCategory(kCTFontContentSizeCategoryL);
-#endif
-
-#if PLATFORM(COCOA)
-    setOverrideEnhanceTextLegibility(false);
+    RenderThemeIOS::setContentSizeCategory(kCTFontContentSizeCategoryL);
 #endif
 }
 
@@ -6392,7 +6387,7 @@ void Internals::setContentSizeCategory(Internals::ContentSizeCategory category)
         ctCategory = kCTFontContentSizeCategoryXXXL;
         break;
     }
-    WebCore::setContentSizeCategory(ctCategory);
+    RenderThemeIOS::setContentSizeCategory(ctCategory);
     Page::updateStyleForAllPagesAfterGlobalChangeInEnvironment();
 #else
     UNUSED_PARAM(category);

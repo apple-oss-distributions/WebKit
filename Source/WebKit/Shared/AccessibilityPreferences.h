@@ -41,7 +41,6 @@ struct AccessibilityPreferences {
     AXValueState darkenSystemColors { AXValueStateEmpty };
     AXValueState invertColorsEnabled { AXValueStateEmpty };
 #endif
-    bool enhanceTextLegibilityOverall { false };
 };
 
 } // namespace WebKit

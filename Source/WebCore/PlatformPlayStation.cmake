@@ -45,8 +45,6 @@ list(APPEND WebCore_SOURCES
 
     platform/graphics/libwpe/PlatformDisplayLibWPE.cpp
 
-    platform/graphics/playstation/SystemFontDatabasePlayStation.cpp
-
     platform/libwpe/PasteboardLibWPE.cpp
     platform/libwpe/PlatformKeyboardEventLibWPE.cpp
     platform/libwpe/PlatformPasteboardLibWPE.cpp
