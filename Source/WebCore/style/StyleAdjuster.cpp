@@ -528,7 +528,7 @@ void Adjuster::adjust(RenderStyle& style, const RenderStyle* userAgentAppearance
 
     // Counterparts in Element::addToTopLayer/removeFromTopLayer & SharingResolver::canShareStyleWithElement need to match!
     auto hasInertAttribute = [this] (const Element* element) -> bool {
-        return m_document.settings().inertAttributeEnabled() && is<HTMLElement>(element) && element->hasAttribute(HTMLNames::inertAttr);
+        return m_document.settings().inertAttributeEnabled() && is<HTMLElement>(element) && element->hasAttributeWithoutSynchronization(HTMLNames::inertAttr);
     };
     auto isInertSubtreeRoot = [this, hasInertAttribute] (const Element* element) -> bool {
         if (m_document.activeModalDialog() && element == m_document.documentElement())
@@ -540,19 +540,18 @@ void Adjuster::adjust(RenderStyle& style, const RenderStyle* userAgentAppearance
     if (isInertSubtreeRoot(m_element))
         style.setEffectiveInert(true);
 
-    // Make sure the active dialog is interactable when the whole document is blocked by the modal dialog
-    if (m_element == m_document.activeModalDialog() && !hasInertAttribute(m_element))
-        style.setEffectiveInert(false);
+    if (m_element) {
+        // Make sure the active dialog is interactable when the whole document is blocked by the modal dialog
+        if (m_element == m_document.activeModalDialog() && !hasInertAttribute(m_element))
+            style.setEffectiveInert(false);
 
-    if (m_element)
         style.setEventListenerRegionTypes(computeEventListenerRegionTypes(*m_element, m_parentStyle.eventListenerRegionTypes()));
 
 #if ENABLE(TEXT_AUTOSIZING)
-    if (m_element && m_document.settings().textAutosizingUsesIdempotentMode())
-        adjustForTextAutosizing(style, *m_element);
+        if (m_document.settings().textAutosizingUsesIdempotentMode())
+            adjustForTextAutosizing(style, *m_element);
 #endif
 
-    if (m_element) {
         if (auto observer = m_element->document().modalContainerObserverIfExists()) {
             if (observer->shouldHide(*m_element))
                 style.setDisplay(DisplayType::None);

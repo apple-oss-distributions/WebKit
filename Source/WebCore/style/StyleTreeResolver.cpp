@@ -199,7 +199,7 @@ static DescendantsToResolve computeDescendantsToResolve(Change change, Validity 
 
 ElementUpdates TreeResolver::resolveElement(Element& element)
 {
-    if (m_didSeePendingStylesheet && !element.renderer() && !m_document.isIgnoringPendingStylesheets()) {
+    if (m_didSeePendingStylesheet && !element.renderOrDisplayContentsStyle() && !m_document.isIgnoringPendingStylesheets()) {
         m_document.setHasNodesWithMissingStyle();
         return { };
     }
@@ -266,7 +266,7 @@ ElementUpdates TreeResolver::resolveElement(Element& element)
         m_document.setMayHaveElementsWithNonAutoTouchAction();
 #endif
 #if ENABLE(EDITABLE_REGION)
-    if (update.style->userModify() != UserModify::ReadOnly)
+    if (update.style->effectiveUserModify() != UserModify::ReadOnly)
         m_document.setMayHaveEditableElements();
 #endif
 

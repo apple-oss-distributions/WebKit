@@ -4244,7 +4244,7 @@ bool ByteCodeParser::check(const ObjectPropertyCondition& condition)
         return true;
     
     Structure* structure = condition.object()->structure(*m_vm);
-    if (!condition.structureEnsuresValidity(structure))
+    if (!condition.structureEnsuresValidity(Concurrency::ConcurrentThread, structure))
         return false;
     
     addToGraph(
@@ -4373,7 +4373,7 @@ GetByOffsetMethod ByteCodeParser::planLoad(const ObjectPropertyCondition& condit
     
     // Check if the structure that we've registered makes the condition hold. If not, just give
     // up. This is case (5) above.
-    if (!condition.structureEnsuresValidity(structure))
+    if (!condition.structureEnsuresValidity(Concurrency::ConcurrentThread, structure))
         return GetByOffsetMethod();
     
     // If the structure is watched by the DFG already, then just use this fact to emit the load.
@@ -5542,7 +5542,8 @@ void ByteCodeParser::parseBlock(unsigned limit)
             bool alreadyEmitted = false;
             if (function) {
                 if (FunctionRareData* rareData = function->rareData()) {
-                    if (rareData->allocationProfileWatchpointSet().isStillValid()) {
+                    JSGlobalObject* globalObject = m_graph.globalObjectFor(currentNodeOrigin().semantic);
+                    if (rareData->allocationProfileWatchpointSet().isStillValid() && m_graph.isWatchingStructureCacheClearedWatchpoint(globalObject)) {
                         Structure* structure = rareData->objectAllocationStructure();
                         JSObject* prototype = rareData->objectAllocationPrototype();
                         if (structure
@@ -5623,7 +5624,7 @@ void ByteCodeParser::parseBlock(unsigned limit)
 
                 if (function) {
                     if (FunctionRareData* rareData = function->rareData()) {
-                        if (rareData->allocationProfileWatchpointSet().isStillValid()) {
+                        if (rareData->allocationProfileWatchpointSet().isStillValid() && m_graph.isWatchingStructureCacheClearedWatchpoint(globalObject)) {
                             Structure* structure = rareData->internalFunctionAllocationStructure();
                             if (structure
                                 && structure->classInfo() == (bytecode.m_isInternalPromise ? JSInternalPromise::info() : JSPromise::info())
@@ -7007,8 +7008,9 @@ void ByteCodeParser::parseBlock(unsigned limit)
                 unsigned target = m_currentIndex.offset() + entry.value.m_branchOffset;
                 if (target == data.fallThrough.bytecodeIndex())
                     continue;
+                ASSERT(entry.key.get()->isAtom());
                 data.cases.append(
-                    SwitchCase::withBytecodeIndex(LazyJSValue::knownStringImpl(entry.key.get()), target));
+                    SwitchCase::withBytecodeIndex(LazyJSValue::knownStringImpl(static_cast<AtomStringImpl*>(entry.key.get())), target));
             }
             addToGraph(Switch, OpInfo(&data), get(bytecode.m_scrutinee));
             flushIfTerminal(data);
@@ -9006,7 +9008,7 @@ void ByteCodeParser::handleCreateInternalFieldObject(const ClassInfo* classInfo,
 
     if (function) {
         if (FunctionRareData* rareData = function->rareData()) {
-            if (rareData->allocationProfileWatchpointSet().isStillValid()) {
+            if (rareData->allocationProfileWatchpointSet().isStillValid() && m_graph.isWatchingStructureCacheClearedWatchpoint(globalObject)) {
                 Structure* structure = rareData->internalFunctionAllocationStructure();
                 if (structure
                     && structure->classInfo() == classInfo

@@ -831,6 +831,12 @@ public:
         return isWatchingGlobalObjectWatchpoint(globalObject, set);
     }
 
+    bool isWatchingStructureCacheClearedWatchpoint(JSGlobalObject* globalObject)
+    {
+        InlineWatchpointSet& set = globalObject->vm().m_structureCacheClearedWatchpoint;
+        return isWatchingGlobalObjectWatchpoint(globalObject, set);
+    }
+
     Profiler::Compilation* compilation() { return m_plan.compilation(); }
 
     DesiredIdentifiers& identifiers() { return m_plan.identifiers(); }
@@ -1176,7 +1182,7 @@ public:
     Vector<CatchEntrypointData> m_catchEntrypoints;
 
     HashSet<String> m_localStrings;
-    HashMap<const StringImpl*, String> m_copiedStrings;
+    HashSet<String> m_copiedStrings;
 
 #if USE(JSVALUE32_64)
     StdUnorderedMap<int64_t, double*> m_doubleConstantsMap;

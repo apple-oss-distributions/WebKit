@@ -28,6 +28,7 @@
 
 #if ENABLE(SERVICE_WORKER)
 
+#include "ContentSecurityPolicy.h"
 #include "DOMPromiseProxy.h"
 #include "Document.h"
 #include "Event.h"
@@ -151,6 +152,13 @@ void ServiceWorkerContainer::addRegistration(const String& relativeScriptURL, co
     ServiceWorkerJobData jobData(ensureSWClientConnection().serverConnectionIdentifier(), contextIdentifier());
 
     jobData.scriptURL = context->completeURL(relativeScriptURL);
+
+    auto* contentSecurityPolicy = is<Document>(context) ? downcast<Document>(context)->contentSecurityPolicy() : nullptr;
+    if (contentSecurityPolicy && !contentSecurityPolicy->allowWorkerFromSource(jobData.scriptURL)) {
+        promise->reject(Exception { SecurityError });
+        return;
+    }
+
     if (!jobData.scriptURL.isValid()) {
         CONTAINER_RELEASE_LOG_ERROR("addRegistration: Invalid scriptURL");
         promise->reject(Exception { TypeError, "serviceWorker.register() must be called with a valid relative script URL"_s });
@@ -430,7 +438,7 @@ void ServiceWorkerContainer::postMessage(MessageWithMessagePorts&& message, Serv
     auto& context = *scriptExecutionContext();
     MessageEventSource source = RefPtr<ServiceWorker> { ServiceWorker::getOrCreate(context, WTFMove(sourceData)) };
 
-    auto messageEvent = MessageEvent::create(MessagePort::entanglePorts(context, WTFMove(message.transferredPorts)), message.message.releaseNonNull(), sourceOrigin, { }, WTFMove(source));
+    auto messageEvent = MessageEvent::create(message.message.releaseNonNull(), sourceOrigin, { }, WTFMove(source), MessagePort::entanglePorts(context, WTFMove(message.transferredPorts)));
     if (m_shouldDeferMessageEvents)
         m_deferredMessageEvents.append(WTFMove(messageEvent));
     else {

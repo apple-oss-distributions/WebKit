@@ -1484,14 +1484,20 @@ static Ref<CSSValueList> valueListForAnimationOrTransitionProperty(CSSPropertyID
 static Ref<CSSValueList> animationShorthandValue(CSSPropertyID property, const AnimationList* animationList)
 {
     auto parentList = CSSValueList::createCommaSeparated();
-    if (animationList) {
-        for (const auto& animation : *animationList) {
-            auto childList = CSSValueList::createSpaceSeparated();
-            for (auto longhand : shorthandForProperty(property))
-                ComputedStyleExtractor::addValueForAnimationPropertyToList(childList.get(), longhand, animation.ptr());
-            parentList->append(childList);
-        }
-    }
+
+    auto addAnimation = [&](Ref<Animation> animation) {
+        auto childList = CSSValueList::createSpaceSeparated();
+        for (auto longhand : shorthandForProperty(property))
+            ComputedStyleExtractor::addValueForAnimationPropertyToList(childList.get(), longhand, animation.ptr());
+        parentList->append(childList);
+    };
+
+    if (animationList && !animationList->isEmpty()) {
+        for (const auto& animation : *animationList)
+            addAnimation(animation);
+    } else
+        addAnimation(Animation::create());
+
     return parentList;
 }
 
@@ -3323,14 +3329,24 @@ RefPtr<CSSValue> ComputedStyleExtractor::valueForPropertyInStyle(const RenderSty
         case CSSPropertyOffsetPath:
             // The computed value of offset-path must only contain absolute draw commands.
             // https://github.com/w3c/fxtf-drafts/issues/225#issuecomment-334322738
+            if (!m_element->document().settings().cssMotionPathEnabled())
+                return nullptr;
             return valueForPathOperation(style, style.offsetPath(), SVGPathConversion::ForceAbsolute);
         case CSSPropertyOffsetDistance:
+            if (!m_element->document().settings().cssMotionPathEnabled())
+                return nullptr;
             return cssValuePool.createValue(style.offsetDistance(), style);
         case CSSPropertyOffsetPosition:
+            if (!m_element->document().settings().cssMotionPathEnabled())
+                return nullptr;
             return valueForPositionOrAuto(style, style.offsetPosition());
         case CSSPropertyOffsetAnchor:
+            if (!m_element->document().settings().cssMotionPathEnabled())
+                return nullptr;
             return valueForPositionOrAuto(style, style.offsetAnchor());
         case CSSPropertyOffsetRotate:
+            if (!m_element->document().settings().cssMotionPathEnabled())
+                return nullptr;
             return valueForOffsetRotate(style.offsetRotate());
         case CSSPropertyOpacity:
             return cssValuePool.createValue(style.opacity(), CSSUnitType::CSS_NUMBER);

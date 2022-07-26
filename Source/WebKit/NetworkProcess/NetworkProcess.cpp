@@ -67,6 +67,7 @@
 #include "WebsiteDataType.h"
 #include <WebCore/ClientOrigin.h>
 #include <WebCore/CookieJar.h>
+#include <WebCore/CrossOriginPreflightResultCache.h>
 #include <WebCore/DNS.h>
 #include <WebCore/DeprecatedGlobalSettings.h>
 #include <WebCore/DiagnosticLoggingClient.h>
@@ -301,8 +302,10 @@ void NetworkProcess::lowMemoryHandler(Critical critical)
     });
 }
 
-void NetworkProcess::initializeNetworkProcess(NetworkProcessCreationParameters&& parameters)
+void NetworkProcess::initializeNetworkProcess(NetworkProcessCreationParameters&& parameters, CompletionHandler<void()>&& completionHandler)
 {
+    CompletionHandlerCallingScope callCompletionHandler(WTFMove(completionHandler));
+
     applyProcessCreationParameters(parameters.auxiliaryProcessParameters);
 #if HAVE(SEC_KEY_PROXY)
     WTF::setProcessPrivileges({ ProcessPrivilege::CanAccessRawCookies });
@@ -364,20 +367,20 @@ void NetworkProcess::initializeConnection(IPC::Connection* connection)
 
 void NetworkProcess::createNetworkConnectionToWebProcess(ProcessIdentifier identifier, PAL::SessionID sessionID, CompletionHandler<void(std::optional<IPC::Attachment>&&, HTTPCookieAcceptPolicy)>&& completionHandler)
 {
-    auto ipcConnection = createIPCConnectionPair();
-    if (!ipcConnection) {
+    auto connectionIdentifiers = IPC::Connection::createConnectionIdentifierPair();
+    if (!connectionIdentifiers) {
         completionHandler({ }, HTTPCookieAcceptPolicy::Never);
         return;
     }
 
-    auto newConnection = NetworkConnectionToWebProcess::create(*this, identifier, sessionID, ipcConnection->first);
+    auto newConnection = NetworkConnectionToWebProcess::create(*this, identifier, sessionID, connectionIdentifiers->server);
     auto& connection = newConnection.get();
 
     ASSERT(!m_webProcessConnections.contains(identifier));
     m_webProcessConnections.add(identifier, WTFMove(newConnection));
 
     auto* storage = storageSession(sessionID);
-    completionHandler(WTFMove(ipcConnection->second), storage ? storage->cookieAcceptPolicy() : HTTPCookieAcceptPolicy::Never);
+    completionHandler(WTFMove(connectionIdentifiers->client), storage ? storage->cookieAcceptPolicy() : HTTPCookieAcceptPolicy::Never);
 
     connection.setOnLineState(NetworkStateNotifier::singleton().onLine());
 
@@ -477,7 +480,7 @@ void NetworkProcess::ensureSession(PAL::SessionID sessionID, bool shouldUseTesti
     if (sessionID.isEphemeral())
         storageSession = createPrivateStorageSession(cfIdentifier.get(), std::nullopt, WebCore::NetworkStorageSession::ShouldDisableCFURLCache::Yes);
     else if (sessionID != PAL::SessionID::defaultSessionID())
-        storageSession = WebCore::NetworkStorageSession::createCFStorageSessionForIdentifier(cfIdentifier.get());
+        storageSession = WebCore::NetworkStorageSession::createCFStorageSessionForIdentifier(cfIdentifier.get(), WebCore::NetworkStorageSession::ShouldDisableCFURLCache::Yes);
 
     if (NetworkStorageSession::processMayUseCookieAPI()) {
         ASSERT(hasProcessPrivilege(ProcessPrivilege::CanAccessRawCookies));
@@ -1344,10 +1347,20 @@ void NetworkProcess::preconnectTo(PAL::SessionID sessionID, WebPageProxyIdentifi
     parameters.storedCredentialsPolicy = storedCredentialsPolicy;
     parameters.shouldPreconnectOnly = PreconnectOnly::Yes;
 
+    NetworkLoadParameters parametersForAdditionalPreconnect = parameters;
+
     session->networkLoadScheduler().startedPreconnectForMainResource(url, userAgent);
-    auto task = new PreconnectTask(*session, WTFMove(parameters), [session = WeakPtr { *session }, url, userAgent](const WebCore::ResourceError& error) {
-        if (session)
+    auto task = new PreconnectTask(*session, WTFMove(parameters), [session = WeakPtr { *session }, url, userAgent, parametersForAdditionalPreconnect = WTFMove(parametersForAdditionalPreconnect)](const WebCore::ResourceError& error, const WebCore::NetworkLoadMetrics& metrics) mutable {
+        if (session) {
             session->networkLoadScheduler().finishedPreconnectForMainResource(url, userAgent, error);
+#if ENABLE(ADDITIONAL_PRECONNECT_ON_HTTP_1X)
+            if (equalIgnoringASCIICase(metrics.protocol, "http/1.1")) {
+                auto parameters = parametersForAdditionalPreconnect;
+                auto task = new PreconnectTask(*session, WTFMove(parameters), [](const WebCore::ResourceError& error, const WebCore::NetworkLoadMetrics& metrics) { });
+                task->start();
+            }
+#endif // ENABLE(ADDITIONAL_PRECONNECT_ON_HTTP_1X)
+        }
     });
     task->setTimeout(10_s);
     task->start();
@@ -1548,6 +1561,9 @@ void NetworkProcess::deleteWebsiteData(PAL::SessionID sessionID, OptionSet<Websi
     if (session)
         session->removeNetworkWebsiteData(modifiedSince, std::nullopt, [clearTasksHandler] { });
 
+    if (websiteDataTypes.contains(WebsiteDataType::MemoryCache))
+        CrossOriginPreflightResultCache::singleton().clear();
+
     if (websiteDataTypes.contains(WebsiteDataType::DiskCache) && !sessionID.isEphemeral())
         clearDiskCache(modifiedSince, [clearTasksHandler] { });
 
@@ -1631,6 +1647,9 @@ void NetworkProcess::deleteWebsiteDataForOrigins(PAL::SessionID sessionID, Optio
             server.clear(originData, [clearTasksHandler] { });
     }
 #endif
+
+    if (websiteDataTypes.contains(WebsiteDataType::MemoryCache))
+        CrossOriginPreflightResultCache::singleton().clear();
 
     if (websiteDataTypes.contains(WebsiteDataType::DiskCache) && !sessionID.isEphemeral()) {
         forEachNetworkSession([originDatas, &clearTasksHandler](auto& session) {
@@ -2591,6 +2610,15 @@ void NetworkProcess::connectionToWebProcessClosed(IPC::Connection& connection, P
         if (auto* manager = session->storageManager())
             manager->stopReceivingMessageFromConnection(connection);
     }
+}
+
+WebCore::ProcessIdentifier NetworkProcess::webProcessIdentifierForConnection(IPC::Connection& connection) const
+{
+    for (auto& [processIdentifier, webConnection] : m_webProcessConnections) {
+        if (&webConnection->connection() == &connection)
+            return processIdentifier;
+    }
+    return { };
 }
 
 NetworkConnectionToWebProcess* NetworkProcess::webProcessConnection(ProcessIdentifier identifier) const

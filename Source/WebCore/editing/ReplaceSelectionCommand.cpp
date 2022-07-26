@@ -237,7 +237,7 @@ void ReplacementFragment::removeContentsWithSideEffects()
         }
         if (element->hasAttributes()) {
             for (auto& attribute : element->attributesIterator()) {
-                if (element->isEventHandlerAttribute(attribute) || element->isJavaScriptURLAttribute(attribute))
+                if (element->isEventHandlerAttribute(attribute) || element->attributeContainsJavaScriptURL(attribute))
                     attributesToRemove.append({ element.copyRef(), attribute.name() });
             }
         }
@@ -1119,8 +1119,8 @@ void ReplaceSelectionCommand::doApply()
         return;
     
     // We can skip matching the style if the selection is plain text.
-    if ((selection.start().deprecatedNode()->renderer() && selection.start().deprecatedNode()->renderer()->style().userModify() == UserModify::ReadWritePlaintextOnly)
-        && (selection.end().deprecatedNode()->renderer() && selection.end().deprecatedNode()->renderer()->style().userModify() == UserModify::ReadWritePlaintextOnly))
+    if ((selection.start().deprecatedNode()->renderer() && selection.start().deprecatedNode()->renderer()->style().effectiveUserModify() == UserModify::ReadWritePlaintextOnly)
+        && (selection.end().deprecatedNode()->renderer() && selection.end().deprecatedNode()->renderer()->style().effectiveUserModify() == UserModify::ReadWritePlaintextOnly))
         m_matchStyle = false;
     
     if (m_matchStyle) {

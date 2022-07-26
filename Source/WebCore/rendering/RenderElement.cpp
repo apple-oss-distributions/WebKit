@@ -683,31 +683,31 @@ static RenderLayer* layerNextSiblingRespectingTopLayer(const RenderElement& rend
     return findNextLayer(*renderer.parent(), parentLayer, &renderer);
 }
 
-static void addLayers(const RenderElement& addedRenderer, RenderElement& currentRenderer, RenderLayer& parentLayer, std::optional<RenderLayer*>& beforeChild)
+static void addLayers(const RenderElement& insertedRenderer, RenderElement& currentRenderer, RenderLayer& parentLayer)
 {
     if (currentRenderer.hasLayer()) {
-        if (!beforeChild.has_value())
-            beforeChild = layerNextSiblingRespectingTopLayer(addedRenderer, parentLayer);
-
-        parentLayer.addChild(*downcast<RenderLayerModelObject>(currentRenderer).layer(), beforeChild.value());
+        auto* layerToUse = &parentLayer;
+        if (isInTopLayerOrBackdrop(currentRenderer.style(), currentRenderer.element())) {
+            // The special handling of a toplayer/backdrop content may result in trying to insert the associated
+            // layer twice as we connect subtrees.
+            if (auto* parentLayer = downcast<RenderLayerModelObject>(currentRenderer).layer()->parent()) {
+                ASSERT(parentLayer == currentRenderer.view().layer());
+                return;
+            }
+            layerToUse = insertedRenderer.view().layer();
+        }
+        auto* beforeChild = layerNextSiblingRespectingTopLayer(insertedRenderer, *layerToUse);
+        layerToUse->addChild(*downcast<RenderLayerModelObject>(currentRenderer).layer(), beforeChild);
         return;
     }
 
     for (auto& child : childrenOfType<RenderElement>(currentRenderer))
-        addLayers(addedRenderer, child, parentLayer, beforeChild);
+        addLayers(insertedRenderer, child, parentLayer);
 }
 
-void RenderElement::addLayers(RenderLayer* parentLayer)
+void RenderElement::removeLayers()
 {
-    if (!parentLayer)
-        return;
-
-    std::optional<RenderLayer*> beforeChild;
-    WebCore::addLayers(*this, *this, *parentLayer, beforeChild);
-}
-
-void RenderElement::removeLayers(RenderLayer* parentLayer)
-{
+    RenderLayer* parentLayer = layerParent();
     if (!parentLayer)
         return;
 
@@ -717,22 +717,24 @@ void RenderElement::removeLayers(RenderLayer* parentLayer)
     }
 
     for (auto& child : childrenOfType<RenderElement>(*this))
-        child.removeLayers(parentLayer);
+        child.removeLayers();
 }
 
-void RenderElement::moveLayers(RenderLayer* oldParent, RenderLayer& newParent)
+void RenderElement::moveLayers(RenderLayer& newParent)
 {
     if (hasLayer()) {
+        if (isInTopLayerOrBackdrop(style(), element()))
+            return;
         RenderLayer* layer = downcast<RenderLayerModelObject>(*this).layer();
-        ASSERT(oldParent == layer->parent());
-        if (oldParent)
-            oldParent->removeChild(*layer);
+        auto* layerParent = layer->parent();
+        if (layerParent)
+            layerParent->removeChild(*layer);
         newParent.addChild(*layer);
         return;
     }
 
     for (auto& child : childrenOfType<RenderElement>(*this))
-        child.moveLayers(oldParent, newParent);
+        child.moveLayers(newParent);
 }
 
 RenderLayer* RenderElement::layerParent() const
@@ -847,9 +849,7 @@ void RenderElement::styleWillChange(StyleDifference diff, const RenderStyle& new
         }
 
         auto needsInvalidateEventRegion = [&] {
-            if (m_style.effectiveInert() != newStyle.effectiveInert())
-                return true;
-            if (m_style.pointerEvents() != newStyle.pointerEvents())
+            if (m_style.effectivePointerEvents() != newStyle.effectivePointerEvents())
                 return true;
 #if ENABLE(TOUCH_ACTION_REGIONS)
             if (m_style.effectiveTouchActions() != newStyle.effectiveTouchActions())
@@ -858,8 +858,8 @@ void RenderElement::styleWillChange(StyleDifference diff, const RenderStyle& new
             if (m_style.eventListenerRegionTypes() != newStyle.eventListenerRegionTypes())
                 return true;
 #if ENABLE(EDITABLE_REGION)
-            bool wasEditable = m_style.userModify() != UserModify::ReadOnly;
-            bool isEditable = newStyle.userModify() != UserModify::ReadOnly;
+            bool wasEditable = m_style.effectiveUserModify() != UserModify::ReadOnly;
+            bool isEditable = newStyle.effectiveUserModify() != UserModify::ReadOnly;
             if (wasEditable != isEditable)
                 return page().shouldBuildEditableRegion();
 #endif
@@ -908,7 +908,7 @@ void RenderElement::styleWillChange(StyleDifference diff, const RenderStyle& new
     }
 
     bool newStyleSlowScroll = false;
-    if (newStyle.hasFixedBackgroundImage() && !settings().fixedBackgroundsPaintRelativeToDocument()) {
+    if (newStyle.hasAnyFixedBackground() && !settings().fixedBackgroundsPaintRelativeToDocument()) {
         newStyleSlowScroll = true;
         bool drawsRootBackground = isDocumentElementRenderer() || (isBody() && !rendererHasBackground(document().documentElement()->renderer()));
         if (drawsRootBackground && newStyle.hasEntirelyFixedBackground() && view().compositor().supportsFixedRootBackgroundCompositing())
@@ -997,8 +997,8 @@ void RenderElement::insertedIntoTree(IsInternalMove isInternalMove)
     // and don't have a layer attached to ourselves.
     RenderLayer* parentLayer = nullptr;
     if (firstChild() || hasLayer()) {
-        auto* parentLayer = layerParent();
-        addLayers(parentLayer);
+        if (auto* parentLayer = layerParent())
+            addLayers(*this, *this, *parentLayer);
     }
 
     // If |this| is visible but this object was not, tell the layer it has some visible content
@@ -1022,10 +1022,8 @@ void RenderElement::willBeRemovedFromTree(IsInternalMove isInternalMove)
             enclosingLayer->dirtyVisibleContentStatus();
     }
     // Keep our layer hierarchy updated.
-    if (firstChild() || hasLayer()) {
-        auto* parentLayer = layerParent();
-        removeLayers(parentLayer);
-    }
+    if (firstChild() || hasLayer())
+        removeLayers();
 
     if (isOutOfFlowPositioned() && parent()->childrenInline())
         parent()->dirtyLinesFromChangedChild(*this);
@@ -1057,7 +1055,7 @@ void RenderElement::willBeDestroyed()
     if (!renderTreeBeingDestroyed() && element())
         document().contentChangeObserver().rendererWillBeDestroyed(*element());
 #endif
-    if (m_style.hasFixedBackgroundImage() && !settings().fixedBackgroundsPaintRelativeToDocument())
+    if (m_style.hasAnyFixedBackground() && !settings().fixedBackgroundsPaintRelativeToDocument())
         view().frameView().removeSlowRepaintObject(*this);
 
     unregisterForVisibleInViewportCallback();
@@ -1141,7 +1139,7 @@ void RenderElement::paintAsInlineBlock(PaintInfo& paintInfo, const LayoutPoint& 
     // (See Appendix E.2, section 6.4 on inline block/table/replaced elements in the CSS2.1 specification.)
     // This is also used by other elements (e.g. flex items and grid items).
     PaintPhase paintPhaseToUse = isExcludedAndPlacedInBorder() ? paintInfo.phase : PaintPhase::Foreground;
-    if (paintInfo.phase == PaintPhase::Selection || paintInfo.phase == PaintPhase::EventRegion)
+    if (paintInfo.phase == PaintPhase::Selection || paintInfo.phase == PaintPhase::EventRegion || paintInfo.phase == PaintPhase::TextClip)
         paint(paintInfo, childPoint);
     else if (paintInfo.phase == paintPhaseToUse) {
         paintPhase(*this, PaintPhase::BlockBackground, paintInfo, childPoint);
@@ -1534,7 +1532,7 @@ Color RenderElement::selectionColor(CSSPropertyID colorProperty) const
 {
     // If the element is unselectable, or we are only painting the selection,
     // don't override the foreground color with the selection foreground color.
-    if (style().userSelectIncludingInert() == UserSelect::None
+    if (style().effectiveUserSelect() == UserSelect::None
         || (view().frameView().paintBehavior().containsAny({ PaintBehavior::SelectionOnly, PaintBehavior::SelectionAndBackgroundsOnly })))
         return Color();
 
@@ -1589,7 +1587,7 @@ Color RenderElement::selectionEmphasisMarkColor() const
 
 Color RenderElement::selectionBackgroundColor() const
 {
-    if (style().userSelectIncludingInert() == UserSelect::None)
+    if (style().effectiveUserSelect() == UserSelect::None)
         return Color();
 
     if (frame().selection().shouldShowBlockCursor() && frame().selection().isCaret())

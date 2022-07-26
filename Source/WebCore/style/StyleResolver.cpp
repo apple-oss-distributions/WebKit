@@ -273,15 +273,15 @@ ElementStyle Resolver::styleForElement(const Element& element, const ResolutionC
     return { state.takeStyle(), WTFMove(elementStyleRelations) };
 }
 
-std::unique_ptr<RenderStyle> Resolver::styleForKeyframe(const Element& element, const RenderStyle* elementStyle, const ResolutionContext& context, const StyleRuleKeyframe* keyframe, KeyframeValue& keyframeValue)
+std::unique_ptr<RenderStyle> Resolver::styleForKeyframe(const Element& element, const RenderStyle& elementStyle, const ResolutionContext& context, const StyleRuleKeyframe& keyframe, KeyframeValue& keyframeValue)
 {
     MatchResult result;
-    result.authorDeclarations.append({ &keyframe->properties(), SelectorChecker::MatchAll, propertyAllowlistForPseudoId(elementStyle->styleType()) });
+    result.authorDeclarations.append({ &keyframe.properties(), SelectorChecker::MatchAll, propertyAllowlistForPseudoId(elementStyle.styleType()) });
 
     auto state = State(element, nullptr, context.documentElementStyle);
 
-    state.setStyle(RenderStyle::clonePtr(*elementStyle));
-    state.setParentStyle(RenderStyle::clonePtr(context.parentStyle ? *context.parentStyle : *elementStyle));
+    state.setStyle(RenderStyle::clonePtr(elementStyle));
+    state.setParentStyle(RenderStyle::clonePtr(context.parentStyle ? *context.parentStyle : elementStyle));
 
     Builder builder(*state.style(), builderContext(state), result, CascadeLevel::Author);
     builder.applyAllProperties();
@@ -290,9 +290,9 @@ std::unique_ptr<RenderStyle> Resolver::styleForKeyframe(const Element& element, 
     adjuster.adjust(*state.style(), state.userAgentAppearanceStyle());
 
     // Add all the animating properties to the keyframe.
-    unsigned propertyCount = keyframe->properties().propertyCount();
+    unsigned propertyCount = keyframe.properties().propertyCount();
     for (unsigned i = 0; i < propertyCount; ++i) {
-        CSSPropertyID property = keyframe->properties().propertyAt(i).id();
+        CSSPropertyID property = keyframe.properties().propertyAt(i).id();
         // Timing-function within keyframes is special, because it is not animated; it just
         // describes the timing function between this keyframe and the next.
         if (property != CSSPropertyAnimationTimingFunction)
@@ -379,7 +379,7 @@ Vector<Ref<StyleRuleKeyframe>> Resolver::keyframeRulesForName(const AtomString& 
     return deduplicatedKeyframes;
 }
 
-void Resolver::keyframeStylesForAnimation(const Element& element, const RenderStyle* elementStyle, const ResolutionContext& context, KeyframeList& list)
+void Resolver::keyframeStylesForAnimation(const Element& element, const RenderStyle& elementStyle, const ResolutionContext& context, KeyframeList& list)
 {
     list.clear();
 
@@ -392,7 +392,7 @@ void Resolver::keyframeStylesForAnimation(const Element& element, const RenderSt
         // Add this keyframe style to all the indicated key times
         for (auto key : keyframeRule->keys()) {
             KeyframeValue keyframeValue(0, nullptr);
-            keyframeValue.setStyle(styleForKeyframe(element, elementStyle, context, keyframeRule.ptr(), keyframeValue));
+            keyframeValue.setStyle(styleForKeyframe(element, elementStyle, context, keyframeRule.get(), keyframeValue));
             keyframeValue.setKey(key);
             if (auto timingFunctionCSSValue = keyframeRule->properties().getPropertyCSSValue(CSSPropertyAnimationTimingFunction))
                 keyframeValue.setTimingFunction(TimingFunction::createFromCSSValue(*timingFunctionCSSValue.get()));
@@ -541,9 +541,9 @@ void Resolver::clearCachedDeclarationsAffectedByViewportUnits()
     m_matchedDeclarationsCache.clearEntriesAffectedByViewportUnits();
 }
 
-void Resolver::applyMatchedProperties(State& state, const MatchResult& matchResult, UseMatchedDeclarationsCache useMatchedDeclarationsCache)
+void Resolver::applyMatchedProperties(State& state, const MatchResult& matchResult)
 {
-    unsigned cacheHash = useMatchedDeclarationsCache == UseMatchedDeclarationsCache::Yes ? MatchedDeclarationsCache::computeHash(matchResult) : 0;
+    unsigned cacheHash = MatchedDeclarationsCache::computeHash(matchResult);
     auto includedProperties = PropertyCascade::IncludedProperties::All;
 
     auto& style = *state.style();
@@ -565,9 +565,13 @@ void Resolver::applyMatchedProperties(State& state, const MatchResult& matchResu
 
             // Unfortunately the link status is treated like an inherited property. We need to explicitly restore it.
             style.setInsideLink(linkStatus);
+
+            if (cacheEntry->userAgentAppearanceStyle && elementTypeHasAppearanceFromUAStyle(element))
+                state.setUserAgentAppearanceStyle(RenderStyle::clonePtr(*cacheEntry->userAgentAppearanceStyle));
+
             return;
         }
-        
+
         includedProperties = PropertyCascade::IncludedProperties::InheritedOnly;
     }
 
@@ -588,8 +592,9 @@ void Resolver::applyMatchedProperties(State& state, const MatchResult& matchResu
     builder.applyHighPriorityProperties();
 
     if (cacheEntry && !cacheEntry->isUsableAfterHighPriorityProperties(style)) {
-        // We need to resolve all properties without caching.
-        applyMatchedProperties(state, matchResult, UseMatchedDeclarationsCache::No);
+        // High-priority properties may affect resolution of other properties. Kick out the existing cache entry and try again.
+        m_matchedDeclarationsCache.remove(cacheHash);
+        applyMatchedProperties(state, matchResult);
         return;
     }
 
@@ -602,7 +607,7 @@ void Resolver::applyMatchedProperties(State& state, const MatchResult& matchResu
         return;
 
     if (MatchedDeclarationsCache::isCacheable(element, style, parentStyle))
-        m_matchedDeclarationsCache.add(style, parentStyle, cacheHash, matchResult);
+        m_matchedDeclarationsCache.add(style, parentStyle, state.userAgentAppearanceStyle(), cacheHash, matchResult);
 }
 
 bool Resolver::hasViewportDependentMediaQueries() const

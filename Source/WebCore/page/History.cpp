@@ -180,7 +180,7 @@ URL History::urlForState(const String& urlString)
 
 ExceptionOr<void> History::stateObjectAdded(RefPtr<SerializedScriptValue>&& data, const String& title, const String& urlString, StateObjectType stateObjectType)
 {
-    m_cachedState = { };
+    m_cachedState.clear();
 
     // Each unique main-frame document is only allowed to send 64MB of state object payload to the UI client/process.
     static uint32_t totalStateObjectPayloadLimit = 0x4000000;
@@ -239,7 +239,7 @@ ExceptionOr<void> History::stateObjectAdded(RefPtr<SerializedScriptValue>&& data
 
     Checked<uint64_t> payloadSize = titleSize;
     payloadSize += urlSize;
-    payloadSize += data ? data->data().size() : 0;
+    payloadSize += data ? data->wireBytes().size() : 0;
 
     Checked<uint64_t> newTotalUsage = mainHistory.m_totalStateObjectUsage;
 

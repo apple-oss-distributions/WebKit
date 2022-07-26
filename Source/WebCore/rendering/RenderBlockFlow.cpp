@@ -500,7 +500,7 @@ void RenderBlockFlow::layoutBlock(bool relayoutChildren, LayoutUnit pageLogicalH
     LayoutUnit repaintLogicalBottom;
     LayoutUnit maxFloatLogicalBottom;
     const RenderStyle& styleToUse = style();
-    {
+    do {
         LayoutStateMaintainer statePusher(*this, locationOffset(), hasTransform() || hasReflection() || styleToUse.isFlippedBlocksWritingMode(), pageLogicalHeight, pageLogicalHeightChanged);
 
         preparePaginationBeforeBlockLayout(relayoutChildren);
@@ -530,13 +530,18 @@ void RenderBlockFlow::layoutBlock(bool relayoutChildren, LayoutUnit pageLogicalH
             layoutInlineChildren(relayoutChildren, repaintLogicalTop, repaintLogicalBottom);
         else
             layoutBlockChildren(relayoutChildren, maxFloatLogicalBottom);
-    }
+        // Expand our intrinsic height to encompass floats.
+        LayoutUnit toAdd = borderAndPaddingAfter() + scrollbarLogicalHeight();
+        if (lowestFloatLogicalBottom() > (logicalHeight() - toAdd) && createsNewFormattingContext())
+            setLogicalHeight(lowestFloatLogicalBottom() + toAdd);
+        if (shouldBreakAtLineToAvoidWidow()) {
+            setEverHadLayout(true);
+            continue;
+        }
+        break;
+    } while (true);
 
-    // Expand our intrinsic height to encompass floats.
-    LayoutUnit toAdd = borderAndPaddingAfter() + scrollbarLogicalHeight();
-    if (lowestFloatLogicalBottom() > (logicalHeight() - toAdd) && createsNewFormattingContext())
-        setLogicalHeight(lowestFloatLogicalBottom() + toAdd);
-    if (relayoutForPagination() || relayoutToAvoidWidows()) {
+    if (relayoutForPagination()) {
         ASSERT(!shouldBreakAtLineToAvoidWidow());
         return;
     }
@@ -553,7 +558,7 @@ void RenderBlockFlow::layoutBlock(bool relayoutChildren, LayoutUnit pageLogicalH
     updateLogicalHeight();
     LayoutUnit newHeight = logicalHeight();
     {
-        // FIXME: This could be removed once relayoutForPagination()/relayoutToAvoidWidows() either stop recursing or we manage to
+        // FIXME: This could be removed once relayoutForPagination() either stop recursing or we manage to
         // re-order them.
         LayoutStateMaintainer statePusher(*this, locationOffset(), hasTransform() || hasReflection() || styleToUse.isFlippedBlocksWritingMode(), pageLogicalHeight, pageLogicalHeightChanged);
 
@@ -1726,16 +1731,6 @@ void RenderBlockFlow::clearShouldBreakAtLineToAvoidWidow() const
         return;
 
     rareBlockFlowData()->m_lineBreakToAvoidWidow = -1;
-}
-
-bool RenderBlockFlow::relayoutToAvoidWidows()
-{
-    if (!shouldBreakAtLineToAvoidWidow())
-        return false;
-
-    setEverHadLayout(true);
-    layoutBlock(false);
-    return true;
 }
 
 bool RenderBlockFlow::hasNextPage(LayoutUnit logicalOffset, PageBoundaryRule pageBoundaryRule) const
@@ -3646,6 +3641,18 @@ void RenderBlockFlow::layoutModernLines(bool relayoutChildren, LayoutUnit& repai
 
     repaintLogicalTop = contentBoxTop;
     repaintLogicalBottom = std::max(oldBorderBoxBottom, newBorderBoxBottom);
+
+    auto inflateRepaintTopAndBottomWithInkOverflow = [&] {
+        auto* inlineContent = layoutFormattingContextLineLayout.inlineContent();
+        if (!inlineContent || !inlineContent->hasVisualOverflow())
+            return;
+        for (auto& line : inlineContent->lines) {
+            auto inkOverflow = LayoutRect { line.inkOverflow() };
+            repaintLogicalTop = std::min(repaintLogicalTop, inkOverflow.y());
+            repaintLogicalBottom = std::max(repaintLogicalBottom, inkOverflow.maxY());
+        }
+    };
+    inflateRepaintTopAndBottomWithInkOverflow();
 
     setLogicalHeight(newBorderBoxBottom);
 }

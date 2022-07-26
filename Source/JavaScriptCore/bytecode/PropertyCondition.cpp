@@ -69,8 +69,23 @@ void PropertyCondition::dump(PrintStream& out) const
     dumpInContext(out, nullptr);
 }
 
+ALWAYS_INLINE static bool nonStructurePropertyMayBecomeReadOnlyWithoutTransition(Structure* structure, UniquedStringImpl* uid)
+{
+    switch (structure->typeInfo().type()) {
+    case ArrayType:
+    case DerivedArrayType:
+        return uid == structure->vm().propertyNames->length.impl();
+
+    case RegExpObjectType:
+        return uid == structure->vm().propertyNames->lastIndex.impl();
+
+    default:
+        return false;
+    }
+}
+
 bool PropertyCondition::isStillValidAssumingImpurePropertyWatchpoint(
-    Structure* structure, JSObject* base) const
+    Concurrency concurrency, Structure* structure, JSObject* base) const
 {
     if (PropertyConditionInternal::verbose) {
         dataLog(
@@ -109,7 +124,7 @@ bool PropertyCondition::isStillValidAssumingImpurePropertyWatchpoint(
     switch (m_header.type()) {
     case Presence: {
         unsigned currentAttributes;
-        PropertyOffset currentOffset = structure->getConcurrently(uid(), currentAttributes);
+        PropertyOffset currentOffset = structure->get(structure->vm(), concurrency, uid(), currentAttributes);
         if (currentOffset != offset() || currentAttributes != attributes()) {
             if (PropertyConditionInternal::verbose) {
                 dataLog(
@@ -136,7 +151,7 @@ bool PropertyCondition::isStillValidAssumingImpurePropertyWatchpoint(
             return false;
         }
 
-        PropertyOffset currentOffset = structure->getConcurrently(uid());
+        PropertyOffset currentOffset = structure->get(structure->vm(), concurrency, uid());
         if (currentOffset != invalidOffset) {
             if (PropertyConditionInternal::verbose)
                 dataLog("Invalid because the property exists at offset: ", currentOffset, "\n");
@@ -163,7 +178,7 @@ bool PropertyCondition::isStillValidAssumingImpurePropertyWatchpoint(
         }
         
         unsigned currentAttributes;
-        PropertyOffset currentOffset = structure->getConcurrently(uid(), currentAttributes);
+        PropertyOffset currentOffset = structure->get(structure->vm(), concurrency, uid(), currentAttributes);
         if (currentOffset != invalidOffset) {
             if (currentAttributes & (PropertyAttribute::ReadOnly | PropertyAttribute::Accessor | PropertyAttribute::CustomAccessorOrValue)) {
                 if (PropertyConditionInternal::verbose) {
@@ -173,6 +188,10 @@ bool PropertyCondition::isStillValidAssumingImpurePropertyWatchpoint(
                 }
                 return false;
             }
+        } else if (nonStructurePropertyMayBecomeReadOnlyWithoutTransition(structure, uid())) {
+            if (PropertyConditionInternal::verbose)
+                dataLog("Invalid because its put() override may treat ", uid(), " property as read-only.\n");
+            return false;
         }
 
         if (structure->hasPolyProto()) {
@@ -231,7 +250,7 @@ bool PropertyCondition::isStillValidAssumingImpurePropertyWatchpoint(
         // FIXME: This is somewhat racy, and maybe more risky than we want.
         // https://bugs.webkit.org/show_bug.cgi?id=134641
         
-        PropertyOffset currentOffset = structure->getConcurrently(uid());
+        PropertyOffset currentOffset = structure->get(structure->vm(), concurrency, uid());
         if (currentOffset == invalidOffset) {
             if (PropertyConditionInternal::verbose) {
                 dataLog(
@@ -241,7 +260,7 @@ bool PropertyCondition::isStillValidAssumingImpurePropertyWatchpoint(
             return false;
         }
 
-        JSValue currentValue = base->getDirectConcurrently(structure, currentOffset);
+        JSValue currentValue = base->getDirect(concurrency, structure, currentOffset);
         if (currentValue != requiredValue()) {
             if (PropertyConditionInternal::verbose) {
                 dataLog(
@@ -254,7 +273,7 @@ bool PropertyCondition::isStillValidAssumingImpurePropertyWatchpoint(
         return true;
     } 
     case HasStaticProperty: {
-        if (isValidOffset(structure->getConcurrently(uid())))
+        if (isValidOffset(structure->get(structure->vm(), concurrency, uid())))
             return false;
         if (structure->staticPropertiesReified())
             return false;
@@ -264,6 +283,16 @@ bool PropertyCondition::isStillValidAssumingImpurePropertyWatchpoint(
     
     RELEASE_ASSERT_NOT_REACHED();
     return false;
+}
+
+static ALWAYS_INLINE Concurrency watchabilityToConcurrency(PropertyCondition::WatchabilityEffort effort)
+{
+    switch (effort) {
+    case PropertyCondition::WatchabilityEffort::EnsureWatchability:
+        return Concurrency::MainThread;
+    case PropertyCondition::WatchabilityEffort::MakeNoChanges:
+        return Concurrency::ConcurrentThread;
+    }
 }
 
 bool PropertyCondition::validityRequiresImpurePropertyWatchpoint(Structure* structure) const
@@ -286,9 +315,9 @@ bool PropertyCondition::validityRequiresImpurePropertyWatchpoint(Structure* stru
     return false;
 }
 
-bool PropertyCondition::isStillValid(Structure* structure, JSObject* base) const
+bool PropertyCondition::isStillValid(Concurrency concurrency, Structure* structure, JSObject* base) const
 {
-    if (!isStillValidAssumingImpurePropertyWatchpoint(structure, base))
+    if (!isStillValidAssumingImpurePropertyWatchpoint(concurrency, structure, base))
         return false;
 
     // Currently we assume that an impure property can cause a property to appear, and can also
@@ -320,7 +349,7 @@ bool PropertyCondition::isWatchableWhenValid(
     
     switch (m_header.type()) {
     case Equivalence: {
-        PropertyOffset offset = structure->getConcurrently(uid());
+        PropertyOffset offset = structure->get(structure->vm(), watchabilityToConcurrency(effort), uid());
         
         // This method should only be called when some variant of isValid returned true, which
         // implies that we already confirmed that the structure knows of the property. We should
@@ -369,14 +398,14 @@ bool PropertyCondition::isWatchableWhenValid(
 bool PropertyCondition::isWatchableAssumingImpurePropertyWatchpoint(
     Structure* structure, JSObject* base, WatchabilityEffort effort) const
 {
-    return isStillValidAssumingImpurePropertyWatchpoint(structure, base)
+    return isStillValidAssumingImpurePropertyWatchpoint(watchabilityToConcurrency(effort), structure, base)
         && isWatchableWhenValid(structure, effort);
 }
 
 bool PropertyCondition::isWatchable(
     Structure* structure, JSObject* base, WatchabilityEffort effort) const
 {
-    return isStillValid(structure, base)
+    return isStillValid(watchabilityToConcurrency(effort), structure, base)
         && isWatchableWhenValid(structure, effort);
 }
 

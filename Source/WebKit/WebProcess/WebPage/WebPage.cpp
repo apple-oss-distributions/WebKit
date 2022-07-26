@@ -748,6 +748,10 @@ WebPage::WebPage(PageIdentifier pageID, WebPageCreationParameters&& parameters)
 
     setUseFixedLayout(parameters.useFixedLayout);
 
+    setDefaultUnobscuredSize(parameters.defaultUnobscuredSize);
+    setMinimumUnobscuredSize(parameters.minimumUnobscuredSize);
+    setMaximumUnobscuredSize(parameters.maximumUnobscuredSize);
+
     setUnderlayColor(parameters.underlayColor);
 
     setPaginationMode(parameters.paginationMode);
@@ -874,8 +878,6 @@ WebPage::WebPage(PageIdentifier pageID, WebPageCreationParameters&& parameters)
 
 #if PLATFORM(IOS_FAMILY)
     setViewportConfigurationViewLayoutSize(parameters.viewportConfigurationViewLayoutSize, parameters.viewportConfigurationLayoutSizeScaleFactor, parameters.viewportConfigurationMinimumEffectiveDeviceWidth);
-    setMinimumUnobscuredSize(parameters.minimumUnobscuredSize);
-    setMaximumUnobscuredSize(parameters.maximumUnobscuredSize);
 #endif
 
 #if USE(AUDIO_SESSION)
@@ -2377,6 +2379,81 @@ IntSize WebPage::fixedLayoutSize() const
     return view->fixedLayoutSize();
 }
 
+void WebPage::setDefaultUnobscuredSize(const FloatSize& defaultUnobscuredSize)
+{
+    if (defaultUnobscuredSize == m_defaultUnobscuredSize)
+        return;
+
+    m_defaultUnobscuredSize = defaultUnobscuredSize;
+
+    updateSizeForCSSDefaultViewportUnits();
+}
+
+void WebPage::updateSizeForCSSDefaultViewportUnits()
+{
+    auto* mainFrameView = this->mainFrameView();
+    if (!mainFrameView)
+        return;
+
+    auto defaultUnobscuredSize = m_defaultUnobscuredSize;
+#if ENABLE(META_VIEWPORT)
+    if (defaultUnobscuredSize.isEmpty())
+        defaultUnobscuredSize = m_viewportConfiguration.viewLayoutSize();
+    defaultUnobscuredSize.scale(1 / m_viewportConfiguration.initialScaleIgnoringContentSize());
+#endif
+    mainFrameView->setSizeForCSSDefaultViewportUnits(defaultUnobscuredSize);
+}
+
+void WebPage::setMinimumUnobscuredSize(const FloatSize& minimumUnobscuredSize)
+{
+    if (minimumUnobscuredSize == m_minimumUnobscuredSize)
+        return;
+
+    m_minimumUnobscuredSize = minimumUnobscuredSize;
+
+    updateSizeForCSSSmallViewportUnits();
+}
+
+void WebPage::updateSizeForCSSSmallViewportUnits()
+{
+    auto* mainFrameView = this->mainFrameView();
+    if (!mainFrameView)
+        return;
+
+    auto minimumUnobscuredSize = m_minimumUnobscuredSize;
+#if ENABLE(META_VIEWPORT)
+    if (minimumUnobscuredSize.isEmpty())
+        minimumUnobscuredSize = m_viewportConfiguration.viewLayoutSize();
+    minimumUnobscuredSize.scale(1 / m_viewportConfiguration.initialScaleIgnoringContentSize());
+#endif
+    mainFrameView->setSizeForCSSSmallViewportUnits(minimumUnobscuredSize);
+}
+
+void WebPage::setMaximumUnobscuredSize(const FloatSize& maximumUnobscuredSize)
+{
+    if (maximumUnobscuredSize == m_maximumUnobscuredSize)
+        return;
+
+    m_maximumUnobscuredSize = maximumUnobscuredSize;
+
+    updateSizeForCSSLargeViewportUnits();
+}
+
+void WebPage::updateSizeForCSSLargeViewportUnits()
+{
+    auto* mainFrameView = this->mainFrameView();
+    if (!mainFrameView)
+        return;
+
+    auto maximumUnobscuredSize = m_maximumUnobscuredSize;
+#if ENABLE(META_VIEWPORT)
+    if (maximumUnobscuredSize.isEmpty())
+        maximumUnobscuredSize = m_viewportConfiguration.viewLayoutSize();
+    maximumUnobscuredSize.scale(1 / m_viewportConfiguration.initialScaleIgnoringContentSize());
+#endif
+    mainFrameView->setSizeForCSSLargeViewportUnits(maximumUnobscuredSize);
+}
+
 void WebPage::disabledAdaptationsDidChange(const OptionSet<DisabledAdaptations>& disabledAdaptations)
 {
 #if PLATFORM(IOS_FAMILY)
@@ -3758,7 +3835,7 @@ void WebPage::runJavaScript(WebFrame* frame, RunJavaScriptParameters&& parameter
 
         IPC::DataReference dataReference;
         if (serializedResultValue)
-            dataReference = serializedResultValue->data();
+            dataReference = serializedResultValue->wireBytes();
 
         std::optional<ExceptionDetails> details;
         if (!result)
@@ -4854,9 +4931,9 @@ void WebPage::setOrientationForMediaCapture(uint64_t rotation)
     });
 }
 
-void WebPage::setMockCameraIsInterrupted(bool isInterrupted)
+void WebPage::setMockCaptureDevicesInterrupted(bool isCameraInterrupted, bool isMicrophoneInterrupted)
 {
-    MockRealtimeMediaSourceCenter::setMockCameraIsInterrupted(isInterrupted);
+    MockRealtimeMediaSourceCenter::setMockCaptureDevicesInterrupted(isCameraInterrupted, isMicrophoneInterrupted);
 }
 #endif // USE(GSTREAMER)
 
@@ -5667,7 +5744,6 @@ void WebPage::runModal()
     Ref<WebPage> protector(*this);
 #endif
     RunLoop::run();
-    ASSERT(!m_isRunningModal);
 }
 
 bool WebPage::canHandleRequest(const WebCore::ResourceRequest& request)
@@ -6091,9 +6167,9 @@ void WebPage::resetFocusedElementForFrame(WebFrame* frame)
     }
 }
 
-void WebPage::elementDidRefocus(WebCore::Element& element)
+void WebPage::elementDidRefocus(Element& element, const FocusOptions& options)
 {
-    elementDidFocus(element);
+    elementDidFocus(element, options);
 
     if (m_userIsInteracting)
         scheduleFullEditorStateUpdate();
@@ -6116,7 +6192,7 @@ static bool isTextFormControlOrEditableContent(const WebCore::Element& element)
     return is<HTMLTextFormControlElement>(element) || element.hasEditableStyle();
 }
 
-void WebPage::elementDidFocus(WebCore::Element& element)
+void WebPage::elementDidFocus(Element& element, const FocusOptions& options)
 {
     if (!shouldDispatchUpdateAfterFocusingElement(element)) {
         updateInputContextAfterBlurringAndRefocusingElementIfNeeded(element);
@@ -6144,6 +6220,7 @@ void WebPage::elementDidFocus(WebCore::Element& element)
 
         m_formClient->willBeginInputSession(this, &element, WebFrame::fromCoreFrame(*element.document().frame()), m_userIsInteracting, userData);
 
+        information->preventScroll = options.preventScroll;
         send(Messages::WebPageProxy::ElementDidFocus(information.value(), m_userIsInteracting, m_recentlyBlurredElement, m_lastActivityStateChanges, UserData(WebProcess::singleton().transformObjectsToHandles(userData.get()).get())));
 #elif PLATFORM(MAC)
         // FIXME: This can be unified with the iOS code above by bringing ElementDidFocus to macOS.
@@ -6283,7 +6360,7 @@ void WebPage::setViewportSizeForCSSViewportUnits(std::optional<WebCore::FloatSiz
 
     m_viewportSizeForCSSViewportUnits = viewportSize;
     if (m_viewportSizeForCSSViewportUnits)
-        corePage()->mainFrame().view()->setSizeForCSSLargeViewportUnits(*m_viewportSizeForCSSViewportUnits);
+        corePage()->mainFrame().view()->setSizeForCSSDefaultViewportUnits(*m_viewportSizeForCSSViewportUnits);
 }
 
 bool WebPage::isSmartInsertDeleteEnabled()

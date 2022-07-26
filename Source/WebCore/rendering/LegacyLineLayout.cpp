@@ -607,7 +607,12 @@ void LegacyLineLayout::computeExpansionForJustifiedText(BidiRun* firstRun, BidiR
     for (BidiRun* run = firstRun; run; run = run->next()) {
         if (!run->box() || run == trailingSpaceRun)
             continue;
-        
+
+        // Positioned objects are only participating to figure out their correct static x position.
+        // They have no affect on the width. Similarly, line break boxes have no affect on the width.
+        if (run->renderer().isOutOfFlowPositioned() || run->box()->isLineBreak())
+            continue;
+
         if (is<RenderText>(run->renderer())) {
             unsigned opportunitiesInRun = expansionOpportunities[i++];
             
@@ -1306,6 +1311,20 @@ static void repaintDirtyFloats(LineLayoutState::FloatList& floats)
     }
 }
 
+static void repaintSelfPaintInlineBoxes(const LegacyRootInlineBox& firstRootInlineBox, const LegacyRootInlineBox& lastRootInlineBox)
+{
+    for (auto* rootInlineBox = &firstRootInlineBox; rootInlineBox; rootInlineBox = rootInlineBox->nextRootBox()) {
+        if (rootInlineBox->hasSelfPaintInlineBox()) {
+            for (auto* inlineBox = rootInlineBox->firstChild(); inlineBox; inlineBox = inlineBox->nextOnLine()) {
+                if (auto* renderer = is<RenderLayerModelObject>(inlineBox->renderer()) ? &downcast<RenderLayerModelObject>(inlineBox->renderer()) : nullptr; renderer && renderer->hasSelfPaintingLayer())
+                    renderer->repaint();
+            }
+        }
+        if (rootInlineBox == &lastRootInlineBox)
+            break;
+    }
+}
+
 void LegacyLineLayout::layoutRunsAndFloats(LineLayoutState& layoutState, bool hasInlineChild)
 {
     // We want to skip ahead to the first dirty line
@@ -1367,6 +1386,8 @@ void LegacyLineLayout::layoutRunsAndFloats(LineLayoutState& layoutState, bool ha
     layoutRunsAndFloatsInRange(layoutState, resolver, cleanLineStart, cleanLineBidiStatus, consecutiveHyphenatedLines);
     linkToEndLineIfNeeded(layoutState);
     repaintDirtyFloats(layoutState.floatList());
+    if (firstRootBox())
+        repaintSelfPaintInlineBoxes(*firstRootBox(), layoutState.endLine() ? *layoutState.endLine() : *lastRootBox());
 }
 
 // Before restarting the layout loop with a new logicalHeight, remove all floats that were added and reset the resolver.
@@ -1734,6 +1755,7 @@ void LegacyLineLayout::layoutLineBoxes(bool relayoutChildren, LayoutUnit& repain
         // deleted and only dirtied. In that case, we can layout the replaced
         // elements at the same time.
         bool hasInlineChild = false;
+        auto hasDirtyRenderCounterWithInlineBoxParent = false;
         Vector<RenderBox*> replacedChildren;
         for (InlineWalker walker(m_flow); !walker.atEnd(); walker.advance()) {
             RenderObject& o = *walker.current();
@@ -1770,14 +1792,27 @@ void LegacyLineLayout::layoutLineBoxes(bool relayoutChildren, LayoutUnit& repain
                         box.layoutIfNeeded();
                 }
             } else if (o.isTextOrLineBreak() || is<RenderInline>(o)) {
-                if (layoutState.isFullLayout() || o.selfNeedsLayout())
+                if (layoutState.isFullLayout() || o.selfNeedsLayout()) {
                     dirtyLineBoxesForRenderer(o, layoutState.isFullLayout());
+                    hasDirtyRenderCounterWithInlineBoxParent = hasDirtyRenderCounterWithInlineBoxParent || (is<RenderCounter>(o) && is<RenderInline>(o.parent()));
+                }
                 o.clearNeedsLayout();
             }
         }
 
         for (size_t i = 0; i < replacedChildren.size(); i++)
             replacedChildren[i]->layoutIfNeeded();
+
+        auto clearNeedsLayoutIfNeeded = [&] {
+            if (!hasDirtyRenderCounterWithInlineBoxParent)
+                return;
+            for (InlineWalker walker(m_flow); !walker.atEnd(); walker.advance()) {
+                auto& renderer = *walker.current();
+                if (is<RenderCounter>(renderer) || is<RenderInline>(renderer))
+                    renderer.clearNeedsLayout();
+            }
+        };
+        clearNeedsLayoutIfNeeded();
 
         layoutRunsAndFloats(layoutState, hasInlineChild);
     }

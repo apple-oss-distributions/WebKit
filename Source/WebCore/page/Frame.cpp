@@ -601,7 +601,7 @@ bool Frame::requestDOMPasteAccess(DOMPasteAccessCategory pasteAccessCategory)
 
 void Frame::setPrinting(bool printing, const FloatSize& pageSize, const FloatSize& originalPageSize, float maximumShrinkRatio, AdjustViewSizeOrNot shouldAdjustViewSize)
 {
-    if (!view())
+    if (!view() || !document())
         return;
     // In setting printing, we should not validate resources already cached for the document.
     // See https://bugs.webkit.org/show_bug.cgi?id=43704
@@ -856,7 +856,7 @@ std::optional<SimpleRange> Frame::rangeForPoint(const IntPoint& framePoint)
     auto position = visiblePositionForPoint(framePoint);
 
     auto containerText = position.deepEquivalent().containerText();
-    if (!containerText || !containerText->renderer() || containerText->renderer()->style().userSelectIncludingInert() == UserSelect::None)
+    if (!containerText || !containerText->renderer() || containerText->renderer()->style().effectiveUserSelect() == UserSelect::None)
         return std::nullopt;
 
     if (auto previousCharacterRange = makeSimpleRange(position.previous(), position)) {

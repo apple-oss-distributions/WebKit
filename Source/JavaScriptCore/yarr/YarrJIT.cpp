@@ -2328,7 +2328,13 @@ class YarrGenerator final : public YarrJITInfo {
                 // Upon entry at the head of the set of alternatives, check if input is available
                 // to run the first alternative. (This progresses the input position).
                 op.m_jumps.append(jumpIfNoAvailableInput(alternative->m_minimumSize));
-                m_checkedOffset += alternative->m_minimumSize;
+                Checked<unsigned, RecordOverflow> checkedOffsetResult(m_checkedOffset);
+                checkedOffsetResult += alternative->m_minimumSize;
+                if (UNLIKELY(checkedOffsetResult.hasOverflowed())) {
+                    m_failureReason = JITFailureReason::OffsetTooLarge;
+                    return;
+                }
+                m_checkedOffset = checkedOffsetResult;
 
                 // We will reenter after the check, and assume the input position to have been
                 // set as appropriate to this alternative.
@@ -2344,7 +2350,6 @@ class YarrGenerator final : public YarrJITInfo {
                         auto [map, charactersFastPath] = op.m_bmInfo->createCandidateBitmap(beginIndex, endIndex);
                         unsigned mapCount = map.count();
                         // If candiate characters are <= 2, checking each is better than using vector.
-                        MacroAssembler::JumpList outOfLengthFailure;
                         MacroAssembler::JumpList matched;
                         dataLogLnIf(YarrJITInternal::verbose, "BM Bitmap is ", map);
                         // Patterns like /[]/ have zero candidates. Since it is rare, we do not do nothing for now.
@@ -2359,8 +2364,7 @@ class YarrGenerator final : public YarrJITInfo {
                             matched.append(m_jit.branch32(MacroAssembler::Equal, m_regs.regT0, MacroAssembler::TrustedImm32(charactersFastPath.at(0))));
                             if (charactersFastPath.size() > 1)
                                 matched.append(m_jit.branch32(MacroAssembler::Equal, m_regs.regT0, MacroAssembler::TrustedImm32(charactersFastPath.at(1))));
-                            outOfLengthFailure.append(jumpIfNoAvailableInput(endIndex - beginIndex));
-                            m_jit.jump().linkTo(loopHead, &m_jit);
+                            jumpIfAvailableInput(endIndex - beginIndex).linkTo(loopHead, &m_jit);
                         } else {
                             const auto* pointer = getBoyerMooreBitmap(map);
                             dataLogLnIf(Options::verboseRegExpCompilation(), "Found bitmap lookahead count:(", mapCount, "),range:[", beginIndex, ", ", endIndex, ")");
@@ -2396,14 +2400,13 @@ class YarrGenerator final : public YarrJITInfo {
                             m_jit.urshift32(m_regs.regT0, m_regs.regT2); // We can ignore upper bits and only lower 5bits are effective.
                             matched.append(m_jit.branchTest32(MacroAssembler::NonZero, m_regs.regT2, MacroAssembler::TrustedImm32(1)));
 #endif
-                            outOfLengthFailure.append(jumpIfNoAvailableInput(endIndex - beginIndex));
-                            m_jit.jump().linkTo(loopHead, &m_jit);
+                            jumpIfAvailableInput(endIndex - beginIndex).linkTo(loopHead, &m_jit);
                         }
+                        // Fallthrough if out-of-length failure happens.
 
                         // If the pattern size is not fixed, then store the start index for use if we match.
                         // This is used for adjusting match-start when we failed to find the start with BoyerMoore search.
                         if (!m_pattern.m_body->m_hasFixedSize) {
-                            outOfLengthFailure.link(&m_jit);
                             if (alternative->m_minimumSize) {
                                 m_jit.sub32(m_regs.index, MacroAssembler::Imm32(alternative->m_minimumSize), m_regs.regT0);
                                 setMatchStart(m_regs.regT0);
@@ -2411,7 +2414,7 @@ class YarrGenerator final : public YarrJITInfo {
                                 setMatchStart(m_regs.index);
                             op.m_jumps.append(m_jit.jump());
                         } else
-                            op.m_jumps.append(outOfLengthFailure);
+                            op.m_jumps.append(m_jit.jump());
 
                         matched.link(&m_jit);
                         // If the pattern size is not fixed, then store the start index for use if we match.
@@ -2478,8 +2481,15 @@ class YarrGenerator final : public YarrJITInfo {
                     m_jit.sub32(MacroAssembler::Imm32(priorAlternative->m_minimumSize), m_regs.index);
                 }
 
-                if (op.m_op == YarrOpCode::BodyAlternativeNext)
-                    m_checkedOffset += alternative->m_minimumSize;
+                if (op.m_op == YarrOpCode::BodyAlternativeNext) {
+                    Checked<unsigned, RecordOverflow> checkedOffsetResult(m_checkedOffset);
+                    checkedOffsetResult += alternative->m_minimumSize;
+                    if (UNLIKELY(checkedOffsetResult.hasOverflowed())) {
+                        m_failureReason = JITFailureReason::OffsetTooLarge;
+                        return;
+                    }
+                    m_checkedOffset = checkedOffsetResult;
+                }
                 m_checkedOffset -= priorAlternative->m_minimumSize;
                 break;
             }
@@ -2513,7 +2523,13 @@ class YarrGenerator final : public YarrJITInfo {
                 if (op.m_checkAdjust)
                     op.m_jumps.append(jumpIfNoAvailableInput(op.m_checkAdjust));
 
-                m_checkedOffset += op.m_checkAdjust;
+                Checked<unsigned, RecordOverflow> checkedOffsetResult(m_checkedOffset);
+                checkedOffsetResult += op.m_checkAdjust;
+                if (UNLIKELY(checkedOffsetResult.hasOverflowed())) {
+                    m_failureReason = JITFailureReason::OffsetTooLarge;
+                    return;
+                }
+                m_checkedOffset = checkedOffsetResult;
                 break;
             }
             case YarrOpCode::SimpleNestedAlternativeNext:
@@ -2562,7 +2578,14 @@ class YarrGenerator final : public YarrJITInfo {
 
                 YarrOp& lastOp = m_ops[op.m_previousOp];
                 m_checkedOffset -= lastOp.m_checkAdjust;
-                m_checkedOffset += op.m_checkAdjust;
+
+                Checked<unsigned, RecordOverflow> checkedOffsetResult(m_checkedOffset);
+                checkedOffsetResult += op.m_checkAdjust;
+                if (UNLIKELY(checkedOffsetResult.hasOverflowed())) {
+                    m_failureReason = JITFailureReason::OffsetTooLarge;
+                    return;
+                }
+                m_checkedOffset = checkedOffsetResult;
                 break;
             }
             case YarrOpCode::SimpleNestedAlternativeEnd:
@@ -2869,7 +2892,13 @@ class YarrGenerator final : public YarrJITInfo {
                 }
 
                 YarrOp& lastOp = m_ops[op.m_previousOp];
-                m_checkedOffset += lastOp.m_checkAdjust;
+                Checked<unsigned, RecordOverflow> checkedOffsetResult(m_checkedOffset);
+                checkedOffsetResult += lastOp.m_checkAdjust;
+                if (UNLIKELY(checkedOffsetResult.hasOverflowed())) {
+                    m_failureReason = JITFailureReason::OffsetTooLarge;
+                    return;
+                }
+                m_checkedOffset = checkedOffsetResult;
                 break;
             }
 
@@ -2932,7 +2961,13 @@ class YarrGenerator final : public YarrJITInfo {
                 m_checkedOffset -= alternative->m_minimumSize;
                 if (op.m_op == YarrOpCode::BodyAlternativeNext) {
                     PatternAlternative* priorAlternative = m_ops[op.m_previousOp].m_alternative;
-                    m_checkedOffset += priorAlternative->m_minimumSize;
+                    Checked<unsigned, RecordOverflow> checkedOffsetResult(m_checkedOffset);
+                    checkedOffsetResult += priorAlternative->m_minimumSize;
+                    if (UNLIKELY(checkedOffsetResult.hasOverflowed())) {
+                        m_failureReason = JITFailureReason::OffsetTooLarge;
+                        return;
+                    }
+                    m_checkedOffset = checkedOffsetResult;
                 }
 
                 // Is this the last alternative? If not, then if we backtrack to this point we just
@@ -3135,7 +3170,13 @@ class YarrGenerator final : public YarrJITInfo {
                 ASSERT(m_backtrackingState.isEmpty());
 
                 PatternAlternative* priorAlternative = m_ops[op.m_previousOp].m_alternative;
-                m_checkedOffset += priorAlternative->m_minimumSize;
+                Checked<unsigned, RecordOverflow> checkedOffsetResult(m_checkedOffset);
+                checkedOffsetResult += priorAlternative->m_minimumSize;
+                if (UNLIKELY(checkedOffsetResult.hasOverflowed())) {
+                    m_failureReason = JITFailureReason::OffsetTooLarge;
+                    return;
+                }
+                m_checkedOffset = checkedOffsetResult;
                 break;
             }
 
@@ -3237,7 +3278,13 @@ class YarrGenerator final : public YarrJITInfo {
                 m_checkedOffset -= op.m_checkAdjust;
                 if (!isBegin) {
                     YarrOp& lastOp = m_ops[op.m_previousOp];
-                    m_checkedOffset += lastOp.m_checkAdjust;
+                    Checked<unsigned, RecordOverflow> checkedOffsetResult(m_checkedOffset);
+                    checkedOffsetResult += lastOp.m_checkAdjust;
+                    if (UNLIKELY(checkedOffsetResult.hasOverflowed())) {
+                        m_failureReason = JITFailureReason::OffsetTooLarge;
+                        return;
+                    }
+                    m_checkedOffset = checkedOffsetResult;
                 }
                 break;
             }
@@ -3266,7 +3313,13 @@ class YarrGenerator final : public YarrJITInfo {
                 }
 
                 YarrOp& lastOp = m_ops[op.m_previousOp];
-                m_checkedOffset += lastOp.m_checkAdjust;
+                Checked<unsigned, RecordOverflow> checkedOffsetResult(m_checkedOffset);
+                checkedOffsetResult += lastOp.m_checkAdjust;
+                if (UNLIKELY(checkedOffsetResult.hasOverflowed())) {
+                    m_failureReason = JITFailureReason::OffsetTooLarge;
+                    return;
+                }
+                m_checkedOffset = checkedOffsetResult;
                 break;
             }
 
@@ -3516,7 +3569,13 @@ class YarrGenerator final : public YarrJITInfo {
                 // added the failure caused by a successful match to this.
                 m_backtrackingState.append(endOp.m_jumps);
 
-                m_checkedOffset += op.m_checkAdjust;
+                Checked<unsigned, RecordOverflow> checkedOffsetResult(m_checkedOffset);
+                checkedOffsetResult += op.m_checkAdjust;
+                if (UNLIKELY(checkedOffsetResult.hasOverflowed())) {
+                    m_failureReason = JITFailureReason::OffsetTooLarge;
+                    return;
+                }
+                m_checkedOffset = checkedOffsetResult;
                 break;
             }
             case YarrOpCode::ParentheticalAssertionEnd: {
@@ -4701,6 +4760,9 @@ static void dumpCompileFailure(JITFailureReason failure)
         break;
     case JITFailureReason::ExecutableMemoryAllocationFailure:
         dataLog("Can't JIT because of failure of allocation of executable memory\n");
+        break;
+    case JITFailureReason::OffsetTooLarge:
+        dataLog("Can't JIT because pattern exceeds string length limits\n");
         break;
     }
 }

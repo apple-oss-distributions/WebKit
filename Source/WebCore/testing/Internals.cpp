@@ -54,6 +54,7 @@
 #include "ColorSerialization.h"
 #include "ComposedTreeIterator.h"
 #include "CookieJar.h"
+#include "CrossOriginPreflightResultCache.h"
 #include "Cursor.h"
 #include "DOMPointReadOnly.h"
 #include "DOMRect.h"
@@ -550,6 +551,7 @@ void Internals::resetToConsistentState(Page& page)
     page.group().ensureCaptionPreferences().setCaptionsStyleSheetOverride(emptyString());
     PlatformMediaSessionManager::sharedManager().resetHaveEverRegisteredAsNowPlayingApplicationForTesting();
     PlatformMediaSessionManager::sharedManager().resetRestrictions();
+    PlatformMediaSessionManager::sharedManager().resetSessionState();
     PlatformMediaSessionManager::sharedManager().setWillIgnoreSystemInterruptions(true);
 #endif
 #if ENABLE(VIDEO) || ENABLE(WEB_AUDIO)
@@ -931,6 +933,7 @@ bool Internals::isFetchObjectContextStopped(const FetchObject& object)
 void Internals::clearMemoryCache()
 {
     MemoryCache::singleton().evictResources();
+    CrossOriginPreflightResultCache::singleton().clear();
 }
 
 void Internals::pruneMemoryCacheToSize(unsigned size)
@@ -1249,6 +1252,10 @@ Node* Internals::ensureUserAgentShadowRoot(Element& host)
 
 Node* Internals::shadowRoot(Element& host)
 {
+    if (host.document().hasElementWithPendingUserAgentShadowTreeUpdate(host)) {
+        host.updateUserAgentShadowTree();
+        host.document().removeElementWithPendingUserAgentShadowTreeUpdate(host);
+    }
     return host.shadowRoot();
 }
 
@@ -3823,14 +3830,14 @@ ExceptionOr<String> Internals::getCurrentCursorInfo()
 
 Ref<ArrayBuffer> Internals::serializeObject(const RefPtr<SerializedScriptValue>& value) const
 {
-    auto& bytes = value->data();
+    auto& bytes = value->wireBytes();
     return ArrayBuffer::create(bytes.data(), bytes.size());
 }
 
 Ref<SerializedScriptValue> Internals::deserializeBuffer(ArrayBuffer& buffer) const
 {
     Vector<uint8_t> bytes { static_cast<const uint8_t*>(buffer.data()), buffer.byteLength() };
-    return SerializedScriptValue::adopt(WTFMove(bytes));
+    return SerializedScriptValue::createFromWireBytes(WTFMove(bytes));
 }
 
 bool Internals::isFromCurrentWorld(JSC::JSValue value) const
@@ -4462,17 +4469,22 @@ void Internals::activeAudioRouteDidChange(bool shouldPause)
 #endif
 }
 
-bool Internals::elementIsBlockingDisplaySleep(HTMLMediaElement& element) const
+bool Internals::elementIsBlockingDisplaySleep(const HTMLMediaElement& element) const
 {
     return element.isDisablingSleep();
 }
 
-bool Internals::isPlayerVisibleInViewport(HTMLMediaElement& element) const
+bool Internals::isPlayerVisibleInViewport(const HTMLMediaElement& element) const
 {
     auto player = element.player();
     return player && player->isVisibleInViewport();
 }
 
+bool Internals::isPlayerMuted(const HTMLMediaElement& element) const
+{
+    auto player = element.player();
+    return player && player->muted();
+}
 #endif // ENABLE(VIDEO)
 
 #if ENABLE(WEB_AUDIO)
@@ -5557,28 +5569,34 @@ bool Internals::supportsAudioSession() const
 #endif
 }
 
-String Internals::audioSessionCategory() const
+auto Internals::audioSessionCategory() const -> AudioSessionCategory
 {
 #if USE(AUDIO_SESSION)
-    switch (AudioSession::sharedSession().category()) {
-    case AudioSession::CategoryType::AmbientSound:
-        return "AmbientSound"_s;
-    case AudioSession::CategoryType::SoloAmbientSound:
-        return "SoloAmbientSound"_s;
-    case AudioSession::CategoryType::MediaPlayback:
-        return "MediaPlayback"_s;
-    case AudioSession::CategoryType::RecordAudio:
-        return "RecordAudio"_s;
-    case AudioSession::CategoryType::PlayAndRecord:
-        return "PlayAndRecord"_s;
-    case AudioSession::CategoryType::AudioProcessing:
-        return "AudioProcessing"_s;
-    case AudioSession::CategoryType::None:
-        return "None"_s;
-    }
+    return AudioSession::sharedSession().category();
+#else
+    return AudioSessionCategory::None;
 #endif
-    return emptyString();
 }
+
+auto Internals::routeSharingPolicy() const -> RouteSharingPolicy
+{
+#if USE(AUDIO_SESSION)
+    return AudioSession::sharedSession().routeSharingPolicy();
+#else
+    return RouteSharingPolicy::Default;
+#endif
+}
+
+#if ENABLE(VIDEO)
+auto Internals::categoryAtMostRecentPlayback(HTMLMediaElement& element) const -> AudioSessionCategory
+{
+#if USE(AUDIO_SESSION)
+    return element.categoryAtMostRecentPlayback();
+#else
+    return AudioSessionCategory::None;
+#endif
+}
+#endif
 
 double Internals::preferredAudioBufferSize() const
 {

@@ -63,6 +63,7 @@
 #include "EventNames.h"
 #include "ExtensionStyleSheets.h"
 #include "FocusController.h"
+#include "FontCache.h"
 #include "FrameLoader.h"
 #include "FrameLoaderClient.h"
 #include "FrameSelection.h"
@@ -349,10 +350,10 @@ Page::Page(PageConfiguration&& pageConfiguration)
     m_userContentProvider->addPage(*this);
     m_visitedLinkStore->addPage(*this);
 
-    static bool addedListener;
-    if (!addedListener) {
-        platformStrategies()->loaderStrategy()->addOnlineStateChangeListener(&networkStateChanged);
-        addedListener = true;
+    static bool firstTimeInitializationRan = false;
+    if (!firstTimeInitializationRan) {
+        firstTimeInitialization();
+        firstTimeInitializationRan = true;
     }
 
     ASSERT(!allPages().contains(this));
@@ -383,6 +384,16 @@ Page::Page(PageConfiguration&& pageConfiguration)
 
     if (m_lowPowerModeNotifier->isLowPowerModeEnabled())
         m_throttlingReasons.add(ThrottlingReason::LowPowerMode);
+
+    static bool fontCacheInvalidationCallbackRegistered = false;
+    if (!fontCacheInvalidationCallbackRegistered) {
+        FontCache::registerFontCacheInvalidationCallback([] {
+            forEachPage([](auto& page) {
+                page.setNeedsRecalcStyleInAllFrames();
+            });
+        });
+        fontCacheInvalidationCallbackRegistered = true;
+    }
 }
 
 Page::~Page()
@@ -424,6 +435,17 @@ Page::~Page()
     m_pluginInfoProvider->removePage(*this);
     m_userContentProvider->removePage(*this);
     m_visitedLinkStore->removePage(*this);
+}
+
+void Page::firstTimeInitialization()
+{
+    platformStrategies()->loaderStrategy()->addOnlineStateChangeListener(&networkStateChanged);
+
+    FontCache::registerFontCacheInvalidationCallback([] {
+        forEachPage([](auto& page) {
+            page.setNeedsRecalcStyleInAllFrames();
+        });
+    });
 }
 
 void Page::clearPreviousItemFromAllPages(HistoryItem* item)
@@ -1682,6 +1704,10 @@ void Page::doAfterUpdateRendering()
 
     forEachDocument([] (Document& document) {
         document.enqueuePaintTimingEntryIfNeeded();
+    });
+
+    forEachDocument([] (Document& document) {
+        document.selection().updateAppearanceAfterLayout();
     });
 
     forEachDocument([] (Document& document) {
@@ -3496,26 +3522,34 @@ ScrollLatchingController* Page::scrollLatchingControllerIfExists()
 }
 #endif // ENABLE(WHEEL_EVENT_LATCHING)
 
-static void dispatchPrintEvent(Frame& mainFrame, const AtomString& eventType)
+enum class DispatchedOnDocumentEventLoop : bool { No, Yes };
+static void dispatchPrintEvent(Frame& mainFrame, const AtomString& eventType, DispatchedOnDocumentEventLoop dispatchedOnDocumentEventLoop)
 {
     Vector<Ref<Frame>> frames;
     for (auto* frame = &mainFrame; frame; frame = frame->tree().traverseNext())
         frames.append(*frame);
 
     for (auto& frame : frames) {
-        if (auto* window = frame->window())
-            window->dispatchEvent(Event::create(eventType, Event::CanBubble::No, Event::IsCancelable::No), window->document());
+        if (RefPtr window = frame->window()) {
+            auto dispatchEvent = [window = WTFMove(window), eventType] {
+                window->dispatchEvent(Event::create(eventType, Event::CanBubble::No, Event::IsCancelable::No), window->document());
+            };
+            if (dispatchedOnDocumentEventLoop == DispatchedOnDocumentEventLoop::No)
+                return dispatchEvent();
+            if (auto* document = frame->document())
+                document->eventLoop().queueTask(TaskSource::DOMManipulation, WTFMove(dispatchEvent));
+        }
     }
 }
 
 void Page::dispatchBeforePrintEvent()
 {
-    dispatchPrintEvent(m_mainFrame, eventNames().beforeprintEvent);
+    dispatchPrintEvent(m_mainFrame, eventNames().beforeprintEvent, DispatchedOnDocumentEventLoop::No);
 }
 
 void Page::dispatchAfterPrintEvent()
 {
-    dispatchPrintEvent(m_mainFrame, eventNames().afterprintEvent);
+    dispatchPrintEvent(m_mainFrame, eventNames().afterprintEvent, DispatchedOnDocumentEventLoop::Yes);
 }
 
 #if ENABLE(APPLE_PAY)

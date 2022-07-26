@@ -413,6 +413,8 @@ void RenderTable::distributeExtraLogicalHeight(LayoutUnit extraLogicalHeight)
 
 void RenderTable::simplifiedNormalFlowLayout()
 {
+    for (auto& caption : m_captions)
+        caption->layoutIfNeeded();
     for (RenderTableSection* section = topSection(); section; section = sectionBelow(section)) {
         section->layoutIfNeeded();
         section->computeOverflowFromCells();
@@ -926,12 +928,7 @@ RenderTableCol* RenderTable::firstColumn() const
     for (auto& child : childrenOfType<RenderObject>(*this)) {
         if (is<RenderTableCol>(child))
             return &const_cast<RenderTableCol&>(downcast<RenderTableCol>(child));
-
-        // We allow only table-captions before columns or column-groups.
-        if (!is<RenderTableCaption>(child))
-            return nullptr;
     }
-
     return nullptr;
 }
 

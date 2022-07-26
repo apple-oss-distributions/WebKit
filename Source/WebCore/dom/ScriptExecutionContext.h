@@ -254,10 +254,10 @@ public:
     int timerNestingLevel() const { return m_timerNestingLevel; }
     void setTimerNestingLevel(int timerNestingLevel) { m_timerNestingLevel = timerNestingLevel; }
 
-    RejectedPromiseTracker& ensureRejectedPromiseTracker()
+    RejectedPromiseTracker* ensureRejectedPromiseTracker()
     {
         if (m_rejectedPromiseTracker)
-            return *m_rejectedPromiseTracker.get();
+            return m_rejectedPromiseTracker.get();
         return ensureRejectedPromiseTrackerSlow();
     }
 
@@ -279,6 +279,7 @@ public:
     ServiceWorkerContainer* ensureServiceWorkerContainer();
 #endif
     WEBCORE_EXPORT static bool postTaskTo(ScriptExecutionContextIdentifier, Task&&);
+    WEBCORE_EXPORT static bool postTaskForModeToWorkerOrWorklet(ScriptExecutionContextIdentifier, Task&&, const String&);
     WEBCORE_EXPORT static bool ensureOnContextThread(ScriptExecutionContextIdentifier, Task&&);
 
     ScriptExecutionContextIdentifier identifier() const { return m_identifier; }
@@ -320,7 +321,7 @@ private:
     enum class ShouldContinue { No, Yes };
     void forEachActiveDOMObject(const Function<ShouldContinue(ActiveDOMObject&)>&) const;
 
-    RejectedPromiseTracker& ensureRejectedPromiseTrackerSlow();
+    RejectedPromiseTracker* ensureRejectedPromiseTrackerSlow();
 
     void checkConsistency() const;
 

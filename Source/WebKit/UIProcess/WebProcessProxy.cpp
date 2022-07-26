@@ -464,7 +464,7 @@ bool WebProcessProxy::shouldSendPendingMessage(const PendingMessage& message)
     if (message.encoder->messageName() == IPC::MessageName::WebPage_LoadRequestWaitingForProcessLaunch) {
         auto buffer = message.encoder->buffer();
         auto bufferSize = message.encoder->bufferSize();
-        auto decoder = IPC::Decoder::create(buffer, bufferSize, nullptr, { });
+        auto decoder = IPC::Decoder::create(buffer, bufferSize, { });
         ASSERT(decoder);
         if (!decoder)
             return false;
@@ -1083,6 +1083,8 @@ void WebProcessProxy::didFinishLaunching(ProcessLauncher* launcher, IPC::Connect
     enableRemoteInspectorIfNeeded();
 #endif
 #endif
+
+    beginResponsivenessChecks();
 }
 
 WebFrameProxy* WebProcessProxy::webFrame(FrameIdentifier frameID) const
