@@ -265,10 +265,12 @@ class ContextMtl : public ContextImpl, public mtl::Context
 
     // override mtl::ErrorHandler
     void handleError(GLenum error,
+                     const char *message,
                      const char *file,
                      const char *function,
                      unsigned int line) override;
     void handleError(NSError *error,
+                     const char *message,
                      const char *file,
                      const char *function,
                      unsigned int line) override;
@@ -376,6 +378,14 @@ class ContextMtl : public ContextImpl, public mtl::Context
 
     const mtl::ContextDevice &getMetalDevice() const { return mContextDevice; }
 
+    angle::Result copy2DTextureSlice0Level0ToWorkTexture(const mtl::TextureRef &srcTexture);
+    const mtl::TextureRef &getWorkTexture() const { return mWorkTexture; }
+    angle::Result copyTextureSliceLevelToWorkBuffer(const gl::Context *context,
+                                                    const mtl::TextureRef &srcTexture,
+                                                    const mtl::MipmapNativeLevel &mipNativeLevel,
+                                                    uint32_t layerIndex);
+    const mtl::BufferRef &getWorkBuffer() const { return mWorkBuffer; }
+
   private:
     void ensureCommandBufferReady();
     angle::Result ensureIncompleteTexturesCreated(const gl::Context *context);
@@ -400,11 +410,13 @@ class ContextMtl : public ContextImpl, public mtl::Context
     angle::Result drawTriFanArrays(const gl::Context *context,
                                    GLint first,
                                    GLsizei count,
-                                   GLsizei instances);
+                                   GLsizei instances,
+                                   GLuint baseInstance);
     angle::Result drawTriFanArraysWithBaseVertex(const gl::Context *context,
                                                  GLint first,
                                                  GLsizei count,
-                                                 GLsizei instances);
+                                                 GLsizei instances,
+                                                 GLuint baseInstance);
     angle::Result drawTriFanArraysLegacy(const gl::Context *context,
                                          GLint first,
                                          GLsizei count,
@@ -413,7 +425,9 @@ class ContextMtl : public ContextImpl, public mtl::Context
                                      GLsizei count,
                                      gl::DrawElementsType type,
                                      const void *indices,
-                                     GLsizei instances);
+                                     GLsizei instances,
+                                     GLint baseVertex,
+                                     GLuint baseInstance);
 
     angle::Result drawLineLoopArraysNonInstanced(const gl::Context *context,
                                                  GLint first,
@@ -421,7 +435,8 @@ class ContextMtl : public ContextImpl, public mtl::Context
     angle::Result drawLineLoopArrays(const gl::Context *context,
                                      GLint first,
                                      GLsizei count,
-                                     GLsizei instances);
+                                     GLsizei instances,
+                                     GLuint baseInstance);
     angle::Result drawLineLoopElementsNonInstancedNoPrimitiveRestart(const gl::Context *context,
                                                                      GLsizei count,
                                                                      gl::DrawElementsType type,
@@ -430,21 +445,33 @@ class ContextMtl : public ContextImpl, public mtl::Context
                                        GLsizei count,
                                        gl::DrawElementsType type,
                                        const void *indices,
-                                       GLsizei instances);
+                                       GLsizei instances,
+                                       GLint baseVertex,
+                                       GLuint baseInstance);
+
+    angle::Result drawArraysProvokingVertexImpl(const gl::Context *context,
+                                                gl::PrimitiveMode mode,
+                                                GLsizei first,
+                                                GLsizei count,
+                                                GLsizei instances,
+                                                GLuint baseInstance);
 
     angle::Result drawArraysImpl(const gl::Context *context,
                                  gl::PrimitiveMode mode,
                                  GLint first,
                                  GLsizei count,
-                                 GLsizei instanceCount);
+                                 GLsizei instanceCount,
+                                 GLuint baseInstance);
 
     angle::Result drawElementsImpl(const gl::Context *context,
                                    gl::PrimitiveMode mode,
                                    GLsizei count,
                                    gl::DrawElementsType type,
                                    const void *indices,
-                                   GLsizei instanceCount);
-
+                                   GLsizei instanceCount,
+                                   GLint baseVertex,
+                                   GLuint baseInstance);
+    void flushCommandBufferIfNeeded();
     void updateExtendedState(const gl::State &glState);
 
     void updateViewport(FramebufferMtl *framebufferMtl,
@@ -504,33 +531,26 @@ class ContextMtl : public ContextImpl, public mtl::Context
         DIRTY_BIT_MAX = DIRTY_BIT_INVALID,
     };
 
-    // Must keep this in sync with DriverUniformExtended::createUniformFields in:
-    // src/compiler/translator/tree_util/DriverUniform.h
+    // Must keep this in sync with DriverUniform::createUniformFields in:
+    // src/compiler/translator/tree_util/DriverUniform.cpp
+    // and DriverUniformMetal::createUniformFields in:
+    // src/compiler/translator/DriverUniformMetal.cpp
     struct DriverUniforms
     {
-        float viewport[4];
-
-        // 32 bits for 32 clip distances
-        uint32_t enabledClipDistances;
-
+        uint32_t acbBufferOffsets[2];
+        float depthRange[2];
+        uint32_t renderArea;
+        uint32_t flipXY;
         uint32_t unused;
-        int32_t xfbVerticesPerInstance;
-
-        int32_t numSamples;
+        uint32_t misc;
 
         int32_t xfbBufferOffsets[4];
-        uint32_t acbBufferOffsets[4];
-
-        // We'll use x, y, z, w for near / far / diff / zscale respectively.
-        float depthRange[4];
-
-        // Metal specific
-        float halfRenderArea[2];
-        float flipXY[2];
-        float negFlipXY[2];
-        uint32_t emulatedInstanceID;
-        uint32_t coverageMask;
+        int32_t xfbVerticesPerInstance;
+        uint32_t coverageMask;  // Metal specific
+        uint32_t unused2[2];
     };
+    static_assert(sizeof(DriverUniforms) % (sizeof(uint32_t) * 4) == 0,
+                  "DriverUniforms should be 16 bytes aligned");
 
     struct DefaultAttribute
     {
@@ -549,11 +569,15 @@ class ContextMtl : public ContextImpl, public mtl::Context
     VertexArrayMtl *mVertexArray     = nullptr;
     ProgramMtl *mProgram             = nullptr;
     QueryMtl *mOcclusionQuery        = nullptr;
+    mtl::TextureRef mWorkTexture;
+    mtl::BufferRef mWorkBuffer;
 
     using DirtyBits = angle::BitSet<DIRTY_BIT_MAX>;
 
     gl::AttributesMask mDirtyDefaultAttribsMask;
     DirtyBits mDirtyBits;
+
+    uint32_t mRenderPassesSinceFlush = 0;
 
     // State
     mtl::RenderPipelineDesc mRenderPipelineDesc;

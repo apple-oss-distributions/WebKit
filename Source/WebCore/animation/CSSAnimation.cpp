@@ -27,8 +27,10 @@
 #include "CSSAnimation.h"
 
 #include "Animation.h"
+#include "AnimationEffect.h"
 #include "AnimationEvent.h"
 #include "InspectorInstrumentation.h"
+#include "KeyframeEffect.h"
 #include "RenderStyle.h"
 #include <wtf/IsoMallocInlines.h>
 
@@ -109,6 +111,11 @@ void CSSAnimation::syncPropertiesWithBackingAnimation()
     if (!m_overriddenProperties.contains(Property::Duration))
         animationEffect->setIterationDuration(Seconds(animation.duration()));
 
+    if (!m_overriddenProperties.contains(Property::CompositeOperation)) {
+        if (is<KeyframeEffect>(animationEffect))
+            downcast<KeyframeEffect>(*animationEffect).setComposite(animation.compositeOperation());
+    }
+
     animationEffect->updateStaticTimingProperties();
     effectTimingDidChange();
 
@@ -167,6 +174,7 @@ void CSSAnimation::setBindingsEffect(RefPtr<AnimationEffect>&& newEffect)
         m_overriddenProperties.add(Property::Direction);
         m_overriddenProperties.add(Property::Delay);
         m_overriddenProperties.add(Property::FillMode);
+        m_overriddenProperties.add(Property::CompositeOperation);
     }
 }
 
@@ -239,6 +247,11 @@ void CSSAnimation::effectKeyframesWereSetUsingBindings()
     // be reflected in that animation.
     m_overriddenProperties.add(Property::Keyframes);
     m_overriddenProperties.add(Property::TimingFunction);
+}
+
+void CSSAnimation::effectCompositeOperationWasSetUsingBindings()
+{
+    m_overriddenProperties.add(Property::CompositeOperation);
 }
 
 void CSSAnimation::keyframesRuleDidChange()

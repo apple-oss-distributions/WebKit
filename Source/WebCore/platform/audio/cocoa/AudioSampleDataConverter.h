@@ -38,11 +38,11 @@ class PlatformAudioData;
 class AudioSampleDataConverter {
     WTF_MAKE_FAST_ALLOCATED;
 public:
-    AudioSampleDataConverter() = default;
+    AudioSampleDataConverter();
     ~AudioSampleDataConverter();
 
     OSStatus setFormats(const CAAudioStreamDescription& inputDescription, const CAAudioStreamDescription& outputDescription);
-    bool updateBufferedAmount(size_t currentBufferedAmount);
+    bool updateBufferedAmount(size_t currentBufferedAmount, size_t pushedSampleSize);
     OSStatus convert(const AudioBufferList&, AudioSampleBufferList&, size_t sampleCount);
     size_t regularBufferSize() const { return m_regularBufferSize; }
     bool isRegular() const { return m_selectedConverter == m_regularConverter; }
@@ -66,6 +66,7 @@ private:
         AudioConverterRef m_audioConverter { nullptr };
     };
 
+    bool m_latencyAdaptationEnabled { true };
     Converter m_lowConverter;
     Converter m_regularConverter;
     Converter m_highConverter;

@@ -34,12 +34,24 @@
 #include "LayoutBox.h"
 #include "LayoutBoxGeometry.h"
 #include "LayoutState.h"
-#include "RuntimeEnabledFeatures.h"
 #include "TextUtil.h"
 #include <wtf/unicode/CharacterNames.h>
 
 namespace WebCore {
 namespace Layout {
+
+static inline StringBuilder toString(const Line::RunList& runs)
+{
+    // FIXME: We could try to reuse the content builder in InlineItemsBuilder if this turns out to be a perf bottleneck.
+    StringBuilder lineContentBuilder;
+    for (auto& run : runs) {
+        if (!run.isText())
+            continue;
+        auto& textContent = run.textContent();
+        lineContentBuilder.append(StringView(downcast<InlineTextBox>(run.layoutBox()).content()).substring(textContent->start, textContent->length));
+    }
+    return lineContentBuilder;
+}
 
 static inline bool endsWithSoftWrapOpportunity(const InlineTextItem& currentTextItem, const InlineTextItem& nextInlineTextItem)
 {
@@ -131,6 +143,8 @@ static inline bool isAtSoftWrapOpportunity(const InlineFormattingContext& inline
         // brings in unnecessary complexity.
         return true;
     }
+    if (current.layoutBox().isListMarker() || next.layoutBox().isListMarker())
+        return false;
     if (current.isBox() || next.isBox()) {
         auto isImageContent = current.layoutBox().isImage() || next.layoutBox().isImage();
         if (isImageContent && inlineFormattingContext.layoutState().inQuirksMode())
@@ -246,7 +260,7 @@ InlineLayoutUnit LineBuilder::inlineItemWidth(const InlineItem& inlineItem, Inli
         auto& inlineTextItem = downcast<InlineTextItem>(inlineItem);
         if (auto contentWidth = inlineTextItem.width())
             return *contentWidth;
-        auto& fontCascade = m_isFirstLine ? inlineTextItem.firstLineStyle().fontCascade() : inlineTextItem.style().fontCascade();
+        auto& fontCascade = isFirstLine() ? inlineTextItem.firstLineStyle().fontCascade() : inlineTextItem.style().fontCascade();
         if (!inlineTextItem.isWhitespace() || InlineTextItem::shouldPreserveSpacesAndTabs(inlineTextItem))
             return TextUtil::width(inlineTextItem, fontCascade, contentLogicalLeft);
         return TextUtil::width(inlineTextItem, fontCascade, inlineTextItem.start(), inlineTextItem.start() + 1, contentLogicalLeft);
@@ -267,7 +281,7 @@ InlineLayoutUnit LineBuilder::inlineItemWidth(const InlineItem& inlineItem, Inli
     if (inlineItem.isInlineBoxStart()) {
         auto logicalWidth = boxGeometry.marginStart() + boxGeometry.borderStart() + boxGeometry.paddingStart().value_or(0);
 #if ENABLE(CSS_BOX_DECORATION_BREAK)
-        auto& style = m_isFirstLine ? inlineItem.firstLineStyle() : inlineItem.style();
+        auto& style = isFirstLine() ? inlineItem.firstLineStyle() : inlineItem.style();
         if (style.boxDecorationBreak() == BoxDecorationBreak::Clone)
             logicalWidth += boxGeometry.borderEnd() + boxGeometry.paddingEnd().value_or(0_lu);
 #endif
@@ -305,9 +319,10 @@ struct UsedConstraints {
     InlineLayoutUnit marginStart { 0 };
     bool isConstrainedByFloat { false };
 };
-LineBuilder::LineContent LineBuilder::layoutInlineContent(const InlineItemRange& needsLayoutRange, size_t partialLeadingContentLength, std::optional<InlineLayoutUnit> overflowingLogicalWidth, const InlineRect& initialLineLogicalRect, bool isFirstLine)
+LineBuilder::LineContent LineBuilder::layoutInlineContent(const InlineItemRange& needsLayoutRange, const InlineRect& lineLogicalRect, const std::optional<PreviousLine>& previousLine)
 {
-    initialize(initialConstraintsForLine(initialLineLogicalRect, isFirstLine), isFirstLine, needsLayoutRange.start, partialLeadingContentLength, overflowingLogicalWidth);
+    auto previousLineEndsWithLineBreak = !previousLine ? std::nullopt : std::make_optional(previousLine->endsWithLineBreak);
+    initialize(initialConstraintsForLine(lineLogicalRect, previousLineEndsWithLineBreak), needsLayoutRange.start, previousLine);
 
     auto committedContent = placeInlineContent(needsLayoutRange);
     auto committedRange = close(needsLayoutRange, committedContent);
@@ -329,8 +344,16 @@ LineBuilder::LineContent LineBuilder::layoutInlineContent(const InlineItemRange&
                 hasOpaqueRun = true;
                 continue;
             }
-            runLevels.append(lineRuns[i].bidiLevel());
-            runIndexOffsetMap.append(accumulatedOffset);
+
+            // bidiLevels are required to be less than the MAX + 1, otherwise
+            // ubidi_reorderVisual will silently fail.
+            if (lineRuns[i].bidiLevel() > UBIDI_MAX_EXPLICIT_LEVEL + 1) {
+                ASSERT(lineRuns[i].bidiLevel() == UBIDI_DEFAULT_LTR);
+                continue;
+            }
+
+            runLevels.uncheckedAppend(lineRuns[i].bidiLevel());
+            runIndexOffsetMap.uncheckedAppend(accumulatedOffset);
         }
 
         Vector<int32_t> visualOrderList(runLevels.size());
@@ -343,10 +366,22 @@ LineBuilder::LineContent LineBuilder::layoutInlineContent(const InlineItemRange&
         return visualOrderList;
     };
 
+    auto inlineBaseDirectionForLineContent = [&] {
+        auto& rootStyle = !previousLine ? root().firstLineStyle() : root().style();
+        auto shouldUseBlockDirection = rootStyle.unicodeBidi() != UnicodeBidi::Plaintext;
+        if (shouldUseBlockDirection)
+            return rootStyle.direction();
+        // A previous line ending with a line break (<br> or preserved \n) introduces a new unicode paragraph with its own direction.
+        if (previousLine && !previousLine->endsWithLineBreak)
+            return previousLine->inlineBaseDirection;
+        return TextUtil::directionForTextContent(toString(lineRuns));
+    };
+
     auto isLastLine = isLastLineWithInlineContent(committedRange, needsLayoutRange.end, committedContent.partialTrailingContentLength);
+    auto partialOverflowingContent = committedContent.partialTrailingContentLength ? std::make_optional<PartialContent>(committedContent.partialTrailingContentLength, committedContent.overflowLogicalWidth) : std::nullopt;
     return LineContent { committedRange
-        , committedContent.partialTrailingContentLength
-        , committedContent.overflowLogicalWidth
+        , partialOverflowingContent
+        , partialOverflowingContent ? std::nullopt : committedContent.overflowLogicalWidth
         , m_floats
         , m_contentIsConstrainedByFloat
         , m_lineMarginStart
@@ -358,28 +393,35 @@ LineBuilder::LineContent LineBuilder::layoutInlineContent(const InlineItemRange&
         , isLastLine
         , m_line.nonSpanningInlineLevelBoxCount()
         , computedVisualOrder()
+        , inlineBaseDirectionForLineContent()
         , lineRuns };
 }
 
-LineBuilder::IntrinsicContent LineBuilder::computedIntrinsicWidth(const InlineItemRange& needsLayoutRange, bool isFirstLine)
+LineBuilder::IntrinsicContent LineBuilder::computedIntrinsicWidth(const InlineItemRange& needsLayoutRange, const std::optional<PreviousLine>& previousLine)
 {
     ASSERT(isInIntrinsicWidthMode());
     auto lineLogicalWidth = *intrinsicWidthMode() == IntrinsicWidthMode::Maximum ? maxInlineLayoutUnit() : 0.f;
-    auto lineConstraints = initialConstraintsForLine({ 0, 0, lineLogicalWidth, 0 }, isFirstLine);
-    initialize(lineConstraints, isFirstLine, needsLayoutRange.start, { }, { });
+    auto previousLineEndsWithLineBreak = !previousLine ? std::nullopt : std::make_optional(previousLine->endsWithLineBreak);
+    auto lineConstraints = initialConstraintsForLine({ 0, 0, lineLogicalWidth, 0 }, previousLineEndsWithLineBreak);
+    initialize(lineConstraints, needsLayoutRange.start, previousLine);
 
     auto committedContent = placeInlineContent(needsLayoutRange);
     auto committedRange = close(needsLayoutRange, committedContent);
     auto lineWidth = lineConstraints.logicalRect.left() + lineConstraints.marginStart + m_line.contentLogicalWidth();
-    return { committedRange, lineWidth, m_floats };
+    auto overflow = std::optional<PartialContent> { };
+    if (committedContent.partialTrailingContentLength)
+        overflow = { committedContent.partialTrailingContentLength, committedContent.overflowLogicalWidth };
+    return { committedRange, lineWidth, overflow, m_floats };
 }
 
-void LineBuilder::initialize(const UsedConstraints& lineConstraints, bool isFirstLine, size_t leadingInlineItemIndex, size_t partialLeadingContentLength, std::optional<InlineLayoutUnit> overflowingLogicalWidth)
+void LineBuilder::initialize(const UsedConstraints& lineConstraints, size_t leadingInlineItemIndex, const std::optional<PreviousLine>& previousLine)
 {
-    m_isFirstLine = isFirstLine;
+    m_previousLine = previousLine;
     m_floats.clear();
     m_lineSpanningInlineBoxes.clear();
     m_wrapOpportunityList.clear();
+    m_overflowingLogicalWidth = { };
+    m_partialLeadingTextItem = { };
 
     auto createLineSpanningInlineBoxes = [&] {
         auto isRootLayoutBox = [&](auto& containerBox) {
@@ -412,7 +454,7 @@ void LineBuilder::initialize(const UsedConstraints& lineConstraints, bool isFirs
             m_lineSpanningInlineBoxes.append({ *spanningInlineBox, InlineItem::Type::InlineBoxStart, bidiLevelForOpaqueInlineItem });
     };
     createLineSpanningInlineBoxes();
-    m_line.initialize(m_lineSpanningInlineBoxes);
+    m_line.initialize(m_lineSpanningInlineBoxes, m_previousLine && !m_previousLine->endsWithLineBreak);
 
     m_lineMarginStart = lineConstraints.marginStart;
     m_lineLogicalRect = lineConstraints.logicalRect;
@@ -422,13 +464,14 @@ void LineBuilder::initialize(const UsedConstraints& lineConstraints, bool isFirs
     m_lineLogicalRect.expandHorizontally(-m_lineMarginStart);
     m_contentIsConstrainedByFloat = lineConstraints.isConstrainedByFloat;
 
-    if (partialLeadingContentLength) {
-        ASSERT(!isFirstLine);
-        m_partialLeadingTextItem = downcast<InlineTextItem>(m_inlineItems[leadingInlineItemIndex]).right(partialLeadingContentLength, overflowingLogicalWidth);
-        m_overflowingLogicalWidth = { };
-    } else {
-        m_partialLeadingTextItem = { };
-        m_overflowingLogicalWidth = overflowingLogicalWidth;
+    if (previousLine) {
+        if (previousLine->partialOverflowingContent) {
+            // Turn previous line's overflow content length into the next line's leading content partial length.
+            // "sp[<-line break->]lit_content" -> overflow length: 11 -> leading partial content length: 11.
+            m_partialLeadingTextItem = downcast<InlineTextItem>(m_inlineItems[leadingInlineItemIndex]).right(previousLine->partialOverflowingContent->length, previousLine->partialOverflowingContent->width);
+            ASSERT(!previousLine->trailingOverflowingContentWidth);
+        }
+        m_overflowingLogicalWidth = previousLine->trailingOverflowingContentWidth;
     }
 }
 
@@ -505,7 +548,7 @@ LineBuilder::InlineItemRange LineBuilder::close(const InlineItemRange& needsLayo
     // Legacy line layout quirk: keep the trailing whitespace around when it is followed by a line break, unless the content overflows the line.
     // This quirk however should not be applied when running intrinsic width computation.
     // FIXME: webkit.org/b/233261
-    auto shouldApplyTrailingWhiteSpaceFollowedByBRQuirk = isInIntrinsicWidthMode || !RuntimeEnabledFeatures::sharedFeatures().layoutFormattingContextIntegrationEnabled()
+    auto shouldApplyTrailingWhiteSpaceFollowedByBRQuirk = isInIntrinsicWidthMode || !layoutState().isInlineFormattingContextIntegration()
         ? Line::ShouldApplyTrailingWhiteSpaceFollowedByBRQuirk::No
         : Line::ShouldApplyTrailingWhiteSpaceFollowedByBRQuirk::Yes;
     m_line.removeTrailingTrimmableContent(shouldApplyTrailingWhiteSpaceFollowedByBRQuirk);
@@ -527,8 +570,8 @@ LineBuilder::InlineItemRange LineBuilder::close(const InlineItemRange& needsLayo
     // On each line, reset the embedding level of any sequence of whitespace characters at the end of the line
     // to the paragraph embedding level
     m_line.resetBidiLevelForTrailingWhitespace(rootStyle.isLeftToRightDirection() ? UBIDI_LTR : UBIDI_RTL);
-    auto horizontalAlignment = rootStyle.textAlign();
-    auto runsExpandHorizontally = horizontalAlignment == TextAlignMode::Justify && !isLastLine;
+    auto runsExpandHorizontally = isLastLine ? rootStyle.textAlignLast() == TextAlignLast::Justify
+        : rootStyle.textAlign() == TextAlignMode::Justify;
     if (runsExpandHorizontally)
         m_line.applyRunExpansion(horizontalAvailableSpace);
     auto lineEndsWithHyphen = false;
@@ -586,7 +629,7 @@ std::optional<HorizontalConstraints> LineBuilder::floatConstraints(const InlineR
     return HorizontalConstraints { toLayoutUnit(lineLogicalLeft), toLayoutUnit(lineLogicalRight - lineLogicalLeft) };
 }
 
-UsedConstraints LineBuilder::initialConstraintsForLine(const InlineRect& initialLineLogicalRect, bool isFirstLine) const
+UsedConstraints LineBuilder::initialConstraintsForLine(const InlineRect& initialLineLogicalRect, std::optional<bool> previousLineEndsWithLineBreak) const
 {
     auto lineLogicalLeft = initialLineLogicalRect.left();
     auto lineLogicalRight = initialLineLogicalRect.right();
@@ -599,31 +642,31 @@ UsedConstraints LineBuilder::initialConstraintsForLine(const InlineRect& initial
     }
 
     auto computedTextIndent = [&]() -> InlineLayoutUnit {
+        auto& root = this->root();
+
         // text-indent property specifies the indentation applied to lines of inline content in a block.
         // The indent is treated as a margin applied to the start edge of the line box.
-        // Unless otherwise specified, only lines that are the first formatted line of an element are affected.
-        // For example, the first line of an anonymous block box is only affected if it is the first child of its parent element.
-        // FIXME: Add support for each-line.
+        // The first formatted line of an element is always indented. For example, the first line of an anonymous block box
+        // is only affected if it is the first child of its parent element.
+        // If 'each-line' is specified, indentation also applies to all lines where the previous line ends with a hard break.
         // [Integration] root()->parent() would normally produce a valid layout box.
-        auto& root = this->root();
-        auto isFormattingContextRootCandidateToTextIndent = !root.isAnonymous();
-        if (root.isAnonymous()) {
-            // Unless otherwise specified by the each-line and/or hanging keywords, only lines that are the first formatted line
-            // of an element are affected.
-            // For example, the first line of an anonymous block box is only affected if it is the first child of its parent element.
-            auto isIntegratedRootBoxFirstChild = layoutState().isIntegratedRootBoxFirstChild();
-            if (isIntegratedRootBoxFirstChild == LayoutState::IsIntegratedRootBoxFirstChild::NotApplicable)
-                isFormattingContextRootCandidateToTextIndent = root.parent().firstInFlowChild() == &root;
-            else
-                isFormattingContextRootCandidateToTextIndent = isIntegratedRootBoxFirstChild == LayoutState::IsIntegratedRootBoxFirstChild::Yes;
-        }
-        if (!isFormattingContextRootCandidateToTextIndent)
-            return { };
-        auto invertLineRange = root.style().textIndentType() == TextIndentType::Hanging;
-        // text-indent: hanging inverts which lines are affected.
-        // inverted line range -> all the lines except the first one.
-        // !inverted line range -> first line gets the indent.
-        auto shouldIndent = invertLineRange != isFirstLine;
+        bool shouldIndent = false;
+        if (!previousLineEndsWithLineBreak) {
+            shouldIndent = !root.isAnonymous();
+            if (root.isAnonymous()) {
+                auto isIntegratedRootBoxFirstChild = layoutState().isIntegratedRootBoxFirstChild();
+                if (isIntegratedRootBoxFirstChild == LayoutState::IsIntegratedRootBoxFirstChild::NotApplicable)
+                    shouldIndent = root.parent().firstInFlowChild() == &root;
+                else
+                    shouldIndent = isIntegratedRootBoxFirstChild == LayoutState::IsIntegratedRootBoxFirstChild::Yes;
+            }
+        } else
+            shouldIndent = root.style().textIndentLine() == TextIndentLine::EachLine && *previousLineEndsWithLineBreak;
+
+        // Specifying 'hanging' inverts whether the line should be indented or not.
+        if (root.style().textIndentType() == TextIndentType::Hanging)
+            shouldIndent = !shouldIndent;
+
         if (!shouldIndent)
             return { };
 
@@ -664,7 +707,7 @@ void LineBuilder::candidateContentForLine(LineCandidate& lineCandidate, size_t c
     for (auto index = currentInlineItemIndex; index < softWrapOpportunityIndex; ++index) {
         auto& inlineItem = m_inlineItems[index];
         auto& style = [&] () -> const RenderStyle& {
-            return m_isFirstLine ? inlineItem.firstLineStyle() : inlineItem.style();
+            return isFirstLine() ? inlineItem.firstLineStyle() : inlineItem.style();
         }();
         if (inlineItem.isFloat()) {
             lineCandidate.floatItem = &inlineItem;
@@ -916,9 +959,14 @@ LineBuilder::Result LineBuilder::handleInlineContent(InlineContentBreaker& inlin
         if (lineCandidate.inlineContent.hasTrailingSoftWrapOpportunity() && m_line.hasContent()) {
             auto& trailingRun = candidateRuns.last();
             auto& trailingInlineItem = trailingRun.inlineItem;
+
             // Note that wrapping here could be driven both by the style of the parent and the inline item itself.
             // e.g inline boxes set the wrapping rules for their content and not for themselves.
-            auto& parentStyle = trailingInlineItem.layoutBox().parent().style();
+            auto& layoutBoxParent = trailingInlineItem.layoutBox().parent();
+
+            // Need to ensure we use the correct style here, so the content breaker and line builder remain in sync.
+            auto& parentStyle = isFirstLine() ? layoutBoxParent.firstLineStyle() : layoutBoxParent.style();
+
             auto isWrapOpportunity = TextUtil::isWrappingAllowed(parentStyle);
             if (!isWrapOpportunity && (trailingInlineItem.isInlineBoxStart() || trailingInlineItem.isInlineBoxEnd()))
                 isWrapOpportunity = TextUtil::isWrappingAllowed(trailingRun.style);
@@ -937,7 +985,7 @@ LineBuilder::Result LineBuilder::handleInlineContent(InlineContentBreaker& inlin
         if (inlineTextItem.isWhitespace())
             return { };
         auto& overflowingRun = candidateRuns.first();
-        if (m_isFirstLine) {
+        if (isFirstLine()) {
             auto& usedStyle = overflowingRun.style;
             auto& style = overflowingRun.inlineItem.style();
             if (&usedStyle != &style && usedStyle.fontCascade() != style.fontCascade()) {
@@ -986,7 +1034,9 @@ LineBuilder::Result LineBuilder::handleInlineContent(InlineContentBreaker& inlin
     if (result.action == InlineContentBreaker::Result::Action::RevertToLastNonOverflowingWrapOpportunity) {
         ASSERT(result.isEndOfLine == InlineContentBreaker::IsEndOfLine::Yes);
         ASSERT(!m_wrapOpportunityList.isEmpty());
-        return { InlineContentBreaker::IsEndOfLine::Yes, { rebuildLineForTrailingSoftHyphen(layoutRange), true } };
+        if (auto committedCount = rebuildLineForTrailingSoftHyphen(layoutRange))
+            return { InlineContentBreaker::IsEndOfLine::Yes, { committedCount, true } };
+        return { InlineContentBreaker::IsEndOfLine::Yes };
     }
     if (result.action == InlineContentBreaker::Result::Action::Break) {
         ASSERT(result.isEndOfLine == InlineContentBreaker::IsEndOfLine::Yes);
@@ -1038,7 +1088,7 @@ size_t LineBuilder::rebuildLine(const InlineItemRange& layoutRange, const Inline
     ASSERT(!m_wrapOpportunityList.isEmpty());
     // We might already have added floats. They shrink the available horizontal space for the line.
     // Let's just reuse what the line has at this point.
-    m_line.initialize(m_lineSpanningInlineBoxes);
+    m_line.initialize(m_lineSpanningInlineBoxes, m_previousLine && !m_previousLine->endsWithLineBreak);
     auto currentItemIndex = layoutRange.start;
     if (m_partialLeadingTextItem) {
         m_line.append(*m_partialLeadingTextItem, m_partialLeadingTextItem->style(), inlineItemWidth(*m_partialLeadingTextItem, { }));
@@ -1048,7 +1098,7 @@ size_t LineBuilder::rebuildLine(const InlineItemRange& layoutRange, const Inline
     }
     for (; currentItemIndex < layoutRange.end; ++currentItemIndex) {
         auto& inlineItem = m_inlineItems[currentItemIndex];
-        auto& style = m_isFirstLine ? inlineItem.firstLineStyle() : inlineItem.style();
+        auto& style = isFirstLine() ? inlineItem.firstLineStyle() : inlineItem.style();
         m_line.append(inlineItem, style, inlineItemWidth(inlineItem, m_line.contentLogicalRight()));
         if (&inlineItem == &lastInlineItemToAdd)
             return currentItemIndex - layoutRange.start + 1;
@@ -1058,7 +1108,11 @@ size_t LineBuilder::rebuildLine(const InlineItemRange& layoutRange, const Inline
 
 size_t LineBuilder::rebuildLineForTrailingSoftHyphen(const InlineItemRange& layoutRange)
 {
-    ASSERT(!m_wrapOpportunityList.isEmpty());
+    if (m_wrapOpportunityList.isEmpty()) {
+        // We are supposed to have a wrapping opportunity on the current line at this point.
+        ASSERT_NOT_REACHED();
+        return { };
+    }
     // Revert all the way back to a wrap opportunity when either a soft hyphen fits or no hyphen is required.
     for (auto i = m_wrapOpportunityList.size(); i-- > 1;) {
         auto& softWrapOpportunityItem = *m_wrapOpportunityList[i];

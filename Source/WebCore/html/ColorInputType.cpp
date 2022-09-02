@@ -39,6 +39,8 @@
 #include "Chrome.h"
 #include "Color.h"
 #include "ColorSerialization.h"
+#include "ElementChildIterator.h"
+#include "ElementRareData.h"
 #include "Event.h"
 #include "HTMLDataListElement.h"
 #include "HTMLDivElement.h"
@@ -135,7 +137,7 @@ Color ColorInputType::valueAsColor() const
     return parseSimpleColorValue(element()->value()).value();
 }
 
-void ColorInputType::createShadowSubtreeAndUpdateInnerTextElementEditability(ContainerNode::ChildChange::Source source, bool)
+void ColorInputType::createShadowSubtree()
 {
     ASSERT(needsShadowSubtree());
     ASSERT(element());
@@ -146,15 +148,15 @@ void ColorInputType::createShadowSubtreeAndUpdateInnerTextElementEditability(Con
     wrapperElement->setPseudo(ShadowPseudoIds::webkitColorSwatchWrapper());
     auto colorSwatch = HTMLDivElement::create(document);
     colorSwatch->setPseudo(ShadowPseudoIds::webkitColorSwatch());
-    wrapperElement->appendChild(source, colorSwatch);
-    element()->userAgentShadowRoot()->appendChild(source, wrapperElement);
+    wrapperElement->appendChild(ContainerNode::ChildChange::Source::Parser, colorSwatch);
+    element()->userAgentShadowRoot()->appendChild(ContainerNode::ChildChange::Source::Parser, wrapperElement);
 
     updateColorSwatch();
 }
 
-void ColorInputType::setValue(const String& value, bool valueChanged, TextFieldEventBehavior eventBehavior)
+void ColorInputType::setValue(const String& value, bool valueChanged, TextFieldEventBehavior eventBehavior, TextControlSetValueSelection selection)
 {
-    InputType::setValue(value, valueChanged, eventBehavior);
+    InputType::setValue(value, valueChanged, eventBehavior, selection);
 
     if (!valueChanged)
         return;
@@ -181,14 +183,23 @@ void ColorInputType::handleDOMActivateEvent(Event& event)
     if (!UserGestureIndicator::processingUserGesture())
         return;
 
+    showPicker();
+    event.setDefaultHandled();
+}
+
+void ColorInputType::showPicker() 
+{
     if (Chrome* chrome = this->chrome()) {
         if (!m_chooser)
             m_chooser = chrome->createColorChooser(*this, valueAsColor());
         else
             m_chooser->reattachColorChooser(valueAsColor());
     }
+}
 
-    event.setDefaultHandled();
+bool ColorInputType::allowsShowPickerAcrossFrames()
+{
+    return true;
 }
 
 void ColorInputType::detach()

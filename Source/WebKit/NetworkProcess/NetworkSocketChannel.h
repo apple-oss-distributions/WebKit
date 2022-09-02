@@ -56,9 +56,9 @@ class NetworkSession;
 class NetworkSocketChannel : public IPC::MessageSender, public IPC::MessageReceiver {
     WTF_MAKE_FAST_ALLOCATED;
 public:
-    static std::unique_ptr<NetworkSocketChannel> create(NetworkConnectionToWebProcess&, PAL::SessionID, const WebCore::ResourceRequest&, const String& protocol, WebCore::WebSocketIdentifier, WebPageProxyIdentifier, const WebCore::ClientOrigin&);
+    static std::unique_ptr<NetworkSocketChannel> create(NetworkConnectionToWebProcess&, PAL::SessionID, const WebCore::ResourceRequest&, const String& protocol, WebCore::WebSocketIdentifier, WebPageProxyIdentifier, const WebCore::ClientOrigin&, bool hadMainFrameMainResourcePrivateRelayed);
 
-    NetworkSocketChannel(NetworkConnectionToWebProcess&, NetworkSession*, const WebCore::ResourceRequest&, const String& protocol, WebCore::WebSocketIdentifier, WebPageProxyIdentifier, const WebCore::ClientOrigin&);
+    NetworkSocketChannel(NetworkConnectionToWebProcess&, NetworkSession*, const WebCore::ResourceRequest&, const String& protocol, WebCore::WebSocketIdentifier, WebPageProxyIdentifier, const WebCore::ClientOrigin&, bool hadMainFrameMainResourcePrivateRelayed);
     ~NetworkSocketChannel();
 
     void didReceiveMessage(IPC::Connection&, IPC::Decoder&);
@@ -70,7 +70,7 @@ private:
     void didReceiveText(const String&);
     void didReceiveBinaryData(const uint8_t* data, size_t length);
     void didClose(unsigned short code, const String& reason);
-    void didReceiveMessageError(const String&);
+    void didReceiveMessageError(String&&);
     void didSendHandshakeRequest(WebCore::ResourceRequest&&);
     void didReceiveHandshakeResponse(WebCore::ResourceResponse&&);
 

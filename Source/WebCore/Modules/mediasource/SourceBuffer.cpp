@@ -38,6 +38,7 @@
 #include "AudioTrackList.h"
 #include "AudioTrackPrivate.h"
 #include "BufferSource.h"
+#include "ContentTypeUtilities.h"
 #include "Event.h"
 #include "EventNames.h"
 #include "HTMLMediaElement.h"
@@ -54,6 +55,7 @@
 #include "VideoTrack.h"
 #include "VideoTrackList.h"
 #include "VideoTrackPrivate.h"
+#include "WebCoreOpaqueRoot.h"
 #include <JavaScriptCore/JSCInlines.h>
 #include <JavaScriptCore/JSLock.h>
 #include <JavaScriptCore/VM.h>
@@ -355,6 +357,11 @@ ExceptionOr<void> SourceBuffer::changeType(const String& type)
     // the types specified (currently or previously) of SourceBuffer objects in the sourceBuffers attribute of
     // the parent media source, then throw a NotSupportedError exception and abort these steps.
     ContentType contentType(type);
+
+    auto& settings = document().settings();
+    if (!contentTypeMeetsContainerAndCodecTypeRequirements(contentType, settings.allowedMediaContainerTypes(), settings.allowedMediaCodecTypes()))
+        return Exception { NotSupportedError };
+
     if (!m_private->canSwitchToType(contentType))
         return Exception { NotSupportedError };
 
@@ -786,6 +793,25 @@ void SourceBuffer::sourceBufferPrivateDidReceiveInitializationSegment(Initializa
         // 5.1 If the initialization segment contains tracks with codecs the user agent does not support,
         // then run the append error algorithm with the decode error parameter set to true and abort these steps.
         // NOTE: This check is the responsibility of the SourceBufferPrivate.
+        if (auto& allowedMediaAudioCodecIDs = document().settings().allowedMediaAudioCodecIDs()) {
+            for (auto& audioTrackInfo : segment.audioTracks) {
+                if (audioTrackInfo.description && allowedMediaAudioCodecIDs->contains(FourCC::fromString(audioTrackInfo.description->codec())))
+                    continue;
+                appendError(true);
+                completionHandler();
+                return;
+            }
+        }
+
+        if (auto& allowedMediaVideoCodecIDs = document().settings().allowedMediaVideoCodecIDs()) {
+            for (auto& videoTrackInfo : segment.videoTracks) {
+                if (videoTrackInfo.description && allowedMediaVideoCodecIDs->contains(FourCC::fromString(videoTrackInfo.description->codec())))
+                    continue;
+                appendError(true);
+                completionHandler();
+                return;
+            }
+        }
 
         // 5.2 For each audio track in the initialization segment, run following steps:
         for (auto& audioTrackInfo : segment.audioTracks) {
@@ -1221,6 +1247,8 @@ void SourceBuffer::reportExtraMemoryAllocated(uint64_t extraMemory)
     if (m_pendingAppendData)
         extraMemoryCost += m_pendingAppendData->size();
 
+    m_extraMemoryCost = extraMemoryCost;
+
     if (extraMemoryCost <= m_reportedExtraMemoryCost)
         return;
 
@@ -1328,6 +1356,16 @@ void SourceBuffer::setBufferedDirty(bool flag)
 void SourceBuffer::setMediaSourceEnded(bool isEnded)
 {
     m_private->setMediaSourceEnded(isEnded);
+}
+
+size_t SourceBuffer::memoryCost() const
+{
+    return sizeof(SourceBuffer) + m_extraMemoryCost;
+}
+
+WebCoreOpaqueRoot SourceBuffer::opaqueRoot()
+{
+    return WebCoreOpaqueRoot { this };
 }
 
 #if !RELEASE_LOG_DISABLED

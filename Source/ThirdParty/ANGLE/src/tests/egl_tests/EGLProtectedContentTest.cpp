@@ -22,7 +22,7 @@ using namespace angle;
 
 GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(EGLProtectedContentTest);
 
-class EGLProtectedContentTest : public ANGLETest
+class EGLProtectedContentTest : public ANGLETest<>
 {
   public:
     EGLProtectedContentTest() : mDisplay(EGL_NO_DISPLAY) {}
@@ -31,7 +31,7 @@ class EGLProtectedContentTest : public ANGLETest
     {
         EGLint dispattrs[] = {EGL_PLATFORM_ANGLE_TYPE_ANGLE, GetParam().getRenderer(), EGL_NONE};
         mDisplay           = eglGetPlatformDisplayEXT(
-            EGL_PLATFORM_ANGLE_ANGLE, reinterpret_cast<void *>(EGL_DEFAULT_DISPLAY), dispattrs);
+                      EGL_PLATFORM_ANGLE_ANGLE, reinterpret_cast<void *>(EGL_DEFAULT_DISPLAY), dispattrs);
         EXPECT_TRUE(mDisplay != EGL_NO_DISPLAY);
         EXPECT_EGL_TRUE(eglInitialize(mDisplay, nullptr, nullptr));
         mMajorVersion = GetParam().majorVersion;
@@ -52,20 +52,20 @@ class EGLProtectedContentTest : public ANGLETest
     {
         EGLint clientVersion = mMajorVersion == 3 ? EGL_OPENGL_ES3_BIT : EGL_OPENGL_ES2_BIT;
         EGLint attribs[]     = {EGL_RED_SIZE,
-                            8,
-                            EGL_GREEN_SIZE,
-                            8,
-                            EGL_BLUE_SIZE,
-                            8,
-                            EGL_ALPHA_SIZE,
-                            8,
-                            EGL_RENDERABLE_TYPE,
-                            clientVersion,
-                            EGL_SURFACE_TYPE,
-                            (EGL_PBUFFER_BIT | EGL_WINDOW_BIT),
-                            EGL_BIND_TO_TEXTURE_RGBA,
-                            EGL_TRUE,
-                            EGL_NONE};
+                                8,
+                                EGL_GREEN_SIZE,
+                                8,
+                                EGL_BLUE_SIZE,
+                                8,
+                                EGL_ALPHA_SIZE,
+                                8,
+                                EGL_RENDERABLE_TYPE,
+                                clientVersion,
+                                EGL_SURFACE_TYPE,
+                                (EGL_PBUFFER_BIT | EGL_WINDOW_BIT),
+                                EGL_BIND_TO_TEXTURE_RGBA,
+                                EGL_TRUE,
+                                EGL_NONE};
 
         EGLint count = 0;
         bool result  = eglChooseConfig(mDisplay, attribs, config, 1, &count);
@@ -78,7 +78,7 @@ class EGLProtectedContentTest : public ANGLETest
     {
         bool result                 = false;
         EGLint attribsProtected[]   = {EGL_CONTEXT_MAJOR_VERSION, mMajorVersion,
-                                     EGL_PROTECTED_CONTENT_EXT, EGL_TRUE, EGL_NONE};
+                                       EGL_PROTECTED_CONTENT_EXT, EGL_TRUE, EGL_NONE};
         EGLint attribsUnProtected[] = {EGL_CONTEXT_MAJOR_VERSION, mMajorVersion, EGL_NONE};
 
         *context = eglCreateContext(mDisplay, config, nullptr,
@@ -92,16 +92,16 @@ class EGLProtectedContentTest : public ANGLETest
     {
         bool result                 = false;
         EGLint attribsProtected[]   = {EGL_WIDTH,
-                                     kWidth,
-                                     EGL_HEIGHT,
-                                     kHeight,
-                                     EGL_TEXTURE_FORMAT,
-                                     EGL_TEXTURE_RGBA,
-                                     EGL_TEXTURE_TARGET,
-                                     EGL_TEXTURE_2D,
-                                     EGL_PROTECTED_CONTENT_EXT,
-                                     EGL_TRUE,
-                                     EGL_NONE};
+                                       kWidth,
+                                       EGL_HEIGHT,
+                                       kHeight,
+                                       EGL_TEXTURE_FORMAT,
+                                       EGL_TEXTURE_RGBA,
+                                       EGL_TEXTURE_TARGET,
+                                       EGL_TEXTURE_2D,
+                                       EGL_PROTECTED_CONTENT_EXT,
+                                       EGL_TRUE,
+                                       EGL_NONE};
         EGLint attribsUnProtected[] = {EGL_WIDTH,
                                        kWidth,
                                        EGL_HEIGHT,
@@ -559,6 +559,12 @@ TEST_P(EGLProtectedContentTest, ProtectedContextWithProtectedTexture)
     textureTest(true, true);
 }
 
+// Protected context with unprotected Texture
+TEST_P(EGLProtectedContentTest, ProtectedContextWithUnprotectedTexture)
+{
+    textureTest(true, false);
+}
+
 void EGLProtectedContentTest::textureFromImageTest(bool isProtectedContext, bool isProtectedTexture)
 {
     ANGLE_SKIP_TEST_IF(!IsEGLDisplayExtensionEnabled(mDisplay, "EGL_EXT_protected_content"));
@@ -826,6 +832,27 @@ TEST_P(EGLProtectedContentTest, UnprotectedContextWithUnprotectedTextureFromAndr
 TEST_P(EGLProtectedContentTest, ProtectedContextWithProtectedTextureFromAndroidNativeBuffer)
 {
     textureFromAndroidNativeBufferTest(true, true);
+}
+
+// Retrieve the EGL_PROTECTED_CONTENT_EXT attribute via eglQueryContext
+TEST_P(EGLProtectedContentTest, QueryContext)
+{
+    ANGLE_SKIP_TEST_IF(!IsEGLDisplayExtensionEnabled(mDisplay, "EGL_EXT_protected_content"));
+
+    EGLConfig config = EGL_NO_CONFIG_KHR;
+    EXPECT_TRUE(chooseConfig(&config));
+    ANGLE_SKIP_TEST_IF(config == EGL_NO_CONFIG_KHR);
+
+    bool isProtectedContext = true;
+    EGLContext context      = EGL_NO_CONTEXT;
+    EXPECT_TRUE(createContext(isProtectedContext, config, &context));
+    ASSERT_EGL_SUCCESS() << "eglCreateContext failed.";
+
+    EGLint value = 0;
+    EXPECT_EGL_TRUE(eglQueryContext(mDisplay, context, EGL_PROTECTED_CONTENT_EXT, &value));
+    ASSERT_EGL_SUCCESS() << "eglQueryContext failed.";
+
+    EXPECT_EQ(value, 1);
 }
 
 ANGLE_INSTANTIATE_TEST(EGLProtectedContentTest,

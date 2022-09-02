@@ -335,8 +335,8 @@ public:
                         // This only supports structures that are JSFinalObject or JSArray.
                         VALIDATE(
                             (node),
-                            structure->classInfo() == JSFinalObject::info()
-                            || structure->classInfo() == JSArray::info());
+                            structure->classInfoForCells() == JSFinalObject::info()
+                            || structure->classInfoForCells() == JSArray::info());
 
                         // We only support certain indexing shapes.
                         VALIDATE((node), !hasAnyArrayStorage(structure->indexingType()));
@@ -382,6 +382,9 @@ public:
                         VALIDATE((node), inlineCallFrame->isVarargs());
                     break;
                 }
+                case GetIndexedPropertyStorage:
+                    VALIDATE((node), node->arrayMode().type() != Array::String);
+                    break;
                 case NewArray:
                     VALIDATE((node), node->vectorLengthHint() >= node->numChildren());
                     break;

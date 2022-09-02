@@ -32,21 +32,18 @@
 
 namespace WebCore {
 
-void AXIsolatedObject::initializePlatformProperties(const AXCoreObject& object, bool isRoot)
+void AXIsolatedObject::initializePlatformProperties(Ref<const AXCoreObject> object, IsRoot isRoot)
 {
-    setProperty(AXPropertyName::Description, object.descriptionAttributeValue().isolatedCopy());
-    setProperty(AXPropertyName::HasApplePDFAnnotationAttribute, object.hasApplePDFAnnotationAttribute());
-    setProperty(AXPropertyName::HelpText, object.helpTextAttributeValue().isolatedCopy());
-    setProperty(AXPropertyName::SpeechHint, object.speechHintAttributeValue().isolatedCopy());
-    setProperty(AXPropertyName::TitleAttributeValue, object.titleAttributeValue().isolatedCopy());
-    setProperty(AXPropertyName::CaretBrowsingEnabled, object.caretBrowsingEnabled());
+    setProperty(AXPropertyName::HasApplePDFAnnotationAttribute, object->hasApplePDFAnnotationAttribute());
+    setProperty(AXPropertyName::SpeechHint, object->speechHintAttributeValue().isolatedCopy());
+    setProperty(AXPropertyName::CaretBrowsingEnabled, object->caretBrowsingEnabled());
 
-    if (isRoot)
-        setProperty(AXPropertyName::PreventKeyboardDOMEventDispatch, object.preventKeyboardDOMEventDispatch());
+    if (isRoot == IsRoot::Yes)
+        setProperty(AXPropertyName::PreventKeyboardDOMEventDispatch, object->preventKeyboardDOMEventDispatch());
 
-    if (object.isScrollView()) {
-        m_platformWidget = object.platformWidget();
-        m_remoteParent = object.remoteParentObject();
+    if (object->isScrollView()) {
+        m_platformWidget = object->platformWidget();
+        m_remoteParent = object->remoteParentObject();
     }
 }
 
@@ -65,6 +62,11 @@ FloatRect AXIsolatedObject::convertRectToPlatformSpace(const FloatRect& rect, Ac
             return axObject->convertRectToPlatformSpace(rect, space);
         return { };
     });
+}
+
+bool AXIsolatedObject::isDetached() const
+{
+    return !wrapper() || [wrapper() axBackingObject] != this;
 }
 
 void AXIsolatedObject::attachPlatformWrapper(AccessibilityObjectWrapper* wrapper)
@@ -98,6 +100,21 @@ void AXIsolatedObject::setPreventKeyboardDOMEventDispatch(bool value)
     performFunctionOnMainThread([&value](AXCoreObject* object) {
         object->setPreventKeyboardDOMEventDispatch(value);
     });
+}
+
+String AXIsolatedObject::descriptionAttributeValue() const
+{
+    return const_cast<AXIsolatedObject*>(this)->getOrRetrievePropertyValue<String>(AXPropertyName::Description);
+}
+
+String AXIsolatedObject::helpTextAttributeValue() const
+{
+    return const_cast<AXIsolatedObject*>(this)->getOrRetrievePropertyValue<String>(AXPropertyName::HelpText);
+}
+
+String AXIsolatedObject::titleAttributeValue() const
+{
+    return const_cast<AXIsolatedObject*>(this)->getOrRetrievePropertyValue<String>(AXPropertyName::TitleAttributeValue);
 }
 
 } // WebCore

@@ -21,11 +21,13 @@
 #pragma once
 
 #include "CSSRuleList.h"
+#include "CommonAtomStrings.h"
 #include "ExceptionOr.h"
 #include "StyleSheet.h"
 #include <memory>
 #include <wtf/Noncopyable.h>
 #include <wtf/TypeCasts.h>
+#include <wtf/WeakPtr.h>
 #include <wtf/text/AtomStringHash.h>
 #include <wtf/text/TextPosition.h>
 
@@ -138,7 +140,7 @@ private:
     CSSStyleSheet(Ref<StyleSheetContents>&&, Node& ownerNode, const TextPosition& startPosition, bool isInlineStylesheet, const std::optional<bool>&);
 
     bool isCSSStyleSheet() const final { return true; }
-    String type() const final { return "text/css"_s; }
+    String type() const final { return cssContentTypeAtom(); }
 
     Ref<StyleSheetContents> m_contents;
     bool m_isInlineStylesheet { false };
@@ -147,6 +149,7 @@ private:
     std::optional<bool> m_isOriginClean;
     String m_title;
     RefPtr<MediaQuerySet> m_mediaQueries;
+    WeakPtr<Style::Scope> m_styleScope;
 
     Node* m_ownerNode { nullptr };
     CSSImportRule* m_ownerRule { nullptr };

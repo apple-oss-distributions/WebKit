@@ -55,6 +55,7 @@ enum class SpaceDistributionLimit : uint8_t  {
 };
 
 class GridTrackSizingAlgorithmStrategy;
+class GridItemWithSpan;
 
 class GridTrack {
 public:
@@ -120,6 +121,8 @@ public:
     // FIXME (jfernandez): We should remove any public getter for this attribute
     // and encapsulate any access in the algorithm class.
     Grid& mutableGrid() const { return m_grid; }
+
+    const RenderGrid* renderGrid() const { return m_renderGrid; };
 
     LayoutUnit minContentSize() const { return m_minContentSize; };
     LayoutUnit maxContentSize() const { return m_maxContentSize; };
@@ -193,6 +196,10 @@ private:
     void stretchFlexibleTracks(std::optional<LayoutUnit> freeSpace);
     void stretchAutoTracks();
 
+    void accumulateIntrinsicSizesForTrack(GridTrack&, GridIterator&, Vector<GridItemWithSpan>& itemsSortedByIncreasingSpan, Vector<GridItemWithSpan>& itemsCrossingFlexibleTracks, HashSet<RenderBox*>& itemsSet);
+
+    bool copyUsedTrackSizesForSubgrid();
+
     // State machine.
     void advanceNextState();
     bool isValidTransition() const;
@@ -234,6 +241,7 @@ private:
 
     enum SizingState {
         ColumnSizingFirstIteration,
+        ColumnSizingExtraIterationForSizeContainment,
         RowSizingFirstIteration,
         RowSizingExtraIterationForSizeContainment,
         ColumnSizingSecondIteration,
@@ -274,6 +282,7 @@ public:
     virtual bool recomputeUsedFlexFractionIfNeeded(double& flexFraction, LayoutUnit& totalGrowth) const = 0;
     virtual LayoutUnit freeSpaceForStretchAutoTracksStep() const = 0;
     virtual bool isComputingSizeContainment() const = 0;
+    virtual bool isComputingInlineSizeContainment() const = 0;
 
 protected:
     GridTrackSizingAlgorithmStrategy(GridTrackSizingAlgorithm& algorithm)

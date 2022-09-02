@@ -92,6 +92,20 @@ bool MediaSessionManagerCocoa::mediaSourceInlinePaintingEnabled()
 }
 #endif
 
+#if HAVE(AVCONTENTKEYSPECIFIER)
+static bool s_sampleBufferContentKeySessionSupportEnabled = false;
+void MediaSessionManagerCocoa::setSampleBufferContentKeySessionSupportEnabled(bool enabled)
+{
+    s_sampleBufferContentKeySessionSupportEnabled = enabled;
+}
+
+bool MediaSessionManagerCocoa::sampleBufferContentKeySessionSupportEnabled()
+{
+    return s_sampleBufferContentKeySessionSupportEnabled;
+}
+#endif
+
+
 void MediaSessionManagerCocoa::updateSessionState()
 {
     constexpr auto delayBeforeSettingCategoryNone = 2_s;
@@ -99,6 +113,7 @@ void MediaSessionManagerCocoa::updateSessionState()
     int videoAudioCount = 0;
     int audioCount = 0;
     int webAudioCount = 0;
+    int audioMediaStreamTrackCount = 0;
     int captureCount = countActiveAudioCaptureSources();
     bool hasAudibleAudioOrVideoMediaType = false;
     bool isPlayingAudio = false;
@@ -112,9 +127,13 @@ void MediaSessionManagerCocoa::updateSessionState()
             break;
         case PlatformMediaSession::MediaType::VideoAudio:
             ++videoAudioCount;
+            if (session.canProduceAudio() && session.hasMediaStreamSource())
+                ++audioMediaStreamTrackCount;
             break;
         case PlatformMediaSession::MediaType::Audio:
             ++audioCount;
+            if (session.canProduceAudio() && session.hasMediaStreamSource())
+                ++audioMediaStreamTrackCount;
             break;
         case PlatformMediaSession::MediaType::WebAudio:
             if (session.canProduceAudio()) {
@@ -138,6 +157,7 @@ void MediaSessionManagerCocoa::updateSessionState()
 
     ALWAYS_LOG(LOGIDENTIFIER, "types: "
         "AudioCapture(", captureCount, "), "
+        "AudioTrack(", audioMediaStreamTrackCount, "), "
         "Video(", videoCount, "), "
         "Audio(", audioCount, "), "
         "VideoAudio(", videoAudioCount, "), "
@@ -146,8 +166,8 @@ void MediaSessionManagerCocoa::updateSessionState()
     size_t bufferSize = m_defaultBufferSize;
     if (webAudioCount)
         bufferSize = AudioUtilities::renderQuantumSize;
-    else if (captureCount) {
-        // In case of audio capture, we want to grab 20 ms chunks to limit the latency so that it is not noticeable by users
+    else if (captureCount || audioMediaStreamTrackCount) {
+        // In case of audio capture or audio MediaStreamTrack playing, we want to grab 20 ms chunks to limit the latency so that it is not noticeable by users
         // while having a large enough buffer so that the audio rendering remains stable, hence a computation based on sample rate.
         bufferSize = AudioSession::sharedSession().sampleRate() / 50;
     } else if (m_supportedAudioHardwareBufferSizes && DeprecatedGlobalSettings::lowPowerVideoAudioBufferSizeEnabled())
@@ -158,14 +178,12 @@ void MediaSessionManagerCocoa::updateSessionState()
     if (!DeprecatedGlobalSettings::shouldManageAudioSessionCategory())
         return;
 
-    RouteSharingPolicy policy = RouteSharingPolicy::Default;
     auto category = AudioSession::CategoryType::None;
     if (captureCount || (isPlayingAudio && AudioSession::sharedSession().category() == AudioSession::CategoryType::PlayAndRecord))
         category = AudioSession::CategoryType::PlayAndRecord;
-    else if (hasAudibleAudioOrVideoMediaType) {
+    else if (hasAudibleAudioOrVideoMediaType)
         category = AudioSession::CategoryType::MediaPlayback;
-        policy = RouteSharingPolicy::LongFormAudio;
-    } else if (webAudioCount)
+    else if (webAudioCount)
         category = AudioSession::CategoryType::AmbientSound;
 
     if (category == AudioSession::CategoryType::None && m_previousCategory != AudioSession::CategoryType::None) {
@@ -177,9 +195,11 @@ void MediaSessionManagerCocoa::updateSessionState()
     } else
         m_delayCategoryChangeTimer.stop();
 
-    m_previousCategory = category;
+    RouteSharingPolicy policy = (category == AudioSession::CategoryType::MediaPlayback) ? RouteSharingPolicy::LongFormAudio : RouteSharingPolicy::Default;
 
-    ALWAYS_LOG(LOGIDENTIFIER, "setting category = ", category, ", policy = ", policy);
+    ALWAYS_LOG(LOGIDENTIFIER, "setting category = ", category, ", policy = ", policy, ", previous category = ", m_previousCategory);
+
+    m_previousCategory = category;
     AudioSession::sharedSession().setCategory(category, policy);
 }
 
@@ -188,6 +208,14 @@ void MediaSessionManagerCocoa::possiblyChangeAudioCategory()
     ALWAYS_LOG(LOGIDENTIFIER);
     m_previousCategory = AudioSession::CategoryType::None;
     updateSessionState();
+}
+
+void MediaSessionManagerCocoa::resetSessionState()
+{
+    ALWAYS_LOG(LOGIDENTIFIER);
+    m_delayCategoryChangeTimer.stop();
+    m_previousCategory = AudioSession::CategoryType::None;
+    m_previousHadAudibleAudioOrVideoMediaType = false;
 }
 
 void MediaSessionManagerCocoa::beginInterruption(PlatformMediaSession::InterruptionType type)
@@ -281,7 +309,7 @@ void MediaSessionManagerCocoa::sessionWillEndPlayback(PlatformMediaSession& sess
     }
 }
 
-void MediaSessionManagerCocoa::clientCharacteristicsChanged(PlatformMediaSession& session)
+void MediaSessionManagerCocoa::clientCharacteristicsChanged(PlatformMediaSession& session, bool)
 {
     ALWAYS_LOG(LOGIDENTIFIER, session.logIdentifier());
     scheduleSessionStatusUpdate();
@@ -348,7 +376,7 @@ void MediaSessionManagerCocoa::setNowPlayingInfo(bool setAsNowPlayingApplication
         CFDictionarySetValue(info.get(), kMRMediaRemoteNowPlayingInfoDuration, cfDuration.get());
     }
 
-    double rate = nowPlayingInfo.isPlaying ? 1 : 0;
+    double rate = nowPlayingInfo.isPlaying ? nowPlayingInfo.rate : 0;
     auto cfRate = adoptCF(CFNumberCreate(kCFAllocatorDefault, kCFNumberDoubleType, &rate));
     CFDictionarySetValue(info.get(), kMRMediaRemoteNowPlayingInfoPlaybackRate, cfRate.get());
 
@@ -430,8 +458,8 @@ void MediaSessionManagerCocoa::updateNowPlayingInfo()
 
     if (m_nowPlayingManager->setNowPlayingInfo(*nowPlayingInfo)) {
 #ifdef LOG_DISABLED
-        String src = "src";
-        String title = "title";
+        String src = "src"_s;
+        String title = "title"_s;
 #else
         String src = nowPlayingInfo->artwork ? nowPlayingInfo->artwork->src : String();
         String title = nowPlayingInfo->title;

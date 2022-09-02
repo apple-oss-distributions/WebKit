@@ -29,6 +29,7 @@
 #if PLATFORM(IOS_FAMILY)
 
 #import "Logging.h"
+#import "ProcessStateMonitor.h"
 #import "RunningBoardServicesSPI.h"
 #import "WebProcessPool.h"
 #import <UIKit/UIApplication.h>
@@ -43,7 +44,7 @@ using WebKit::ProcessAndUIAssertion;
 
 static WorkQueue& assertionsWorkQueue()
 {
-    static NeverDestroyed<Ref<WorkQueue>> workQueue(WorkQueue::create("ProcessAssertion Queue"));
+    static NeverDestroyed<Ref<WorkQueue>> workQueue(WorkQueue::create("ProcessAssertion Queue", WorkQueue::QOS::UserInitiated));
     return workQueue.get();
 }
 
@@ -64,6 +65,7 @@ static bool processHasActiveRunTimeLimitation()
 
 - (void)addAssertionNeedingBackgroundTask:(ProcessAndUIAssertion&)assertion;
 - (void)removeAssertionNeedingBackgroundTask:(ProcessAndUIAssertion&)assertion;
+- (void)setProcessStateMonitorEnabled:(BOOL)enabled;
 
 @end
 
@@ -73,6 +75,7 @@ static bool processHasActiveRunTimeLimitation()
     std::atomic<bool> _backgroundTaskWasInvalidated;
     WeakHashSet<ProcessAndUIAssertion> _assertionsNeedingBackgroundTask;
     dispatch_block_t _pendingTaskReleaseTask;
+    std::unique_ptr<WebKit::ProcessStateMonitor> m_processStateMonitor;
 }
 
 + (WKProcessAssertionBackgroundTaskManager *)shared
@@ -242,12 +245,30 @@ static bool processHasActiveRunTimeLimitation()
         return;
 
     RELEASE_LOG(ProcessSuspension, "%p - WKProcessAssertionBackgroundTaskManager: endBackgroundTask", self);
-    if (processHasActiveRunTimeLimitation())
+    if (processHasActiveRunTimeLimitation()) {
         WebKit::WebProcessPool::notifyProcessPoolsApplicationIsAboutToSuspend();
+        if (m_processStateMonitor)
+            m_processStateMonitor->processWillBeSuspendedImmediately();
+    }
 
     [_backgroundTask removeObserver:self];
     [_backgroundTask invalidate];
     _backgroundTask = nullptr;
+}
+
+- (void)setProcessStateMonitorEnabled:(BOOL)enabled
+{
+    if (!enabled) {
+        m_processStateMonitor = nullptr;
+        return;
+    }
+
+    if (!m_processStateMonitor) {
+        m_processStateMonitor = makeUnique<WebKit::ProcessStateMonitor>([](bool suspended) {
+            for (auto& processPool : WebKit::WebProcessPool::allProcessPools())
+                processPool->setProcessesShouldSuspend(suspended);
+        });
+    }
 }
 
 @end
@@ -280,7 +301,7 @@ typedef void(^RBSAssertionInvalidationCallbackType)();
 
 - (void)assertion:(RBSAssertion *)assertion didInvalidateWithError:(NSError *)error
 {
-    RELEASE_LOG(ProcessSuspension, "%p - WKRBSAssertionDelegate: assertion was invalidated, error: %{public}@", error, self);
+    RELEASE_LOG(ProcessSuspension, "%p - WKRBSAssertionDelegate: assertion was invalidated, error: %{public}@", self, error);
 
     RunLoop::main().dispatch([weakSelf = WeakObjCPtr<WKRBSAssertionDelegate>(self)] {
         auto strongSelf = weakSelf.get();
@@ -353,6 +374,23 @@ ProcessAssertion::ProcessAssertion(pid_t pid, const String& reason, ProcessAsser
     };
 }
 
+double ProcessAssertion::remainingRunTimeInSeconds(ProcessID pid)
+{
+    RBSProcessIdentifier *processIdentifier = [RBSProcessIdentifier identifierWithPid:pid];
+    if (!processIdentifier) {
+        RELEASE_LOG_ERROR(ProcessSuspension, "ProcessAssertion::remainingRunTimeInSeconds failed to get identifier for process with PID=%d", pid);
+        return 0;
+    }
+
+    RBSProcessHandle *processHandle = [RBSProcessHandle handleForIdentifier:processIdentifier error:nil];
+    if (!processHandle) {
+        RELEASE_LOG_ERROR(ProcessSuspension, "ProcessAssertion::remainingRunTimeInSeconds failed to get handle for process with PID=%d", pid);
+        return 0;
+    }
+
+    return processHandle.activeLimitations.runTime;
+}
+
 void ProcessAssertion::acquireAsync(CompletionHandler<void()>&& completionHandler)
 {
     ASSERT(isMainRunLoop());
@@ -367,15 +405,17 @@ void ProcessAssertion::acquireAsync(CompletionHandler<void()>&& completionHandle
 
 void ProcessAssertion::acquireSync()
 {
+    RELEASE_LOG(ProcessSuspension, "%p - ProcessAssertion::acquireSync Trying to take RBS assertion '%{public}s' for process with PID=%d", this, m_reason.utf8().data(), m_pid);
+
     NSError *acquisitionError = nil;
     if (![m_rbsAssertion acquireWithError:&acquisitionError]) {
-        RELEASE_LOG_ERROR(ProcessSuspension, "%p - ProcessAssertion: Failed to acquire RBS assertion '%{public}s' for process with PID=%d, error: %{public}@", this, m_reason.utf8().data(), m_pid, acquisitionError);
+        RELEASE_LOG_ERROR(ProcessSuspension, "%p - ProcessAssertion::acquireSync Failed to acquire RBS assertion '%{public}s' for process with PID=%d, error: %{public}@", this, m_reason.utf8().data(), m_pid, acquisitionError);
         RunLoop::main().dispatch([weakThis = WeakPtr { *this }] {
             if (weakThis)
                 weakThis->processAssertionWasInvalidated();
         });
     } else
-        RELEASE_LOG(ProcessSuspension, "%p - ProcessAssertion: Successfully took RBS assertion '%{public}s' for process with PID=%d", this, m_reason.utf8().data(), m_pid);
+        RELEASE_LOG(ProcessSuspension, "%p - ProcessAssertion::acquireSync Successfully took RBS assertion '%{public}s' for process with PID=%d", this, m_reason.utf8().data(), m_pid);
 }
 
 ProcessAssertion::~ProcessAssertion()
@@ -433,6 +473,11 @@ ProcessAndUIAssertion::ProcessAndUIAssertion(pid_t pid, const String& reason, Pr
     : ProcessAssertion(pid, reason, assertionType)
 {
     updateRunInBackgroundCount();
+}
+
+void ProcessAndUIAssertion::setProcessStateMonitorEnabled(bool enabled)
+{
+    [[WKProcessAssertionBackgroundTaskManager shared] setProcessStateMonitorEnabled:enabled];
 }
 
 ProcessAndUIAssertion::~ProcessAndUIAssertion()

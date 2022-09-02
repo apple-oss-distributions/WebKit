@@ -195,9 +195,9 @@ void RemoteScrollingCoordinatorProxy::handleMouseEvent(const WebCore::PlatformMo
     m_scrollingTree->handleMouseEvent(event);
 }
 
-TrackingType RemoteScrollingCoordinatorProxy::eventTrackingTypeForPoint(const AtomString& eventName, IntPoint p) const
+TrackingType RemoteScrollingCoordinatorProxy::eventTrackingTypeForPoint(WebCore::EventTrackingRegions::EventType eventType, IntPoint p) const
 {
-    return m_scrollingTree->eventTrackingTypeForPoint(eventName, p);
+    return m_scrollingTree->eventTrackingTypeForPoint(eventType, p);
 }
 
 void RemoteScrollingCoordinatorProxy::viewportChangedViaDelegatedScrolling(const FloatPoint& scrollPosition, const FloatRect& layoutViewport, double scale)
@@ -227,7 +227,7 @@ void RemoteScrollingCoordinatorProxy::scrollingTreeNodeDidScroll(ScrollingNodeID
         return;
 
 #if PLATFORM(IOS_FAMILY)
-    m_webPageProxy.scrollingNodeScrollViewDidScroll();
+    m_webPageProxy.scrollingNodeScrollViewDidScroll(scrolledNodeID);
 #endif
 
     if (m_scrollingTree->isHandlingProgrammaticScroll())
@@ -265,6 +265,11 @@ bool RemoteScrollingCoordinatorProxy::hasScrollableMainFrame() const
     return rootNode && rootNode->canHaveScrollbars();
 }
 
+ScrollingTreeScrollingNode* RemoteScrollingCoordinatorProxy::rootNode() const
+{
+    return m_scrollingTree->rootNode();
+}
+
 bool RemoteScrollingCoordinatorProxy::hasScrollableOrZoomedMainFrame() const
 {
     auto* rootNode = m_scrollingTree->rootNode();
@@ -272,7 +277,7 @@ bool RemoteScrollingCoordinatorProxy::hasScrollableOrZoomedMainFrame() const
         return false;
 
 #if PLATFORM(IOS_FAMILY)
-    if (WebCore::IOSApplication::isEventbrite() && !linkedOnOrAfter(SDKVersion::FirstThatSupportsOverflowHiddenOnMainFrame))
+    if (WebCore::IOSApplication::isEventbrite() && !linkedOnOrAfterSDKWithBehavior(SDKAlignedBehavior::SupportsOverflowHiddenOnMainFrame))
         return true;
 #endif
 

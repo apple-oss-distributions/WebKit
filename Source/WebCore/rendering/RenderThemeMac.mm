@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2005-2021 Apple Inc. All rights reserved.
+ * Copyright (C) 2005-2022 Apple Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -59,7 +59,6 @@
 #import "RenderProgress.h"
 #import "RenderSlider.h"
 #import "RenderView.h"
-#import "RuntimeEnabledFeatures.h"
 #import "SharedBuffer.h"
 #import "StringTruncator.h"
 #import "ThemeMac.h"
@@ -261,11 +260,6 @@ bool RenderThemeMac::canPaint(const PaintInfo& paintInfo, const Settings&) const
     return paintInfo.context().hasPlatformContext();
 }
 
-CFStringRef RenderThemeMac::contentSizeCategory() const
-{
-    return kCTFontContentSizeCategoryL;
-}
-
 RenderThemeMac::RenderThemeMac()
     : m_notificationObserver(adoptNS([[WebCoreRenderThemeNotificationObserver alloc] init]))
 {
@@ -390,13 +384,11 @@ Color RenderThemeMac::platformTextSearchHighlightColor(OptionSet<StyleColorOptio
     return colorFromCocoaColor([NSColor findHighlightColor]);
 }
 
-#if ENABLE(APP_HIGHLIGHTS)
-Color RenderThemeMac::platformAppHighlightColor(OptionSet<StyleColorOptions>) const
+Color RenderThemeMac::platformAnnotationHighlightColor(OptionSet<StyleColorOptions>) const
 {
     // FIXME: expose the real value from AppKit.
     return SRGBA<uint8_t> { 255, 238, 190 };
 }
-#endif
 
 Color RenderThemeMac::platformDefaultButtonTextColor(OptionSet<StyleColorOptions> options) const
 {
@@ -951,7 +943,7 @@ void RenderThemeMac::setFontFromControlSize(RenderStyle& style, NSControlSize co
     fontDescription.setIsAbsoluteSize(true);
 
     NSFont* font = [NSFont systemFontOfSize:[NSFont systemFontSizeForControlSize:controlSize]];
-    fontDescription.setOneFamily(AtomString("-apple-system", AtomString::ConstructFromLiteral));
+    fontDescription.setOneFamily("-apple-system"_s);
     fontDescription.setComputedSize([font pointSize] * style.effectiveZoom());
     fontDescription.setSpecifiedSize([font pointSize] * style.effectiveZoom());
 
@@ -996,7 +988,7 @@ void RenderThemeMac::paintListButtonForInput(const RenderObject& o, GraphicsCont
 
     float deviceScaleFactor = o.document().deviceScaleFactor();
 
-    auto comboBoxImageBuffer = ImageBuffer::createCompatibleBuffer(comboBoxSize, deviceScaleFactor, DestinationColorSpace::SRGB(), context);
+    auto comboBoxImageBuffer = context.createImageBuffer(comboBoxSize, deviceScaleFactor);
     if (!comboBoxImageBuffer)
         return;
 
@@ -1020,7 +1012,7 @@ void RenderThemeMac::paintListButtonForInput(const RenderObject& o, GraphicsCont
         (__bridge NSString *)kCUIUserInterfaceLayoutDirectionKey : (__bridge NSString *)kCUIUserInterfaceLayoutDirectionLeftToRight,
     }];
 
-    auto comboBoxButtonImageBuffer = ImageBuffer::createCompatibleBuffer(desiredComboBoxButtonSize, deviceScaleFactor, DestinationColorSpace::SRGB(), context);
+    auto comboBoxButtonImageBuffer = context.createImageBuffer(desiredComboBoxButtonSize, deviceScaleFactor);
     if (!comboBoxButtonImageBuffer)
         return;
 
@@ -1095,27 +1087,52 @@ void RenderThemeMac::adjustImageControlsButtonStyle(RenderStyle& style, const El
 }
 #endif
 
+bool RenderThemeMac::shouldPaintCustomTextField(const RenderObject& renderer) const
+{
+    // <rdar://problem/88948646> Prevent AppKit from painting text fields in the light appearance
+    // with increased contrast, as the border is not painted, rendering the control invisible.
+#if HAVE(LARGE_CONTROL_SIZE)
+    return Theme::singleton().userPrefersContrast() && !renderer.useDarkAppearance();
+#else
+    UNUSED_PARAM(renderer);
+    return false;
+#endif
+}
+
 bool RenderThemeMac::paintTextField(const RenderObject& o, const PaintInfo& paintInfo, const FloatRect& r)
 {
-    LocalCurrentGraphicsContext localContext(paintInfo.context());
+    FloatRect paintRect(r);
+    auto& context = paintInfo.context();
 
-    // <rdar://problem/22896977> We adjust the paint rect here to account for how AppKit draws the text
-    // field cell slightly smaller than the rect we pass to drawWithFrame.
-    FloatRect adjustedPaintRect(r);
-    AffineTransform transform = paintInfo.context().getCTM();
-    if (transform.xScale() > 1 || transform.yScale() > 1) {
-        adjustedPaintRect.inflateX(1 / transform.xScale());
-        adjustedPaintRect.inflateY(2 / transform.yScale());
-        adjustedPaintRect.move(0, -1 / transform.yScale());
+    LocalCurrentGraphicsContext localContext(context);
+    GraphicsContextStateSaver stateSaver(context);
+
+    auto enabled = isEnabled(o) && !isReadOnlyControl(o);
+
+    if (shouldPaintCustomTextField(o)) {
+        constexpr int strokeThickness = 1;
+
+        FloatRect strokeRect(paintRect);
+        strokeRect.inflate(-strokeThickness / 2.0f);
+
+        context.setStrokeColor(enabled ? Color::black : Color::darkGray);
+        context.setStrokeStyle(SolidStroke);
+        context.strokeRect(strokeRect, strokeThickness);
+    } else {
+        // <rdar://problem/22896977> We adjust the paint rect here to account for how AppKit draws the text
+        // field cell slightly smaller than the rect we pass to drawWithFrame.
+        AffineTransform transform = context.getCTM();
+        if (transform.xScale() > 1 || transform.yScale() > 1) {
+            paintRect.inflateX(1 / transform.xScale());
+            paintRect.inflateY(2 / transform.yScale());
+            paintRect.move(0, -1 / transform.yScale());
+        }
+
+        NSTextFieldCell *textField = this->textField();
+        [textField setEnabled:enabled];
+        [textField drawWithFrame:NSRect(paintRect) inView:documentViewFor(o)];
+        [textField setControlView:nil];
     }
-    NSTextFieldCell *textField = this->textField();
-
-    GraphicsContextStateSaver stateSaver(paintInfo.context());
-
-    [textField setEnabled:(isEnabled(o) && !isReadOnlyControl(o))];
-    [textField drawWithFrame:NSRect(adjustedPaintRect) inView:documentViewFor(o)];
-
-    [textField setControlView:nil];
 
 #if ENABLE(DATALIST_ELEMENT)
     if (!is<HTMLInputElement>(o.generatingNode()))
@@ -1123,7 +1140,7 @@ bool RenderThemeMac::paintTextField(const RenderObject& o, const PaintInfo& pain
 
     const auto& input = downcast<HTMLInputElement>(*(o.generatingNode()));
     if (input.list())
-        paintListButtonForInput(o, paintInfo.context(), adjustedPaintRect);
+        paintListButtonForInput(o, context, paintRect);
 #endif
 
     return false;
@@ -1243,33 +1260,7 @@ bool RenderThemeMac::paintMeter(const RenderObject& renderObject, const PaintInf
 
 bool RenderThemeMac::supportsMeter(ControlPart part, const HTMLMeterElement&) const
 {
-    switch (part) {
-    case RelevancyLevelIndicatorPart:
-    case DiscreteCapacityLevelIndicatorPart:
-    case RatingLevelIndicatorPart:
-    case MeterPart:
-    case ContinuousCapacityLevelIndicatorPart:
-        return true;
-    default:
-        return false;
-    }
-}
-
-NSLevelIndicatorStyle RenderThemeMac::levelIndicatorStyleFor(ControlPart part) const
-{
-    switch (part) {
-    case RelevancyLevelIndicatorPart:
-        return NSLevelIndicatorStyleRelevancy;
-    case DiscreteCapacityLevelIndicatorPart:
-        return NSLevelIndicatorStyleDiscreteCapacity;
-    case RatingLevelIndicatorPart:
-        return NSLevelIndicatorStyleRating;
-    case MeterPart:
-    case ContinuousCapacityLevelIndicatorPart:
-    default:
-        return NSLevelIndicatorStyleContinuousCapacity;
-    }
-
+    return part == MeterPart;
 }
 
 NSLevelIndicatorCell* RenderThemeMac::levelIndicatorFor(const RenderMeter& renderMeter) const
@@ -1304,7 +1295,7 @@ NSLevelIndicatorCell* RenderThemeMac::levelIndicatorFor(const RenderMeter& rende
         break;
     }
 
-    [cell setLevelIndicatorStyle:levelIndicatorStyleFor(style.effectiveAppearance())];
+    [cell setLevelIndicatorStyle:NSLevelIndicatorStyleContinuousCapacity];
     [cell setUserInterfaceLayoutDirection:style.isLeftToRightDirection() ? NSUserInterfaceLayoutDirectionLeftToRight : NSUserInterfaceLayoutDirectionRightToLeft];
     [cell setMinValue:element->min()];
     [cell setMaxValue:element->max()];
@@ -1379,7 +1370,7 @@ bool RenderThemeMac::paintProgressBar(const RenderObject& renderObject, const Pa
     const auto& renderProgress = downcast<RenderProgress>(renderObject);
     float deviceScaleFactor = renderObject.document().deviceScaleFactor();
     bool isIndeterminate = renderProgress.position() < 0;
-    auto imageBuffer = ImageBuffer::createCompatibleBuffer(inflatedRect.size(), deviceScaleFactor, DestinationColorSpace::SRGB(), paintInfo.context());
+    auto imageBuffer = paintInfo.context().createImageBuffer(inflatedRect.size(), deviceScaleFactor);
     if (!imageBuffer)
         return true;
 
@@ -1621,6 +1612,7 @@ static const IntSize* menuListButtonSizes()
 
 void RenderThemeMac::adjustMenuListStyle(RenderStyle& style, const Element* e) const
 {
+    RenderTheme::adjustMenuListStyle(style, e);
     NSControlSize controlSize = controlSizeForFont(style);
 
     style.resetBorder();
@@ -1758,7 +1750,7 @@ bool RenderThemeMac::paintSliderTrack(const RenderObject& o, const PaintInfo& pa
     float zoomLevel = o.style().effectiveZoom();
     float zoomedTrackWidth = trackWidth * zoomLevel;
 
-    if (o.style().effectiveAppearance() ==  SliderHorizontalPart || o.style().effectiveAppearance() ==  MediaSliderPart) {
+    if (o.style().effectiveAppearance() ==  SliderHorizontalPart) {
         bounds.setHeight(zoomedTrackWidth);
         bounds.setY(r.y() + r.height() / 2 - zoomedTrackWidth / 2);
     } else if (o.style().effectiveAppearance() == SliderVerticalPart) {
@@ -2564,6 +2556,51 @@ int RenderThemeMac::attachmentBaseline(const RenderAttachment& attachment) const
     return layout.baseline;
 }
 
+static RefPtr<Icon> iconForAttachment(const String& fileName, const String& attachmentType, const String& title)
+{
+    if (!attachmentType.isEmpty()) {
+        if (equalLettersIgnoringASCIICase(attachmentType, "multipart/x-folder"_s) || equalLettersIgnoringASCIICase(attachmentType, "application/vnd.apple.folder"_s)) {
+ALLOW_DEPRECATED_DECLARATIONS_BEGIN
+            auto type = kUTTypeFolder;
+ALLOW_DEPRECATED_DECLARATIONS_END
+            if (auto icon = Icon::createIconForUTI(type))
+                return icon;
+        } else {
+            String type;
+            if (isDeclaredUTI(attachmentType))
+                type = attachmentType;
+            else
+                type = UTIFromMIMEType(attachmentType);
+
+            if (auto icon = Icon::createIconForUTI(type))
+                return icon;
+        }
+    }
+
+    if (!fileName.isEmpty()) {
+        if (auto icon = Icon::createIconForFiles({ fileName }))
+            return icon;
+    }
+
+    NSString *cocoaTitle = title;
+    if (auto fileExtension = cocoaTitle.pathExtension; fileExtension.length) {
+        if (auto icon = Icon::createIconForFileExtension(fileExtension))
+            return icon;
+    }
+
+    return Icon::createIconForUTI("public.data"_s);
+}
+
+RetainPtr<NSImage> RenderThemeMac::iconForAttachment(const String& fileName, const String& attachmentType, const String& title)
+{
+    if (fileName.isNull() && attachmentType.isNull() && title.isNull())
+        return nil;
+
+    if (auto icon = WebCore::iconForAttachment(fileName, attachmentType, title))
+        return icon->nsImage();
+    return nil;
+}
+
 static void paintAttachmentIconBackground(const RenderAttachment& attachment, GraphicsContext& context, AttachmentLayout& layout)
 {
     if (layout.style == AttachmentLayoutStyle::NonSelected)
@@ -2595,40 +2632,16 @@ static void paintAttachmentIconBackground(const RenderAttachment& attachment, Gr
     }
 }
 
-static RefPtr<Icon> iconForAttachment(const RenderAttachment& attachment)
+static bool shouldDrawIcon(const String& title)
 {
-    String attachmentType = attachment.attachmentElement().attachmentType();
-    
-    if (!attachmentType.isEmpty()) {
-        if (equalIgnoringASCIICase(attachmentType, "multipart/x-folder") || equalIgnoringASCIICase(attachmentType, "application/vnd.apple.folder")) {
-ALLOW_DEPRECATED_DECLARATIONS_BEGIN
-            if (auto icon = Icon::createIconForUTI(kUTTypeFolder))
-                return icon;
-ALLOW_DEPRECATED_DECLARATIONS_END
-        } else {
-            String UTI;
-            if (isDeclaredUTI(attachmentType))
-                UTI = attachmentType;
-            else
-                UTI = UTIFromMIMEType(attachmentType);
-
-            if (auto icon = Icon::createIconForUTI(UTI))
-                return icon;
-        }
+    // The thumbnail will be painted by the client.
+    NSString *cocoaTitle = title;
+    if (auto fileExtension = cocoaTitle.pathExtension; fileExtension.length) {
+        return ![fileExtension isEqualToString:@"key"]
+            && ![fileExtension isEqualToString:@"pages"]
+            && ![fileExtension isEqualToString:@"numbers"];
     }
-
-    if (File* file = attachment.attachmentElement().file()) {
-        if (auto icon = Icon::createIconForFiles({ file->path() }))
-            return icon;
-    }
-
-    NSString *fileExtension = [static_cast<NSString *>(attachment.attachmentElement().attachmentTitle()) pathExtension];
-    if (fileExtension.length) {
-        if (auto icon = Icon::createIconForFileExtension(fileExtension))
-            return icon;
-    }
-
-    return Icon::createIconForUTI("public.data");
+    return true;
 }
 
 static void paintAttachmentIcon(const RenderAttachment& attachment, GraphicsContext& context, AttachmentLayout& layout)
@@ -2637,10 +2650,26 @@ static void paintAttachmentIcon(const RenderAttachment& attachment, GraphicsCont
         context.drawImage(*thumbnailIcon, layout.iconRect);
         return;
     }
-    auto icon = iconForAttachment(attachment);
-    if (!icon)
+
+    if (context.paintingDisabled())
         return;
-    icon->paint(context, layout.iconRect);
+
+    auto icon = attachment.attachmentElement().icon();
+    if (!icon) {
+        attachment.attachmentElement().requestIconWithSize(layout.iconRect.size());
+        return;
+    }
+
+    auto image = icon->nsImage();
+    if (!image)
+        return;
+    
+    if (!shouldDrawIcon(attachment.attachmentElement().attachmentTitleForDisplay()))
+        return;
+
+    LocalCurrentGraphicsContext localCurrentGC(context);
+
+    [image drawInRect:layout.iconRect fromRect:NSMakeRect(0, 0, [image size].width, [image size].height) operation:NSCompositingOperationSourceOver fraction:1.0f];
 }
 
 static std::pair<RefPtr<Image>, float> createAttachmentPlaceholderImage(float deviceScaleFactor, const AttachmentLayout& layout)
@@ -2689,10 +2718,9 @@ static void paintAttachmentTitleBackground(const RenderAttachment& attachment, G
     if (layout.lines.isEmpty())
         return;
 
-    Vector<FloatRect> backgroundRects;
-
-    for (size_t i = 0; i < layout.lines.size(); ++i)
-        backgroundRects.append(layout.lines[i].backgroundRect);
+    auto backgroundRects = layout.lines.map([](auto& line) {
+        return line.backgroundRect;
+    });
 
     Color backgroundColor;
     if (attachment.frame().selection().isFocusedAndActive()) {

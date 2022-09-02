@@ -42,6 +42,11 @@ namespace WebCore {
 
 WTF_MAKE_ISO_ALLOCATED_IMPL(CharacterData);
 
+CharacterData::~CharacterData()
+{
+    willBeDeletedFrom(document());
+}
+
 static bool canUseSetDataOptimization(const CharacterData& node)
 {
     auto& document = node.document();
@@ -56,13 +61,12 @@ void CharacterData::setData(const String& data)
 
     if (m_data == nonNullData && canUseSetDataOptimization(*this)) {
         document().textRemoved(*this, 0, oldLength);
-        if (document().frame())
-            document().frame()->selection().textWasReplaced(this, 0, oldLength, oldLength);
+        if (auto* frame = document().frame())
+            frame->selection().textWasReplaced(*this, 0, oldLength, oldLength);
         return;
     }
 
-    Ref<CharacterData> protectedThis(*this);
-
+    Ref protectedThis { *this };
     setDataAndUpdate(nonNullData, 0, oldLength, nonNullData.length());
 }
 
@@ -78,6 +82,7 @@ static ContainerNode::ChildChange makeChildChange(CharacterData& characterData, 
 {
     return {
         ContainerNode::ChildChange::Type::TextChanged,
+        nullptr,
         ElementTraversal::previousSibling(characterData),
         ElementTraversal::nextSibling(characterData),
         source
@@ -112,14 +117,11 @@ unsigned CharacterData::parserAppendData(const String& string, unsigned offset, 
         styleInvalidation.emplace(*parent, childChange);
 
     String oldData = m_data;
-    if (string.is8Bit())
-        m_data.append(string.characters8() + offset, characterLengthLimit);
-    else
-        m_data.append(string.characters16() + offset, characterLengthLimit);
+    m_data = makeString(m_data, StringView(string).substring(offset, characterLengthLimit));
 
     ASSERT(!renderer() || is<Text>(*this));
-    if (is<Text>(*this))
-        downcast<Text>(*this).updateRendererAfterContentChange(oldLength, 0);
+    if (auto text = dynamicDowncast<Text>(*this))
+        text->updateRendererAfterContentChange(oldLength, 0);
 
     notifyParentAfterChange(childChange);
 
@@ -140,9 +142,8 @@ ExceptionOr<void> CharacterData::insertData(unsigned offset, const String& data)
     if (offset > length())
         return Exception { IndexSizeError };
 
-    String newData = m_data;
-    newData.insert(data, offset);
-    setDataAndUpdate(newData, offset, 0, data.length());
+    auto newData = makeStringByInserting(m_data, data, offset);
+    setDataAndUpdate(WTFMove(newData), offset, 0, data.length());
 
     return { };
 }
@@ -154,9 +155,8 @@ ExceptionOr<void> CharacterData::deleteData(unsigned offset, unsigned count)
 
     count = std::min(count, length() - offset);
 
-    String newData = m_data;
-    newData.remove(offset, count);
-    setDataAndUpdate(newData, offset, count, 0);
+    auto newData = makeStringByRemoving(m_data, offset, count);
+    setDataAndUpdate(WTFMove(newData), offset, count, 0);
 
     return { };
 }
@@ -168,10 +168,9 @@ ExceptionOr<void> CharacterData::replaceData(unsigned offset, unsigned count, co
 
     count = std::min(count, length() - offset);
 
-    String newData = m_data;
-    newData.remove(offset, count);
-    newData.insert(data, offset);
-    setDataAndUpdate(newData, offset, count, data.length());
+    StringView oldDataView { m_data };
+    auto newData = makeString(oldDataView.left(offset), data, oldDataView.substring(offset + count));
+    setDataAndUpdate(WTFMove(newData), offset, count, data.length());
 
     return { };
 }
@@ -181,17 +180,16 @@ String CharacterData::nodeValue() const
     return m_data;
 }
 
-ExceptionOr<void> CharacterData::setNodeValue(const String& nodeValue)
+void CharacterData::setNodeValue(const String& nodeValue)
 {
     setData(nodeValue);
-    return { };
 }
 
 void CharacterData::setDataAndUpdate(const String& newData, unsigned offsetOfReplacedData, unsigned oldLength, unsigned newLength, UpdateLiveRanges shouldUpdateLiveRanges)
 {
     auto childChange = makeChildChange(*this, ContainerNode::ChildChange::Source::API);
 
-    String oldData = m_data;
+    String oldData = WTFMove(m_data);
     {
         std::optional<Style::ChildChangeInvalidation> styleInvalidation;
         if (auto* parent = parentNode())
@@ -206,14 +204,13 @@ void CharacterData::setDataAndUpdate(const String& newData, unsigned offsetOfRep
         document().textInserted(*this, offsetOfReplacedData, newLength);
 
     ASSERT(!renderer() || is<Text>(*this));
-    if (is<Text>(*this))
-        downcast<Text>(*this).updateRendererAfterContentChange(offsetOfReplacedData, oldLength);
+    if (auto text = dynamicDowncast<Text>(*this))
+        text->updateRendererAfterContentChange(offsetOfReplacedData, oldLength);
+    else if (auto processingIntruction = dynamicDowncast<ProcessingInstruction>(*this))
+        processingIntruction->checkStyleSheet();
 
-    if (is<ProcessingInstruction>(*this))
-        downcast<ProcessingInstruction>(*this).checkStyleSheet();
-
-    if (document().frame())
-        document().frame()->selection().textWasReplaced(this, offsetOfReplacedData, oldLength, newLength);
+    if (auto* frame = document().frame())
+        frame->selection().textWasReplaced(*this, offsetOfReplacedData, oldLength, newLength);
 
     notifyParentAfterChange(childChange);
 

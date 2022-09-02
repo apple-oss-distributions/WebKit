@@ -27,6 +27,8 @@
 
 #include "Repatch.h"
 
+#include "VMTrapsInlines.h"
+
 namespace JSC {
 
 inline SlowPathReturnType handleHostCall(JSGlobalObject* globalObject, CallFrame* calleeFrame, JSValue callee, CallLinkInfo* callLinkInfo)
@@ -37,13 +39,13 @@ inline SlowPathReturnType handleHostCall(JSGlobalObject* globalObject, CallFrame
     calleeFrame->setCodeBlock(nullptr);
 
     if (callLinkInfo->specializationKind() == CodeForCall) {
-        auto callData = getCallData(vm, callee);
+        auto callData = JSC::getCallData(callee);
         ASSERT(callData.type != CallData::Type::JS);
 
         if (callData.type == CallData::Type::Native) {
             NativeCallFrameTracer tracer(vm, calleeFrame);
             calleeFrame->setCallee(asObject(callee));
-            vm.encodedHostCallReturnValue = callData.native.function(asObject(callee)->globalObject(vm), calleeFrame);
+            vm.encodedHostCallReturnValue = callData.native.function(asObject(callee)->globalObject(), calleeFrame);
             DisallowGC disallowGC;
             if (UNLIKELY(scope.exception())) {
                 return encodeResult(
@@ -65,13 +67,13 @@ inline SlowPathReturnType handleHostCall(JSGlobalObject* globalObject, CallFrame
 
     ASSERT(callLinkInfo->specializationKind() == CodeForConstruct);
 
-    auto constructData = getConstructData(vm, callee);
+    auto constructData = JSC::getConstructData(callee);
     ASSERT(constructData.type != CallData::Type::JS);
 
     if (constructData.type == CallData::Type::Native) {
         NativeCallFrameTracer tracer(vm, calleeFrame);
         calleeFrame->setCallee(asObject(callee));
-        vm.encodedHostCallReturnValue = constructData.native.function(asObject(callee)->globalObject(vm), calleeFrame);
+        vm.encodedHostCallReturnValue = constructData.native.function(asObject(callee)->globalObject(), calleeFrame);
         DisallowGC disallowGC;
         if (UNLIKELY(scope.exception())) {
             return encodeResult(
@@ -103,7 +105,7 @@ ALWAYS_INLINE SlowPathReturnType linkFor(CallFrame* calleeFrame, JSGlobalObject*
     JSValue calleeAsValue = calleeFrame->guaranteedJSValueCallee();
     JSCell* calleeAsFunctionCell = getJSFunction(calleeAsValue);
     if (!calleeAsFunctionCell) {
-        if (auto* internalFunction = jsDynamicCast<InternalFunction*>(vm, calleeAsValue)) {
+        if (auto* internalFunction = jsDynamicCast<InternalFunction*>(calleeAsValue)) {
             MacroAssemblerCodePtr<JSEntryPtrTag> codePtr = vm.getCTIInternalFunctionTrampolineFor(kind);
             RELEASE_ASSERT(!!codePtr);
 
@@ -124,8 +126,11 @@ ALWAYS_INLINE SlowPathReturnType linkFor(CallFrame* calleeFrame, JSGlobalObject*
 
     MacroAssemblerCodePtr<JSEntryPtrTag> codePtr;
     CodeBlock* codeBlock = nullptr;
+
+    DeferTraps deferTraps(vm); // We can't jettison any code until after we link the call.
+
     if (executable->isHostFunction()) {
-        codePtr = jsToWasmICCodePtr(vm, kind, callee);
+        codePtr = jsToWasmICCodePtr(kind, callee);
         if (!codePtr)
             codePtr = executable->entrypointFor(kind, MustCheckArity);
     } else {
@@ -176,7 +181,7 @@ ALWAYS_INLINE SlowPathReturnType virtualForWithFunction(JSGlobalObject* globalOb
     JSValue calleeAsValue = calleeFrame->guaranteedJSValueCallee();
     calleeAsFunctionCell = getJSFunction(calleeAsValue);
     if (UNLIKELY(!calleeAsFunctionCell)) {
-        if (jsDynamicCast<InternalFunction*>(vm, calleeAsValue)) {
+        if (jsDynamicCast<InternalFunction*>(calleeAsValue)) {
             MacroAssemblerCodePtr<JSEntryPtrTag> codePtr = vm.getCTIInternalFunctionTrampolineFor(kind);
             ASSERT(!!codePtr);
             return encodeResult(codePtr.executableAddress(), reinterpret_cast<void*>(callLinkInfo->callMode() == CallMode::Tail ? ReuseTheFrame : KeepTheFrame));
@@ -187,8 +192,11 @@ ALWAYS_INLINE SlowPathReturnType virtualForWithFunction(JSGlobalObject* globalOb
     JSFunction* function = jsCast<JSFunction*>(calleeAsFunctionCell);
     JSScope* scope = function->scopeUnchecked();
     ExecutableBase* executable = function->executable();
-    if (UNLIKELY(!executable->hasJITCodeFor(kind))) {
-        FunctionExecutable* functionExecutable = static_cast<FunctionExecutable*>(executable);
+
+    DeferTraps deferTraps(vm); // We can't jettison if we're going to call this CodeBlock.
+
+    if (!executable->isHostFunction()) {
+        FunctionExecutable* functionExecutable = jsCast<FunctionExecutable*>(executable);
 
         auto handleThrowException = [&] () {
             void* throwTarget = vm.getCTIThrowExceptionFromCallSlowPath().code().executableAddress();
@@ -204,6 +212,7 @@ ALWAYS_INLINE SlowPathReturnType virtualForWithFunction(JSGlobalObject* globalOb
         functionExecutable->prepareForExecution<FunctionExecutable>(vm, function, scope, kind, *codeBlockSlot);
         RETURN_IF_EXCEPTION(throwScope, handleThrowException());
     }
+
     // FIXME: Support wasm IC.
     // https://bugs.webkit.org/show_bug.cgi?id=220339
     return encodeResult(executable->entrypointFor(

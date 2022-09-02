@@ -84,6 +84,16 @@ public:
     // Note that even if these 2 "canContain" functions return true for a particular renderer, it does not necessarily mean the renderer is the containing block (see containingBlockForAbsolute(Fixed)Position).
     bool canContainFixedPositionObjects() const;
     bool canContainAbsolutelyPositionedObjects() const;
+    bool canEstablishContainingBlockWithTransform() const;
+
+    bool shouldApplyLayoutContainment() const;
+    bool shouldApplySizeContainment() const;
+    bool shouldApplyInlineSizeContainment() const;
+    bool shouldApplyStyleContainment() const;
+    bool shouldApplyPaintContainment() const;
+    bool shouldApplyAnyContainment() const;
+    bool shouldApplyLayoutOrPaintContainment(OptionSet<Containment>) const;
+    bool shouldApplySizeOrStyleContainment(OptionSet<Containment>) const;
 
     Color selectionColor(CSSPropertyID) const;
     std::unique_ptr<RenderStyle> selectionPseudoStyle() const;
@@ -109,9 +119,8 @@ public:
     // can contain a mixture of boxes and other object types, these functions need to be in the base class.
     RenderLayer* layerParent() const;
     RenderLayer* layerNextSibling(RenderLayer& parentLayer) const;
-    void addLayers(RenderLayer* parentLayer);
-    void removeLayers(RenderLayer* parentLayer);
-    void moveLayers(RenderLayer* oldParent, RenderLayer& newParent);
+    void removeLayers();
+    void moveLayers(RenderLayer& newParent);
 
     virtual void dirtyLinesFromChangedChild(RenderObject&) { }
 
@@ -147,6 +156,7 @@ public:
     bool isVisibleIgnoringGeometry() const;
     bool mayCauseRepaintInsideViewport(const IntRect* visibleRect = nullptr) const;
     bool isVisibleInDocumentRect(const IntRect& documentRect) const;
+    bool isInsideEntirelyHiddenLayer() const;
 
     // Returns true if this renderer requires a new stacking context.
     static bool createsGroupForStyle(const RenderStyle&);
@@ -157,13 +167,10 @@ public:
 
     bool visibleToHitTesting(std::optional<HitTestRequest> hitTestRequest = std::nullopt) const
     {
-        if (style().effectiveInert())
-            return false;
-
         if (style().visibility() != Visibility::Visible)
             return false;
 
-        if ((!hitTestRequest || !hitTestRequest->ignoreCSSPointerEventsProperty()) && style().pointerEvents() == PointerEvents::None)
+        if ((!hitTestRequest || !hitTestRequest->ignoreCSSPointerEventsProperty()) && style().effectivePointerEvents() == PointerEvents::None)
             return false;
 
         return true;
@@ -188,7 +195,7 @@ public:
 
     // absoluteAnchorRectWithScrollMargin() is similar to absoluteAnchorRect, but it also takes into account any
     // CSS scroll-margin that is set in the style of this RenderElement.
-    virtual LayoutRect absoluteAnchorRectWithScrollMargin(bool* insideFixed = nullptr) const;
+    LayoutRect absoluteAnchorRectWithScrollMargin(bool* insideFixed = nullptr) const;
 
     bool hasFilter() const { return style().hasFilter(); }
     bool hasBackdropFilter() const
@@ -259,6 +266,13 @@ public:
     virtual void animationFinished(const String& /* name */) { }
     virtual void transformRelatedPropertyDidChange() { }
 
+    // https://www.w3.org/TR/css-transforms-1/#transform-box
+    FloatRect transformReferenceBoxRect(const RenderStyle& style) const { return referenceBoxRect(transformBoxToCSSBoxType(style.transformBox())); }
+    FloatRect transformReferenceBoxRect() const { return transformReferenceBoxRect(style()); }
+
+    // https://www.w3.org/TR/css-transforms-1/#reference-box
+    virtual FloatRect referenceBoxRect(CSSBoxType) const;
+
     virtual void suspendAnimations(MonotonicTime = MonotonicTime()) { }
     std::unique_ptr<RenderStyle> animatedStyle();
 
@@ -271,6 +285,11 @@ public:
     Overflow effectiveOverflowY() const;
     Overflow effectiveOverflowInlineDirection() const { return style().isHorizontalWritingMode() ? effectiveOverflowX() : effectiveOverflowY(); }
     Overflow effectiveOverflowBlockDirection() const { return style().isHorizontalWritingMode() ? effectiveOverflowY() : effectiveOverflowX(); }
+
+    bool isWritingModeRoot() const { return !parent() || parent()->style().writingMode() != style().writingMode(); }
+
+    bool isDeprecatedFlexItem() const { return !isInline() && !isFloatingOrOutOfFlowPositioned() && parent() && parent()->isDeprecatedFlexibleBox(); }
+    bool isFlexItemIncludingDeprecated() const { return !isInline() && !isFloatingOrOutOfFlowPositioned() && parent() && parent()->isFlexibleBoxIncludingDeprecated(); }
 
 protected:
     enum BaseTypeFlag {
@@ -291,9 +310,6 @@ protected:
 
     enum StylePropagationType { PropagateToAllChildren, PropagateToBlockChildrenOnly };
     void propagateStyleToAnonymousChildren(StylePropagationType);
-
-    void setFirstChild(RenderObject* child) { m_firstChild = child; }
-    void setLastChild(RenderObject* child) { m_lastChild = child; }
 
     bool repaintBeforeStyleChange(StyleDifference, const RenderStyle& oldStyle, const RenderStyle& newStyle);
 
@@ -324,9 +340,12 @@ protected:
     void updateOutlineAutoAncestor(bool hasOutlineAuto);
 
     void removeFromRenderFragmentedFlowIncludingDescendants(bool shouldUpdateState);
-    void adjustFragmentedFlowStateOnContainingBlockChangeIfNeeded();
+    void adjustFragmentedFlowStateOnContainingBlockChangeIfNeeded(const RenderStyle& oldStyle, const RenderStyle& newStyle);
 
     bool isVisibleInViewport() const;
+
+    bool createsNewFormattingContext() const;
+    virtual bool establishesIndependentFormattingContext() const;
 
 private:
     RenderElement(ContainerNode&, RenderStyle&&, BaseTypeFlags);
@@ -345,15 +364,12 @@ private:
     void handleDynamicFloatPositionChange();
 
     bool shouldRepaintForStyleDifference(StyleDifference) const;
-    bool hasImmediateNonWhitespaceTextChildOrBorderOrOutline() const;
 
     void updateFillImages(const FillLayer*, const FillLayer&);
     void updateImage(StyleImage*, StyleImage*);
     void updateShapeImage(const ShapeValue*, const ShapeValue*);
 
     StyleDifference adjustStyleDifference(StyleDifference, OptionSet<StyleDifferenceContextSensitiveProperty>) const;
-    std::unique_ptr<RenderStyle> computeFirstLineStyle() const;
-    void invalidateCachedFirstLineStyle();
 
     bool canDestroyDecodedData() final { return !isVisibleInViewport(); }
     VisibleInViewportState imageFrameAvailable(CachedImage&, ImageAnimatingState, const IntRect* changeRect) final;
@@ -382,7 +398,6 @@ private:
     unsigned m_hasContinuationChainNode : 1;
     unsigned m_isContinuation : 1;
     unsigned m_isFirstLetter : 1;
-    mutable unsigned m_hasValidCachedFirstLineStyle : 1;
 
     unsigned m_renderBlockHasMarginBeforeQuirk : 1;
     unsigned m_renderBlockHasMarginAfterQuirk : 1;
@@ -456,24 +471,66 @@ inline Element* RenderElement::generatingElement() const
 inline bool RenderElement::canContainFixedPositionObjects() const
 {
     return isRenderView()
-        || (isRenderBlock() && hasTransform())
-        // FIXME: will-change should create containing blocks on inline boxes (bug 225035)
-        || (isRenderBlock() && style().willChange() && style().willChange()->createsContainingBlockForOutOfFlowPositioned())
+        || (canEstablishContainingBlockWithTransform() && hasTransform())
+        || (isRenderBlock() && style().willChange() && style().willChange()->createsContainingBlockForOutOfFlowPositioned()) // FIXME: will-change should create containing blocks on inline boxes (bug 225035)
         || isSVGForeignObject()
-        || shouldApplyLayoutContainment(*this)
-        || shouldApplyPaintContainment(*this);
+        || shouldApplyLayoutOrPaintContainment({ Containment::Layout, Containment::Paint });
 }
 
 inline bool RenderElement::canContainAbsolutelyPositionedObjects() const
 {
-    return style().position() != PositionType::Static
-        || (isRenderBlock() && hasTransformRelatedProperty())
-        // FIXME: will-change should create containing blocks on inline boxes (bug 225035)
-        || (isRenderBlock() && style().willChange() && style().willChange()->createsContainingBlockForAbsolutelyPositioned())
+    return isRenderView()
+        || style().position() != PositionType::Static
+        || (canEstablishContainingBlockWithTransform() && hasTransformRelatedProperty())
+        || (isRenderBlock() && style().willChange() && style().willChange()->createsContainingBlockForAbsolutelyPositioned()) // FIXME: will-change should create containing blocks on inline boxes (bug 225035)
         || isSVGForeignObject()
-        || shouldApplyLayoutContainment(*this)
-        || shouldApplyPaintContainment(*this)
-        || isRenderView();
+        || shouldApplyLayoutOrPaintContainment({ Containment::Layout, Containment::Paint });
+}
+
+inline bool RenderElement::canEstablishContainingBlockWithTransform() const
+{
+    return isRenderBlock() || (isTablePart() && !isRenderTableCol());
+}
+
+inline bool RenderElement::shouldApplyLayoutOrPaintContainment(OptionSet<Containment> options) const
+{
+    return style().effectiveContainment().containsAny(options) && (!isInline() || isAtomicInlineLevelBox()) && !isRubyText() && (!isTablePart() || isRenderBlockFlow());
+}
+
+inline bool RenderElement::shouldApplySizeOrStyleContainment(OptionSet<Containment> options) const
+{
+    return style().effectiveContainment().containsAny(options) && (!isInline() || isAtomicInlineLevelBox()) && !isRubyText() && (!isTablePart() || isTableCaption()) && !isTable();
+}
+
+inline bool RenderElement::shouldApplyLayoutContainment() const
+{
+    return shouldApplyLayoutOrPaintContainment(Containment::Layout);
+}
+
+inline bool RenderElement::shouldApplyPaintContainment() const
+{
+    return shouldApplyLayoutOrPaintContainment(Containment::Paint);
+}
+
+inline bool RenderElement::shouldApplySizeContainment() const
+{
+    return shouldApplySizeOrStyleContainment(Containment::Size);
+}
+
+inline bool RenderElement::shouldApplyInlineSizeContainment() const
+{
+    return shouldApplySizeOrStyleContainment(Containment::InlineSize);
+}
+
+inline bool RenderElement::shouldApplyStyleContainment() const
+{
+    return shouldApplySizeOrStyleContainment(Containment::Style);
+}
+
+inline bool RenderElement::shouldApplyAnyContainment() const
+{
+    return shouldApplyLayoutOrPaintContainment({ Containment::Layout, Containment::Paint })
+        || shouldApplySizeOrStyleContainment({ Containment::Size, Containment::InlineSize, Containment::Style });
 }
 
 inline bool RenderElement::createsGroupForStyle(const RenderStyle& style)

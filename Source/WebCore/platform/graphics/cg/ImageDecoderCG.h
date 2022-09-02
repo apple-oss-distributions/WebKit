@@ -27,6 +27,8 @@
 
 #include "ImageDecoder.h"
 
+#if USE(CG)
+
 namespace WebCore {
 
 class ImageDecoderCG final : public ImageDecoder {
@@ -74,4 +76,6 @@ private:
     RetainPtr<CGImageSourceRef> m_nativeDecoder;
 };
 
-}
+} // namespace WebCore
+
+#endif // USE(CG)

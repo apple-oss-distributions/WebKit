@@ -176,7 +176,7 @@ private:
     void disableSuddenTermination() final;
 
 #if !PLATFORM(IOS_FAMILY)
-    void elementDidFocus(WebCore::Element&) override;
+    void elementDidFocus(WebCore::Element&, const WebCore::FocusOptions&) override;
     void elementDidBlur(WebCore::Element&) override;
 #endif
 
@@ -207,6 +207,7 @@ private:
 #endif
 
 #if ENABLE(VIDEO)
+    bool canEnterVideoFullscreen(WebCore::HTMLMediaElementEnums::VideoFullscreenMode) const final;
     bool supportsVideoFullscreen(WebCore::HTMLMediaElementEnums::VideoFullscreenMode) final;
 #if ENABLE(VIDEO_PRESENTATION_MODE)
     void setMockVideoPresentationModeEnabled(bool) final;

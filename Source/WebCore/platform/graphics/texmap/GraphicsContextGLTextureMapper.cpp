@@ -29,49 +29,33 @@
 #include "config.h"
 #include "GraphicsContextGLTextureMapper.h"
 
-#if ENABLE(WEBGL) && USE(TEXTURE_MAPPER)
+#if ENABLE(WEBGL) && USE(TEXTURE_MAPPER) && !USE(ANGLE)
 
-#include "GLContext.h"
-#include "GraphicsContextGLOpenGLManager.h"
-#include "GraphicsLayerContentsDisplayDelegate.h"
 #include "PixelBuffer.h"
 #include "TextureMapperGCGLPlatformLayer.h"
 #include <wtf/Deque.h>
 #include <wtf/NeverDestroyed.h>
 
-#if USE(ANGLE)
-#include "ANGLEHeaders.h"
-#elif USE(LIBEPOXY)
+#if USE(LIBEPOXY)
 #include <epoxy/gl.h>
 #elif !USE(OPENGL_ES)
+#include "GLContext.h"
 #include "OpenGLShims.h"
 #endif
 
-#if USE(ANGLE)
-#include "ExtensionsGLANGLE.h"
-#else
 #include <ANGLE/ShaderLang.h>
-#if USE(OPENGL_ES)
-#include "ExtensionsGLOpenGLES.h"
-#else
-#include "ExtensionsGLOpenGL.h"
-#endif
-#endif
 
 #if USE(NICOSIA)
-#if USE(ANGLE)
-#include "NicosiaGCGLANGLELayer.h"
-#else
 #include "NicosiaGCGLLayer.h"
-#endif
+#include "PlatformLayerDisplayDelegate.h"
 #endif
 
 #if ENABLE(MEDIA_STREAM)
-#include "MediaSample.h"
+#include "VideoFrame.h"
 #endif
 
 #if USE(GSTREAMER) && ENABLE(MEDIA_STREAM)
-#include "MediaSampleGStreamer.h"
+#include "VideoFrameGStreamer.h"
 #endif
 
 #if ENABLE(VIDEO)
@@ -80,60 +64,12 @@
 
 namespace WebCore {
 
-namespace {
-
-class PlatformLayerDisplayDelegate final : public GraphicsLayerContentsDisplayDelegate {
-public:
-    static Ref<PlatformLayerDisplayDelegate> create(PlatformLayer* platformLayer)
-    {
-        return adoptRef(*new PlatformLayerDisplayDelegate(platformLayer));
-    }
-
-    // GraphicsLayerContentsDisplayDelegate overrides.
-    PlatformLayer* platformLayer() const final
-    {
-        return m_platformLayer;
-    }
-
-private:
-    PlatformLayerDisplayDelegate(PlatformLayer* platformLayer)
-        : m_platformLayer(platformLayer)
-    {
-    }
-
-    PlatformLayer* m_platformLayer;
-};
-
-}
-
-RefPtr<GraphicsContextGLTextureMapper> GraphicsContextGLTextureMapper::create(GraphicsContextGLAttributes&& attributes)
-{
-    return adoptRef(*new GraphicsContextGLTextureMapper(WTFMove(attributes)));
-}
-
-GraphicsContextGLTextureMapper::~GraphicsContextGLTextureMapper() = default;
-
-GraphicsContextGLTextureMapper::GraphicsContextGLTextureMapper(GraphicsContextGLAttributes&& attributes)
-    : GraphicsContextGLTextureMapperBase(WTFMove(attributes))
-#if USE(NICOSIA)
-    , m_layerContentsDisplayDelegate(PlatformLayerDisplayDelegate::create(&m_nicosiaLayer->contentLayer()))
-#else
-    , m_layerContentsDisplayDelegate(PlatformLayerDisplayDelegate::create(m_texmapLayer.get()))
-#endif
-{
-}
-
-RefPtr<GraphicsLayerContentsDisplayDelegate> GraphicsContextGLTextureMapper::layerContentsDisplayDelegate()
-{
-    return m_layerContentsDisplayDelegate.ptr();
-}
-
 RefPtr<GraphicsContextGL> createWebProcessGraphicsContextGL(const GraphicsContextGLAttributes& attributes)
 {
     static bool initialized = false;
     static bool success = true;
     if (!initialized) {
-#if !USE(OPENGL_ES) && !USE(LIBEPOXY) && !USE(ANGLE)
+#if !USE(OPENGL_ES) && !USE(LIBEPOXY)
         success = initializeOpenGLShims();
 #endif
         initialized = true;
@@ -141,35 +77,37 @@ RefPtr<GraphicsContextGL> createWebProcessGraphicsContextGL(const GraphicsContex
     if (!success)
         return nullptr;
 
-    // Make space for the incoming context if we're full.
-    GraphicsContextGLOpenGLManager::sharedManager().recycleContextIfNecessary();
-    if (GraphicsContextGLOpenGLManager::sharedManager().hasTooManyContexts())
-        return nullptr;
-
     // Create the GraphicsContextGLOpenGL object first in order to establist a current context on this thread.
     auto context = GraphicsContextGLTextureMapper::create(GraphicsContextGLAttributes { attributes });
-
+    if (!context)
+        return nullptr;
 #if USE(LIBEPOXY) && USE(OPENGL_ES) && ENABLE(WEBGL2)
     // Bail if GLES3 was requested but cannot be provided.
     if (attributes.webGLVersion == GraphicsContextGLWebGLVersion::WebGL2 && !epoxy_is_desktop_gl() && epoxy_gl_version() < 30)
         return nullptr;
 #endif
-
-    GraphicsContextGLOpenGLManager::sharedManager().addContext(context.get());
-
     return context;
 }
 
-#if ENABLE(MEDIA_STREAM)
-RefPtr<MediaSample> GraphicsContextGLTextureMapper::paintCompositedResultsToMediaSample()
+RefPtr<GraphicsContextGLTextureMapper> GraphicsContextGLTextureMapper::create(GraphicsContextGLAttributes&& attributes)
 {
-#if USE(GSTREAMER)
-    if (auto pixelBuffer = readCompositedResults())
-        return MediaSampleGStreamer::createImageSample(WTFMove(*pixelBuffer));
-#endif
-    return nullptr;
+    auto context = adoptRef(*new GraphicsContextGLTextureMapper(WTFMove(attributes)));
+    if (!context->initialize())
+        return nullptr;
+    return context;
 }
-#endif
+
+GraphicsContextGLTextureMapper::GraphicsContextGLTextureMapper(GraphicsContextGLAttributes&& attributes)
+    : GraphicsContextGLOpenGL(WTFMove(attributes))
+{
+}
+
+GraphicsContextGLTextureMapper::~GraphicsContextGLTextureMapper() = default;
+
+RefPtr<GraphicsLayerContentsDisplayDelegate> GraphicsContextGLTextureMapper::layerContentsDisplayDelegate()
+{
+    return m_layerContentsDisplayDelegate;
+}
 
 #if ENABLE(VIDEO)
 bool GraphicsContextGLTextureMapper::copyTextureFromMedia(MediaPlayer& player, PlatformGLObject outputTexture, GCGLenum outputTarget, GCGLint level, GCGLenum internalFormat, GCGLenum format, GCGLenum type, bool premultiplyAlpha, bool flipY)
@@ -178,6 +116,25 @@ bool GraphicsContextGLTextureMapper::copyTextureFromMedia(MediaPlayer& player, P
 }
 #endif
 
+#if ENABLE(MEDIA_STREAM)
+RefPtr<VideoFrame> GraphicsContextGLTextureMapper::paintCompositedResultsToVideoFrame()
+{
+#if USE(GSTREAMER)
+    // FIXME: Hardcoding 30fps here is not great. Ideally we should get this from the compositor refresh rate, somehow.
+    if (auto pixelBuffer = readCompositedResults())
+        return VideoFrameGStreamer::createFromPixelBuffer(pixelBuffer.releaseNonNull(), VideoFrameGStreamer::CanvasContentType::WebGL, VideoFrameGStreamer::Rotation::UpsideDown, MediaTime::invalidTime(), { }, 30, true, { });
+#endif
+    return nullptr;
+}
+#endif
+
+bool GraphicsContextGLTextureMapper::platformInitialize()
+{
+    m_layerContentsDisplayDelegate = PlatformLayerDisplayDelegate::create(&m_nicosiaLayer->contentLayer());
+
+    return true;
+}
+
 } // namespace WebCore
 
-#endif // ENABLE(WEBGL) && USE(TEXTURE_MAPPER)
+#endif // ENABLE(WEBGL) && USE(TEXTURE_MAPPER) && !USE(ANGLE)

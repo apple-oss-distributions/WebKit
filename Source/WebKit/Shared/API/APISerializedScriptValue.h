@@ -49,9 +49,9 @@ public:
         return adoptRef(*new SerializedScriptValue(serializedValue.releaseNonNull()));
     }
     
-    static Ref<SerializedScriptValue> adopt(Vector<uint8_t>&& buffer)
+    static Ref<SerializedScriptValue> createFromWireBytes(Vector<uint8_t>&& buffer)
     {
-        return adoptRef(*new SerializedScriptValue(WebCore::SerializedScriptValue::adopt(WTFMove(buffer))));
+        return adoptRef(*new SerializedScriptValue(WebCore::SerializedScriptValue::createFromWireBytes(WTFMove(buffer))));
     }
     
     JSValueRef deserialize(JSContextRef context, JSValueRef* exception)
@@ -64,7 +64,11 @@ public:
     static RefPtr<SerializedScriptValue> createFromNSObject(id);
 #endif
 
-    IPC::DataReference dataReference() const { return m_serializedScriptValue->data(); }
+#if USE(GLIB)
+    static RefPtr<SerializedScriptValue> createFromGVariant(GVariant*);
+#endif
+
+    IPC::DataReference dataReference() const { return m_serializedScriptValue->wireBytes(); }
 
     WebCore::SerializedScriptValue& internalRepresentation() { return m_serializedScriptValue.get(); }
 

@@ -25,6 +25,7 @@
 
 #import <WebKit/WKWebView.h>
 #import <WebKit/_WKElementAction.h>
+#import <WebKit/_WKFrameHandle.h>
 #import <WebKit/_WKTapHandlingResult.h>
 
 #if TARGET_OS_IPHONE
@@ -81,13 +82,18 @@
 
 - (void)_doAfterReceivingEditDragSnapshotForTesting:(dispatch_block_t)action;
 
-- (void)_triggerSystemPreviewActionOnElement:(uint64_t)elementID document:(uint64_t)documentID page:(uint64_t)pageID;
+- (void)_triggerSystemPreviewActionOnElement:(uint64_t)elementID document:(NSString*)documentID page:(uint64_t)pageID;
 
 - (void)_setDeviceOrientationUserPermissionHandlerForTesting:(BOOL (^)(void))handler;
 
 - (void)_setDeviceHasAGXCompilerServiceForTesting;
 
 - (NSString *)_serializedSelectionCaretBackgroundColorForTesting;
+
+- (BOOL)_hasResizeAssertion;
+- (void)_simulateSelectionStart;
+
++ (void)_resetPresentLockdownModeMessage;
 
 @end
 

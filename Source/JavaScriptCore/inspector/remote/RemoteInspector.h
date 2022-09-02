@@ -121,6 +121,10 @@ public:
 #if PLATFORM(COCOA)
     static void setNeedMachSandboxExtension(bool needExtension) { needMachSandboxExtension = needExtension; }
 #endif
+#if USE(GLIB)
+    static void setInspectorServerAddress(CString&& address) { s_inspectorServerAddress = WTFMove(address); }
+    static const CString& inspectorServerAddress() { return s_inspectorServerAddress; }
+#endif
     static void startDisabled();
     static RemoteInspector& singleton();
     friend class LazyNeverDestroyed<RemoteInspector>;
@@ -247,6 +251,9 @@ private:
 #if PLATFORM(COCOA)
     static std::atomic<bool> needMachSandboxExtension;
 #endif
+#if USE(GLIB)
+    static CString s_inspectorServerAddress;
+#endif
 
     // Targets can be registered from any thread at any time.
     // Any target can send messages over the XPC connection.
@@ -290,6 +297,7 @@ private:
     ProcessID m_parentProcessIdentifier { 0 };
 #if PLATFORM(COCOA)
     RetainPtr<CFDataRef> m_parentProcessAuditData;
+    bool m_messageDataTypeChunkSupported { false };
 #endif
     bool m_shouldSendParentProcessInformation { false };
     bool m_automaticInspectionEnabled { false };

@@ -108,6 +108,7 @@ angle_unittests_compiler_tests_sources = [
   "compiler_tests/ImmutableString_test.cpp",
   "compiler_tests/InitOutputVariables_test.cpp",
   "compiler_tests/IntermNode_test.cpp",
+  "compiler_tests/KHR_blend_equation_advanced_test.cpp",
   "compiler_tests/NV_draw_buffers_test.cpp",
   "compiler_tests/OES_sample_variables_test.cpp",
   "compiler_tests/OES_standard_derivatives_test.cpp",
@@ -165,8 +166,6 @@ if (is_android) {
   angle_unittests_sources +=
       [ "compiler_tests/ImmutableString_test_autogen.cpp" ]
 }
-
-angle_unittests_msl_sources = [ "../tests/compiler_tests/MSLOutput_test.cpp" ]
 
 if (!is_android && !is_fuchsia) {
   angle_unittests_sources += [ "test_utils/runner/TestSuite_unittest.cpp" ]

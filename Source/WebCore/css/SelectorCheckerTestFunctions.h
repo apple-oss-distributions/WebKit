@@ -169,7 +169,7 @@ ALWAYS_INLINE bool containslanguageSubtagMatchingRange(StringView language, Stri
 {
     unsigned languageSubtagsStartIndex = position;
     unsigned languageSubtagsEndIndex = languageLength;
-    bool isAsteriskRange = range == "*";
+    bool isAsteriskRange = range == "*"_s;
     do {
         if (languageSubtagsStartIndex > 0)
             languageSubtagsStartIndex += 1;
@@ -216,7 +216,7 @@ ALWAYS_INLINE bool matchesLangPseudoClass(const Element& element, const Vector<A
         if (range.isEmpty())
             continue;
 
-        if (range == "*")
+        if (range == "*"_s)
             return true;
 
         StringView rangeStringView = range.string();
@@ -531,7 +531,7 @@ ALWAYS_INLINE bool matchesFocusWithinPseudoClass(const Element& element)
     return element.hasFocusWithin() && isFrameFocused(element);
 }
 
-ALWAYS_INLINE bool matchesModalDialogPseudoClass(const Element& element)
+ALWAYS_INLINE bool matchesModalPseudoClass(const Element& element)
 {
     if (is<HTMLDialogElement>(element))
         return downcast<HTMLDialogElement>(element).isModal();

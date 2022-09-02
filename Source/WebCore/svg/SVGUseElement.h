@@ -38,8 +38,7 @@ public:
     virtual ~SVGUseElement();
 
     void invalidateShadowTree();
-    bool shadowTreeNeedsUpdate() const { return m_shadowTreeNeedsUpdate; }
-    void updateShadowTree();
+    void updateUserAgentShadowTree() final;
 
     RenderElement* rendererClipChild() const;
 
@@ -75,7 +74,7 @@ private:
     Document* externalDocument() const;
     void updateExternalDocument();
 
-    SVGElement* findTarget(String* targetID = nullptr) const;
+    SVGElement* findTarget(AtomString* targetID = nullptr) const;
 
     void cloneTarget(ContainerNode&, SVGElement& target) const;
     RefPtr<SVGElement> targetClone() const;

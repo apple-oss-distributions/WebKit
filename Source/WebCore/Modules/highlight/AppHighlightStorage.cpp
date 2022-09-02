@@ -203,9 +203,8 @@ static AppHighlightRangeData::NodePath makeNodePath(RefPtr<Node>&& node)
 
 static AppHighlightRangeData createAppHighlightRangeData(const StaticRange& range)
 {
-    auto text = plainText(range);
-    text.truncate(textPreviewLength);
-    auto identifier = createCanonicalUUIDString();
+    auto text = plainText(range).left(textPreviewLength);
+    auto identifier = createVersion4UUIDString();
 
     return {
         identifier,
@@ -265,14 +264,14 @@ bool AppHighlightStorage::attemptToRestoreHighlightAndScroll(AppHighlightRangeDa
     if (!range)
         return false;
     
-    strongDocument->appHighlightRegister().addAppHighlight(StaticRange::create(*range));
+    strongDocument->appHighlightRegister().addAnnotationHighlightWithRange(StaticRange::create(*range));
     
     if (scroll == ScrollToHighlight::Yes) {
         auto textIndicator = TextIndicator::createWithRange(range.value(), { TextIndicatorOption::DoNotClipToVisibleRect }, WebCore::TextIndicatorPresentationTransition::Bounce);
         if (textIndicator)
             m_document->page()->chrome().client().setTextIndicator(textIndicator->data());
 
-        TemporarySelectionChange selectionChange(*strongDocument, { range.value() }, { TemporarySelectionOption::DelegateMainFrameScroll, TemporarySelectionOption::SmoothScroll, TemporarySelectionOption::RevealSelectionBounds });
+        TemporarySelectionChange selectionChange(*strongDocument, { *range }, { TemporarySelectionOption::DelegateMainFrameScroll, TemporarySelectionOption::SmoothScroll, TemporarySelectionOption::RevealSelectionBounds, TemporarySelectionOption::UserTriggered });
     }
 
     return true;

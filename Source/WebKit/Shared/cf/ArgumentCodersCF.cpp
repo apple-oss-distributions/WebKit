@@ -36,6 +36,7 @@
 #include "Encoder.h"
 #include "StreamConnectionEncoder.h"
 #include <CoreGraphics/CoreGraphics.h>
+#include <WebCore/Color.h>
 #include <wtf/EnumTraits.h>
 #include <wtf/HashSet.h>
 #include <wtf/ProcessPrivilege.h>
@@ -59,6 +60,7 @@ CFTypeRef tokenNullptrTypeRef()
 enum class CFType : uint8_t {
     CFArray,
     CFBoolean,
+    CFCharacterSet,
     CFData,
     CFDate,
     CFDictionary,
@@ -77,6 +79,7 @@ enum class CFType : uint8_t {
     SecTrust,
 #endif
     CGColorSpace,
+    CGColor,
     Nullptr,
     Unknown,
 };
@@ -93,6 +96,8 @@ static CFType typeFromCFTypeRef(CFTypeRef type)
         return CFType::CFArray;
     if (typeID == CFBooleanGetTypeID())
         return CFType::CFBoolean;
+    if (typeID == CFCharacterSetGetTypeID())
+        return CFType::CFCharacterSet;
     if (typeID == CFDataGetTypeID())
         return CFType::CFData;
     if (typeID == CFDateGetTypeID())
@@ -109,6 +114,8 @@ static CFType typeFromCFTypeRef(CFTypeRef type)
         return CFType::CFURL;
     if (typeID == CGColorSpaceGetTypeID())
         return CFType::CGColorSpace;
+    if (typeID == CGColorGetTypeID())
+        return CFType::CGColor;
     if (typeID == SecCertificateGetTypeID())
         return CFType::SecCertificate;
 #if HAVE(SEC_KEYCHAIN)
@@ -124,6 +131,8 @@ static CFType typeFromCFTypeRef(CFTypeRef type)
         return CFType::SecTrust;
 #endif
 
+    // If you're hitting this, it probably means that you've put an NS type inside a CF container.
+    // Try round-tripping the container through an NS type instead.
     ASSERT_NOT_REACHED();
     return CFType::Unknown;
 }
@@ -141,6 +150,9 @@ void ArgumentCoder<CFTypeRef>::encode(Encoder& encoder, CFTypeRef typeRef)
         return;
     case CFType::CFBoolean:
         encoder << static_cast<CFBooleanRef>(typeRef);
+        return;
+    case CFType::CFCharacterSet:
+        encoder << static_cast<CFCharacterSetRef>(typeRef);
         return;
     case CFType::CFData:
         encoder << static_cast<CFDataRef>(typeRef);
@@ -164,6 +176,9 @@ void ArgumentCoder<CFTypeRef>::encode(Encoder& encoder, CFTypeRef typeRef)
         return;
     case CFType::CGColorSpace:
         encoder << static_cast<CGColorSpaceRef>(const_cast<void*>(typeRef));
+        return;
+    case CFType::CGColor:
+        encoder << static_cast<CGColorRef>(const_cast<void*>(typeRef));
         return;
     case CFType::SecCertificate:
         encoder << static_cast<SecCertificateRef>(const_cast<void*>(typeRef));
@@ -217,6 +232,13 @@ std::optional<RetainPtr<CFTypeRef>> ArgumentCoder<RetainPtr<CFTypeRef>>::decode(
             return std::nullopt;
         return WTFMove(*boolean);
     }
+    case CFType::CFCharacterSet: {
+        std::optional<RetainPtr<CFCharacterSetRef>> characterSet;
+        decoder >> characterSet;
+        if (!characterSet)
+            return std::nullopt;
+        return WTFMove(*characterSet);
+    }
     case CFType::CFData: {
         std::optional<RetainPtr<CFDataRef>> data;
         decoder >> data;
@@ -267,6 +289,13 @@ std::optional<RetainPtr<CFTypeRef>> ArgumentCoder<RetainPtr<CFTypeRef>>::decode(
         if (!colorSpace)
             return std::nullopt;
         return WTFMove(*colorSpace);
+    }
+    case CFType::CGColor: {
+        std::optional<RetainPtr<CGColorRef>> color;
+        decoder >> color;
+        if (!color)
+            return std::nullopt;
+        return WTFMove(*color);
     }
     case CFType::SecCertificate: {
         std::optional<RetainPtr<SecCertificateRef>> certificate;
@@ -396,6 +425,43 @@ std::optional<RetainPtr<CFBooleanRef>> ArgumentCoder<RetainPtr<CFBooleanRef>>::d
         return std::nullopt;
 
     return adoptCF(*boolean ? kCFBooleanTrue : kCFBooleanFalse);
+}
+
+template<typename Encoder>
+void ArgumentCoder<CFCharacterSetRef>::encode(Encoder& encoder, CFCharacterSetRef characterSet)
+{
+    auto data = adoptCF(CFCharacterSetCreateBitmapRepresentation(nullptr, characterSet));
+    if (!data) {
+        encoder << false;
+        return;
+    }
+
+    encoder << true << data;
+}
+
+template void ArgumentCoder<CFCharacterSetRef>::encode<Encoder>(Encoder&, CFCharacterSetRef);
+template void ArgumentCoder<CFCharacterSetRef>::encode<StreamConnectionEncoder>(StreamConnectionEncoder&, CFCharacterSetRef);
+
+std::optional<RetainPtr<CFCharacterSetRef>> ArgumentCoder<RetainPtr<CFCharacterSetRef>>::decode(Decoder& decoder)
+{
+    std::optional<bool> hasData;
+    decoder >> hasData;
+    if (!hasData)
+        return std::nullopt;
+
+    if (!*hasData)
+        return { nullptr };
+
+    std::optional<RetainPtr<CFDataRef>> data;
+    decoder >> data;
+    if (!data)
+        return std::nullopt;
+
+    auto characterSet = adoptCF(CFCharacterSetCreateWithBitmapRepresentation(nullptr, data->get()));
+    if (!characterSet)
+        return std::nullopt;
+
+    return WTFMove(characterSet);
 }
 
 template<typename Encoder>
@@ -600,7 +666,7 @@ void ArgumentCoder<CFStringRef>::encode(Encoder& encoder, CFStringRef string)
     CFIndex bufferLength = 0;
 
     CFIndex numConvertedBytes = CFStringGetBytes(string, range, encoding, 0, false, 0, 0, &bufferLength);
-    ASSERT(numConvertedBytes == length);
+    ASSERT_UNUSED(numConvertedBytes, numConvertedBytes == length);
 
     Vector<UInt8, 128> buffer(bufferLength);
     numConvertedBytes = CFStringGetBytes(string, range, encoding, 0, false, buffer.data(), buffer.size(), &bufferLength);
@@ -739,6 +805,23 @@ std::optional<RetainPtr<CGColorSpaceRef>> ArgumentCoder<RetainPtr<CGColorSpaceRe
     return std::nullopt;
 }
 
+template<typename Encoder>
+void ArgumentCoder<CGColorRef>::encode(Encoder& encoder, CGColorRef color)
+{
+    encoder << WebCore::Color::createAndPreserveColorSpace(color);
+}
+
+template void ArgumentCoder<CGColorRef>::encode<Encoder>(Encoder&, CGColorRef);
+template void ArgumentCoder<CGColorRef>::encode<StreamConnectionEncoder>(StreamConnectionEncoder&, CGColorRef);
+
+std::optional<RetainPtr<CGColorRef>> ArgumentCoder<RetainPtr<CGColorRef>>::decode(Decoder& decoder)
+{
+    std::optional<WebCore::Color> color;
+    decoder >> color;
+    if (!color)
+        return std::nullopt;
+    return cachedCGColor(*color);
+}
 
 template<typename Encoder>
 void ArgumentCoder<SecCertificateRef>::encode(Encoder& encoder, SecCertificateRef certificate)
@@ -877,6 +960,7 @@ template<> struct EnumTraits<IPC::CFType> {
         IPC::CFType,
         IPC::CFType::CFArray,
         IPC::CFType::CFBoolean,
+        IPC::CFType::CFCharacterSet,
         IPC::CFType::CFData,
         IPC::CFType::CFDate,
         IPC::CFType::CFDictionary,
@@ -895,6 +979,7 @@ template<> struct EnumTraits<IPC::CFType> {
         IPC::CFType::SecTrust,
 #endif
         IPC::CFType::CGColorSpace,
+        IPC::CFType::CGColor,
         IPC::CFType::Nullptr,
         IPC::CFType::Unknown
     >;

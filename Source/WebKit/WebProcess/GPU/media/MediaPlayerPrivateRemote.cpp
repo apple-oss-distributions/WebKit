@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019-2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2019-2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -41,6 +41,7 @@
 #include "WebCoreArgumentCoders.h"
 #include "WebProcess.h"
 #include <JavaScriptCore/TypedArrayInlines.h>
+#include <WebCore/DeprecatedGlobalSettings.h>
 #include <WebCore/GraphicsContext.h>
 #include <WebCore/MediaPlayer.h>
 #include <WebCore/NotImplemented.h>
@@ -48,7 +49,6 @@
 #include <WebCore/PlatformScreen.h>
 #include <WebCore/PlatformTimeRanges.h>
 #include <WebCore/ResourceError.h>
-#include <WebCore/RuntimeEnabledFeatures.h>
 #include <WebCore/SecurityOrigin.h>
 #include <WebCore/TextTrackRepresentation.h>
 #include <WebCore/VideoLayerManager.h>
@@ -80,8 +80,9 @@
 #endif
 
 #if PLATFORM(COCOA)
-#import <WebCore/PixelBufferConformerCV.h>
-#import <WebCore/VideoLayerManagerObjC.h>
+#include <WebCore/PixelBufferConformerCV.h>
+#include <WebCore/VideoFrameCV.h>
+#include <WebCore/VideoLayerManagerObjC.h>
 #endif
 
 namespace WebCore {
@@ -121,14 +122,14 @@ MediaPlayerPrivateRemote::MediaPlayerPrivateRemote(MediaPlayer* player, MediaPla
     , m_id(playerIdentifier)
     , m_documentSecurityOrigin(player->documentSecurityOrigin())
 {
-    INFO_LOG(LOGIDENTIFIER);
+    ALWAYS_LOG(LOGIDENTIFIER);
 
     acceleratedRenderingStateChanged();
 }
 
 MediaPlayerPrivateRemote::~MediaPlayerPrivateRemote()
 {
-    INFO_LOG(LOGIDENTIFIER);
+    ALWAYS_LOG(LOGIDENTIFIER);
 #if PLATFORM(COCOA)
     m_videoLayerManager->didDestroyVideoLayer();
 #endif
@@ -160,9 +161,10 @@ void MediaPlayerPrivateRemote::prepareForPlayback(bool privateMode, MediaPlayer:
         if (!player)
             return;
 
-        m_videoLayer = createVideoLayerRemote(this, inlineLayerHostingContextId.value(), m_videoFullscreenGravity);
+        auto contentBox = snappedIntRect(player->playerContentBoxRect()).size();
+        m_videoLayer = createVideoLayerRemote(this, inlineLayerHostingContextId.value(), m_videoFullscreenGravity, contentBox);
 #if PLATFORM(COCOA)
-        m_videoLayerManager->setVideoLayer(m_videoLayer.get(), snappedIntRect(player->playerContentBoxRect()).size());
+        m_videoLayerManager->setVideoLayer(m_videoLayer.get(), contentBox);
 #endif
     }, m_id);
 }
@@ -428,21 +430,30 @@ void MediaPlayerPrivateRemote::sizeChanged(WebCore::FloatSize naturalSize)
 
 void MediaPlayerPrivateRemote::currentTimeChanged(const MediaTime& mediaTime, const MonotonicTime& queryTime, bool timeIsProgressing)
 {
+    auto reverseJump = mediaTime < m_cachedMediaTime;
+    if (reverseJump)
+        ALWAYS_LOG(LOGIDENTIFIER, "time jumped backwards, was ", m_cachedMediaTime, ", is now ", mediaTime);
+
     m_timeIsProgressing = timeIsProgressing;
     m_cachedMediaTime = mediaTime;
     m_cachedMediaTimeQueryTime = queryTime;
+
+    if (reverseJump) {
+        if (RefPtr player = m_player.get())
+            player->timeChanged();
+    }
 }
 
 void MediaPlayerPrivateRemote::firstVideoFrameAvailable()
 {
-    INFO_LOG(LOGIDENTIFIER);
+    ALWAYS_LOG(LOGIDENTIFIER);
     if (RefPtr player = m_player.get())
         player->firstVideoFrameAvailable();
 }
 
 void MediaPlayerPrivateRemote::renderingModeChanged()
 {
-    INFO_LOG(LOGIDENTIFIER);
+    ALWAYS_LOG(LOGIDENTIFIER);
     if (RefPtr player = m_player.get())
         player->renderingModeChanged();
 }
@@ -478,6 +489,7 @@ void MediaPlayerPrivateRemote::acceleratedRenderingStateChanged()
         m_renderingCanBeAccelerated = m_player->renderingCanBeAccelerated();
         connection().send(Messages::RemoteMediaPlayerProxy::AcceleratedRenderingStateChanged(m_renderingCanBeAccelerated), m_id);
     }
+    renderingModeChanged();
 }
 
 void MediaPlayerPrivateRemote::checkAcceleratedRenderingState()
@@ -557,11 +569,21 @@ void MediaPlayerPrivateRemote::prepareForRendering()
 
 void MediaPlayerPrivateRemote::setPageIsVisible(bool visible)
 {
+    if (m_pageIsVisible == visible)
+        return;
+
+    ALWAYS_LOG(LOGIDENTIFIER, visible);
+
+    m_pageIsVisible = visible;
     connection().send(Messages::RemoteMediaPlayerProxy::SetPageIsVisible(visible), m_id);
 }
 
 void MediaPlayerPrivateRemote::setShouldMaintainAspectRatio(bool maintainRatio)
 {
+    if (maintainRatio == m_shouldMaintainAspectRatio)
+        return;
+
+    m_shouldMaintainAspectRatio = maintainRatio;
     connection().send(Messages::RemoteMediaPlayerProxy::SetShouldMaintainAspectRatio(maintainRatio), m_id);
 }
 
@@ -772,11 +794,11 @@ void MediaPlayerPrivateRemote::remoteVideoTrackConfigurationChanged(TrackPrivate
 }
 
 #if ENABLE(MEDIA_SOURCE)
-void MediaPlayerPrivateRemote::load(const URL& url, const ContentType& contentType, MediaSourcePrivateClient* client)
+void MediaPlayerPrivateRemote::load(const URL& url, const ContentType& contentType, MediaSourcePrivateClient& client)
 {
     if (m_remoteEngineIdentifier == MediaPlayerEnums::MediaEngineIdentifier::AVFoundationMSE) {
         auto identifier = RemoteMediaSourceIdentifier::generate();
-        connection().sendWithAsyncReply(Messages::RemoteMediaPlayerProxy::LoadMediaSource(url, contentType, RuntimeEnabledFeatures::sharedFeatures().webMParserEnabled(), identifier), [weakThis = WeakPtr { *this }, this](auto&& configuration) {
+        connection().sendWithAsyncReply(Messages::RemoteMediaPlayerProxy::LoadMediaSource(url, contentType, DeprecatedGlobalSettings::webMParserEnabled(), identifier), [weakThis = WeakPtr { *this }, this](auto&& configuration) {
             if (!weakThis)
                 return;
 
@@ -1002,14 +1024,32 @@ bool MediaPlayerPrivateRemote::copyVideoTextureToPlatformTexture(WebCore::Graphi
 }
 #endif
 
-std::optional<WebCore::MediaSampleVideoFrame> MediaPlayerPrivateRemote::videoFrameForCurrentTime()
+#if PLATFORM(COCOA) && !HAVE(AVSAMPLEBUFFERDISPLAYLAYER_COPYDISPLAYEDPIXELBUFFER)
+void MediaPlayerPrivateRemote::willBeAskedToPaintGL()
 {
-    std::optional<WebCore::MediaSampleVideoFrame> result;
+    if (m_hasBeenAskedToPaintGL)
+        return;
+
+    m_hasBeenAskedToPaintGL = true;
+    connection().send(Messages::RemoteMediaPlayerProxy::WillBeAskedToPaintGL(), m_id);
+}
+#endif
+
+RefPtr<WebCore::VideoFrame> MediaPlayerPrivateRemote::videoFrameForCurrentTime()
+{
+    if (readyState() < MediaPlayer::ReadyState::HaveCurrentData)
+        return { };
+
+    std::optional<RemoteVideoFrameProxy::Properties> result;
     bool changed = false;
     if (!connection().sendSync(Messages::RemoteMediaPlayerProxy::VideoFrameForCurrentTimeIfChanged(), Messages::RemoteMediaPlayerProxy::VideoFrameForCurrentTimeIfChanged::Reply(result, changed), m_id))
-        return std::nullopt;
-    if (changed)
-        m_videoFrameForCurrentTime = WTFMove(result);
+        return nullptr;
+    if (changed) {
+        if (result)
+            m_videoFrameForCurrentTime = RemoteVideoFrameProxy::create(connection(), videoFrameObjectHeapProxy(), WTFMove(*result));
+        else
+            m_videoFrameForCurrentTime = nullptr;
+    }
     return m_videoFrameForCurrentTime;
 }
 
@@ -1050,6 +1090,9 @@ bool MediaPlayerPrivateRemote::wirelessVideoPlaybackDisabled() const
 
 void MediaPlayerPrivateRemote::setWirelessVideoPlaybackDisabled(bool disabled)
 {
+    // Update the cache state so we don't have to make this a synchronous message send to avoid a
+    // race condition with the web process fetching the new state immediately after change.
+    m_cachedState.wirelessVideoPlaybackDisabled = disabled;
     connection().send(Messages::RemoteMediaPlayerProxy::SetWirelessVideoPlaybackDisabled(disabled), m_id);
 }
 
@@ -1154,7 +1197,7 @@ AudioSourceProvider* MediaPlayerPrivateRemote::audioSourceProvider()
 #endif
 
 #if ENABLE(LEGACY_ENCRYPTED_MEDIA)
-std::unique_ptr<LegacyCDMSession> MediaPlayerPrivateRemote::createSession(const String&, LegacyCDMSessionClient*)
+std::unique_ptr<LegacyCDMSession> MediaPlayerPrivateRemote::createSession(const String&, LegacyCDMSessionClient&)
 {
     notImplemented();
     return nullptr;
@@ -1191,7 +1234,7 @@ void MediaPlayerPrivateRemote::keyAdded()
 void MediaPlayerPrivateRemote::mediaPlayerKeyNeeded(IPC::DataReference&& message)
 {
     if (RefPtr player = m_player.get())
-        player->keyNeeded(Uint8Array::create(message.data(), message.size()).ptr());
+        player->keyNeeded(SharedBuffer::create(message));
 }
 #endif
 
@@ -1400,18 +1443,22 @@ void MediaPlayerPrivateRemote::stopVideoFrameMetadataGathering()
 {
     m_isGatheringVideoFrameMetadata = false;
 #if PLATFORM(COCOA)
-    m_pixelBufferGatheredWithVideoFrameMetadata = nullptr;
+    m_videoFrameGatheredWithVideoFrameMetadata = nullptr;
 #endif
     connection().send(Messages::RemoteMediaPlayerProxy::StopVideoFrameMetadataGathering(), m_id);
 }
 
-void MediaPlayerPrivateRemote::requestResource(RemoteMediaResourceIdentifier remoteMediaResourceIdentifier, WebCore::ResourceRequest&& request, WebCore::PlatformMediaResourceLoader::LoadOptions options, CompletionHandler<void()>&& completionHandler)
+void MediaPlayerPrivateRemote::playerContentBoxRectChanged(const LayoutRect& contentRect)
+{
+    connection().send(Messages::RemoteMediaPlayerProxy::PlayerContentBoxRectChanged(contentRect), m_id);
+}
+
+void MediaPlayerPrivateRemote::requestResource(RemoteMediaResourceIdentifier remoteMediaResourceIdentifier, WebCore::ResourceRequest&& request, WebCore::PlatformMediaResourceLoader::LoadOptions options)
 {
     ASSERT(!m_mediaResources.contains(remoteMediaResourceIdentifier));
     auto resource = m_mediaResourceLoader->requestResource(WTFMove(request), options);
 
     if (!resource) {
-        completionHandler();
         // FIXME: Get the error from MediaResourceLoader::requestResource.
         connection().send(Messages::RemoteMediaResourceManager::LoadFailed(remoteMediaResourceIdentifier, { ResourceError::Type::Cancellation }), 0);
         return;
@@ -1419,8 +1466,6 @@ void MediaPlayerPrivateRemote::requestResource(RemoteMediaResourceIdentifier rem
     // PlatformMediaResource owns the PlatformMediaResourceClient
     resource->setClient(adoptRef(*new RemoteMediaResourceProxy(connection(), *resource, remoteMediaResourceIdentifier)));
     m_mediaResources.add(remoteMediaResourceIdentifier, WTFMove(resource));
-
-    completionHandler();
 }
 
 void MediaPlayerPrivateRemote::sendH2Ping(const URL& url, CompletionHandler<void(Expected<WTF::Seconds, WebCore::ResourceError>&&)>&& completionHandler)
@@ -1460,11 +1505,6 @@ WTFLogChannel& MediaPlayerPrivateRemote::logChannel() const
     return JOIN_LOG_CHANNEL_WITH_PREFIX(LOG_CHANNEL_PREFIX, Media);
 }
 #endif
-
-MediaPlayerIdentifier MediaPlayerPrivateRemote::identifier() const
-{
-    return m_id;
-}
 
 } // namespace WebKit
 

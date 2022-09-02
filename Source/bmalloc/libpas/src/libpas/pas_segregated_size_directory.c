@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019-2021 Apple Inc. All rights reserved.
+ * Copyright (c) 2019-2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -83,7 +83,7 @@ pas_segregated_size_directory* pas_segregated_size_directory_create(
     } else {
         result = pas_immortal_heap_allocate_with_alignment(
             sizeof(pas_segregated_size_directory) + sizeof(pas_bitfit_size_class),
-            PAS_MAX(alignof(pas_segregated_size_directory), alignof(pas_bitfit_size_class)),
+            PAS_MAX(PAS_ALIGNOF(pas_segregated_size_directory), PAS_ALIGNOF(pas_bitfit_size_class)),
             "pas_segregated_size_directory+pas_bitfit_size_class",
             pas_object_allocation);
     }
@@ -117,6 +117,7 @@ pas_segregated_size_directory* pas_segregated_size_directory_create(
         pas_segregated_size_directory_encode_stuff(2 * PAS_NUM_BASELINE_ALLOCATORS, UINT_MAX);
     
     result->view_cache_index = (pas_allocator_index)UINT_MAX;
+    result->allocator_index = 0;
     
     pas_segregated_size_directory_data_ptr_store(&result->data, NULL);
 
@@ -130,7 +131,7 @@ pas_segregated_size_directory* pas_segregated_size_directory_create(
         bitfit_size_class = pas_segregated_size_directory_get_bitfit_size_class(result);
         
         pas_bitfit_heap_construct_and_insert_size_class(
-            bitfit_heap, bitfit_size_class, object_size, heap_config);
+            bitfit_heap, bitfit_size_class, object_size, heap_config, heap->runtime_config);
     }
     
     pas_compact_atomic_segregated_size_directory_ptr_store(&result->next_for_heap, NULL);
@@ -204,8 +205,6 @@ pas_segregated_size_directory_data* pas_segregated_size_directory_ensure_data(
     data->offset_from_page_boundary_to_first_object = 0;
     data->offset_from_page_boundary_to_end_of_last_object = 0;
     data->full_num_non_empty_words = 0;
-    data->allocator_index = 0;
-    pas_compact_atomic_thread_local_cache_layout_node_store(&data->next_for_layout, NULL);
 
     pas_fence();
 
@@ -233,24 +232,22 @@ pas_segregated_size_directory_get_extended_data(
 void pas_segregated_size_directory_create_tlc_allocator(
     pas_segregated_size_directory* directory)
 {
-    pas_segregated_size_directory_data* data;
-    
     pas_heap_lock_assert_held();
 
     if (pas_segregated_page_config_kind_is_utility(directory->base.page_config_kind))
         return;
 
-    data = pas_segregated_size_directory_ensure_data(directory, pas_lock_is_held);
+    pas_segregated_size_directory_ensure_data(directory, pas_lock_is_held);
 
-    if (data->allocator_index) {
-        PAS_ASSERT(data->allocator_index != (pas_allocator_index)UINT_MAX);
+    if (directory->allocator_index) {
+        PAS_ASSERT(directory->allocator_index != (pas_allocator_index)UINT_MAX);
         return;
     }
     
     pas_thread_local_cache_layout_add(directory);
 
-    PAS_ASSERT(data->allocator_index);
-    PAS_ASSERT(data->allocator_index < (pas_allocator_index)UINT_MAX);
+    PAS_ASSERT(directory->allocator_index);
+    PAS_ASSERT(directory->allocator_index < (pas_allocator_index)UINT_MAX);
 }
 
 void pas_segregated_size_directory_create_tlc_view_cache(
@@ -747,7 +744,8 @@ take_last_empty_consider_view(pas_segregated_directory_iterate_config* config)
         }
         pas_page_malloc_decommit(
             pas_segregated_page_boundary(page, my_page_config),
-            my_page_config.base.page_size);
+            my_page_config.base.page_size,
+            my_page_config.base.heap_config_ptr->mmap_capability);
         decommit_log->total += my_page_config.base.page_size;
         my_page_config.base.destroy_page_header(&page->base, pas_lock_is_held);
         pas_segregated_directory_view_did_become_eligible_at_index(directory, index);
@@ -756,7 +754,7 @@ take_last_empty_consider_view(pas_segregated_directory_iterate_config* config)
         return true;
     }
     
-    if (page->num_non_empty_words) {
+    if (page->emptiness.num_non_empty_words) {
         bool decommit_result;
         size_t num_committed_granules;
         
@@ -947,7 +945,7 @@ pas_segregated_size_directory_get_allocator_from_tlc(
     
     tlc_result = pas_thread_local_cache_get_local_allocator_for_initialized_index(
         pas_thread_local_cache_get(config),
-        pas_segregated_size_directory_data_ptr_load_non_null(&directory->data)->allocator_index,
+        directory->allocator_index,
         pas_lock_is_not_held);
     
     PAS_ASSERT(tlc_result.did_succeed);

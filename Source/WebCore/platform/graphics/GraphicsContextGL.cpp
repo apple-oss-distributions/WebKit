@@ -31,7 +31,6 @@
 
 #if ENABLE(WEBGL)
 
-#include "ExtensionsGL.h"
 #include "FormatConverter.h"
 #include "HostWindow.h"
 #include "Image.h"
@@ -376,13 +375,13 @@ bool GraphicsContextGL::computeFormatAndTypeParameters(GCGLenum format, GCGLenum
         break;
     case GraphicsContextGL::RGB:
     case GraphicsContextGL::RGB_INTEGER:
-    case ExtensionsGL::SRGB_EXT:
+    case GraphicsContextGL::SRGB_EXT:
         *componentsPerPixel = 3;
         break;
     case GraphicsContextGL::RGBA:
     case GraphicsContextGL::RGBA_INTEGER:
-    case ExtensionsGL::BGRA_EXT: // GL_EXT_texture_format_BGRA8888
-    case ExtensionsGL::SRGB_ALPHA_EXT:
+    case GraphicsContextGL::BGRA_EXT: // GL_EXT_texture_format_BGRA8888
+    case GraphicsContextGL::SRGB_ALPHA_EXT:
         *componentsPerPixel = 4;
         break;
     default:
@@ -571,7 +570,7 @@ bool GraphicsContextGL::extractPixelBuffer(const PixelBuffer& pixelBuffer, DataF
         return false;
     data.resize(packedSize);
 
-    if (!packPixels(pixelBuffer.data().data(), sourceDataFormat, width, height, sourceImageSubRectangle, depth, 0, unpackImageHeight, format, type, premultiplyAlpha ? AlphaOp::DoPremultiply : AlphaOp::DoNothing, data.data(), flipY))
+    if (!packPixels(pixelBuffer.bytes(), sourceDataFormat, width, height, sourceImageSubRectangle, depth, 0, unpackImageHeight, format, type, premultiplyAlpha ? AlphaOp::DoPremultiply : AlphaOp::DoNothing, data.data(), flipY))
         return false;
 
     return true;
@@ -634,8 +633,21 @@ void GraphicsContextGL::markLayerComposited()
         if (attrs.stencil)
             m_buffersToAutoClear |= GraphicsContextGL::STENCIL_BUFFER_BIT;
     }
-    for (auto* client : copyToVector(m_clients))
-        client->didComposite();
+    if (m_client)
+        m_client->didComposite();
+}
+
+
+void GraphicsContextGL::forceContextLost()
+{
+    if (m_client)
+        m_client->forceContextLost();
+}
+
+void GraphicsContextGL::dispatchContextChangedNotification()
+{
+    if (m_client)
+        m_client->dispatchContextChangedNotification();
 }
 
 } // namespace WebCore

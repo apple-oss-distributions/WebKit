@@ -30,6 +30,7 @@ VkImageImageSiblingVk::VkImageImageSiblingVk(EGLClientBuffer buffer,
     mVkImageInfo = *info;
     // TODO(penghuang): support extensions.
     mVkImageInfo.pNext = nullptr;
+    mInternalFormat = static_cast<GLenum>(attribs.get(EGL_TEXTURE_INTERNAL_FORMAT_ANGLE, GL_NONE));
 }
 
 VkImageImageSiblingVk::~VkImageImageSiblingVk() = default;
@@ -47,13 +48,26 @@ angle::Result VkImageImageSiblingVk::initImpl(DisplayVk *displayVk)
     const angle::FormatID formatID = vk::GetFormatIDFromVkFormat(mVkImageInfo.format);
     ANGLE_VK_CHECK(displayVk, formatID != angle::FormatID::NONE, VK_ERROR_FORMAT_NOT_SUPPORTED);
 
-    const vk::Format &vkFormat             = renderer->getFormat(formatID);
-    const angle::FormatID intendedFormatID = vkFormat.getIntendedFormatID();
+    const vk::Format &vkFormat = renderer->getFormat(formatID);
     const vk::ImageAccess imageAccess =
         isRenderable(nullptr) ? vk::ImageAccess::Renderable : vk::ImageAccess::SampleOnly;
     const angle::FormatID actualImageFormatID = vkFormat.getActualImageFormatID(imageAccess);
     const angle::Format &format               = angle::Format::Get(actualImageFormatID);
-    mFormat                                   = gl::Format(format.glInternalFormat);
+
+    angle::FormatID intendedFormatID;
+    if (mInternalFormat != GL_NONE)
+    {
+        // If EGL_TEXTURE_INTERNAL_FORMAT_ANGLE is provided for eglCreateImageKHR(),
+        // the provided format will be used for mFormat and intendedFormat.
+        GLenum type      = gl::GetSizedInternalFormatInfo(format.glInternalFormat).type;
+        mFormat          = gl::Format(mInternalFormat, type);
+        intendedFormatID = angle::Format::InternalFormatToID(mFormat.info->sizedInternalFormat);
+    }
+    else
+    {
+        intendedFormatID = vkFormat.getIntendedFormatID();
+        mFormat          = gl::Format(format.glInternalFormat);
+    }
 
     // Create the image
     mImage                              = new vk::ImageHelper();
@@ -117,6 +131,7 @@ void VkImageImageSiblingVk::release(RendererVk *renderer)
     {
         // TODO: Handle the case where the EGLImage is used in two contexts not in the same share
         // group.  https://issuetracker.google.com/169868803
+        mImage->releaseImageAndViewGarbage(renderer);
         mImage->resetImageWeakReference();
         mImage->destroy(renderer);
         SafeDelete(mImage);

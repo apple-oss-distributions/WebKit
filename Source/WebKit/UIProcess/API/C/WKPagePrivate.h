@@ -146,8 +146,12 @@ enum {
     kWKMediaHasActiveVideoCaptureDevice = 1 << 3,
     kWKMediaHasMutedAudioCaptureDevice = 1 << 4,
     kWKMediaHasMutedVideoCaptureDevice = 1 << 5,
-    kWKMediaHasActiveDisplayCaptureDevice = 1 << 6,
-    kWKMediaHasMutedDisplayCaptureDevice = 1 << 7,
+    kWKMediaHasActiveScreenCaptureDevice = 1 << 6,
+    kWKMediaHasActiveDisplayCaptureDevice = kWKMediaHasActiveScreenCaptureDevice,
+    kWKMediaHasMutedScreenCaptureDevice = 1 << 7,
+    kWKMediaHasMutedDisplayCaptureDevice = kWKMediaHasMutedScreenCaptureDevice,
+    kWKMediaHasActiveWindowCaptureDevice = 1 << 8,
+    kWKMediaHasMutedWindowCaptureDevice = 1 << 9,
 };
 typedef uint32_t WKMediaState;
 
@@ -197,7 +201,7 @@ WK_EXPORT void WKPageSetPrivateClickMeasurementAppBundleIDForTesting(WKPageRef p
 
 WK_EXPORT void WKPageSetMockCameraOrientation(WKPageRef page, uint64_t orientation);
 WK_EXPORT bool WKPageIsMockRealtimeMediaSourceCenterEnabled(WKPageRef page);
-WK_EXPORT void WKPageSetMockCameraIsInterrupted(WKPageRef page, bool isInterrupted);
+WK_EXPORT void WKPageSetMockCaptureDevicesInterrupted(WKPageRef page, bool isCameraInterrupted, bool isMicrophoneInterrupted);
 
 typedef void (*WKPageLoadedSubresourceDomainsFunction)(WKArrayRef domains, void* functionContext);
 WK_EXPORT void WKPageLoadedSubresourceDomains(WKPageRef page, WKPageLoadedSubresourceDomainsFunction callback, void* callbackContext);

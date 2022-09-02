@@ -44,7 +44,7 @@ ImageSource::ImageSource(BitmapImage* image, AlphaOption alphaOption, GammaAndCo
 {
 }
 
-ImageSource::ImageSource(RefPtr<NativeImage>&& nativeImage)
+ImageSource::ImageSource(Ref<NativeImage>&& nativeImage)
     : m_runLoop(RunLoop::current())
 {
     m_frameCount = 1;
@@ -120,17 +120,17 @@ bool ImageSource::isAllDataReceived()
     return isDecoderAvailable() ? m_decoder->isAllDataReceived() : frameCount();
 }
 
-void ImageSource::destroyDecodedData(size_t frameCount, size_t excludeFrame)
+void ImageSource::destroyDecodedData(size_t begin, size_t end)
 {
+    if (begin >= end)
+        return;
+
+    ASSERT(end <= m_frames.size());
+
     unsigned decodedSize = 0;
 
-    ASSERT(frameCount <= m_frames.size());
-
-    for (size_t index = 0; index < frameCount; ++index) {
-        if (index == excludeFrame)
-            continue;
+    for (size_t index = begin; index < end; ++index)
         decodedSize += m_frames[index].clearImage();
-    }
 
     decodedSizeReset(decodedSize);
 }
@@ -232,7 +232,7 @@ void ImageSource::growFrames()
         m_frames.grow(newSize);
 }
 
-void ImageSource::setNativeImage(RefPtr<NativeImage>&& nativeImage)
+void ImageSource::setNativeImage(Ref<NativeImage>&& nativeImage)
 {
     ASSERT(m_frames.size() == 1);
     ImageFrame& frame = m_frames[0];
@@ -373,7 +373,7 @@ void ImageSource::startAsyncDecodingQueue()
                 sleep(minDecodingDuration - (MonotonicTime::now() - startingTime));
 
             // Update the cached frames on the creation thread to avoid updating the MemoryCache from a different thread.
-            callOnMainThread([protectedThis, protectedDecodingQueue, protectedDecoder, sourceURL = sourceURL.isolatedCopy(), platformImage = WTFMove(platformImage), frameRequest] () mutable {
+            callOnMainThread([protectedThis, protectedDecodingQueue, protectedDecoder, sourceURL = WTFMove(sourceURL).isolatedCopy(), platformImage = WTFMove(platformImage), frameRequest] () mutable {
                 // The queue may have been closed if after we got the frame NativeImage, stopAsyncDecodingQueue() was called.
                 if (protectedDecodingQueue.ptr() == protectedThis->m_decodingQueue && protectedDecoder.ptr() == protectedThis->m_decoder) {
                     ASSERT(protectedThis->m_frameCommitQueue.first() == frameRequest);

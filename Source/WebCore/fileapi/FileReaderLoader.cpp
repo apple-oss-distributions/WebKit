@@ -68,7 +68,8 @@ FileReaderLoader::FileReaderLoader(ReadType readType, FileReaderLoaderClient* cl
 
 FileReaderLoader::~FileReaderLoader()
 {
-    terminate();
+    cancel();
+
     if (!m_urlForReading.isEmpty())
         ThreadableBlobRegistry::unregisterBlobURL(m_urlForReading);
 }
@@ -92,7 +93,7 @@ void FileReaderLoader::start(ScriptExecutionContext* scriptExecutionContext, con
 
     // Construct and load the request.
     ResourceRequest request(m_urlForReading);
-    request.setHTTPMethod("GET");
+    request.setHTTPMethod("GET"_s);
 
     ThreadableLoaderOptions options;
     options.sendLoadCallbacks = SendCallbackPolicy::SendCallbacks;
@@ -101,9 +102,12 @@ void FileReaderLoader::start(ScriptExecutionContext* scriptExecutionContext, con
     options.mode = FetchOptions::Mode::SameOrigin;
     options.contentSecurityPolicyEnforcement = ContentSecurityPolicyEnforcement::DoNotEnforce;
 
-    if (m_client)
-        m_loader = ThreadableLoader::create(*scriptExecutionContext, *this, WTFMove(request), options);
-    else
+    if (m_client) {
+        auto loader = ThreadableLoader::create(*scriptExecutionContext, *this, WTFMove(request), options);
+        if (!loader)
+            return;
+        std::exchange(m_loader, loader);
+    } else
         ThreadableLoader::loadResourceSynchronously(*scriptExecutionContext, WTFMove(request), *this, options);
 }
 
@@ -226,7 +230,7 @@ void FileReaderLoader::didReceiveData(const SharedBuffer& buffer)
         m_client->didReceiveData();
 }
 
-void FileReaderLoader::didFinishLoading(ResourceLoaderIdentifier)
+void FileReaderLoader::didFinishLoading(ResourceLoaderIdentifier, const NetworkLoadMetrics&)
 {
     if (m_variableLength && m_totalBytes > m_bytesLoaded) {
         m_rawData = m_rawData->slice(0, m_bytesLoaded);
@@ -336,7 +340,7 @@ void FileReaderLoader::convertToText()
     // provided encoding.     
     // FIXME: consider supporting incremental decoding to improve the perf.
     if (!m_decoder)
-        m_decoder = TextResourceDecoder::create("text/plain", m_encoding.isValid() ? m_encoding : PAL::UTF8Encoding());
+        m_decoder = TextResourceDecoder::create("text/plain"_s, m_encoding.isValid() ? m_encoding : PAL::UTF8Encoding());
     if (isCompleted())
         m_stringResult = m_decoder->decodeAndFlush(static_cast<const char*>(m_rawData->data()), m_bytesLoaded);
     else
@@ -350,7 +354,7 @@ void FileReaderLoader::convertToDataURL()
         return;
     }
 
-    m_stringResult = makeString("data:", m_dataType.isEmpty() ? "application/octet-stream" : m_dataType, ";base64,", base64Encoded(m_rawData->data(), m_bytesLoaded));
+    m_stringResult = makeString("data:", m_dataType.isEmpty() ? "application/octet-stream"_s : m_dataType, ";base64,", base64Encoded(m_rawData->data(), m_bytesLoaded));
 }
 
 bool FileReaderLoader::isCompleted() const
@@ -358,7 +362,7 @@ bool FileReaderLoader::isCompleted() const
     return m_bytesLoaded == m_totalBytes;
 }
 
-void FileReaderLoader::setEncoding(const String& encoding)
+void FileReaderLoader::setEncoding(StringView encoding)
 {
     if (!encoding.isEmpty())
         m_encoding = PAL::TextEncoding(encoding);

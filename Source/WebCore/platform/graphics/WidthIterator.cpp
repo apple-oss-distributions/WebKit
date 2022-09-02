@@ -41,7 +41,7 @@ WidthIterator::WidthIterator(const FontCascade& font, const TextRun& run, HashSe
     , m_run(run)
     , m_fallbackFonts(fallbackFonts)
     , m_expansion(run.expansion())
-    , m_isAfterExpansion((run.expansionBehavior() & LeftExpansionMask) == ForbidLeftExpansion)
+    , m_isAfterExpansion(run.expansionBehavior().left == ExpansionBehavior::Behavior::Forbid)
     , m_accountForGlyphBounds(accountForGlyphBounds)
     , m_enableKerning(font.enableKerning())
     , m_requiresShaping(font.requiresShaping())
@@ -306,7 +306,7 @@ inline void WidthIterator::advanceInternal(TextIterator& textIterator, GlyphBuff
         const Font& font = glyphData.font ? *glyphData.font : primaryFont;
 
         previousWidth = width;
-        width = font.widthForGlyph(glyph);
+        width = font.widthForGlyph(glyph, Font::SyntheticBoldInclusion::Exclude); // We apply synthetic bold after shaping, in applyCSSVisibilityRules().
 
         if (&font != lastFontData)
             commitCurrentFontRange(glyphBuffer, lastGlyphCount, currentCharacterIndex, lastFontData, font, primaryFont, character, widthOfCurrentFontRange, width, charactersTreatedAsSpace);
@@ -314,7 +314,7 @@ inline void WidthIterator::advanceInternal(TextIterator& textIterator, GlyphBuff
             widthOfCurrentFontRange += width;
 
         if (FontCascade::treatAsSpace(character))
-            charactersTreatedAsSpace.constructAndAppend(currentCharacterIndex, character == space, previousWidth, character == tabCharacter ? width : font.spaceWidth());
+            charactersTreatedAsSpace.constructAndAppend(currentCharacterIndex, character == space, previousWidth, character == tabCharacter ? width : font.spaceWidth(Font::SyntheticBoldInclusion::Exclude));
 
         if (m_accountForGlyphBounds) {
             bounds = font.boundsForGlyph(glyph);
@@ -354,7 +354,8 @@ auto WidthIterator::calculateAdditionalWidth(GlyphBuffer& glyphBuffer, GlyphBuff
 
     if (character == tabCharacter && m_run.allowTabs()) {
         auto& font = glyphBuffer.fontAt(trailingGlyphIndex);
-        auto newWidth = m_font.tabWidth(font, m_run.tabSize(), position);
+        // Synthetic bold will be handled in applyCSSVisibilityRules() later.
+        auto newWidth = m_font.tabWidth(font, m_run.tabSize(), position, Font::SyntheticBoldInclusion::Exclude);
         auto currentWidth = width(glyphBuffer.advanceAt(trailingGlyphIndex));
         rightAdditionalWidth += newWidth - currentWidth;
     }
@@ -380,10 +381,10 @@ auto WidthIterator::calculateAdditionalWidth(GlyphBuffer& glyphBuffer, GlyphBuff
             if (!m_run.ltr())
                 std::swap(isLeftmostCharacter, isRightmostCharacter);
 
-            bool forceLeftExpansion = isLeftmostCharacter && (m_run.expansionBehavior() & LeftExpansionMask) == ForceLeftExpansion;
-            bool forceRightExpansion = isRightmostCharacter && (m_run.expansionBehavior() & RightExpansionMask) == ForceRightExpansion;
-            bool forbidLeftExpansion = isLeftmostCharacter && (m_run.expansionBehavior() & LeftExpansionMask) == ForbidLeftExpansion;
-            bool forbidRightExpansion = isRightmostCharacter && (m_run.expansionBehavior() & RightExpansionMask) == ForbidRightExpansion;
+            bool forceLeftExpansion = isLeftmostCharacter && m_run.expansionBehavior().left == ExpansionBehavior::Behavior::Force;
+            bool forceRightExpansion = isRightmostCharacter && m_run.expansionBehavior().right == ExpansionBehavior::Behavior::Force;
+            bool forbidLeftExpansion = isLeftmostCharacter && m_run.expansionBehavior().left == ExpansionBehavior::Behavior::Forbid;
+            bool forbidRightExpansion = isRightmostCharacter && m_run.expansionBehavior().right == ExpansionBehavior::Behavior::Forbid;
 
             bool isIdeograph = FontCascade::canExpandAroundIdeographsInComplexText() && FontCascade::isCJKIdeographOrSymbol(character);
 
@@ -557,7 +558,7 @@ void WidthIterator::applyCSSVisibilityRules(GlyphBuffer& glyphBuffer, unsigned g
 
     float yPosition = height(glyphBuffer.initialAdvance());
 
-    auto adjustForSyntheticBold = [&] (auto index) {
+    auto adjustForSyntheticBold = [&](auto index) {
         auto glyph = glyphBuffer.glyphAt(index);
         static constexpr const GlyphBufferGlyph deletedGlyph = 0xFFFF;
         auto syntheticBoldOffset = glyph == deletedGlyph ? 0 : glyphBuffer.fontAt(index).syntheticBoldOffset();
@@ -566,7 +567,7 @@ void WidthIterator::applyCSSVisibilityRules(GlyphBuffer& glyphBuffer, unsigned g
         setWidth(advance, width(advance) + syntheticBoldOffset);
     };
 
-    auto clobberGlyph = [&] (auto index, auto newGlyph) {
+    auto clobberGlyph = [&](auto index, auto newGlyph) {
         glyphBuffer.glyphs(index)[0] = newGlyph;
     };
 
@@ -574,16 +575,20 @@ void WidthIterator::applyCSSVisibilityRules(GlyphBuffer& glyphBuffer, unsigned g
     // applied. If the last glyph in a run needs to have its advance clobbered, but the next run has an initial advance, we need
     // to apply the initial advance on the new clobbered advance, rather than clobbering the initial advance entirely.
 
-    auto clobberAdvance = [&] (auto index, auto newAdvance) {
+    auto clobberAdvance = [&](auto index, auto newAdvance) {
         auto advanceBeforeClobbering = glyphBuffer.advanceAt(index);
         glyphBuffer.advances(index)[0] = makeGlyphBufferAdvance(newAdvance, height(advanceBeforeClobbering));
         m_runWidthSoFar += width(glyphBuffer.advanceAt(index)) - width(advanceBeforeClobbering);
         glyphBuffer.origins(index)[0] = makeGlyphBufferOrigin(0, -yPosition);
     };
 
-    auto deleteGlyph = [&] (auto index) {
+    auto deleteGlyph = [&](auto index) {
         m_runWidthSoFar -= width(glyphBuffer.advanceAt(index));
         glyphBuffer.deleteGlyphWithoutAffectingSize(index);
+    };
+
+    auto makeGlyphInvisible = [&](auto index) {
+        glyphBuffer.makeGlyphInvisible(index);
     };
 
     for (unsigned i = glyphBufferStartIndex; i < glyphBuffer.size(); yPosition += height(glyphBuffer.advanceAt(i)), ++i) {
@@ -595,11 +600,18 @@ void WidthIterator::applyCSSVisibilityRules(GlyphBuffer& glyphBuffer, unsigned g
         switch (characterResponsibleForThisGlyph) {
         case newlineCharacter:
         case carriageReturn:
-        case noBreakSpace:
-        case tabCharacter:
             ASSERT(glyphBuffer.fonts(i)[0]);
-            // FIXME: Is this actually necessary? If the font specifically has a glyph for NBSP, I don't see a reason not to use it.
-            clobberGlyph(i, glyphBuffer.fontAt(i).spaceGlyph());
+            // FIXME: It isn't quite right to use the space glyph here, because the space character may be supposed to render with a totally unrelated font (because of fallback).
+            // Instead, we should probably somehow have the caller pass in a Font/glyph pair to use in this situation.
+            if (auto spaceGlyph = glyphBuffer.fontAt(i).spaceGlyph())
+                clobberGlyph(i, spaceGlyph);
+            adjustForSyntheticBold(i);
+            continue;
+        case noBreakSpace:
+            adjustForSyntheticBold(i);
+            continue;
+        case tabCharacter:
+            makeGlyphInvisible(i);
             adjustForSyntheticBold(i);
             continue;
         }

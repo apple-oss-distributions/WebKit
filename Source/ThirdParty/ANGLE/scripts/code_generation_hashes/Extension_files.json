@@ -1,38 +1,40 @@
 {
   "doc/ExtensionSupport.md":
-    "23b3eee41ecb931f736e9a78e03c9741",
+    "fcbde97007182ba3fec374a107761fce",
   "scripts/cl.xml":
     "f923201d4ea3e1130763b19fa7faa7a2",
   "scripts/egl.xml":
     "013c552e6c523abdcf268268ea47e9fe",
   "scripts/egl_angle_ext.xml":
-    "bd57943b71217a962e6049a74bb64e0e",
+    "e90fb2b574f3b42700ec1d6e18817869",
   "scripts/extension_data/intel_630_linux.json":
-    "dbcae14638684f9c094c216110fd4fa3",
+    "e191c11babb582d6da3fc104494975fe",
   "scripts/extension_data/intel_630_win10.json":
-    "4cf6bfad658bb2f0a818bed648042c23",
-  "scripts/extension_data/nvidia_p400_linux.json":
-    "b9e39094658cf0378b0b6ca1fd69b32a",
-  "scripts/extension_data/nvidia_p400_win10.json":
-    "476eca14731550002205aef95c8ce3f6",
+    "39ef95078faa451d76d00a5563ef62cc",
+  "scripts/extension_data/nvidia_1660_linux.json":
+    "34940f43671ce74c4462f86eedc0187b",
+  "scripts/extension_data/nvidia_1660_win10.json":
+    "b4a9af4227e62801eca4961dfb851bfd",
   "scripts/extension_data/pixel_4_android_11.json":
-    "3e482d5647efe6e938101584885a1994",
+    "2594c2b7dfb5e39c7f4c43a46ffc33e3",
+  "scripts/extension_data/pixel_6_android_13.json":
+    "c39e884796fe936178f81010d19ef0ee",
   "scripts/extension_data/swiftshader_win10.json":
-    "6eac00fc10d4130e73323a048c92fca7",
+    "d6893ad91278a1afdba5ec8fe8a0e562",
   "scripts/extension_data/swiftshader_win10_gles1.json":
     "fbf1c3dc83570c1e3fffdbee313bca30",
   "scripts/gl.xml":
-    "467556b6f73fd024b08b703d0be83999",
+    "e8f8d52f5a5b8bd5bdd4557fdc58d5dd",
   "scripts/gl_angle_ext.xml":
-    "474989440f980a079935dff3ab4d7b24",
+    "37eebedc1153cd9d208efa469a10a7b2",
   "scripts/registry_xml.py":
-    "b1893c003352dec25d4cd54e2b385925",
+    "0bc67e23f4e3a97dfba08f857d3db76d",
   "scripts/wgl.xml":
     "c36001431919e1c435f1215a85f7e1db",
   "src/libANGLE/gen_extensions.py":
-    "db7ed1c2245bba536e074a1cf2bb2590",
+    "ad8414b5dd06bc7d7afdacd526fff6db",
   "src/libANGLE/gles_extensions_autogen.cpp":
-    "6c765b092edffcda3a114e3fb587df3a",
+    "77db560e1279af65eb32dc7af3854881",
   "src/libANGLE/gles_extensions_autogen.h":
-    "8ca4513c8c187b2baa2872c7653c5086"
+    "d6ac8a0911b37bc4efa3bd70f0f305a8"
 }

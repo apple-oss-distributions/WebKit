@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2011-2021 Apple Inc. All rights reserved.
+ * Copyright (C) 2011-2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -40,10 +40,10 @@ class JSBoundFunction final : public JSFunction {
 public:
     typedef JSFunction Base;
     static constexpr unsigned StructureFlags = Base::StructureFlags & ~ImplementsDefaultHasInstance;
-    static_assert(StructureFlags & ImplementsHasInstance, "");
+    static_assert(StructureFlags & ImplementsHasInstance);
 
     template<typename CellType, SubspaceAccess mode>
-    static IsoSubspace* subspaceFor(VM& vm)
+    static GCClient::IsoSubspace* subspaceFor(VM& vm)
     {
         return vm.boundFunctionSpace<mode>();
     }
@@ -57,7 +57,7 @@ public:
     JSImmutableButterfly* boundArgs() { return m_boundArgs.get(); } // DO NOT allow this array to be mutated!
     JSArray* boundArgsCopy(JSGlobalObject*);
     JSString* nameMayBeNull() { return m_nameMayBeNull.get(); }
-    const String& nameString()
+    String nameString()
     {
         if (!m_nameMayBeNull)
             return emptyString();

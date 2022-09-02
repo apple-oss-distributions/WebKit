@@ -1,6 +1,6 @@
 /*
  *  Copyright (C) 1999-2000 Harri Porten (porten@kde.org)
- *  Copyright (C) 2003-2021 Apple Inc. All rights reserved.
+ *  Copyright (C) 2003-2022 Apple Inc. All rights reserved.
  *  Copyright (C) 2007 Cameron Zwarich (cwzwarich@uwaterloo.ca)
  *  Copyright (C) 2007 Maks Orlovich
  *
@@ -38,7 +38,7 @@ public:
     static constexpr unsigned StructureFlags = Base::StructureFlags | ImplementsHasInstance | ImplementsDefaultHasInstance | OverridesGetCallData;
 
     template<typename CellType, SubspaceAccess>
-    static IsoSubspace* subspaceFor(VM& vm)
+    static GCClient::IsoSubspace* subspaceFor(VM& vm)
     {
         static_assert(sizeof(CellType) == sizeof(InternalFunction), "InternalFunction subclasses that add fields need to override subspaceFor<>()");
         return &vm.internalFunctionSpace();
@@ -48,9 +48,9 @@ public:
 
     DECLARE_VISIT_CHILDREN_WITH_MODIFIER(JS_EXPORT_PRIVATE);
 
-    JS_EXPORT_PRIVATE const String& name();
-    const String displayName(VM&);
-    const String calculatedDisplayName(VM&);
+    JS_EXPORT_PRIVATE String name();
+    String displayName(VM&);
+    String calculatedDisplayName(VM&);
 
     static Structure* createStructure(VM& vm, JSGlobalObject* globalObject, JSValue proto)
     { 

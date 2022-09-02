@@ -9,7 +9,7 @@
 
 using namespace angle;
 
-class FenceNVTest : public ANGLETest
+class FenceNVTest : public ANGLETest<>
 {
   protected:
     FenceNVTest()
@@ -24,7 +24,7 @@ class FenceNVTest : public ANGLETest
     }
 };
 
-class FenceSyncTest : public ANGLETest
+class FenceSyncTest : public ANGLETest<>
 {
   public:
     static constexpr uint32_t kSize = 1024;
@@ -225,6 +225,16 @@ TEST_P(FenceSyncTest, BasicQueries)
     glGetSynciv(sync, GL_SYNC_FLAGS, 1, &length, &value);
     EXPECT_GL_NO_ERROR();
     EXPECT_EQ(0, value);
+}
+
+// Test usage of glGetSynciv with nullptr as length
+TEST_P(FenceSyncTest, NullLength)
+{
+    GLint value = 0;
+    GLsync sync = glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
+    glGetSynciv(sync, GL_SYNC_STATUS, 1, nullptr, &value);
+    glDeleteSync(sync);
+    EXPECT_GL_NO_ERROR();
 }
 
 // Test that basic usage works and doesn't generate errors or crash

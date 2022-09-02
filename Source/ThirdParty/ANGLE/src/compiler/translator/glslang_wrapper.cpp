@@ -10,6 +10,7 @@
 //   This file is separated as glslang's header contains conflicting macro definitions with ANGLE's.
 //
 
+#include "common/spirv/spirv_types.h"
 #include "compiler/translator/glslang_wrapper.h"
 
 // glslang has issues with some specific warnings.
@@ -105,10 +106,10 @@ void GlslangFinalize()
     ASSERT(result != 0);
 }
 
-ANGLE_NO_DISCARD bool GlslangCompileToSpirv(const ShBuiltInResources &resources,
-                                            sh::GLenum shaderType,
-                                            const std::string &shaderSource,
-                                            angle::spirv::Blob *spirvBlobOut)
+[[nodiscard]] bool GlslangCompileToSpirv(const ShBuiltInResources &resources,
+                                         sh::GLenum shaderType,
+                                         const std::string &shaderSource,
+                                         angle::spirv::Blob *spirvBlobOut)
 {
     TBuiltInResource builtInResources(glslang::DefaultTBuiltInResource);
     GetBuiltInResources(resources, &builtInResources);

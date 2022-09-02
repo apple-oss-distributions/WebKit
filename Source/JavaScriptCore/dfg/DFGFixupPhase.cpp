@@ -1018,7 +1018,7 @@ private:
         case StringCodePointAt: {
             // Currently we have no good way of refining these.
             ASSERT(node->arrayMode() == ArrayMode(Array::String, Array::Read));
-            blessArrayOperation(node->child1(), node->child2(), node->child3());
+            blessArrayOperation(node->child1(), node->child2(), node->child1()); // Rewrite child1 with ResolveRope.
             fixEdge<KnownStringUse>(node->child1());
             fixEdge<Int32Use>(node->child2());
             break;
@@ -1083,7 +1083,11 @@ private:
                 break;
             }
 
-            blessArrayOperation(m_graph.varArgChild(node, 0), m_graph.varArgChild(node, 1), m_graph.varArgChild(node, 2));
+            if (node->arrayMode().type() == Array::String) {
+                // Rewrite first child with ResolveRope.
+                blessArrayOperation(m_graph.varArgChild(node, 0), m_graph.varArgChild(node, 1), m_graph.varArgChild(node, 0));
+            } else
+                blessArrayOperation(m_graph.varArgChild(node, 0), m_graph.varArgChild(node, 1), m_graph.varArgChild(node, 2));
             
             ArrayMode arrayMode = node->arrayMode();
             switch (arrayMode.type()) {
@@ -1669,8 +1673,8 @@ private:
             // When we go down the fast path, we don't consult the prototype chain, so we must prove
             // that it doesn't contain any indexed properties, and that any holes will result in
             // jsUndefined().
-            Structure* arrayPrototypeStructure = globalObject->arrayPrototype()->structure(vm());
-            Structure* objectPrototypeStructure = globalObject->objectPrototype()->structure(vm());
+            Structure* arrayPrototypeStructure = globalObject->arrayPrototype()->structure();
+            Structure* objectPrototypeStructure = globalObject->objectPrototype()->structure();
             if (node->child1()->shouldSpeculateArray()
                 && arrayPrototypeStructure->transitionWatchpointSetIsStillValid()
                 && objectPrototypeStructure->transitionWatchpointSetIsStillValid()
@@ -2206,6 +2210,7 @@ private:
         case Upsilon:
         case EntrySwitch:
         case GetIndexedPropertyStorage:
+        case ResolveRope:
         case LastNodeType:
         case CheckTierUpInLoop:
         case CheckTierUpAtReturn:
@@ -3026,7 +3031,7 @@ private:
             if (!edge)
                 break;
             edge.setUseKind(KnownStringUse);
-            JSString* string = edge->dynamicCastConstant<JSString*>(vm());
+            JSString* string = edge->dynamicCastConstant<JSString*>();
             if (!string)
                 continue;
             if (string->length())
@@ -3705,6 +3710,9 @@ private:
                 m_indexInBlock, SpecNone, GetButterfly, origin, Edge(array, CellUse));
         }
         
+        if (arrayMode.type() == Array::String)
+            return m_insertionSet.insertNode(m_indexInBlock, SpecNone, ResolveRope, origin, Edge(array, KnownStringUse));
+
         return m_insertionSet.insertNode(
             m_indexInBlock, SpecNone, GetIndexedPropertyStorage, origin,
             OpInfo(arrayMode.asWord()), Edge(array, KnownCellUse));
@@ -3774,8 +3782,8 @@ private:
     void setSaneChainIfPossible(Node* node, Array::Speculation speculation)
     {
         JSGlobalObject* globalObject = m_graph.globalObjectFor(node->origin.semantic);
-        Structure* arrayPrototypeStructure = globalObject->arrayPrototype()->structure(vm());
-        Structure* objectPrototypeStructure = globalObject->objectPrototype()->structure(vm());
+        Structure* arrayPrototypeStructure = globalObject->arrayPrototype()->structure();
+        Structure* objectPrototypeStructure = globalObject->objectPrototype()->structure();
         if (arrayPrototypeStructure->transitionWatchpointSetIsStillValid()
             && objectPrototypeStructure->transitionWatchpointSetIsStillValid()
             && globalObject->arrayPrototypeChainIsSaneConcurrently(arrayPrototypeStructure, objectPrototypeStructure)) {

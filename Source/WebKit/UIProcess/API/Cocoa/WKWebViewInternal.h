@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014-2016 Apple Inc. All rights reserved.
+ * Copyright (C) 2014-2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -57,6 +57,14 @@
 
 #if !defined(WK_WEB_VIEW_PROTOCOLS)
 #define WK_WEB_VIEW_PROTOCOLS
+#endif
+
+#if USE(APPKIT)
+using CocoaEdgeInsets = NSEdgeInsets;
+#endif
+
+#if PLATFORM(IOS_FAMILY)
+using CocoaEdgeInsets = UIEdgeInsets;
 #endif
 
 typedef const struct OpaqueWKPage* WKPageRef;
@@ -132,6 +140,9 @@ class ViewGestureController;
     _WKRenderingProgressEvents _observedRenderingProgressEvents;
     BOOL _usePlatformFindUI;
 
+    CocoaEdgeInsets _minimumViewportInset;
+    CocoaEdgeInsets _maximumViewportInset;
+
 #if PLATFORM(MAC)
     std::unique_ptr<WebKit::WebViewImpl> _impl;
     RetainPtr<WKTextFinderClient> _textFinderClient;
@@ -151,19 +162,20 @@ class ViewGestureController;
     RetainPtr<WKFullScreenWindowController> _fullScreenWindowController;
 #endif
 
-#if HAVE(UIFINDINTERACTION)
-    RetainPtr<_UIFindInteraction> _findInteraction;
     BOOL _findInteractionEnabled;
+#if HAVE(UIFINDINTERACTION)
+    RetainPtr<UIFindInteraction> _findInteraction;
 #endif
+
+    WebCore::GraphicsLayer::PlatformLayerID _pendingFindLayerID;
+    WebCore::GraphicsLayer::PlatformLayerID _committedFindLayerID;
 
     RetainPtr<_WKRemoteObjectRegistry> _remoteObjectRegistry;
 
     std::optional<CGSize> _viewLayoutSizeOverride;
     std::optional<WebCore::FloatSize> _lastSentViewLayoutSize;
     std::optional<CGSize> _minimumUnobscuredSizeOverride;
-    std::optional<WebCore::FloatSize> _lastSentMinimumUnobscuredSize;
     std::optional<CGSize> _maximumUnobscuredSizeOverride;
-    std::optional<WebCore::FloatSize> _lastSentMaximumUnobscuredSize;
     CGRect _inputViewBoundsInWindow;
 
     CGFloat _viewportMetaTagWidth;
@@ -181,6 +193,7 @@ class ViewGestureController;
     UIEdgeInsets _unobscuredSafeAreaInsets;
     BOOL _haveSetUnobscuredSafeAreaInsets;
     BOOL _avoidsUnsafeArea;
+    BOOL _needsToPresentLockdownModeMessage;
     UIRectEdge _obscuredInsetEdgesAffectedBySafeArea;
 
     UIInterfaceOrientation _interfaceOrientationOverride;
@@ -206,6 +219,13 @@ class ViewGestureController;
     std::optional<CGRect> _frozenVisibleContentRect;
     std::optional<CGRect> _frozenUnobscuredContentRect;
 
+    struct LiveResizeParameters {
+        CGFloat viewWidth;
+        CGPoint initialScrollPosition;
+    };
+    std::optional<LiveResizeParameters> _liveResizeParameters;
+    RetainPtr<id> _endLiveResizeNotificationObserver;
+
     BOOL _commitDidRestoreScrollPosition;
     std::optional<WebCore::FloatPoint> _scrollOffsetToRestore;
     WebCore::FloatBoxExtent _obscuredInsetsWhenSaved;
@@ -213,6 +233,10 @@ class ViewGestureController;
     std::optional<WebCore::FloatPoint> _unobscuredCenterToRestore;
     std::optional<WebKit::TransactionID> _firstTransactionIDAfterPageRestore;
     double _scaleToRestore;
+
+#if HAVE(UIKIT_RESIZABLE_WINDOWS)
+    Vector<RetainPtr<id<_UIInvalidatable>>> _resizeAssertions;
+#endif
 
     BOOL _allowsBackForwardNavigationGestures;
 
@@ -278,6 +302,8 @@ class ViewGestureController;
 #endif
 
 - (void)_internalDoAfterNextPresentationUpdate:(void (^)(void))updateBlock withoutWaitingForPainting:(BOOL)withoutWaitingForPainting withoutWaitingForAnimatedResize:(BOOL)withoutWaitingForAnimatedResize;
+
+- (void)_recalculateViewportSizesWithMinimumViewportInset:(CocoaEdgeInsets)minimumViewportInset maximumViewportInset:(CocoaEdgeInsets)maximumViewportInset throwOnInvalidInput:(BOOL)throwOnInvalidInput;
 
 - (void)_showSafeBrowsingWarning:(const WebKit::SafeBrowsingWarning&)warning completionHandler:(CompletionHandler<void(std::variant<WebKit::ContinueUnsafeLoad, URL>&&)>&&)completionHandler;
 - (void)_clearSafeBrowsingWarning;

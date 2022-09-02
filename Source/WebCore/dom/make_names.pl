@@ -219,7 +219,7 @@ sub defaultTagPropertyHash
         'wrapperOnlyIfMediaIsAvailable' => 0,
         'settingsConditional' => 0,
         'conditional' => 0,
-        'runtimeEnabled' => 0,
+        'deprecatedGlobalSettingsConditional' => 0,
         'customTypeHelper' => 0,
     );
 }
@@ -431,11 +431,11 @@ END
 
     my $runtimeCondition;
     my $settingsConditional = $allTags{$tagName}{settingsConditional};
-    my $runtimeEnabled = $allTags{$tagName}{runtimeEnabled};
+    my $deprecatedGlobalSettingsConditional = $allTags{$tagName}{deprecatedGlobalSettingsConditional};
     if ($settingsConditional) {
         $runtimeCondition = "document.settings().${settingsConditional}()";
-    } elsif ($runtimeEnabled) {
-        $runtimeCondition = "RuntimeEnabledFeatures::sharedFeatures().${runtimeEnabled}Enabled()";
+    } elsif ($deprecatedGlobalSettingsConditional) {
+        $runtimeCondition = "DeprecatedGlobalSettings::${deprecatedGlobalSettingsConditional}Enabled()";
     }
 
     if ($runtimeCondition) {
@@ -602,8 +602,6 @@ print F "\nvoid init()
     initialized = true;
 
     // Use placement new to initialize the globals.
-
-    AtomString::init();
 ";
 }
 
@@ -672,7 +670,7 @@ public:
 private:
 END
        ;
-       if ($parameters{namespace} eq "HTML" && ($parsedTags{$name}{wrapperOnlyIfMediaIsAvailable} || $parsedTags{$name}{settingsConditional} || $parsedTags{$name}{runtimeEnabled})) {
+       if ($parameters{namespace} eq "HTML" && ($parsedTags{$name}{wrapperOnlyIfMediaIsAvailable} || $parsedTags{$name}{settingsConditional} || $parsedTags{$name}{deprecatedGlobalSettingsConditional})) {
            print F <<END
     static bool checkTagName(const WebCore::HTMLElement& element) { return !element.isHTMLUnknownElement() && element.hasTagName(WebCore::$parameters{namespace}Names::${name}Tag); }
     static bool checkTagName(const WebCore::Node& node) { return is<WebCore::HTMLElement>(node) && checkTagName(downcast<WebCore::HTMLElement>(node)); }
@@ -747,6 +745,9 @@ END
     if (keys %allTags) {
         print F "const unsigned $parameters{namespace}TagsCount = ", scalar(keys %allTags), ";\n";
         print F "const WebCore::$parameters{namespace}QualifiedName* const* get$parameters{namespace}Tags();\n";
+        if ($parameters{namespace} eq "HTML") {
+            print F "AtomString find$parameters{namespace}Tag(Span<const UChar>);\n"
+        }
     }
 
     if (keys %allAttrs) {
@@ -756,6 +757,86 @@ END
 
     printInit($F, 1);
     close F;
+}
+
+sub findMaxTagLength
+{
+    my $allTags = shift;
+
+    my $maxLength = 0;
+    foreach my $tagName (keys %{$allTags}) {
+        my $tagLength = length($tagName);
+        $maxLength = $tagLength if $tagLength > $maxLength;
+    }
+    return $maxLength;
+}
+
+sub tagsWithLength
+{
+    my $allAttrs = shift;
+    my $expectedLength = shift;
+
+    my @tags = (); 
+    foreach my $tagName (sort keys %{$allAttrs}) {
+        push(@tags, $tagName) if length($tagName) == $expectedLength;
+    }
+    return @tags;
+}
+
+sub generateFindTagForLength
+{
+    my $indent = shift;
+    my $tagsRef = shift;
+    my $length = shift;
+    my $currentIndex = shift;
+
+    my @tags = @{$tagsRef};
+    my $tagCount = @tags;
+    if ($tagCount == 1) {
+        my $tag = $tags[0];
+        my $needsIfCheck = $currentIndex < $length;
+        if ($needsIfCheck) {
+            my $lengthToCompare = $length - $currentIndex;
+            if ($lengthToCompare == 1) {
+                my $letter = substr($tag, $currentIndex, 1);
+                print F "${indent}if (buffer[$currentIndex] == '$letter') {\n";
+            } else {
+                my $bufferStart = $currentIndex > 0 ? "buffer.data() + $currentIndex" : "buffer.data()";
+                print F "${indent}static constexpr UChar ${tag}Rest[] = { ";
+                for (my $index = $currentIndex; $index < $length; $index = $index + 1) {
+                    my $letter = substr($tag, $index, 1);
+                    print F "'$letter', ";
+                }
+                print F "};\n";
+                print F "${indent}if (!memcmp($bufferStart, ${tag}Rest, $lengthToCompare * sizeof(UChar))) {\n";
+            }
+            print F "$indent    return ${tag}Tag->localName();\n";
+            print F "$indent}\n";
+            print F "${indent}return { };\n";
+        } else {
+            print F "${indent}return ${tag}Tag->localName();\n";
+        }
+        return;
+    }
+    for (my $i = 0; $i < $tagCount;) {
+        my $tag = $tags[$i];
+        my $letterAtIndex = substr($tag, $currentIndex, 1);
+        print F "${indent}if (buffer[$currentIndex] == '$letterAtIndex') {\n";
+        my @tagsWithPrefix = ($tag);
+        for ($i = $i + 1; $i < $tagCount; $i = $i + 1) {
+            my $nextTag = $tags[$i];
+            if (substr($nextTag, $currentIndex, 1) eq $letterAtIndex) {
+                push(@tagsWithPrefix, $nextTag);
+            } else {
+                last;
+            }
+        }
+        generateFindTagForLength($indent . "    ", \@tagsWithPrefix, $length, $currentIndex + 1);
+        if (scalar @tagsWithPrefix > 1) {
+            print F "${indent}    return { };\n";
+        }
+        print F "$indent}\n";
+    }
 }
 
 sub printNamesCppFile
@@ -787,6 +868,25 @@ sub printNamesCppFile
         print F "    };\n";
         print F "    return $parameters{namespace}Tags;\n";
         print F "}\n";
+
+        if ($parameters{namespace} eq "HTML") {
+            print F "\nAtomString find$parameters{namespace}Tag(Span<const UChar> buffer)\n{\n";
+            my $maxTagLength = findMaxTagLength(\%allTags);
+            print F "    switch (buffer.size()) {\n";
+            for (my $length = 1; $length <= $maxTagLength; $length = $length + 1) {
+                my @tags = tagsWithLength(\%allTags, $length);
+                next unless scalar @tags > 0;
+                print F "    case $length: {\n";
+                generateFindTagForLength("        ", \@tags, $length, 0);
+                print F "        break;\n";
+                print F "    }\n";
+            }
+            print F "    default:\n";
+            print F "        break;\n";
+            print F "    };\n";
+            print F "    return { };\n";
+            print F "}\n";
+        }
     }
 
     if (keys %allAttrs) {
@@ -806,7 +906,7 @@ sub printNamesCppFile
 
     printInit($F, 0);
 
-    print(F "    AtomString ${lowercaseNamespacePrefix}NS(\"$parameters{namespaceURI}\", AtomString::ConstructFromLiteral);\n\n");
+    print(F "    AtomString ${lowercaseNamespacePrefix}NS(\"$parameters{namespaceURI}\"_s);\n\n");
 
     print(F "    // Namespace\n");
     print(F "    ${lowercaseNamespacePrefix}NamespaceURI.construct(${lowercaseNamespacePrefix}NS);\n");
@@ -968,8 +1068,8 @@ END
 
     print F <<END
 
+#include "DeprecatedGlobalSettings.h"
 #include "Document.h"
-#include "RuntimeEnabledFeatures.h"
 #include "Settings.h"
 #include <wtf/RobinHoodHashMap.h>
 #include <wtf/NeverDestroyed.h>
@@ -1185,8 +1285,8 @@ static JSDOMObject* create$allTags{$tagName}{interfaceName}Wrapper(JSDOMGlobalOb
 
 END
             ;
-        } elsif ($allTags{$tagName}{runtimeEnabled}) {
-            my $runtimeEnabled = $allTags{$tagName}{runtimeEnabled};
+        } elsif ($allTags{$tagName}{deprecatedGlobalSettingsConditional}) {
+            my $deprecatedGlobalSettingsConditional = $allTags{$tagName}{deprecatedGlobalSettingsConditional};
             print F <<END
 static JSDOMObject* create${JSInterfaceName}Wrapper(JSDOMGlobalObject* globalObject, Ref<$parameters{namespace}Element>&& element)
 {
@@ -1233,8 +1333,8 @@ sub printWrapperFactoryCppFile
     print F "\n#include \"$parameters{namespace}Names.h\"\n";
     print F <<END
 
+#include "DeprecatedGlobalSettings.h"
 #include "Document.h"
-#include "RuntimeEnabledFeatures.h"
 #include "Settings.h"
 #include <wtf/NeverDestroyed.h>
 #include <wtf/RobinHoodHashMap.h>

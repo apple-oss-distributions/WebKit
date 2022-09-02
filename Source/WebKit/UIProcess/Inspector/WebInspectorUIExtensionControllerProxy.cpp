@@ -176,7 +176,7 @@ void WebInspectorUIExtensionControllerProxy::evaluateScriptForExtension(const In
                 return completionHandler({ returnedValue });
             }
 
-            completionHandler({ { API::SerializedScriptValue::adopt(Vector { dataReference.data(), dataReference.size() }).ptr() } });
+            completionHandler({ { API::SerializedScriptValue::createFromWireBytes(Vector { dataReference.data(), dataReference.size() }).ptr() } });
         });
     });
 }
@@ -233,14 +233,14 @@ void WebInspectorUIExtensionControllerProxy::evaluateScriptInExtensionTab(const 
                 return completionHandler({ returnedValue });
             }
 
-            completionHandler({ { API::SerializedScriptValue::adopt({ dataReference.data(), dataReference.size() }).ptr() } });
+            completionHandler({ { API::SerializedScriptValue::createFromWireBytes({ dataReference.data(), dataReference.size() }).ptr() } });
         });
     });
 }
 
 // WebInspectorUIExtensionControllerProxy IPC messages.
 
-void WebInspectorUIExtensionControllerProxy::didShowExtensionTab(const Inspector::ExtensionID& extensionID, const Inspector::ExtensionTabID& extensionTabID)
+void WebInspectorUIExtensionControllerProxy::didShowExtensionTab(const Inspector::ExtensionID& extensionID, const Inspector::ExtensionTabID& extensionTabID, WebCore::FrameIdentifier frameID)
 {
     auto it = m_extensionAPIObjectMap.find(extensionID);
     if (it == m_extensionAPIObjectMap.end())
@@ -251,7 +251,7 @@ void WebInspectorUIExtensionControllerProxy::didShowExtensionTab(const Inspector
     if (!extensionClient)
         return;
 
-    extensionClient->didShowExtensionTab(extensionTabID);
+    extensionClient->didShowExtensionTab(extensionTabID, frameID);
 }
 
 void WebInspectorUIExtensionControllerProxy::didHideExtensionTab(const Inspector::ExtensionID& extensionID, const Inspector::ExtensionTabID& extensionTabID)

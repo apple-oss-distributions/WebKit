@@ -39,6 +39,29 @@ constexpr char pathSeparator = '\\';
 constexpr char pathSeparator = '/';
 #endif
 
+std::unique_ptr<FileSystemStorageHandle> FileSystemStorageHandle::create(FileSystemStorageManager& manager, Type type, String&& path, String&& name)
+{
+    bool canAccess = false;
+    switch (type) {
+    case FileSystemStorageHandle::Type::Directory:
+        canAccess = FileSystem::makeAllDirectories(path);
+        break;
+    case FileSystemStorageHandle::Type::File:
+        if (auto handle = FileSystem::openFile(path, FileSystem::FileOpenMode::Write); FileSystem::isHandleValid(handle)) {
+            FileSystem::closeFile(handle);
+            canAccess = true;
+        }
+        break;
+    case FileSystemStorageHandle::Type::Any:
+        ASSERT_NOT_REACHED();
+    }
+
+    if (!canAccess)
+        return nullptr;
+
+    return std::unique_ptr<FileSystemStorageHandle>(new FileSystemStorageHandle(manager, type, WTFMove(path), WTFMove(name)));
+}
+
 FileSystemStorageHandle::FileSystemStorageHandle(FileSystemStorageManager& manager, Type type, String&& path, String&& name)
     : m_identifier(WebCore::FileSystemHandleIdentifier::generateThreadSafe())
     , m_manager(manager)
@@ -47,20 +70,6 @@ FileSystemStorageHandle::FileSystemStorageHandle(FileSystemStorageManager& manag
     , m_name(WTFMove(name))
 {
     ASSERT(!m_path.isEmpty());
-
-    switch (m_type) {
-    case FileSystemStorageHandle::Type::Directory:
-        FileSystem::makeAllDirectories(m_path);
-        return;
-    case FileSystemStorageHandle::Type::File:
-        if (!FileSystem::fileExists(m_path)) {
-            auto handle = FileSystem::openFile(m_path, FileSystem::FileOpenMode::Write);
-            FileSystem::closeFile(handle);
-        }
-        return;
-    case FileSystemStorageHandle::Type::Any:
-        ASSERT_NOT_REACHED();
-    }
 }
 
 void FileSystemStorageHandle::close()
@@ -82,9 +91,13 @@ bool FileSystemStorageHandle::isSameEntry(WebCore::FileSystemHandleIdentifier id
     return m_path == path;
 }
 
-static bool isValidFileName(const String& name)
+static bool isValidFileName(const String& directory, const String& name)
 {
-    return name != "." && name != ".." && !name.contains(pathSeparator);
+    // https://wicg.github.io/file-system-access/#valid-file-name
+    if (name.isEmpty() || (name == "."_s) || (name == ".."_s) || name.contains(pathSeparator))
+        return false;
+
+    return FileSystem::pathFileName(FileSystem::pathByAppendingComponent(directory, name)) == name;
 }
 
 Expected<WebCore::FileSystemHandleIdentifier, FileSystemStorageError> FileSystemStorageHandle::requestCreateHandle(IPC::Connection::UniqueID connection, Type type, String&& name, bool createIfNecessary)
@@ -95,8 +108,7 @@ Expected<WebCore::FileSystemHandleIdentifier, FileSystemStorageError> FileSystem
     if (!m_manager)
         return makeUnexpected(FileSystemStorageError::Unknown);
 
-    // https://wicg.github.io/file-system-access/#valid-file-name
-    if (!isValidFileName(name))
+    if (!isValidFileName(m_path, name))
         return makeUnexpected(FileSystemStorageError::InvalidName);
 
     auto path = FileSystem::pathByAppendingComponent(m_path, name);
@@ -118,7 +130,13 @@ std::optional<FileSystemStorageError> FileSystemStorageHandle::removeEntry(const
     if (m_type != Type::Directory)
         return FileSystemStorageError::TypeMismatch;
 
+    if (!isValidFileName(m_path, name))
+        return FileSystemStorageError::InvalidName;
+
     auto path = FileSystem::pathByAppendingComponent(m_path, name);
+    if (!FileSystem::fileExists(path))
+        return FileSystemStorageError::FileNotFound;
+
     auto type = FileSystem::fileType(path);
     if (!type)
         return FileSystemStorageError::TypeMismatch;
@@ -233,7 +251,7 @@ std::optional<FileSystemStorageError> FileSystemStorageHandle::move(WebCore::Fil
     if (path.isEmpty())
         return FileSystemStorageError::Unknown;
 
-    if (!isValidFileName(newName))
+    if (!isValidFileName(path, newName))
         return FileSystemStorageError::InvalidName;
 
     auto destinationPath = FileSystem::pathByAppendingComponent(path, newName);

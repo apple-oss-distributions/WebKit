@@ -44,7 +44,8 @@ std::string GetIndexFunctionName(const TType &type, bool write)
     }
     if (type.isMatrix())
     {
-        nameSink << "mat" << type.getCols() << "x" << type.getRows();
+        nameSink << "mat" << static_cast<uint32_t>(type.getCols()) << "x"
+                 << static_cast<uint32_t>(type.getRows());
     }
     else
     {
@@ -65,7 +66,7 @@ std::string GetIndexFunctionName(const TType &type, bool write)
             default:
                 UNREACHABLE();
         }
-        nameSink << type.getNominalSize();
+        nameSink << static_cast<uint32_t>(type.getNominalSize());
     }
     return nameSink.str();
 }
@@ -172,7 +173,7 @@ TIntermFunctionDefinition *GetIndexFunctionDefinition(const TType &type,
 {
     ASSERT(!type.isArray());
 
-    int numCases = 0;
+    uint8_t numCases = 0;
     if (type.isMatrix())
     {
         numCases = type.getCols();
@@ -194,7 +195,7 @@ TIntermFunctionDefinition *GetIndexFunctionDefinition(const TType &type,
     }
 
     TIntermBlock *statementList = new TIntermBlock();
-    for (int i = 0; i < numCases; ++i)
+    for (uint8_t i = 0; i < numCases; ++i)
     {
         TIntermCase *caseNode = new TIntermCase(CreateIntConstantNode(i));
         statementList->getSequence()->push_back(caseNode);
@@ -491,7 +492,7 @@ bool RemoveDynamicIndexingTraverser::visitBinary(Visit visit, TIntermBinary *nod
                 TIntermTyped *indexInitializer               = EnsureSignedInt(node->getRight());
                 TIntermDeclaration *indexVariableDeclaration = nullptr;
                 TVariable *indexVariable                     = DeclareTempVariable(
-                    mSymbolTable, indexInitializer, EvqTemporary, &indexVariableDeclaration);
+                                        mSymbolTable, indexInitializer, EvqTemporary, &indexVariableDeclaration);
                 insertionsBefore.push_back(indexVariableDeclaration);
 
                 // s1 = dyn_index(v_expr, s0);
@@ -499,7 +500,7 @@ bool RemoveDynamicIndexingTraverser::visitBinary(Visit visit, TIntermBinary *nod
                     node, CreateTempSymbolNode(indexVariable), indexingFunction);
                 TIntermDeclaration *fieldVariableDeclaration = nullptr;
                 TVariable *fieldVariable                     = DeclareTempVariable(
-                    mSymbolTable, indexingCall, EvqTemporary, &fieldVariableDeclaration);
+                                        mSymbolTable, indexingCall, EvqTemporary, &fieldVariableDeclaration);
                 insertionsBefore.push_back(fieldVariableDeclaration);
 
                 // dyn_index_write(v_expr, s0, s1);
@@ -568,7 +569,7 @@ bool RemoveDynamicIndexingIf(DynamicIndexingNodeMatcher &&matcher,
 
 }  // namespace
 
-ANGLE_NO_DISCARD bool RemoveDynamicIndexingOfNonSSBOVectorOrMatrix(
+[[nodiscard]] bool RemoveDynamicIndexingOfNonSSBOVectorOrMatrix(
     TCompiler *compiler,
     TIntermNode *root,
     TSymbolTable *symbolTable,
@@ -581,10 +582,10 @@ ANGLE_NO_DISCARD bool RemoveDynamicIndexingOfNonSSBOVectorOrMatrix(
                                    perfDiagnostics);
 }
 
-ANGLE_NO_DISCARD bool RemoveDynamicIndexingOfSwizzledVector(TCompiler *compiler,
-                                                            TIntermNode *root,
-                                                            TSymbolTable *symbolTable,
-                                                            PerformanceDiagnostics *perfDiagnostics)
+[[nodiscard]] bool RemoveDynamicIndexingOfSwizzledVector(TCompiler *compiler,
+                                                         TIntermNode *root,
+                                                         TSymbolTable *symbolTable,
+                                                         PerformanceDiagnostics *perfDiagnostics)
 {
     DynamicIndexingNodeMatcher matcher = [](TIntermBinary *node) {
         return IntermNodePatternMatcher::IsDynamicIndexingOfSwizzledVector(node);

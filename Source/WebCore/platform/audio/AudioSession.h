@@ -46,6 +46,16 @@ enum class RouteSharingPolicy : uint8_t {
     LongFormVideo
 };
 
+enum class AudioSessionCategory : uint8_t {
+    None,
+    AmbientSound,
+    SoloAmbientSound,
+    MediaPlayback,
+    RecordAudio,
+    PlayAndRecord,
+    AudioProcessing,
+};
+
 class AudioSessionRoutingArbitrationClient;
 
 class WEBCORE_EXPORT AudioSession {
@@ -63,15 +73,7 @@ public:
 
     virtual ~AudioSession();
 
-    enum class CategoryType : uint8_t {
-        None,
-        AmbientSound,
-        SoloAmbientSound,
-        MediaPlayback,
-        RecordAudio,
-        PlayAndRecord,
-        AudioProcessing,
-    };
+    using CategoryType = AudioSessionCategory;
     virtual void setCategory(CategoryType, RouteSharingPolicy);
     virtual CategoryType category() const;
 
@@ -144,6 +146,7 @@ protected:
     WeakPtr<AudioSessionRoutingArbitrationClient> m_routingArbitrationClient;
     AudioSession::CategoryType m_categoryOverride { AudioSession::CategoryType::None };
     bool m_active { false }; // Used only for testing.
+    bool m_isInterrupted { false };
 
     static bool s_shouldManageAudioSessionCategory;
 };

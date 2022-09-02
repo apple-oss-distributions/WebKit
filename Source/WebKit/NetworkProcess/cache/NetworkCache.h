@@ -35,6 +35,7 @@
 #include <WebCore/ResourceResponse.h>
 #include <pal/SessionID.h>
 #include <wtf/CompletionHandler.h>
+#include <wtf/Hasher.h>
 #include <wtf/OptionSet.h>
 #include <wtf/Seconds.h>
 #include <wtf/WeakHashSet.h>
@@ -53,13 +54,11 @@ struct GlobalFrameID {
     WebPageProxyIdentifier webPageProxyID;
     WebCore::PageIdentifier webPageID;
     WebCore::FrameIdentifier frameID;
-
-    unsigned hash() const;
 };
 
-inline unsigned GlobalFrameID::hash() const
+inline void add(Hasher& hasher, const GlobalFrameID& identifier)
 {
-    return computeHash(webPageID, frameID);
+    add(hasher, identifier.webPageID, identifier.frameID);
 }
 
 inline bool operator==(const GlobalFrameID& a, const GlobalFrameID& b)
@@ -75,7 +74,7 @@ inline bool operator==(const GlobalFrameID& a, const GlobalFrameID& b)
 namespace WTF {
 
 struct GlobalFrameIDHash {
-    static unsigned hash(const WebKit::NetworkCache::GlobalFrameID& key) { return key.hash(); }
+    static unsigned hash(const WebKit::NetworkCache::GlobalFrameID& key) { return computeHash(key); }
     static bool equal(const WebKit::NetworkCache::GlobalFrameID& a, const WebKit::NetworkCache::GlobalFrameID& b) { return a == b; }
     static const bool safeToCompareToEmptyOrDeleted = true;
 };
@@ -166,9 +165,9 @@ public:
     };
     using RetrieveCompletionHandler = Function<void(std::unique_ptr<Entry>, const RetrieveInfo&)>;
     void retrieve(const WebCore::ResourceRequest&, const GlobalFrameID&, std::optional<NavigatingToAppBoundDomain>, RetrieveCompletionHandler&&);
-    std::unique_ptr<Entry> store(const WebCore::ResourceRequest&, const WebCore::ResourceResponse&, RefPtr<WebCore::FragmentedSharedBuffer>&&, Function<void(MappedBody&)>&& = nullptr);
+    std::unique_ptr<Entry> store(const WebCore::ResourceRequest&, const WebCore::ResourceResponse&, PrivateRelayed, RefPtr<WebCore::FragmentedSharedBuffer>&&, Function<void(MappedBody&)>&& = nullptr);
     std::unique_ptr<Entry> storeRedirect(const WebCore::ResourceRequest&, const WebCore::ResourceResponse&, const WebCore::ResourceRequest& redirectRequest, std::optional<Seconds> maxAgeCap);
-    std::unique_ptr<Entry> update(const WebCore::ResourceRequest&, const Entry&, const WebCore::ResourceResponse& validatingResponse);
+    std::unique_ptr<Entry> update(const WebCore::ResourceRequest&, const Entry&, const WebCore::ResourceResponse& validatingResponse, PrivateRelayed);
 
     struct TraversalEntry {
         const Entry& entry;
@@ -185,7 +184,7 @@ public:
     void retrieveData(const DataKey&, Function<void(const uint8_t*, size_t)>);
     void storeData(const DataKey&,  const uint8_t* data, size_t);
     
-    std::unique_ptr<Entry> makeEntry(const WebCore::ResourceRequest&, const WebCore::ResourceResponse&, RefPtr<WebCore::FragmentedSharedBuffer>&&);
+    std::unique_ptr<Entry> makeEntry(const WebCore::ResourceRequest&, const WebCore::ResourceResponse&, PrivateRelayed, RefPtr<WebCore::FragmentedSharedBuffer>&&);
     std::unique_ptr<Entry> makeRedirectEntry(const WebCore::ResourceRequest&, const WebCore::ResourceResponse&, const WebCore::ResourceRequest& redirectRequest);
 
     void dumpContentsToFile();

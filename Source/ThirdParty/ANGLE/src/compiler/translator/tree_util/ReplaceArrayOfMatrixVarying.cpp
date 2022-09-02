@@ -75,10 +75,10 @@ class CollectVaryingTraverser : public TIntermTraverser
 };
 }  // namespace
 
-ANGLE_NO_DISCARD bool ReplaceArrayOfMatrixVarying(TCompiler *compiler,
-                                                  TIntermBlock *root,
-                                                  TSymbolTable *symbolTable,
-                                                  const TVariable *varying)
+[[nodiscard]] bool ReplaceArrayOfMatrixVarying(TCompiler *compiler,
+                                               TIntermBlock *root,
+                                               TSymbolTable *symbolTable,
+                                               const TVariable *varying)
 {
     const TType &type = varying->getType();
 
@@ -120,7 +120,7 @@ ANGLE_NO_DISCARD bool ReplaceArrayOfMatrixVarying(TCompiler *compiler,
     {
         TIntermBinary *tempMatrixIndexed =
             new TIntermBinary(EOpIndexDirect, tempReplaceSymbol->deepCopy(), CreateIndexNode(i));
-        for (int col = 0; col < type.getCols(); ++col)
+        for (uint8_t col = 0; col < type.getCols(); ++col)
         {
 
             TIntermBinary *tempMatrixColIndexed = new TIntermBinary(
@@ -153,9 +153,9 @@ ANGLE_NO_DISCARD bool ReplaceArrayOfMatrixVarying(TCompiler *compiler,
     }
 }
 
-ANGLE_NO_DISCARD bool ReplaceArrayOfMatrixVaryings(TCompiler *compiler,
-                                                   TIntermBlock *root,
-                                                   TSymbolTable *symbolTable)
+[[nodiscard]] bool ReplaceArrayOfMatrixVaryings(TCompiler *compiler,
+                                                TIntermBlock *root,
+                                                TSymbolTable *symbolTable)
 {
     std::vector<const TVariable *> arrayOfMatrixVars;
     CollectVaryingTraverser varCollector(&arrayOfMatrixVars);

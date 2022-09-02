@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2011-2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2011-2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -48,6 +48,7 @@
 #include <wtf/MainThread.h>
 #include <wtf/NeverDestroyed.h>
 #include <wtf/SoftLinking.h>
+#include <wtf/SortedArrayMap.h>
 #include <wtf/StringPrintStream.h>
 #include <wtf/URL.h>
 #include <wtf/text/CString.h>
@@ -205,7 +206,7 @@ void MediaPlayerPrivateAVFoundation::load(const String& url)
 }
 
 #if ENABLE(MEDIA_SOURCE)
-void MediaPlayerPrivateAVFoundation::load(const URL&, const ContentType&, MediaSourcePrivateClient*)
+void MediaPlayerPrivateAVFoundation::load(const URL&, const ContentType&, MediaSourcePrivateClient&)
 {
     setNetworkState(MediaPlayer::NetworkState::FormatError);
 }
@@ -505,6 +506,7 @@ void MediaPlayerPrivateAVFoundation::updateStates()
 
     MediaPlayer::NetworkState newNetworkState = m_networkState;
     MediaPlayer::ReadyState newReadyState = m_readyState;
+    bool firstVideoFrameBecomeAvailable = false;
 
     if (m_loadingMetadata)
         newNetworkState = MediaPlayer::NetworkState::Loading;
@@ -533,7 +535,14 @@ void MediaPlayerPrivateAVFoundation::updateStates()
                 newNetworkState = MediaPlayer::NetworkState::FormatError;
             }
         }
-        
+
+        if (!hasAvailableVideoFrame())
+            m_haveReportedFirstVideoFrame = false;
+        else if (!m_haveReportedFirstVideoFrame && m_cachedHasVideo) {
+            m_haveReportedFirstVideoFrame = true;
+            firstVideoFrameBecomeAvailable = true;
+        }
+
         if (assetStatus >= MediaPlayerAVAssetStatusLoaded && itemStatus > MediaPlayerAVPlayerItemStatusUnknown) {
             switch (itemStatus) {
             case MediaPlayerAVPlayerItemStatusDoesNotExist:
@@ -544,13 +553,13 @@ void MediaPlayerPrivateAVFoundation::updateStates()
             case MediaPlayerAVPlayerItemStatusPlaybackLikelyToKeepUp:
             case MediaPlayerAVPlayerItemStatusPlaybackBufferFull:
                 // If the status becomes PlaybackBufferFull, loading stops and the status will not
-                // progress to LikelyToKeepUp. Set the readyState to  HAVE_ENOUGH_DATA, on the
+                // progress to LikelyToKeepUp. Set the readyState to HAVE_ENOUGH_DATA, on the
                 // presumption that if the playback buffer is full, playback will probably not stall.
                 newReadyState = MediaPlayer::ReadyState::HaveEnoughData;
                 break;
 
             case MediaPlayerAVPlayerItemStatusReadyToPlay:
-                if (m_readyState != MediaPlayer::ReadyState::HaveEnoughData && maxTimeLoaded() > currentMediaTime())
+                if (m_readyState != MediaPlayer::ReadyState::HaveEnoughData && (!m_cachedHasVideo || m_haveReportedFirstVideoFrame) && maxTimeLoaded() > currentMediaTime())
                     newReadyState = MediaPlayer::ReadyState::HaveFutureData;
                 break;
 
@@ -571,13 +580,11 @@ void MediaPlayerPrivateAVFoundation::updateStates()
     if (isReadyForVideoSetup() && currentRenderingMode() != preferredRenderingMode())
         setUpVideoRendering();
 
-    if (!m_haveReportedFirstVideoFrame && m_cachedHasVideo && hasAvailableVideoFrame()) {
+    if (firstVideoFrameBecomeAvailable) {
         if (m_readyState < MediaPlayer::ReadyState::HaveCurrentData)
             newReadyState = MediaPlayer::ReadyState::HaveCurrentData;
-        m_haveReportedFirstVideoFrame = true;
         m_player->firstVideoFrameAvailable();
-    } else if (!hasAvailableVideoFrame())
-        m_haveReportedFirstVideoFrame = false;
+    }
 
     if (m_networkState != newNetworkState)
         ALWAYS_LOG(LOGIDENTIFIER, "entered with networkState ", m_networkState, ", exiting with ", newNetworkState);
@@ -1060,23 +1067,19 @@ bool MediaPlayerPrivateAVFoundation::isUnsupportedMIMEType(const String& type)
 
     // AVFoundation will return non-video MIME types which it claims to support, but which we
     // do not support in the <video> element. Reject all non video/, audio/, and application/ types.
-    if (!lowerCaseType.startsWith("video/") && !lowerCaseType.startsWith("audio/") && !lowerCaseType.startsWith("application/"))
+    if (!lowerCaseType.startsWith("video/"_s) && !lowerCaseType.startsWith("audio/"_s) && !lowerCaseType.startsWith("application/"_s))
         return true;
 
     // Reject types we know AVFoundation does not support that sites commonly ask about.
-    if (lowerCaseType == "video/webm" || lowerCaseType == "audio/webm" || lowerCaseType == "video/x-webm")
-        return true;
+    static constexpr ComparableASCIILiteral unsupportedTypesArray[] = { "application/ogg", "audio/ogg", "audio/webm", "video/h264", "video/ogg", "video/webm", "video/x-flv", "video/x-webm" };
+    static constexpr SortedArraySet unsupportedTypesSet { unsupportedTypesArray };
+    return unsupportedTypesSet.contains(lowerCaseType);
+}
 
-    if (lowerCaseType == "video/x-flv")
-        return true;
-
-    if (lowerCaseType == "audio/ogg" || lowerCaseType == "video/ogg" || lowerCaseType == "application/ogg")
-        return true;
-
-    if (lowerCaseType == "video/h264")
-        return true;
-
-    return false;
+bool MediaPlayerPrivateAVFoundation::shouldEnableInheritURIQueryComponent() const
+{
+    static NeverDestroyed<const AtomString> iTunesInheritsURIQueryComponent(MAKE_STATIC_STRING_IMPL("x-itunes-inherit-uri-query-component"));
+    return player()->doesHaveAttribute(iTunesInheritsURIQueryComponent);
 }
 
 void MediaPlayerPrivateAVFoundation::queueTaskOnEventLoop(Function<void()>&& task)

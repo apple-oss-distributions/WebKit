@@ -36,8 +36,8 @@
 #include "RenderingBackendIdentifier.h"
 #include "StreamClientConnection.h"
 #include "WebCoreArgumentCoders.h"
+#include <WebCore/GraphicsContextGL.h>
 #include <WebCore/NotImplemented.h>
-#include <WebCore/RemoteGraphicsContextGLProxyBase.h>
 #include <wtf/HashMap.h>
 #include <wtf/WeakPtr.h>
 
@@ -50,7 +50,7 @@ namespace WebKit {
 class RemoteGraphicsContextGLProxy
     : private IPC::MessageReceiver
     , private GPUProcessConnection::Client
-    , public WebCore::RemoteGraphicsContextGLProxyBase {
+    , public WebCore::GraphicsContextGL {
 public:
     static RefPtr<RemoteGraphicsContextGLProxy> create(const WebCore::GraphicsContextGLAttributes&, RenderingBackendIdentifier);
     ~RemoteGraphicsContextGLProxy();
@@ -58,17 +58,34 @@ public:
     // IPC::MessageReceiver overrides.
     void didReceiveMessage(IPC::Connection&, IPC::Decoder&) final;
 
-    // RemoteGraphicsContextGLProxyBase overrides.
+    // WebCore::GraphicsContextGL overrides.
     void reshape(int width, int height) final;
-    using WebCore::RemoteGraphicsContextGLProxyBase::isEnabled;
-    void ensureExtensionEnabled(const String& extension) final;
-    void notifyMarkContextChanged() final;
+    void setContextVisibility(bool) final;
+    bool isGLES2Compliant() const final;
+    void markContextChanged() final;
+    bool supportsExtension(const String&) final;
+    void ensureExtensionEnabled(const String&) final;
+    bool isExtensionEnabled(const String&) final;
     void paintRenderingResultsToCanvas(WebCore::ImageBuffer&) final;
     void paintCompositedResultsToCanvas(WebCore::ImageBuffer&) final;
+#if ENABLE(MEDIA_STREAM)
+    RefPtr<WebCore::VideoFrame> paintCompositedResultsToVideoFrame() final;
+#endif
     void synthesizeGLError(GCGLenum error) final;
     GCGLenum getError() final;
+#if ENABLE(VIDEO)
     bool copyTextureFromMedia(WebCore::MediaPlayer&, PlatformGLObject texture, GCGLenum target, GCGLint level, GCGLenum internalFormat, GCGLenum format, GCGLenum type, bool premultiplyAlpha, bool flipY) final;
+#endif
     void simulateEventForTesting(SimulatedEventForTesting) final;
+    void readnPixels(GCGLint x, GCGLint y, GCGLsizei width, GCGLsizei height, GCGLenum format, GCGLenum type, GCGLSpan<GCGLvoid> data) final;
+    void readnPixels(GCGLint x, GCGLint y, GCGLsizei width, GCGLsizei height, GCGLenum format, GCGLenum type, GCGLintptr offset) final;
+    void multiDrawArraysANGLE(GCGLenum mode, GCGLSpanTuple<const GCGLint, const GCGLsizei> firstsAndCounts) final;
+    void multiDrawArraysInstancedANGLE(GCGLenum mode, GCGLSpanTuple<const GCGLint, const GCGLsizei, const GCGLsizei> firstsCountsAndInstanceCounts) final;
+    void multiDrawElementsANGLE(GCGLenum mode, GCGLSpanTuple<const GCGLsizei, const GCGLsizei> countsAndOffsets, GCGLenum type) final;
+    void multiDrawElementsInstancedANGLE(GCGLenum mode, GCGLSpanTuple<const GCGLsizei, const GCGLsizei, const GCGLsizei> countsOffsetsAndInstanceCounts, GCGLenum type) final;
+    void multiDrawArraysInstancedBaseInstanceANGLE(GCGLenum mode, GCGLSpanTuple<const GCGLint, const GCGLsizei, const GCGLsizei, const GCGLuint> firstsCountsInstanceCountsAndBaseInstances) final;
+    void multiDrawElementsInstancedBaseVertexBaseInstanceANGLE(GCGLenum mode, GCGLSpanTuple<const GCGLsizei, const GCGLsizei, const GCGLsizei, const GCGLint, const GCGLuint> countsOffsetsInstanceCountsBaseVerticesAndBaseInstances, GCGLenum type) final;
+    RefPtr<WebCore::PixelBuffer> paintRenderingResultsToPixelBuffer() final;
 
     // Functions with a generated implementation. This list is used by generate-gpup-webgl script.
     bool moveErrorsToSyntheticErrorList() final;
@@ -129,6 +146,7 @@ public:
     String getString(GCGLenum name) final;
     void getFloatv(GCGLenum pname, GCGLSpan<GCGLfloat> value) final;
     void getIntegerv(GCGLenum pname, GCGLSpan<GCGLint> value) final;
+    void getIntegeri_v(GCGLenum pname, GCGLuint index, GCGLSpan<GCGLint, 4> value) final; // NOLINT
     GCGLint64 getInteger64(GCGLenum pname) final;
     GCGLint64 getInteger64i(GCGLenum pname, GCGLuint index) final;
     GCGLint getProgrami(PlatformGLObject program, GCGLenum pname) final;
@@ -205,8 +223,6 @@ public:
     void bufferData(GCGLenum target, GCGLsizeiptr arg1, GCGLenum usage) final;
     void bufferData(GCGLenum target, GCGLSpan<const GCGLvoid> data, GCGLenum usage) final;
     void bufferSubData(GCGLenum target, GCGLintptr offset, GCGLSpan<const GCGLvoid> data) final;
-    void readnPixels(GCGLint x, GCGLint y, GCGLsizei width, GCGLsizei height, GCGLenum format, GCGLenum type, GCGLSpan<GCGLvoid> data) final;
-    void readnPixels(GCGLint x, GCGLint y, GCGLsizei width, GCGLsizei height, GCGLenum format, GCGLenum type, GCGLintptr offset) final;
     void texImage2D(GCGLenum target, GCGLint level, GCGLenum internalformat, GCGLsizei width, GCGLsizei height, GCGLint border, GCGLenum format, GCGLenum type, GCGLSpan<const GCGLvoid> pixels) final;
     void texImage2D(GCGLenum target, GCGLint level, GCGLenum internalformat, GCGLsizei width, GCGLsizei height, GCGLint border, GCGLenum format, GCGLenum type, GCGLintptr offset) final;
     void texSubImage2D(GCGLenum target, GCGLint level, GCGLint xoffset, GCGLint yoffset, GCGLsizei width, GCGLsizei height, GCGLenum format, GCGLenum type, GCGLSpan<const GCGLvoid> pixels) final;
@@ -306,22 +322,23 @@ public:
     String getActiveUniformBlockName(PlatformGLObject program, GCGLuint uniformBlockIndex) final;
     void uniformBlockBinding(PlatformGLObject program, GCGLuint uniformBlockIndex, GCGLuint uniformBlockBinding) final;
     void getActiveUniformBlockiv(GCGLuint program, GCGLuint uniformBlockIndex, GCGLenum pname, GCGLSpan<GCGLint> params) final;
-    GCGLint getGraphicsResetStatusARB() final;
     String getTranslatedShaderSourceANGLE(PlatformGLObject arg0) final;
     void drawBuffersEXT(GCGLSpan<const GCGLenum> bufs) final;
+    void enableiOES(GCGLenum target, GCGLuint index) final;
+    void disableiOES(GCGLenum target, GCGLuint index) final;
+    void blendEquationiOES(GCGLuint buf, GCGLenum mode) final;
+    void blendEquationSeparateiOES(GCGLuint buf, GCGLenum modeRGB, GCGLenum modeAlpha) final;
+    void blendFunciOES(GCGLuint buf, GCGLenum src, GCGLenum dst) final;
+    void blendFuncSeparateiOES(GCGLuint buf, GCGLenum srcRGB, GCGLenum dstRGB, GCGLenum srcAlpha, GCGLenum dstAlpha) final;
+    void colorMaskiOES(GCGLuint buf, GCGLboolean red, GCGLboolean green, GCGLboolean blue, GCGLboolean alpha) final;
+    void drawArraysInstancedBaseInstanceANGLE(GCGLenum mode, GCGLint first, GCGLsizei count, GCGLsizei instanceCount, GCGLuint baseInstance) final;
+    void drawElementsInstancedBaseVertexBaseInstanceANGLE(GCGLenum mode, GCGLsizei count, GCGLenum type, GCGLintptr offset, GCGLsizei instanceCount, GCGLint baseVertex, GCGLuint baseInstance) final;
     void getInternalformativ(GCGLenum target, GCGLenum internalformat, GCGLenum pname, GCGLSpan<GCGLint> params) final;
-    void multiDrawArraysANGLE(GCGLenum mode, GCGLSpan<const GCGLint> firsts, GCGLSpan<const GCGLsizei> counts, GCGLsizei drawcount) final;
-    void multiDrawArraysInstancedANGLE(GCGLenum mode, GCGLSpan<const GCGLint> firsts, GCGLSpan<const GCGLsizei> counts, GCGLSpan<const GCGLsizei> instanceCounts, GCGLsizei drawcount) final;
-    void multiDrawElementsANGLE(GCGLenum mode, GCGLSpan<const GCGLsizei> counts, GCGLenum type, GCGLSpan<const GCGLint> offsets, GCGLsizei drawcount) final;
-    void multiDrawElementsInstancedANGLE(GCGLenum mode, GCGLSpan<const GCGLsizei> counts, GCGLenum type, GCGLSpan<const GCGLint> offsets, GCGLSpan<const GCGLsizei> instanceCounts, GCGLsizei drawcount) final;
-    std::optional<WebCore::PixelBuffer> paintRenderingResultsToPixelBuffer() final;
     // End of list used by generate-gpup-webgl script.
 
+    static bool handleMessageToRemovedDestination(IPC::Connection&, IPC::Decoder&);
 protected:
     RemoteGraphicsContextGLProxy(GPUProcessConnection&, const WebCore::GraphicsContextGLAttributes&, RenderingBackendIdentifier);
-
-    // RemoteGraphicsContextGLProxyBase overrides.
-    void waitUntilInitialized() final;
 
     bool isContextLost() const { return !m_gpuProcessConnection; }
     void markContextLost();
@@ -337,24 +354,29 @@ protected:
     {
         return m_streamConnection.sendSync(WTFMove(message), WTFMove(reply), m_graphicsContextGLIdentifier, defaultSendTimeout);
     }
-    IPC::Connection& connection() const { return m_gpuProcessConnection->connection(); }
 
     GraphicsContextGLIdentifier m_graphicsContextGLIdentifier { GraphicsContextGLIdentifier::generate() };
 private:
     // Messages to be received.
-    void wasCreated(bool didSucceed, IPC::Semaphore&&, String&& availableExtensions, String&& requestedExtensions);
+    void wasCreated(bool didSucceed, IPC::Semaphore&&, IPC::Semaphore&&, String&& availableExtensions, String&& requestedExtensions);
     void wasLost();
     void wasChanged();
 
     // GPUProcessConnection::Client overrides.
     void gpuProcessConnectionDidClose(GPUProcessConnection&) final;
 
+    void initialize(const String& availableExtensions, const String& requestableExtensions);
+    void waitUntilInitialized();
     void disconnectGpuProcessIfNeeded();
     void abandonGpuProcess();
 
     GPUProcessConnection* m_gpuProcessConnection;
     bool m_didInitialize { false };
-    GCGLenum m_errorWhenContextIsLost = NO_ERROR;
+    // Guarded by waitUntilInitialized().
+    HashSet<String> m_availableExtensions;
+    HashSet<String> m_requestableExtensions;
+
+    HashSet<String> m_enabledExtensions;
     IPC::StreamClientConnection m_streamConnection;
 };
 

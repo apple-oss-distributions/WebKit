@@ -53,17 +53,20 @@ WebAuthenticatorCoordinatorProxy::WebAuthenticatorCoordinatorProxy(WebPageProxy&
 
 WebAuthenticatorCoordinatorProxy::~WebAuthenticatorCoordinatorProxy()
 {
+#if HAVE(UNIFIED_ASC_AUTH_UI)
+    cancel();
+#endif // HAVE(UNIFIED_ASC_AUTH_UI)
     m_webPageProxy.process().removeMessageReceiver(Messages::WebAuthenticatorCoordinatorProxy::messageReceiverName(), m_webPageProxy.webPageID());
 }
 
 void WebAuthenticatorCoordinatorProxy::makeCredential(FrameIdentifier frameId, FrameInfoData&& frameInfo, Vector<uint8_t>&& hash, PublicKeyCredentialCreationOptions&& options, bool processingUserGesture, RequestCompletionHandler&& handler)
 {
-    handleRequest({ WTFMove(hash), WTFMove(options), m_webPageProxy, WebAuthenticationPanelResult::Unavailable, nullptr, GlobalFrameIdentifier { m_webPageProxy.webPageID(), frameId }, WTFMove(frameInfo), processingUserGesture, String(), nullptr }, WTFMove(handler));
+    handleRequest({ WTFMove(hash), WTFMove(options), m_webPageProxy, WebAuthenticationPanelResult::Unavailable, nullptr, GlobalFrameIdentifier { m_webPageProxy.webPageID(), frameId }, WTFMove(frameInfo), processingUserGesture, String(), nullptr, std::nullopt, std::nullopt }, WTFMove(handler));
 }
 
-void WebAuthenticatorCoordinatorProxy::getAssertion(FrameIdentifier frameId, FrameInfoData&& frameInfo, Vector<uint8_t>&& hash, PublicKeyCredentialRequestOptions&& options, bool processingUserGesture, RequestCompletionHandler&& handler)
+void WebAuthenticatorCoordinatorProxy::getAssertion(FrameIdentifier frameId, FrameInfoData&& frameInfo, Vector<uint8_t>&& hash, PublicKeyCredentialRequestOptions&& options, MediationRequirement mediation, std::optional<WebCore::SecurityOriginData> parentOrigin, bool processingUserGesture, RequestCompletionHandler&& handler)
 {
-    handleRequest({ WTFMove(hash), WTFMove(options), m_webPageProxy, WebAuthenticationPanelResult::Unavailable, nullptr, GlobalFrameIdentifier { m_webPageProxy.webPageID(), frameId }, WTFMove(frameInfo), processingUserGesture, String(), nullptr }, WTFMove(handler));
+    handleRequest({ WTFMove(hash), WTFMove(options), m_webPageProxy, WebAuthenticationPanelResult::Unavailable, nullptr, GlobalFrameIdentifier { m_webPageProxy.webPageID(), frameId }, WTFMove(frameInfo), processingUserGesture, String(), nullptr, mediation, parentOrigin }, WTFMove(handler));
 }
 
 void WebAuthenticatorCoordinatorProxy::handleRequest(WebAuthenticationRequestData&& data, RequestCompletionHandler&& handler)
@@ -74,13 +77,22 @@ void WebAuthenticatorCoordinatorProxy::handleRequest(WebAuthenticationRequestDat
         auto& authenticatorManager = m_webPageProxy.websiteDataStore().authenticatorManager();
         if (result) {
 #if HAVE(UNIFIED_ASC_AUTH_UI)
-                if (!authenticatorManager.isMock() && !authenticatorManager.isVirtual()) {
-                    auto context = contextForRequest(WTFMove(data));
-                    // performRequest calls out to ASCAgent which will then call [_WKWebAuthenticationPanel makeCredential/getAssertionWithChallenge]
-                    // which calls authenticatorManager.handleRequest(..)
-                    performRequest(context, WTFMove(handler));
+            if (!authenticatorManager.isMock() && !authenticatorManager.isVirtual()) {
+                auto context = contextForRequest(WTFMove(data));
+                if (context.get() == nullptr) {
+                    handler({ }, (AuthenticatorAttachment)0, ExceptionData { NotAllowedError, "The origin of the document is not the same as its ancestors."_s });
                     return;
                 }
+                // performRequest calls out to ASCAgent which will then call [_WKWebAuthenticationPanel makeCredential/getAssertionWithChallenge]
+                // which calls authenticatorManager.handleRequest(..)
+                performRequest(context, WTFMove(handler));
+                return;
+            }
+#else
+            if (data.parentOrigin && !authenticatorManager.isMock() && !authenticatorManager.isVirtual()) {
+                handler({ }, (AuthenticatorAttachment)0, ExceptionData { NotAllowedError, "The origin of the document is not the same as its ancestors."_s });
+                return;
+            }
 #endif // HAVE(UNIFIED_ASC_AUTH_UI)
 
             authenticatorManager.handleRequest(WTFMove(data), [handler = WTFMove(handler)] (std::variant<Ref<AuthenticatorResponse>, ExceptionData>&& result) mutable {
@@ -92,10 +104,10 @@ void WebAuthenticatorCoordinatorProxy::handleRequest(WebAuthenticationRequestDat
                 });
             });
         } else
-            handler({ }, (AuthenticatorAttachment)0, ExceptionData { NotAllowedError, "This request has been cancelled by the user." });
+            handler({ }, (AuthenticatorAttachment)0, ExceptionData { NotAllowedError, "This request has been cancelled by the user."_s });
     };
     
-    if (!data.processingUserGesture)
+    if (!data.processingUserGesture && data.mediation != MediationRequirement::Conditional && !m_webPageProxy.websiteDataStore().authenticatorManager().isVirtual())
         m_webPageProxy.uiClient().requestWebAuthenticationNoGesture(origin, WTFMove(afterConsent));
     else
         afterConsent(true);
@@ -105,6 +117,11 @@ void WebAuthenticatorCoordinatorProxy::handleRequest(WebAuthenticationRequestDat
 void WebAuthenticatorCoordinatorProxy::isUserVerifyingPlatformAuthenticatorAvailable(QueryCompletionHandler&& handler)
 {
     handler(LocalService::isAvailable());
+}
+
+void WebAuthenticatorCoordinatorProxy::isConditionalMediationAvailable(QueryCompletionHandler&& handler)
+{
+    handler(false);
 }
 #endif // !HAVE(UNIFIED_ASC_AUTH_UI)
 

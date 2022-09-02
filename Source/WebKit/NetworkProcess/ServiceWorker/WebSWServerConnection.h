@@ -61,6 +61,7 @@ struct ServiceWorkerClientData;
 namespace WebKit {
 
 class NetworkProcess;
+class NetworkResourceLoadParameters;
 class NetworkResourceLoader;
 class ServiceWorkerFetchTask;
 
@@ -83,18 +84,26 @@ public:
     std::unique_ptr<ServiceWorkerFetchTask> createFetchTask(NetworkResourceLoader&, const WebCore::ResourceRequest&);
     void fetchTaskTimedOut(WebCore::ServiceWorkerIdentifier);
 
+    void transferServiceWorkerLoadToNewWebProcess(NetworkResourceLoader&, WebCore::SWServerRegistration&);
+    std::optional<WebCore::SWServer::GatheredClientData> gatherClientData(WebCore::ScriptExecutionContextIdentifier);
+
+    void registerServiceWorkerClient(WebCore::ClientOrigin&&, WebCore::ServiceWorkerClientData&&, const std::optional<WebCore::ServiceWorkerRegistrationIdentifier>&, String&& userAgent);
+    void unregisterServiceWorkerClient(const WebCore::ScriptExecutionContextIdentifier&);
+
 private:
     // Implement SWServer::Connection (Messages to the client WebProcess)
     void rejectJobInClient(WebCore::ServiceWorkerJobIdentifier, const WebCore::ExceptionData&) final;
     void resolveRegistrationJobInClient(WebCore::ServiceWorkerJobIdentifier, const WebCore::ServiceWorkerRegistrationData&, WebCore::ShouldNotifyWhenResolved) final;
     void resolveUnregistrationJobInClient(WebCore::ServiceWorkerJobIdentifier, const WebCore::ServiceWorkerRegistrationKey&, bool unregistrationResult) final;
     void startScriptFetchInClient(WebCore::ServiceWorkerJobIdentifier, const WebCore::ServiceWorkerRegistrationKey&, WebCore::FetchOptions::Cache) final;
+    void refreshImportedScripts(WebCore::ServiceWorkerJobIdentifier, WebCore::FetchOptions::Cache, const Vector<URL>&, WebCore::ServiceWorkerJob::RefreshImportedScriptsCallback&&);
     void updateRegistrationStateInClient(WebCore::ServiceWorkerRegistrationIdentifier, WebCore::ServiceWorkerRegistrationState, const std::optional<WebCore::ServiceWorkerData>&) final;
     void updateWorkerStateInClient(WebCore::ServiceWorkerIdentifier, WebCore::ServiceWorkerState) final;
     void fireUpdateFoundEvent(WebCore::ServiceWorkerRegistrationIdentifier) final;
     void setRegistrationLastUpdateTime(WebCore::ServiceWorkerRegistrationIdentifier, WallTime) final;
     void setRegistrationUpdateViaCache(WebCore::ServiceWorkerRegistrationIdentifier, WebCore::ServiceWorkerUpdateViaCache) final;
     void notifyClientsOfControllerChange(const HashSet<WebCore::ScriptExecutionContextIdentifier>& contextIdentifiers, const WebCore::ServiceWorkerData& newController);
+    void focusServiceWorkerClient(WebCore::ScriptExecutionContextIdentifier, CompletionHandler<void(std::optional<WebCore::ServiceWorkerClientData>&&)>&&) final;
 
     void scheduleJobInServer(WebCore::ServiceWorkerJobData&&);
 
@@ -106,8 +115,6 @@ private:
     void matchRegistration(const WebCore::SecurityOriginData& topOrigin, const URL& clientURL, CompletionHandler<void(std::optional<WebCore::ServiceWorkerRegistrationData>&&)>&&);
     void getRegistrations(const WebCore::SecurityOriginData& topOrigin, const URL& clientURL, CompletionHandler<void(const Vector<WebCore::ServiceWorkerRegistrationData>&)>&&);
 
-    void registerServiceWorkerClient(WebCore::SecurityOriginData&& topOrigin, WebCore::ServiceWorkerClientData&&, const std::optional<WebCore::ServiceWorkerRegistrationIdentifier>&, String&& userAgent);
-    void unregisterServiceWorkerClient(const WebCore::ScriptExecutionContextIdentifier&);
     void terminateWorkerFromClient(WebCore::ServiceWorkerIdentifier, CompletionHandler<void()>&&);
     void whenServiceWorkerIsTerminatedForTesting(WebCore::ServiceWorkerIdentifier, CompletionHandler<void()>&&);
 
@@ -122,12 +129,12 @@ private:
     void updateThrottleState();
 
     void subscribeToPushService(WebCore::ServiceWorkerRegistrationIdentifier, Vector<uint8_t>&& applicationServerKey, CompletionHandler<void(Expected<WebCore::PushSubscriptionData, WebCore::ExceptionData>&&)>&&);
-    void unsubscribeFromPushService(WebCore::ServiceWorkerRegistrationIdentifier, CompletionHandler<void(Expected<bool, WebCore::ExceptionData>&&)>&&);
+    void unsubscribeFromPushService(WebCore::ServiceWorkerRegistrationIdentifier, WebCore::PushSubscriptionIdentifier,  CompletionHandler<void(Expected<bool, WebCore::ExceptionData>&&)>&&);
     void getPushSubscription(WebCore::ServiceWorkerRegistrationIdentifier, CompletionHandler<void(Expected<std::optional<WebCore::PushSubscriptionData>, WebCore::ExceptionData>&&)>&&);
     void getPushPermissionState(WebCore::ServiceWorkerRegistrationIdentifier, CompletionHandler<void(Expected<uint8_t, WebCore::ExceptionData>&&)>&&);
 
     void postMessageToServiceWorker(WebCore::ServiceWorkerIdentifier destination, WebCore::MessageWithMessagePorts&&, const WebCore::ServiceWorkerOrClientIdentifier& source);
-    void controlClient(WebCore::ScriptExecutionContextIdentifier, WebCore::SWServerRegistration&, const WebCore::ResourceRequest&);
+    void controlClient(const NetworkResourceLoadParameters&, WebCore::SWServerRegistration&, const WebCore::ResourceRequest&);
 
     using ExceptionOrVoidCallback = CompletionHandler<void(std::optional<WebCore::ExceptionData>&&)>;
     void enableNavigationPreload(WebCore::ServiceWorkerRegistrationIdentifier, ExceptionOrVoidCallback&&);

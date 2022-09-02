@@ -111,9 +111,10 @@
 #include "StyleResolver.h"
 #include "StyleScope.h"
 #include "SuddenTermination.h"
-#include <wtf/URL.h>
+#include "UserContentProvider.h"
 #include "UserGestureIndicator.h"
 #include "VisualViewport.h"
+#include "WebCoreOpaqueRoot.h"
 #include "WebKitPoint.h"
 #include "WindowFeatures.h"
 #include "WindowFocusAllowedIndicator.h"
@@ -130,6 +131,7 @@
 #include <wtf/NeverDestroyed.h>
 #include <wtf/Ref.h>
 #include <wtf/SetForScope.h>
+#include <wtf/URL.h>
 #include <wtf/text/WTFString.h>
 
 #if ENABLE(USER_MESSAGE_HANDLERS)
@@ -153,7 +155,19 @@
 namespace WebCore {
 using namespace Inspector;
 
-static const Seconds defaultTransientActivationDuration { 2_s };
+static constexpr Seconds defaultTransientActivationDuration { 5_s };
+
+static WeakHashSet<DOMWindow>& windowsInterestedInStorageEvents()
+{
+    static MainThreadNeverDestroyed<WeakHashSet<DOMWindow>> set;
+    return set;
+}
+
+void DOMWindow::forEachWindowInterestedInStorageEvents(const Function<void(DOMWindow&)>& apply)
+{
+    for (auto& window : copyToVectorOf<Ref<DOMWindow>>(windowsInterestedInStorageEvents()))
+        apply(window);
+}
 
 static std::optional<Seconds>& transientActivationDurationOverrideForTesting()
 {
@@ -242,10 +256,9 @@ bool DOMWindow::dispatchAllPendingBeforeUnloadEvents()
     if (alreadyDispatched)
         return true;
 
-    Vector<Ref<DOMWindow>> windows;
-    windows.reserveInitialCapacity(set.size());
-    for (auto& window : set)
-        windows.uncheckedAppend(*window.key);
+    auto windows = WTF::map(set, [](auto& entry) -> Ref<DOMWindow> {
+        return *entry.key;
+    });
 
     for (auto& window : windows) {
         if (!set.contains(window.ptr()))
@@ -285,12 +298,13 @@ void DOMWindow::dispatchAllPendingUnloadEvents()
         return Ref<DOMWindow>(*(keyValue.key));
     });
 
+    auto& eventNames = WebCore::eventNames();
     for (auto& window : windows) {
         if (!set.contains(window.ptr()))
             continue;
 
-        window->dispatchEvent(PageTransitionEvent::create(eventNames().pagehideEvent, false), window->document());
-        window->dispatchEvent(Event::create(eventNames().unloadEvent, Event::CanBubble::No, Event::IsCancelable::No), window->document());
+        window->dispatchEvent(PageTransitionEvent::create(eventNames.pagehideEvent, false), window->document());
+        window->dispatchEvent(Event::create(eventNames.unloadEvent, Event::CanBubble::No, Event::IsCancelable::No), window->document());
 
         window->enableSuddenTermination();
     }
@@ -403,6 +417,7 @@ void DOMWindow::didSecureTransitionTo(Document& document)
     m_crypto = nullptr;
     m_navigator = nullptr;
     m_performance = nullptr;
+    m_customElementRegistry = nullptr;
 }
 
 void DOMWindow::prewarmLocalStorageIfNecessary()
@@ -411,9 +426,6 @@ void DOMWindow::prewarmLocalStorageIfNecessary()
 
     // No need to prewarm for ephemeral sessions since the data is in memory only.
     if (!page || page->usesEphemeralSession())
-        return;
-
-    if (!page->mainFrame().mayPrewarmLocalStorage())
         return;
 
     // This eagerly constructs the StorageArea, which will load items from disk.
@@ -425,7 +437,7 @@ void DOMWindow::prewarmLocalStorageIfNecessary()
     if (!localStorage)
         return;
 
-    page->mainFrame().didPrewarmLocalStorage();
+    localStorage->area().prewarm();
 }
 
 DOMWindow::~DOMWindow()
@@ -444,6 +456,8 @@ DOMWindow::~DOMWindow()
 #endif
 
     removeLanguageChangeObserver(this);
+
+    windowsInterestedInStorageEvents().remove(*this);
 }
 
 RefPtr<MediaQueryList> DOMWindow::matchMedia(const String& media)
@@ -501,6 +515,8 @@ void DOMWindow::willDetachDocumentFromFrame()
     if (m_performance)
         m_performance->clearResourceTimings();
 
+    windowsInterestedInStorageEvents().remove(*this);
+
     JSDOMWindowBase::fireFrameClearedWatchpointsForWindow(this);
     InspectorInstrumentation::frameWindowDiscarded(*frame(), this);
 }
@@ -542,7 +558,7 @@ void DOMWindow::resetUnlessSuspendedForDocumentSuspension()
 
 void DOMWindow::suspendForBackForwardCache()
 {
-    SetForScope<bool> isSuspendingObservers(m_isSuspendingObservers, true);
+    SetForScope isSuspendingObservers(m_isSuspendingObservers, true);
     RELEASE_ASSERT(frame());
 
     for (auto* observer : copyToVector(m_observers)) {
@@ -574,6 +590,7 @@ CustomElementRegistry& DOMWindow::ensureCustomElementRegistry()
 {
     if (!m_customElementRegistry)
         m_customElementRegistry = CustomElementRegistry::create(*this, scriptExecutionContext());
+    ASSERT(m_customElementRegistry->scriptExecutionContext() == document());
     return *m_customElementRegistry;
 }
 
@@ -821,7 +838,7 @@ ExceptionOr<Storage*> DOMWindow::sessionStorage()
     if (!document)
         return nullptr;
 
-    if (!document->securityOrigin().canAccessSessionStorage(document->topOrigin()))
+    if (document->canAccessResource(ScriptExecutionContext::ResourceType::SessionStorage) == ScriptExecutionContext::HasResourceAccess::No)
         return Exception { SecurityError };
 
     if (m_sessionStorage)
@@ -831,8 +848,10 @@ ExceptionOr<Storage*> DOMWindow::sessionStorage()
     if (!page)
         return nullptr;
 
-    auto storageArea = page->sessionStorage()->storageArea(document->securityOrigin().data());
+    auto storageArea = page->sessionStorage()->storageArea(document->securityOrigin());
     m_sessionStorage = Storage::create(*this, WTFMove(storageArea));
+    if (hasEventListeners(eventNames().storageEvent))
+        windowsInterestedInStorageEvents().add(*this);
     return m_sessionStorage.get();
 }
 
@@ -845,7 +864,7 @@ ExceptionOr<Storage*> DOMWindow::localStorage()
     if (!document)
         return nullptr;
 
-    if (!document->securityOrigin().canAccessLocalStorage(nullptr))
+    if (document->canAccessResource(ScriptExecutionContext::ResourceType::LocalStorage) == ScriptExecutionContext::HasResourceAccess::No)
         return Exception { SecurityError };
 
     auto* page = document->page();
@@ -867,6 +886,8 @@ ExceptionOr<Storage*> DOMWindow::localStorage()
 
     auto storageArea = page->storageNamespaceProvider().localStorageArea(*document);
     m_localStorage = Storage::create(*this, WTFMove(storageArea));
+    if (hasEventListeners(eventNames().storageEvent))
+        windowsInterestedInStorageEvents().add(*this);
     return m_localStorage.get();
 }
 
@@ -880,11 +901,11 @@ ExceptionOr<void> DOMWindow::postMessage(JSC::JSGlobalObject& lexicalGlobalObjec
     // Compute the target origin.  We need to do this synchronously in order
     // to generate the SyntaxError exception correctly.
     RefPtr<SecurityOrigin> target;
-    if (options.targetOrigin == "/") {
+    if (options.targetOrigin == "/"_s) {
         if (!sourceDocument)
             return { };
         target = &sourceDocument->securityOrigin();
-    } else if (options.targetOrigin != "*") {
+    } else if (options.targetOrigin != "*"_s) {
         target = SecurityOrigin::createFromString(options.targetOrigin);
         // It doesn't make sense target a postMessage at a unique origin
         // because there's no way to represent a unique origin in a string.
@@ -944,7 +965,7 @@ ExceptionOr<void> DOMWindow::postMessage(JSC::JSGlobalObject& lexicalGlobalObjec
         UserGestureIndicator userGestureIndicator(userGestureToForward);
         InspectorInstrumentation::willDispatchPostMessage(frame, postMessageIdentifier);
 
-        auto event = MessageEvent::create(MessagePort::entanglePorts(*document(), WTFMove(message.transferredPorts)), message.message.releaseNonNull(), sourceOrigin, { }, incumbentWindowProxy ? std::make_optional(MessageEventSource(WTFMove(incumbentWindowProxy))) : std::nullopt);
+        auto event = MessageEvent::create(message.message.releaseNonNull(), sourceOrigin, { }, incumbentWindowProxy ? std::make_optional(MessageEventSource(WTFMove(incumbentWindowProxy))) : std::nullopt, MessagePort::entanglePorts(*document(), WTFMove(message.transferredPorts)));
         dispatchEvent(event);
 
         InspectorInstrumentation::didDispatchPostMessage(frame, postMessageIdentifier);
@@ -977,7 +998,13 @@ void DOMWindow::focus(DOMWindow& incumbentWindow)
 {
     RefPtr frame = this->frame();
     RefPtr openerFrame = frame ? frame->loader().opener() : nullptr;
-    focus(openerFrame && openerFrame != frame && incumbentWindow.frame() == openerFrame);
+    focus([&] {
+        if (!openerFrame || openerFrame == frame || incumbentWindow.frame() != openerFrame)
+            return false;
+
+        auto* page = openerFrame->page();
+        return page && page->isVisibleAndActive();
+    }());
 }
 
 void DOMWindow::focus(bool allowFocus)
@@ -1075,7 +1102,7 @@ void DOMWindow::print()
         return;
 
     if (!page->arePromptsAllowed()) {
-        printErrorMessage("Use of window.print is not allowed while unloading a page.");
+        printErrorMessage("Use of window.print is not allowed while unloading a page."_s);
         return;
     }
 
@@ -1109,7 +1136,7 @@ void DOMWindow::alert(const String& message)
 
     RefPtr document = this->document();
     if (document->isSandboxed(SandboxModals)) {
-        printErrorMessage("Use of window.alert is not allowed in a sandboxed frame when the allow-modals flag is not set.");
+        printErrorMessage("Use of window.alert is not allowed in a sandboxed frame when the allow-modals flag is not set."_s);
         return;
     }
 
@@ -1118,7 +1145,7 @@ void DOMWindow::alert(const String& message)
         return;
 
     if (!page->arePromptsAllowed()) {
-        printErrorMessage("Use of window.alert is not allowed while unloading a page.");
+        printErrorMessage("Use of window.alert is not allowed while unloading a page."_s);
         return;
     }
 
@@ -1138,7 +1165,7 @@ bool DOMWindow::confirmForBindings(const String& message)
 
     RefPtr document = this->document();
     if (document->isSandboxed(SandboxModals)) {
-        printErrorMessage("Use of window.confirm is not allowed in a sandboxed frame when the allow-modals flag is not set.");
+        printErrorMessage("Use of window.confirm is not allowed in a sandboxed frame when the allow-modals flag is not set."_s);
         return false;
     }
 
@@ -1147,7 +1174,7 @@ bool DOMWindow::confirmForBindings(const String& message)
         return false;
 
     if (!page->arePromptsAllowed()) {
-        printErrorMessage("Use of window.confirm is not allowed while unloading a page.");
+        printErrorMessage("Use of window.confirm is not allowed while unloading a page."_s);
         return false;
     }
 
@@ -1167,7 +1194,7 @@ String DOMWindow::prompt(const String& message, const String& defaultValue)
 
     RefPtr document = this->document();
     if (document->isSandboxed(SandboxModals)) {
-        printErrorMessage("Use of window.prompt is not allowed in a sandboxed frame when the allow-modals flag is not set.");
+        printErrorMessage("Use of window.prompt is not allowed in a sandboxed frame when the allow-modals flag is not set."_s);
         return String();
     }
 
@@ -1176,7 +1203,7 @@ String DOMWindow::prompt(const String& message, const String& defaultValue)
         return String();
 
     if (!page->arePromptsAllowed()) {
-        printErrorMessage("Use of window.prompt is not allowed while unloading a page.");
+        printErrorMessage("Use of window.prompt is not allowed while unloading a page."_s);
         return String();
     }
 
@@ -1404,16 +1431,16 @@ unsigned DOMWindow::length() const
     return frame()->tree().scopedChildCount();
 }
 
-String DOMWindow::name() const
+AtomString DOMWindow::name() const
 {
     RefPtr frame = this->frame();
     if (!frame)
-        return String();
+        return nullAtom();
 
     return frame->tree().name();
 }
 
-void DOMWindow::setName(const String& string)
+void DOMWindow::setName(const AtomString& string)
 {
     RefPtr frame = this->frame();
     if (!frame)
@@ -1718,6 +1745,7 @@ void DOMWindow::scrollTo(const ScrollToOptions& options, ScrollClamping clamping
         return;
     }
 
+    view->cancelScheduledScrollToFocusedElement();
     document()->updateLayoutIgnorePendingStylesheets();
 
     IntPoint layoutPos(view->mapFromCSSToLayoutUnits(scrollToOptions.left.value()), view->mapFromCSSToLayoutUnits(scrollToOptions.top.value()));
@@ -1953,40 +1981,41 @@ bool DOMWindow::addEventListener(const AtomString& eventType, Ref<EventListener>
         return false;
 
     RefPtr document = this->document();
+    auto& eventNames = WebCore::eventNames();
     if (document) {
         document->addListenerTypeIfNeeded(eventType);
-        if (eventNames().isWheelEventType(eventType))
+        if (eventNames.isWheelEventType(eventType))
             document->didAddWheelEventHandler(*document);
-        else if (eventNames().isTouchRelatedEventType(eventType, *document))
+        else if (eventNames.isTouchRelatedEventType(eventType, *document))
             document->didAddTouchEventHandler(*document);
-        else if (eventType == eventNames().storageEvent)
+        else if (eventType == eventNames.storageEvent)
             didAddStorageEventListener(*this);
     }
 
-    if (eventType == eventNames().unloadEvent)
+    if (eventType == eventNames.unloadEvent)
         addUnloadEventListener(this);
-    else if (eventType == eventNames().beforeunloadEvent && allowsBeforeUnloadListeners(this))
+    else if (eventType == eventNames.beforeunloadEvent && allowsBeforeUnloadListeners(this))
         addBeforeUnloadEventListener(this);
 #if PLATFORM(IOS_FAMILY)
-    else if (eventType == eventNames().scrollEvent)
+    else if (eventType == eventNames.scrollEvent)
         incrementScrollEventListenersCount();
 #endif
 #if ENABLE(IOS_TOUCH_EVENTS)
-    else if (document && eventNames().isTouchRelatedEventType(eventType, *document))
+    else if (document && eventNames.isTouchRelatedEventType(eventType, *document))
         ++m_touchAndGestureEventListenerCount;
 #endif
 #if ENABLE(IOS_GESTURE_EVENTS)
-    else if (eventNames().isGestureEventType(eventType))
+    else if (eventNames.isGestureEventType(eventType))
         ++m_touchAndGestureEventListenerCount;
 #endif
 #if ENABLE(GAMEPAD)
-    else if (eventNames().isGamepadEventType(eventType))
+    else if (eventNames.isGamepadEventType(eventType))
         incrementGamepadEventListenerCount();
 #endif
 #if ENABLE(DEVICE_ORIENTATION)
-    else if (eventType == eventNames().deviceorientationEvent)
+    else if (eventType == eventNames.deviceorientationEvent)
         startListeningForDeviceOrientationIfNecessary();
-    else if (eventType == eventNames().devicemotionEvent)
+    else if (eventType == eventNames.devicemotionEvent)
         startListeningForDeviceMotionIfNecessary();
 #endif
 
@@ -2196,41 +2225,42 @@ bool DOMWindow::removeEventListener(const AtomString& eventType, EventListener& 
         return false;
 
     RefPtr document = this->document();
+    auto& eventNames = WebCore::eventNames();
     if (document) {
-        if (eventNames().isWheelEventType(eventType))
+        if (eventNames.isWheelEventType(eventType))
             document->didRemoveWheelEventHandler(*document);
-        else if (eventNames().isTouchRelatedEventType(eventType, *document))
+        else if (eventNames.isTouchRelatedEventType(eventType, *document))
             document->didRemoveTouchEventHandler(*document);
     }
 
-    if (eventType == eventNames().unloadEvent)
+    if (eventType == eventNames.unloadEvent)
         removeUnloadEventListener(this);
-    else if (eventType == eventNames().beforeunloadEvent && allowsBeforeUnloadListeners(this))
+    else if (eventType == eventNames.beforeunloadEvent && allowsBeforeUnloadListeners(this))
         removeBeforeUnloadEventListener(this);
 #if PLATFORM(IOS_FAMILY)
-    else if (eventType == eventNames().scrollEvent)
+    else if (eventType == eventNames.scrollEvent)
         decrementScrollEventListenersCount();
 #endif
 #if ENABLE(IOS_TOUCH_EVENTS)
-    else if (document && eventNames().isTouchRelatedEventType(eventType, *document)) {
+    else if (document && eventNames.isTouchRelatedEventType(eventType, *document)) {
         ASSERT(m_touchAndGestureEventListenerCount > 0);
         --m_touchAndGestureEventListenerCount;
     }
 #endif
 #if ENABLE(IOS_GESTURE_EVENTS)
-    else if (eventNames().isGestureEventType(eventType)) {
+    else if (eventNames.isGestureEventType(eventType)) {
         ASSERT(m_touchAndGestureEventListenerCount > 0);
         --m_touchAndGestureEventListenerCount;
     }
 #endif
 #if ENABLE(GAMEPAD)
-    else if (eventNames().isGamepadEventType(eventType))
+    else if (eventNames.isGamepadEventType(eventType))
         decrementGamepadEventListenerCount();
 #endif
 #if ENABLE(DEVICE_ORIENTATION)
-    else if (eventType == eventNames().deviceorientationEvent)
+    else if (eventType == eventNames.deviceorientationEvent)
         stopListeningForDeviceOrientationIfNecessary();
-    else if (eventType == eventNames().devicemotionEvent)
+    else if (eventType == eventNames.devicemotionEvent)
         stopListeningForDeviceMotionIfNecessary();
 #endif
 
@@ -2400,6 +2430,10 @@ void DOMWindow::setLocation(DOMWindow& activeWindow, const URL& completedURL, Se
     if (isInsecureScriptAccess(activeWindow, completedURL.string()))
         return;
 
+    // Check the CSP of the embedder to determine if we allow execution of javascript: URLs via child frame navigation.
+    if (completedURL.protocolIsJavaScript() && frameElement() && !frameElement()->document().contentSecurityPolicy()->allowJavaScriptURLs(aboutBlankURL().string(), { }, completedURL.string(), frameElement()))
+        return;
+
     // We want a new history item if we are processing a user gesture.
     LockHistory lockHistory = (locking != LockHistoryBasedOnGestureState || !UserGestureIndicator::processingUserGesture()) ? LockHistory::Yes : LockHistory::No;
     LockBackForwardList lockBackForwardList = (locking != LockHistoryBasedOnGestureState) ? LockBackForwardList::Yes : LockBackForwardList::No;
@@ -2563,8 +2597,8 @@ ExceptionOr<RefPtr<WindowProxy>> DOMWindow::open(DOMWindow& activeWindow, DOMWin
 #if ENABLE(INTELLIGENT_TRACKING_PREVENTION)
     if (RefPtr document = this->document()) {
         if (document->settings().needsSiteSpecificQuirks() && urlStringToOpen == Quirks::BBCRadioPlayerURLString()) {
-            auto radioPlayerDomain = RegistrableDomain(URL(URL(), Quirks::staticRadioPlayerURLString()));
-            auto BBCDomain = RegistrableDomain(URL(URL(), Quirks::BBCRadioPlayerURLString()));
+            auto radioPlayerDomain = RegistrableDomain(URL { Quirks::staticRadioPlayerURLString() });
+            auto BBCDomain = RegistrableDomain(URL { Quirks::BBCRadioPlayerURLString() });
             if (!ResourceLoadObserver::shared().hasCrossPageStorageAccess(radioPlayerDomain, BBCDomain))
                 return RefPtr<WindowProxy> { nullptr };
         }
@@ -2650,6 +2684,9 @@ ExceptionOr<RefPtr<WindowProxy>> DOMWindow::open(DOMWindow& activeWindow, DOMWin
 
 void DOMWindow::showModalDialog(const String& urlString, const String& dialogFeaturesString, DOMWindow& activeWindow, DOMWindow& firstWindow, const Function<void(DOMWindow&)>& prepareDialogFunction)
 {
+    if (RefPtr document = this->document())
+        document->addConsoleMessage(MessageSource::JS, MessageLevel::Warning, "showModalDialog() is deprecated and will be removed. Please use the <dialog> element instead."_s);
+
     if (!isCurrentlyDisplayedInFrame())
         return;
     if (!activeWindow.frame())
@@ -2664,7 +2701,7 @@ void DOMWindow::showModalDialog(const String& urlString, const String& dialogFea
         return;
 
     if (!page->arePromptsAllowed()) {
-        printErrorMessage("Use of window.showModalDialog is not allowed while unloading a page.");
+        printErrorMessage("Use of window.showModalDialog is not allowed while unloading a page."_s);
         return;
     }
 
@@ -2696,6 +2733,21 @@ Frame* DOMWindow::frame() const
 {
     auto* document = this->document();
     return document ? document->frame() : nullptr;
+}
+
+void DOMWindow::eventListenersDidChange()
+{
+    if (m_localStorage || m_sessionStorage) {
+        if (hasEventListeners(eventNames().storageEvent))
+            windowsInterestedInStorageEvents().add(*this);
+        else
+            windowsInterestedInStorageEvents().remove(*this);
+    }
+}
+
+WebCoreOpaqueRoot root(DOMWindow* window)
+{
+    return WebCoreOpaqueRoot { window };
 }
 
 } // namespace WebCore

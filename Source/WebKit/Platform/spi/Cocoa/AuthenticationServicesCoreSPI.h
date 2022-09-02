@@ -27,7 +27,7 @@
 
 #if HAVE(ASC_AUTH_UI) || HAVE(UNIFIED_ASC_AUTH_UI)
 
-#if USE(APPLE_INTERNAL_SDK)
+#if USE(APPLE_INTERNAL_SDK) && HAVE(ASC_WEBKIT_SPI)
 #import <AuthenticationServicesCore/ASCWebKitSPISupport.h>
 #else
 @interface ASCWebKitSPISupport : NSObject
@@ -164,8 +164,12 @@ typedef NS_ENUM(NSUInteger, ASCPublicKeyCredentialKind) {
 @property (nonatomic, nullable, copy) NSData *clientDataHash;
 @property (nonatomic, nullable, readonly, copy) NSString *userVerificationPreference;
 @property (nonatomic, nullable, copy) ASCWebAuthenticationExtensionsClientInputs *extensions;
+@property (nonatomic, nullable, copy) NSData *extensionsCBOR;
+@property (nonatomic, nullable, copy) NSNumber *timeout;
 
 @property (nonatomic, nullable, readonly, copy) NSArray<ASCPublicKeyCredentialDescriptor *> *allowedCredentials;
+
+@property (nonatomic, nullable, copy) NSString *destinationSiteForCrossSiteAssertion;
 
 @end
 
@@ -180,6 +184,13 @@ typedef NS_OPTIONS(NSUInteger, ASCCredentialRequestTypes) {
     ASCCredentialRequestTypeSecurityKeyPublicKeyAssertion = 1 << 5,
 };
 
+typedef NS_ENUM(NSInteger, ASPublicKeyCredentialResidentKeyPreference) {
+    ASPublicKeyCredentialResidentKeyPreferenceNotPresent,
+    ASPublicKeyCredentialResidentKeyPreferenceDiscouraged,
+    ASPublicKeyCredentialResidentKeyPreferencePreferred,
+    ASPublicKeyCredentialResidentKeyPreferenceRequired,
+};
+
 @interface ASCPublicKeyCredentialCreationOptions : NSObject <NSSecureCoding>
 
 @property (nonatomic, nullable, copy) NSData *challenge;
@@ -192,8 +203,11 @@ typedef NS_OPTIONS(NSUInteger, ASCCredentialRequestTypes) {
 @property (nonatomic, nullable, copy) NSString *userVerificationPreference;
 @property (nonatomic, nullable, copy) NSString *attestationPreference;
 @property (nonatomic, nullable, copy) ASCWebAuthenticationExtensionsClientInputs *extensions;
+@property (nonatomic, nullable, copy) NSData *extensionsCBOR;
+@property (nonatomic, nullable, copy) NSNumber *timeout;
 
 @property (nonatomic) BOOL shouldRequireResidentKey;
+@property (nonatomic) ASPublicKeyCredentialResidentKeyPreference residentKeyPreference;
 @property (nonatomic, copy) NSArray<ASCPublicKeyCredentialDescriptor *> *excludedCredentials;
 
 @end
@@ -221,12 +235,28 @@ typedef NS_OPTIONS(NSUInteger, ASCCredentialRequestTypes) {
 
 @property (nonatomic, readonly, copy) NSString *name;
 @property (nonatomic, readonly, copy) NSString *displayName;
-@property (nonatomic, readonly, copy) NSData *userHandle;
+@property (nonatomic, readonly, nullable, copy) NSData *userHandle;
 @property (nonatomic, readonly) BOOL isRegistrationRequest;
 
 + (instancetype)new NS_UNAVAILABLE;
 - (instancetype)init NS_UNAVAILABLE;
 
+@end
+
+typedef NS_ENUM(NSInteger, ASCredentialRequestStyle) {
+    ASCredentialRequestStyleModal,
+    ASCredentialRequestStyleAutoFill,
+};
+
+@class ASGlobalFrameIdentifier;
+
+@interface ASGlobalFrameIdentifier : NSObject <NSCopying, NSSecureCoding>
++ (instancetype)new NS_UNAVAILABLE;
+- (instancetype)init NS_UNAVAILABLE;
+
+- (instancetype)initWithPageID:(NSNumber *)webPageID frameID:(NSNumber *)webFrameID;
+@property (nonatomic, readonly) NSNumber *webPageID;
+@property (nonatomic, readonly) NSNumber *webFrameID;
 @end
 
 @interface ASCCredentialRequestContext : NSObject <NSSecureCoding>
@@ -245,6 +275,9 @@ typedef NS_OPTIONS(NSUInteger, ASCCredentialRequestTypes) {
 @property (nonatomic, nullable, copy) ASCPublicKeyCredentialAssertionOptions *platformKeyCredentialAssertionOptions;
 @property (nonatomic, nullable, copy) ASCPublicKeyCredentialAssertionOptions *securityKeyCredentialAssertionOptions;
 
+@property (nonatomic) ASCredentialRequestStyle requestStyle;
+
+@property (nonatomic, nullable, copy) ASGlobalFrameIdentifier *globalFrameID;
 @end
 
 @protocol ASCCredentialProtocol <NSObject, NSSecureCoding>
@@ -263,6 +296,8 @@ typedef NS_OPTIONS(NSUInteger, ASCCredentialRequestTypes) {
 @property (nonatomic, copy, readonly) NSString *relyingPartyIdentifier;
 @property (nonatomic, copy, readonly) NSData *attestationObject;
 @property (nonatomic, copy, readonly) NSData *rawClientDataJSON;
+@property (nonatomic, copy) NSArray<NSNumber *> *transports;
+@property (nonatomic, copy, nullable) NSData *extensionOutputsCBOR;
 
 + (instancetype)new NS_UNAVAILABLE;
 - (instancetype)init NS_UNAVAILABLE;
@@ -277,6 +312,8 @@ typedef NS_OPTIONS(NSUInteger, ASCCredentialRequestTypes) {
 @property (nonatomic, copy, readonly) NSData *rawClientDataJSON;
 @property (nonatomic, copy, readonly) NSString *relyingPartyIdentifier;
 @property (nonatomic, copy, readonly) NSData *attestationObject;
+@property (nonatomic, copy) NSArray<NSNumber *> *transports;
+@property (nonatomic, copy, readonly, nullable) NSData *extensionOutputsCBOR;
 
 @end
 
@@ -292,6 +329,7 @@ typedef NS_OPTIONS(NSUInteger, ASCCredentialRequestTypes) {
 @property (nonatomic, copy, readonly) NSData *authenticatorData;
 @property (nonatomic, copy, readonly) NSData *signature;
 @property (nonatomic, copy, readonly, nullable) NSData *userHandle;
+@property (nonatomic, copy, readonly, nullable) NSData *extensionOutputsCBOR;
 
 @end
 
@@ -305,6 +343,7 @@ typedef NS_OPTIONS(NSUInteger, ASCCredentialRequestTypes) {
 @property (nonatomic, copy, readonly) NSData *signature;
 @property (nonatomic, copy, readonly, nullable) NSData *userHandle;
 @property (nonatomic, copy, readonly) NSData *rawClientDataJSON;
+@property (nonatomic, copy, readonly, nullable) NSData *extensionOutputsCBOR;
 
 @end
 
@@ -320,7 +359,11 @@ typedef NS_OPTIONS(NSUInteger, ASCCredentialRequestTypes) {
 - (void)userSelectedLoginChoice:(id <ASCLoginChoiceProtocol>)loginChoice authenticatedContext:(LAContext *)context completionHandler:(void (^)(id <ASCCredentialProtocol> _Nullable, NSError * _Nullable))completionHandler;
 
 - (void)requestCompletedWithCredential:(nullable id<ASCCredentialProtocol>)credential error:(nullable NSError *)error;
+
+- (void)performAutoFillAuthorizationRequestsForContext:(ASCCredentialRequestContext *)context withCompletionHandler:(void (^)(id <ASCCredentialProtocol> _Nullable credential, NSError * _Nullable error))completionHandler;
 #endif
+
+- (void)cancelCurrentRequest;
 
 @end
 

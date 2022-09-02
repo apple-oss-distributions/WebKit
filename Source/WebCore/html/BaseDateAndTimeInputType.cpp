@@ -277,9 +277,9 @@ bool BaseDateAndTimeInputType::shouldHaveMillisecondField(const DateComponents& 
         || !stepRange.step().remainder(msecPerSecond).isZero();
 }
 
-void BaseDateAndTimeInputType::setValue(const String& value, bool valueChanged, TextFieldEventBehavior eventBehavior)
+void BaseDateAndTimeInputType::setValue(const String& value, bool valueChanged, TextFieldEventBehavior eventBehavior, TextControlSetValueSelection selection)
 {
-    InputType::setValue(value, valueChanged, eventBehavior);
+    InputType::setValue(value, valueChanged, eventBehavior, selection);
     if (valueChanged)
         updateInnerTextValue();
 }
@@ -306,7 +306,7 @@ void BaseDateAndTimeInputType::handleDOMActivateEvent(Event&)
     }
 }
 
-void BaseDateAndTimeInputType::createShadowSubtreeAndUpdateInnerTextElementEditability(ContainerNode::ChildChange::Source source, bool)
+void BaseDateAndTimeInputType::createShadowSubtree()
 {
     ASSERT(needsShadowSubtree());
     ASSERT(element());
@@ -316,11 +316,11 @@ void BaseDateAndTimeInputType::createShadowSubtreeAndUpdateInnerTextElementEdita
 
     if (document.settings().dateTimeInputsEditableComponentsEnabled()) {
         m_dateTimeEditElement = DateTimeEditElement::create(document, *this);
-        element.userAgentShadowRoot()->appendChild(source, *m_dateTimeEditElement);
+        element.userAgentShadowRoot()->appendChild(ContainerNode::ChildChange::Source::Parser, *m_dateTimeEditElement);
     } else {
         auto valueContainer = HTMLDivElement::create(document);
         valueContainer->setPseudo(ShadowPseudoIds::webkitDateAndTimeValue());
-        element.userAgentShadowRoot()->appendChild(source, valueContainer);
+        element.userAgentShadowRoot()->appendChild(ContainerNode::ChildChange::Source::Parser, valueContainer);
     }
     updateInnerTextValue();
 }
@@ -334,6 +334,9 @@ void BaseDateAndTimeInputType::destroyShadowSubtree()
 void BaseDateAndTimeInputType::updateInnerTextValue()
 {
     ASSERT(element());
+
+    createShadowSubtreeIfNeeded();
+
     if (!m_dateTimeEditElement) {
         auto node = element()->userAgentShadowRoot()->firstChild();
         if (!is<HTMLElement>(node))
@@ -343,7 +346,7 @@ void BaseDateAndTimeInputType::updateInnerTextValue()
             // Need to put something to keep text baseline.
             displayValue = " "_s;
         }
-        downcast<HTMLElement>(*node).setInnerText(displayValue);
+        downcast<HTMLElement>(*node).setInnerText(WTFMove(displayValue));
         return;
     }
 
@@ -467,7 +470,7 @@ void BaseDateAndTimeInputType::didBlurFromControl()
 void BaseDateAndTimeInputType::didChangeValueFromControl()
 {
     String value = sanitizeValue(m_dateTimeEditElement->value());
-    InputType::setValue(value, value != element()->value(), DispatchInputAndChangeEvent);
+    InputType::setValue(value, value != element()->value(), DispatchInputAndChangeEvent, DoNotSet);
 
     DateTimeChooserParameters parameters;
     if (!setupDateTimeChooserParameters(parameters))
@@ -522,7 +525,7 @@ bool BaseDateAndTimeInputType::setupDateTimeChooserParameters(DateTimeChooserPar
     parameters.required = element.isRequired();
 
     if (!document.settings().langAttributeAwareFormControlUIEnabled())
-        parameters.locale = defaultLanguage();
+        parameters.locale = AtomString { defaultLanguage() };
     else {
         AtomString computedLocale = element.computeInheritedLanguage();
         parameters.locale = computedLocale.isEmpty() ? AtomString(defaultLanguage()) : computedLocale;
@@ -575,4 +578,5 @@ void BaseDateAndTimeInputType::closeDateTimeChooser()
 }
 
 } // namespace WebCore
+
 #endif

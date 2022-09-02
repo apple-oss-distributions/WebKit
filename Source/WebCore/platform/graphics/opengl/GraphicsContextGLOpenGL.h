@@ -43,10 +43,9 @@ class GCGLLayer;
 #endif
 
 namespace WebCore {
-class ExtensionsGL;
 #if USE(OPENGL_ES)
 class ExtensionsGLOpenGLES;
-#elif USE(OPENGL)
+#else
 class ExtensionsGLOpenGL;
 #endif
 class HostWindow;
@@ -143,6 +142,7 @@ public:
     void getFloatv(GCGLenum pname, GCGLSpan<GCGLfloat> value) final;
     GCGLint getFramebufferAttachmentParameteri(GCGLenum target, GCGLenum attachment, GCGLenum pname) final;
     void getIntegerv(GCGLenum pname, GCGLSpan<GCGLint> value) final;
+    void getIntegeri_v(GCGLenum pname, GCGLuint index, GCGLSpan<GCGLint, 4> value) final; // NOLINT
     GCGLint64 getInteger64(GCGLenum pname) final;
     GCGLint64 getInteger64i(GCGLenum pname, GCGLuint index) final;
     GCGLint getProgrami(PlatformGLObject program, GCGLenum pname) final;
@@ -365,28 +365,39 @@ public:
     void getActiveUniformBlockiv(GCGLuint program, GCGLuint uniformBlockIndex, GCGLenum pname, GCGLSpan<GCGLint> params) final;
 
     // GL_ANGLE_multi_draw
-    void multiDrawArraysANGLE(GCGLenum mode, GCGLSpan<const GCGLint> firsts, GCGLSpan<const GCGLsizei> counts, GCGLsizei drawcount) override;
-    void multiDrawArraysInstancedANGLE(GCGLenum mode, GCGLSpan<const GCGLint> firsts, GCGLSpan<const GCGLsizei> counts, GCGLSpan<const GCGLsizei> instanceCounts, GCGLsizei drawcount) override;
-    void multiDrawElementsANGLE(GCGLenum mode, GCGLSpan<const GCGLsizei> counts, GCGLenum type, GCGLSpan<const GCGLint> offsets, GCGLsizei drawcount) override;
-    void multiDrawElementsInstancedANGLE(GCGLenum mode, GCGLSpan<const GCGLsizei> counts, GCGLenum type, GCGLSpan<const GCGLint> offsets, GCGLSpan<const GCGLsizei> instanceCounts, GCGLsizei drawcount) override;
+    void multiDrawArraysANGLE(GCGLenum mode, GCGLSpanTuple<const GCGLint, const GCGLsizei> firstsAndCounts) override;
+    void multiDrawArraysInstancedANGLE(GCGLenum mode, GCGLSpanTuple<const GCGLint, const GCGLsizei, const GCGLsizei> firstsCountsAndInstanceCounts) override;
+    void multiDrawElementsANGLE(GCGLenum mode, GCGLSpanTuple<const GCGLsizei, const GCGLsizei> countsAndOffsets, GCGLenum type) override;
+    void multiDrawElementsInstancedANGLE(GCGLenum mode, GCGLSpanTuple<const GCGLsizei, const GCGLsizei, const GCGLsizei> countsOffsetsAndInstanceCounts, GCGLenum type) override;
+
+    // GL_OES_draw_buffers_indexed
+    void enableiOES(GCGLenum target, GCGLuint index) final;
+    void disableiOES(GCGLenum target, GCGLuint index) final;
+    void blendEquationiOES(GCGLuint buf, GCGLenum mode) final;
+    void blendEquationSeparateiOES(GCGLuint buf, GCGLenum modeRGB, GCGLenum modeAlpha) final;
+    void blendFunciOES(GCGLuint buf, GCGLenum src, GCGLenum dst) final;
+    void blendFuncSeparateiOES(GCGLuint buf, GCGLenum srcRGB, GCGLenum dstRGB, GCGLenum srcAlpha, GCGLenum dstAlpha) final;
+    void colorMaskiOES(GCGLuint buf, GCGLboolean red, GCGLboolean green, GCGLboolean blue, GCGLboolean alpha) final;
+
+    // GL_ANGLE_base_vertex_base_instance
+    void drawArraysInstancedBaseInstanceANGLE(GCGLenum mode, GCGLint first, GCGLsizei count, GCGLsizei instanceCount, GCGLuint baseInstance) final;
+    void drawElementsInstancedBaseVertexBaseInstanceANGLE(GCGLenum mode, GCGLsizei count, GCGLenum type, GCGLintptr offset, GCGLsizei instanceCount, GCGLint baseVertex, GCGLuint baseInstance) final;
+    void multiDrawArraysInstancedBaseInstanceANGLE(GCGLenum mode, GCGLSpanTuple<const GCGLint, const GCGLsizei, const GCGLsizei, const GCGLuint> firstsCountsInstanceCountsAndBaseInstances) final;
+    void multiDrawElementsInstancedBaseVertexBaseInstanceANGLE(GCGLenum mode, GCGLSpanTuple<const GCGLsizei, const GCGLsizei, const GCGLsizei, const GCGLint, const GCGLuint> countsOffsetsInstanceCountsBaseVerticesAndBaseInstances, GCGLenum type) final;
+
+    bool supportsExtension(const String&) final;
+    void ensureExtensionEnabled(const String&) final;
+    bool isExtensionEnabled(const String&) final;
+    void drawBuffersEXT(GCGLSpan<const GCGLenum>) override;
+    String getTranslatedShaderSourceANGLE(PlatformGLObject) final;
 
     // Helper methods.
-    void forceContextLost();
-    void recycleContext();
-
-    void dispatchContextChangedNotification();
-
     void paintRenderingResultsToCanvas(ImageBuffer&) final;
-    std::optional<PixelBuffer> paintRenderingResultsToPixelBuffer() final;
+    RefPtr<PixelBuffer> paintRenderingResultsToPixelBuffer() final;
     void paintCompositedResultsToCanvas(ImageBuffer&) final;
 
-    std::optional<PixelBuffer> readRenderingResultsForPainting();
-    std::optional<PixelBuffer> readCompositedResultsForPainting();
-
-#if USE(OPENGL) && ENABLE(WEBGL2)
-    void primitiveRestartIndex(GCGLuint);
-#endif
-
+    RefPtr<PixelBuffer> readRenderingResultsForPainting();
+    RefPtr<PixelBuffer> readCompositedResultsForPainting();
 
     void setContextVisibility(bool) final;
 
@@ -410,11 +421,13 @@ public:
 
     // Support for extensions. Returns a non-null object, though not
     // all methods it contains may necessarily be supported on the
-    // current hardware. Must call ExtensionsGL::supports() to
+    // current hardware. Must call ExtensionsGLOpenGL{ES}::supports() to
     // determine this.
-    // Use covariant return type for OPENGL/OPENGL_ES
-    ExtensionsGLOpenGLCommon& getExtensions() final;
-
+#if USE(OPENGL_ES)
+    ExtensionsGLOpenGLES& getExtensions();
+#else
+    ExtensionsGLOpenGL& getExtensions();
+#endif
     void simulateEventForTesting(SimulatedEventForTesting) override;
 
     void prepareForDisplay() override;
@@ -425,14 +438,18 @@ protected:
     GCGLuint m_texture { 0 };
 
     // Called once by all the public entry points that eventually call OpenGL.
-    // Called once by all the public entry points of ExtensionsGL that eventually call OpenGL.
+    // Called once by all the public entry points of ExtensionsGLOpenGL/ExtensionGLOpenGLES that eventually call OpenGL.
     bool makeContextCurrent() WARN_UNUSED_RETURN;
+
+    // Initializes the instance. Returns false if the instance should not be used.
+    bool initialize();
+    virtual bool platformInitialize() = 0;
 
     // Take into account the user's requested context creation attributes,
     // in particular stencil and antialias, and determine which could or
     // could not be honored based on the capabilities of the OpenGL
     // implementation.
-    void validateDepthStencil(const char* packedDepthStencilExtension);
+    void validateDepthStencil(ASCIILiteral packedDepthStencilExtension);
     void validateAttributes();
 
     void readnPixelsImpl(GCGLint x, GCGLint y, GCGLsizei width, GCGLsizei height, GCGLenum format, GCGLenum type, GCGLsizei bufSize, GCGLsizei* length, GCGLsizei* columns, GCGLsizei* rows, GCGLvoid* data, bool readingToPixelBufferObject);
@@ -440,12 +457,11 @@ protected:
     // Did the most recent drawing operation leave the GPU in an acceptable state?
     void checkGPUStatus();
 
-    std::optional<PixelBuffer> readRenderingResults();
-    std::optional<PixelBuffer> readCompositedResults();
-    std::optional<PixelBuffer> readPixelsForPaintResults();
+    RefPtr<PixelBuffer> readRenderingResults();
+    RefPtr<PixelBuffer> readCompositedResults();
+    RefPtr<PixelBuffer> readPixelsForPaintResults();
 
     bool reshapeFBOs(const IntSize&);
-    void prepareTextureImpl();
     void resolveMultisamplingIfNecessary(const IntRect& = IntRect());
     void attachDepthAndStencilBufferIfNeeded(GCGLuint internalDepthStencilFormat, int width, int height);
 
@@ -517,13 +533,12 @@ protected:
 
     std::unique_ptr<ShaderNameHash> nameHashMapForShaders;
 
+    friend class ExtensionsGLOpenGLCommon;
 #if USE(OPENGL_ES)
     friend class ExtensionsGLOpenGLES;
-    friend class ExtensionsGLOpenGLCommon;
     std::unique_ptr<ExtensionsGLOpenGLES> m_extensions;
-#elif USE(OPENGL)
+#else
     friend class ExtensionsGLOpenGL;
-    friend class ExtensionsGLOpenGLCommon;
     std::unique_ptr<ExtensionsGLOpenGL> m_extensions;
 #endif
 

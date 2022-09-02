@@ -38,8 +38,8 @@
 #include "FontCache.h"
 #include "Frame.h"
 #include "GCController.h"
-#include "HTMLAtomStringCache.h"
 #include "HTMLMediaElement.h"
+#include "HTMLNameCache.h"
 #include "InlineStyleSheetOwner.h"
 #include "InspectorInstrumentation.h"
 #include "LayoutIntegrationLineLayout.h"
@@ -74,7 +74,7 @@ static void releaseNoncriticalMemory(MaintainMemoryCache maintainMemoryCache)
     FontCache::forCurrentThread().purgeInactiveFontData();
     FontCache::forCurrentThread().clearWidthCaches();
 
-    TextPainter::clearGlyphDisplayLists();
+    GlyphDisplayListCache::singleton().clear();
 
     for (auto* document : Document::allDocuments()) {
         document->clearSelectorQueryCache();
@@ -89,7 +89,7 @@ static void releaseNoncriticalMemory(MaintainMemoryCache maintainMemoryCache)
         MemoryCache::singleton().pruneDeadResourcesToSize(0);
 
     InlineStyleSheetOwner::clearCache();
-    HTMLAtomStringCache::clear();
+    HTMLNameCache::clear();
 }
 
 static void releaseCriticalMemory(Synchronous synchronous, MaintainBackForwardCache maintainBackForwardCache, MaintainMemoryCache maintainMemoryCache)

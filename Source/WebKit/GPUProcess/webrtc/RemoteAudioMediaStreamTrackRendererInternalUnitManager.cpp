@@ -26,26 +26,24 @@
 #include "config.h"
 #include "RemoteAudioMediaStreamTrackRendererInternalUnitManager.h"
 
-#if ENABLE(GPU_PROCESS) && ENABLE(MEDIA_STREAM)
+#if ENABLE(GPU_PROCESS) && ENABLE(MEDIA_STREAM) && PLATFORM(COCOA)
 
 #include "GPUConnectionToWebProcess.h"
 #include "GPUProcess.h"
 #include "GPUProcessConnectionMessages.h"
 #include "IPCSemaphore.h"
 #include "Logging.h"
+#include "SharedRingBufferStorage.h"
 #include <WebCore/AudioMediaStreamTrackRendererInternalUnit.h>
 #include <WebCore/AudioSampleBufferList.h>
 #include <WebCore/AudioSession.h>
 #include <WebCore/AudioUtilities.h>
-#include <wtf/WeakPtr.h>
-
-#if PLATFORM(COCOA)
-#include "SharedRingBufferStorage.h"
 #include <WebCore/CAAudioStreamDescription.h>
 #include <WebCore/CARingBuffer.h>
 #include <WebCore/CoreAudioCaptureSource.h>
+#include <WebCore/CoreAudioSharedUnit.h>
 #include <WebCore/WebAudioBufferList.h>
-#endif
+#include <wtf/WeakPtr.h>
 
 namespace WebKit {
 
@@ -82,9 +80,7 @@ private:
     uint64_t m_generateOffset { 0 };
     uint64_t m_frameChunkSize { 0 };
     IPC::Semaphore m_renderSemaphore;
-#if PLATFORM(COCOA)
     std::unique_ptr<WebCore::CARingBuffer> m_ringBuffer;
-#endif
     bool m_isPlaying { false };
     WebCore::CAAudioStreamDescription m_description;
     bool m_shouldRegisterAsSpeakerSamplesProducer { false };
@@ -265,7 +261,7 @@ void RemoteAudioMediaStreamTrackRendererInternalUnitManager::Unit::captureUnitIs
 void RemoteAudioMediaStreamTrackRendererInternalUnitManager::Unit::captureUnitHasStopped()
 {
     // Capture unit has stopped and audio will no longer be rendered through it so start the local unit.
-    if (m_isPlaying)
+    if (m_isPlaying && !CoreAudioSharedUnit::unit().isSuspended())
         m_localUnit->start();
 }
 
@@ -277,4 +273,4 @@ OSStatus RemoteAudioMediaStreamTrackRendererInternalUnitManager::Unit::produceSp
 
 } // namespace WebKit
 
-#endif // ENABLE(GPU_PROCESS) && ENABLE(MEDIA_STREAM)
+#endif // ENABLE(GPU_PROCESS) && ENABLE(MEDIA_STREAM) && PLATFORM(COCOA)

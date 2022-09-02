@@ -119,13 +119,13 @@ static void webSocketMessageNetworkEventCallback(SoupMessage* soupMessage, GSock
 }
 #endif
 
-std::unique_ptr<WebSocketTask> NetworkSessionSoup::createWebSocketTask(WebPageProxyIdentifier, NetworkSocketChannel& channel, const ResourceRequest& request, const String& protocol, const ClientOrigin&)
+std::unique_ptr<WebSocketTask> NetworkSessionSoup::createWebSocketTask(WebPageProxyIdentifier, NetworkSocketChannel& channel, const ResourceRequest& request, const String& protocol, const ClientOrigin&, bool)
 {
     GRefPtr<SoupMessage> soupMessage = request.createSoupMessage(blobRegistry());
     if (!soupMessage)
         return nullptr;
 
-    if (request.url().protocolIs("wss")) {
+    if (request.url().protocolIs("wss"_s)) {
 #if USE(SOUP2)
         g_signal_connect(soupMessage.get(), "network-event", G_CALLBACK(webSocketMessageNetworkEventCallback), this);
 #else

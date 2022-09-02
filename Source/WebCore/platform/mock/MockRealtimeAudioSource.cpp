@@ -42,10 +42,18 @@
 #include "RealtimeMediaSourceSettings.h"
 #include <wtf/UUID.h>
 
+#if PLATFORM(COCOA)
+#include "MockAudioSharedUnit.h"
+#endif
+
+#if USE(GSTREAMER)
+#include "MockRealtimeAudioSourceGStreamer.h"
+#endif
+
 namespace WebCore {
 
 #if !PLATFORM(MAC) && !PLATFORM(IOS_FAMILY) && !USE(GSTREAMER)
-CaptureSourceOrError MockRealtimeAudioSource::create(String&& deviceID, String&& name, String&& hashSalt, const MediaConstraints* constraints)
+CaptureSourceOrError MockRealtimeAudioSource::create(String&& deviceID, String&& name, String&& hashSalt, const MediaConstraints* constraints, PageIdentifier)
 {
 #ifndef NDEBUG
     auto device = MockRealtimeMediaSourceCenter::mockDeviceWithPersistentID(deviceID);
@@ -62,8 +70,8 @@ CaptureSourceOrError MockRealtimeAudioSource::create(String&& deviceID, String&&
 }
 #endif
 
-MockRealtimeAudioSource::MockRealtimeAudioSource(String&& deviceID, String&& name, String&& hashSalt)
-    : RealtimeMediaSource(RealtimeMediaSource::Type::Audio, WTFMove(name), WTFMove(deviceID), WTFMove(hashSalt))
+MockRealtimeAudioSource::MockRealtimeAudioSource(String&& deviceID, AtomString&& name, String&& hashSalt, PageIdentifier pageIdentifier)
+    : RealtimeMediaSource(RealtimeMediaSource::Type::Audio, WTFMove(name), WTFMove(deviceID), WTFMove(hashSalt), pageIdentifier)
     , m_workQueue(WorkQueue::create("MockRealtimeAudioSource Render Queue"))
     , m_timer(RunLoop::current(), this, &MockRealtimeAudioSource::tick)
 {
@@ -77,9 +85,6 @@ MockRealtimeAudioSource::MockRealtimeAudioSource(String&& deviceID, String&& nam
 
 MockRealtimeAudioSource::~MockRealtimeAudioSource()
 {
-#if PLATFORM(IOS_FAMILY)
-    RealtimeMediaSourceCenter::singleton().audioCaptureFactory().unsetActiveSource(*this);
-#endif
 }
 
 const RealtimeMediaSourceSettings& MockRealtimeAudioSource::settings()
@@ -90,7 +95,7 @@ const RealtimeMediaSourceSettings& MockRealtimeAudioSource::settings()
         settings.setVolume(volume());
         settings.setEchoCancellation(echoCancellation());
         settings.setSampleRate(sampleRate());
-        settings.setLabel(name());
+        settings.setLabel(AtomString { name() });
 
         RealtimeMediaSourceSupportedConstraints supportedConstraints;
         supportedConstraints.setSupportsDeviceId(true);
@@ -136,7 +141,6 @@ void MockRealtimeAudioSource::settingsDidChange(OptionSet<RealtimeMediaSourceSet
 void MockRealtimeAudioSource::startProducingData()
 {
 #if PLATFORM(IOS_FAMILY)
-    RealtimeMediaSourceCenter::singleton().audioCaptureFactory().setActiveSource(*this);
     PlatformMediaSessionManager::sharedManager().sessionCanProduceAudioChanged();
     ASSERT(AudioSession::sharedSession().category() == AudioSession::CategoryType::PlayAndRecord);
 #endif
@@ -178,6 +182,20 @@ void MockRealtimeAudioSource::tick()
 void MockRealtimeAudioSource::delaySamples(Seconds delta)
 {
     m_delayUntil = MonotonicTime::now() + delta;
+}
+
+void MockRealtimeAudioSource::setIsInterrupted(bool isInterrupted)
+{
+    UNUSED_PARAM(isInterrupted);
+#if PLATFORM(COCOA)
+    if (isInterrupted)
+        MockAudioSharedUnit::singleton().suspend();
+    else
+        MockAudioSharedUnit::singleton().resume();
+#elif USE(GSTREAMER)
+    for (auto* source : MockRealtimeAudioSourceGStreamer::allMockRealtimeAudioSources())
+        source->setInterruptedForTesting(isInterrupted);
+#endif
 }
 
 } // namespace WebCore

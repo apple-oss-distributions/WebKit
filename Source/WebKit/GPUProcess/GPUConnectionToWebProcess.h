@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019-2021 Apple Inc. All rights reserved.
+ * Copyright (C) 2019-2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -64,6 +64,15 @@
 #include "WCLayerTreeHostIdentifier.h"
 #endif
 
+#if ENABLE(IPC_TESTING_API)
+#include "IPCTester.h"
+#endif
+
+namespace WTF {
+enum class Critical : bool;
+enum class Synchronous : bool;
+}
+
 namespace WebCore {
 class SecurityOrigin;
 struct SecurityOriginData;
@@ -102,12 +111,16 @@ struct RemoteRenderingBackendCreationParameters;
 class RemoteWCLayerTreeHost;
 #endif
 
+#if ENABLE(VIDEO)
+class RemoteVideoFrameObjectHeap;
+#endif
+
 class GPUConnectionToWebProcess
     : public ThreadSafeRefCounted<GPUConnectionToWebProcess, WTF::DestructionThread::Main>
     , public WebCore::NowPlayingManager::Client
     , IPC::Connection::Client {
 public:
-    static Ref<GPUConnectionToWebProcess> create(GPUProcess&, WebCore::ProcessIdentifier, IPC::Connection::Identifier, PAL::SessionID, GPUProcessConnectionParameters&&);
+    static Ref<GPUConnectionToWebProcess> create(GPUProcess&, WebCore::ProcessIdentifier, PAL::SessionID, IPC::Connection::Identifier&&, GPUProcessConnectionParameters&&);
     virtual ~GPUConnectionToWebProcess();
 
     using WebCore::NowPlayingManager::Client::weakPtrFactory;
@@ -121,6 +134,8 @@ public:
     RemoteMediaResourceManager& remoteMediaResourceManager();
 
     PAL::SessionID sessionID() const { return m_sessionID; }
+
+    bool isCaptivePortalModeEnabled() const { return m_isCaptivePortalModeEnabled; }
 
     Logger& logger();
 
@@ -138,7 +153,9 @@ public:
     bool allowsVideoCapture() const { return m_allowsVideoCapture; }
     bool allowsDisplayCapture() const { return m_allowsDisplayCapture; }
 #endif
-
+#if ENABLE(VIDEO)
+    RemoteVideoFrameObjectHeap& videoFrameObjectHeap() const;
+#endif
 #if PLATFORM(COCOA) && ENABLE(MEDIA_STREAM)
     void startCapturingAudio();
     void processIsStartingToCaptureAudio(GPUConnectionToWebProcess&);
@@ -178,8 +195,10 @@ public:
     void updateSupportedRemoteCommands();
 
     bool allowsExitUnderMemoryPressure() const;
-
     void terminateWebProcess();
+
+    void lowMemoryHandler(WTF::Critical, WTF::Synchronous);
+
 #if ENABLE(WEBGL)
     void releaseGraphicsContextGLForTesting(GraphicsContextGLIdentifier);
 #endif
@@ -194,7 +213,7 @@ public:
 #endif
 
 private:
-    GPUConnectionToWebProcess(GPUProcess&, WebCore::ProcessIdentifier, IPC::Connection::Identifier, PAL::SessionID, GPUProcessConnectionParameters&&);
+    GPUConnectionToWebProcess(GPUProcess&, WebCore::ProcessIdentifier, PAL::SessionID, IPC::Connection::Identifier&&, GPUProcessConnectionParameters&&);
 
 #if ENABLE(WEB_AUDIO)
     RemoteAudioDestinationManager& remoteAudioDestinationManager();
@@ -207,7 +226,7 @@ private:
     RemoteMediaRecorderManager& mediaRecorderManager();
 #endif
 
-    void createRenderingBackend(RemoteRenderingBackendCreationParameters&&, IPC::StreamConnectionBuffer&&);
+    void createRenderingBackend(RemoteRenderingBackendCreationParameters&&, IPC::Attachment&&, IPC::StreamConnectionBuffer&&);
     void releaseRenderingBackend(RenderingBackendIdentifier);
 
 #if ENABLE(WEBGL)
@@ -249,7 +268,7 @@ private:
     void configureLoggingChannel(const String&, WTFLogChannelState, WTFLogLevel);
 
 #if USE(GRAPHICS_LAYER_WC)
-    void createWCLayerTreeHost(WebKit::WCLayerTreeHostIdentifier, uint64_t nativeWindow);
+    void createWCLayerTreeHost(WebKit::WCLayerTreeHostIdentifier, uint64_t nativeWindow, bool usesOffscreenRendering);
     void releaseWCLayerTreeHost(WebKit::WCLayerTreeHostIdentifier);
 #endif
 
@@ -284,9 +303,6 @@ private:
     std::unique_ptr<RemoteMediaResourceManager> m_remoteMediaResourceManager;
     UniqueRef<RemoteMediaPlayerManagerProxy> m_remoteMediaPlayerManagerProxy;
     PAL::SessionID m_sessionID;
-#if PLATFORM(COCOA) && USE(LIBWEBRTC)
-    Ref<LibWebRTCCodecsProxy> m_libWebRTCCodecsProxy;
-#endif
 #if PLATFORM(COCOA) && ENABLE(MEDIA_STREAM)
     std::unique_ptr<UserMediaCaptureManagerProxy> m_userMediaCaptureManagerProxy;
     std::unique_ptr<RemoteAudioMediaStreamTrackRendererInternalUnitManager> m_audioMediaStreamTrackRendererInternalUnitManager;
@@ -301,6 +317,12 @@ private:
     bool m_allowsAudioCapture { false };
     bool m_allowsVideoCapture { false };
     bool m_allowsDisplayCapture { false };
+#endif
+#if ENABLE(VIDEO)
+    IPC::ScopedActiveMessageReceiveQueue<RemoteVideoFrameObjectHeap> m_videoFrameObjectHeap;
+#endif
+#if PLATFORM(COCOA) && USE(LIBWEBRTC)
+    IPC::ScopedActiveMessageReceiveQueue<LibWebRTCCodecsProxy> m_libWebRTCCodecsProxy;
 #endif
 #if HAVE(AUDIT_TOKEN)
     std::optional<audit_token_t> m_presentingApplicationAuditToken;
@@ -345,9 +367,13 @@ private:
 
     RefPtr<RemoteRemoteCommandListenerProxy> m_remoteRemoteCommandListener;
     bool m_isActiveNowPlayingProcess { false };
+    bool m_isCaptivePortalModeEnabled { false };
 
 #if ENABLE(ROUTING_ARBITRATION) && HAVE(AVAUDIO_ROUTING_ARBITER)
     UniqueRef<LocalAudioSessionRoutingArbitrator> m_routingArbitrator;
+#endif
+#if ENABLE(IPC_TESTING_API)
+    IPCTester m_ipcTester;
 #endif
 };
 

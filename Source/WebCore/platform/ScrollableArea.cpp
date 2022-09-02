@@ -55,7 +55,7 @@ struct SameSizeAsScrollableArea {
     bool bytes[9];
 };
 
-COMPILE_ASSERT(sizeof(ScrollableArea) == sizeof(SameSizeAsScrollableArea), ScrollableArea_should_stay_small);
+static_assert(sizeof(ScrollableArea) == sizeof(SameSizeAsScrollableArea), "ScrollableArea should stay small");
 
 ScrollableArea::ScrollableArea() = default;
 ScrollableArea::~ScrollableArea() = default;
@@ -356,6 +356,11 @@ bool ScrollableArea::hasOverlayScrollbars() const
 {
     return (verticalScrollbar() && verticalScrollbar()->isOverlayScrollbar())
         || (horizontalScrollbar() && horizontalScrollbar()->isOverlayScrollbar());
+}
+
+bool ScrollableArea::canShowNonOverlayScrollbars() const
+{
+    return canHaveScrollbars() && !ScrollbarTheme::theme().usesOverlayScrollbars();
 }
 
 void ScrollableArea::setScrollbarOverlayStyle(ScrollbarOverlayStyle overlayStyle)
@@ -805,6 +810,24 @@ TextStream& operator<<(TextStream& ts, const ScrollableArea& scrollableArea)
 {
     ts << scrollableArea.debugDescription();
     return ts;
+}
+
+FloatSize ScrollableArea::deltaForPropagation(const FloatSize& biasedDelta) const
+{
+    auto filteredDelta = biasedDelta;
+    if (horizontalOverscrollBehaviorPreventsPropagation())
+        filteredDelta.setWidth(0);
+    if (verticalOverscrollBehaviorPreventsPropagation())
+        filteredDelta.setHeight(0);
+    return filteredDelta;
+}
+
+bool ScrollableArea::shouldBlockScrollPropagation(const FloatSize& biasedDelta) const
+{
+    return ((horizontalOverscrollBehaviorPreventsPropagation() || verticalOverscrollBehaviorPreventsPropagation())
+        && ((horizontalOverscrollBehaviorPreventsPropagation() && verticalOverscrollBehaviorPreventsPropagation())
+        || (horizontalOverscrollBehaviorPreventsPropagation() && !biasedDelta.height()) || (verticalOverscrollBehaviorPreventsPropagation()
+        && !biasedDelta.width())));
 }
 
 } // namespace WebCore

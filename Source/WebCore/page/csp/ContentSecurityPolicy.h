@@ -69,6 +69,12 @@ enum class CheckUnsafeHashes : bool { No, Yes };
 
 typedef Vector<std::unique_ptr<ContentSecurityPolicyDirectiveList>> CSPDirectiveListVector;
 
+enum class ContentSecurityPolicyModeForExtension {
+    None,
+    ManifestV2,
+    ManifestV3
+};
+
 class ContentSecurityPolicy {
     WTF_MAKE_FAST_ALLOCATED;
 public:
@@ -76,8 +82,9 @@ public:
     WEBCORE_EXPORT explicit ContentSecurityPolicy(URL&&, ContentSecurityPolicyClient* = nullptr);
     WEBCORE_EXPORT ~ContentSecurityPolicy();
 
-    void copyStateFrom(const ContentSecurityPolicy*);
-    void copyUpgradeInsecureRequestStateFrom(const ContentSecurityPolicy&);
+    enum class ShouldMakeIsolatedCopy : bool { No, Yes };
+    void copyStateFrom(const ContentSecurityPolicy*, ShouldMakeIsolatedCopy = ShouldMakeIsolatedCopy::No);
+    void copyUpgradeInsecureRequestStateFrom(const ContentSecurityPolicy&, ShouldMakeIsolatedCopy = ShouldMakeIsolatedCopy::No);
     void createPolicyForPluginDocumentFrom(const ContentSecurityPolicy&);
 
     void didCreateWindowProxy(JSWindowProxy&) const;
@@ -98,7 +105,7 @@ public:
     bool allowScriptWithNonce(const String& nonce, bool overrideContentSecurityPolicy = false) const;
     bool allowStyleWithNonce(const String& nonce, bool overrideContentSecurityPolicy = false) const;
 
-    bool allowJavaScriptURLs(const String& contextURL, const OrdinalNumber& contextLine, const String& code, bool overrideContentSecurityPolicy = false) const;
+    bool allowJavaScriptURLs(const String& contextURL, const OrdinalNumber& contextLine, const String& code, Element*) const;
     bool allowInlineEventHandlers(const String& contextURL, const OrdinalNumber& contextLine, const String& code, Element*, bool overrideContentSecurityPolicy = false) const;
     bool allowInlineScript(const String& contextURL, const OrdinalNumber& contextLine, StringView scriptContent, Element&, const String& nonce, bool overrideContentSecurityPolicy = false) const;
     bool allowNonParserInsertedScripts(const URL& sourceURL, const URL& contextURL, const OrdinalNumber&, const String& nonce, const StringView&, ParserInserted) const;
@@ -114,6 +121,7 @@ public:
 
     enum class RedirectResponseReceived { No, Yes };
     WEBCORE_EXPORT bool allowScriptFromSource(const URL&, RedirectResponseReceived = RedirectResponseReceived::No, const URL& preRedirectURL = URL(), const String& = nullString(), const String& nonce = nullString()) const;
+    WEBCORE_EXPORT bool allowWorkerFromSource(const URL&, RedirectResponseReceived = RedirectResponseReceived::No, const URL& preRedirectURL = URL()) const;
     bool allowImageFromSource(const URL&, RedirectResponseReceived = RedirectResponseReceived::No, const URL& preRedirectURL = URL()) const;
     bool allowStyleFromSource(const URL&, RedirectResponseReceived = RedirectResponseReceived::No, const URL& preRedirectURL = URL(), const String& nonce = nullString()) const;
     bool allowFontFromSource(const URL&, RedirectResponseReceived = RedirectResponseReceived::No, const URL& preRedirectURL = URL()) const;
@@ -123,11 +131,10 @@ public:
     bool allowMediaFromSource(const URL&, RedirectResponseReceived = RedirectResponseReceived::No, const URL& preRedirectURL = URL()) const;
 
     bool allowChildFrameFromSource(const URL&, RedirectResponseReceived = RedirectResponseReceived::No) const;
-    WEBCORE_EXPORT bool allowChildContextFromSource(const URL&, RedirectResponseReceived = RedirectResponseReceived::No, const URL& requestedURL = URL()) const;
     WEBCORE_EXPORT bool allowConnectToSource(const URL&, RedirectResponseReceived = RedirectResponseReceived::No, const URL& requestedURL = URL()) const;
     bool allowFormAction(const URL&, RedirectResponseReceived = RedirectResponseReceived::No, const URL& preRedirectURL = URL()) const;
 
-    bool allowObjectFromSource(const URL&, RedirectResponseReceived = RedirectResponseReceived::No) const;
+    bool allowObjectFromSource(const URL&, RedirectResponseReceived = RedirectResponseReceived::No, const URL& preRedirectURL = URL()) const;
     bool allowBaseURI(const URL&, bool overrideContentSecurityPolicy = false) const;
 
     void setOverrideAllowInlineStyle(bool);
@@ -145,7 +152,7 @@ public:
     void reportInvalidPluginTypes(const String&) const;
 
     // Used by ContentSecurityPolicySourceList
-    void reportDirectiveAsSourceExpression(const String& directiveName, const String& sourceExpression) const;
+    void reportDirectiveAsSourceExpression(const String& directiveName, StringView sourceExpression) const;
     void reportInvalidPathCharacter(const String& directiveName, const String& value, const char) const;
     void reportInvalidSourceExpression(const String& directiveName, const String& source) const;
     bool urlMatchesSelf(const URL&, bool forFrameSrc) const;
@@ -170,7 +177,7 @@ public:
     }
 
     // Used by ContentSecurityPolicySource
-    bool protocolMatchesSelf(const URL&) const;
+    const String& selfProtocol() const { return m_selfSourceProtocol; };
 
     void setUpgradeInsecureRequests(bool);
     bool upgradeInsecureRequests() const { return m_upgradeInsecureRequests; }
@@ -190,6 +197,11 @@ public:
     SandboxFlags sandboxFlags() const { return m_sandboxFlags; }
 
     bool isHeaderDelivered() const { return m_isHeaderDelivered; }
+
+    const String& evalErrorMessage() const { return m_lastPolicyEvalDisabledErrorMessage; }
+    const String& webAssemblyErrorMessage() const { return m_lastPolicyWebAssemblyDisabledErrorMessage; }
+
+    ContentSecurityPolicyModeForExtension contentSecurityPolicyModeForExtension() const { return m_contentSecurityPolicyModeForExtension; }
 
 private:
     void logToConsole(const String& message, const String& contextURL = String(), const OrdinalNumber& contextLine = OrdinalNumber::beforeFirst(), const OrdinalNumber& contextColumn = OrdinalNumber::beforeFirst(), JSC::JSGlobalObject* = nullptr) const;
@@ -217,12 +229,12 @@ private:
     bool shouldPerformEarlyCSPCheck() const;
     
     using ResourcePredicate = const ContentSecurityPolicyDirective *(ContentSecurityPolicyDirectiveList::*)(const URL &, bool) const;
-    bool allowResourceFromSource(const URL&, RedirectResponseReceived, const char*, ResourcePredicate, const URL& preRedirectURL = URL()) const;
+    bool allowResourceFromSource(const URL&, RedirectResponseReceived, ResourcePredicate, const URL& preRedirectURL = URL()) const;
 
-    void reportViolation(const String& effectiveViolatedDirective, const ContentSecurityPolicyDirective& violatedDirective, const String& blockedURL, const String& consoleMessage, JSC::JSGlobalObject*, StringView sourceContent) const;
-    void reportViolation(const String& effectiveViolatedDirective, const String& violatedDirective, const ContentSecurityPolicyDirectiveList&, const String& blockedURL, const String& consoleMessage, JSC::JSGlobalObject* = nullptr) const;
-    void reportViolation(const String& effectiveViolatedDirective, const ContentSecurityPolicyDirective& violatedDirective, const String& blockedURL, const String& consoleMessage, const String& sourceURL, const StringView& sourceContent, const TextPosition& sourcePosition, const URL& preRedirectURL = URL(), JSC::JSGlobalObject* = nullptr, Element* = nullptr) const;
-    void reportViolation(const String& effectiveViolatedDirective, const String& violatedDirective, const ContentSecurityPolicyDirectiveList& violatedDirectiveList, const String& blockedURL, const String& consoleMessage, const String& sourceURL, const StringView& sourceContent, const TextPosition& sourcePosition, JSC::JSGlobalObject*, const URL& preRedirectURL = URL(), Element* = nullptr) const;
+    void reportViolation(const ContentSecurityPolicyDirective& violatedDirective, const String& blockedURL, const String& consoleMessage, JSC::JSGlobalObject*, StringView sourceContent) const;
+    void reportViolation(const String& effectiveViolatedDirective, const ContentSecurityPolicyDirectiveList&, const String& blockedURL, const String& consoleMessage, JSC::JSGlobalObject* = nullptr) const;
+    void reportViolation(const ContentSecurityPolicyDirective& violatedDirective, const String& blockedURL, const String& consoleMessage, const String& sourceURL, const StringView& sourceContent, const TextPosition& sourcePosition, const URL& preRedirectURL = URL(), JSC::JSGlobalObject* = nullptr, Element* = nullptr) const;
+    void reportViolation(const String& violatedDirective, const ContentSecurityPolicyDirectiveList& violatedDirectiveList, const String& blockedURL, const String& consoleMessage, const String& sourceURL, const StringView& sourceContent, const TextPosition& sourcePosition, JSC::JSGlobalObject*, const URL& preRedirectURL = URL(), Element* = nullptr) const;
     void reportBlockedScriptExecutionToInspector(const String& directiveText) const;
 
     // We can never have both a script execution context and a ContentSecurityPolicyClient.
@@ -247,6 +259,19 @@ private:
     HashSet<SecurityOriginData> m_insecureNavigationRequestsToUpgrade;
     mutable std::optional<ContentSecurityPolicyResponseHeaders> m_cachedResponseHeaders;
     bool m_isHeaderDelivered { false };
+    ContentSecurityPolicyModeForExtension m_contentSecurityPolicyModeForExtension { ContentSecurityPolicyModeForExtension::None };
 };
 
+} // namespace WebCore
+
+namespace WTF {
+
+template<> struct EnumTraits<WebCore::ContentSecurityPolicyModeForExtension> {
+    using values = EnumValues<
+        WebCore::ContentSecurityPolicyModeForExtension,
+        WebCore::ContentSecurityPolicyModeForExtension::None,
+        WebCore::ContentSecurityPolicyModeForExtension::ManifestV2,
+        WebCore::ContentSecurityPolicyModeForExtension::ManifestV3
+    >;
+    };
 }

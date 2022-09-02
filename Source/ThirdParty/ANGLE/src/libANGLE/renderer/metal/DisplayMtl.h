@@ -19,7 +19,7 @@
 #include "libANGLE/renderer/metal/mtl_render_utils.h"
 #include "libANGLE/renderer/metal/mtl_state_cache.h"
 #include "libANGLE/renderer/metal/mtl_utils.h"
-#include "platform/FeaturesMtl.h"
+#include "platform/FeaturesMtl_autogen.h"
 
 namespace egl
 {
@@ -49,7 +49,7 @@ class DisplayMtl : public DisplayImpl
 
     std::string getRendererDescription() override;
     std::string getVendorString() override;
-    std::string getVersionString() override;
+    std::string getVersionString(bool includeFullVersion) override;
 
     DeviceImpl *createDevice() override;
 
@@ -130,6 +130,7 @@ class DisplayMtl : public DisplayImpl
     bool isAMD() const;
     bool isIntel() const;
     bool isNVIDIA() const;
+    bool isSimulator() const;
 
     id<MTLDevice> getMetalDevice() const { return mMetalDevice; }
 
@@ -137,6 +138,7 @@ class DisplayMtl : public DisplayImpl
     const mtl::FormatTable &getFormatTable() const { return mFormatTable; }
     mtl::RenderUtils &getUtils() { return mUtils; }
     mtl::StateCache &getStateCache() { return mStateCache; }
+    uint32_t getMaxColorTargetBits() { return mMaxColorTargetBits; }
 
     id<MTLLibrary> getDefaultShadersLib();
 
@@ -198,6 +200,7 @@ class DisplayMtl : public DisplayImpl
     mutable gl::Extensions mNativeExtensions;
     mutable gl::Caps mNativeCaps;
     mutable gl::Limitations mNativeLimitations;
+    mutable uint32_t mMaxColorTargetBits = 0;
 
     angle::FeaturesMtl mFeatures;
 };

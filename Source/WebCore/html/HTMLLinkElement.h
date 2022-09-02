@@ -45,13 +45,16 @@ using LinkEventSender = EventSender<HTMLLinkElement>;
 class HTMLLinkElement final : public HTMLElement, public CachedStyleSheetClient, public LinkLoaderClient {
     WTF_MAKE_ISO_ALLOCATED(HTMLLinkElement);
 public:
+    using WeakValueType = HTMLElement::WeakValueType;
+    using HTMLElement::weakPtrFactory;
+
     static Ref<HTMLLinkElement> create(const QualifiedName&, Document&, bool createdByParser);
     virtual ~HTMLLinkElement();
 
     URL href() const;
     WEBCORE_EXPORT const AtomString& rel() const;
 
-    String target() const final;
+    AtomString target() const final;
 
     const AtomString& type() const;
 

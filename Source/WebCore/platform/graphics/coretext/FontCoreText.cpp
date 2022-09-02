@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2005-2021 Apple Inc. All rights reserved.
+ * Copyright (C) 2005-2022 Apple Inc. All rights reserved.
  * Copyright (C) 2006 Alexey Proskuryakov
  *
  * Redistribution and use in source and binary forms, with or without
@@ -558,7 +558,7 @@ RefPtr<Font> Font::createFontWithoutSynthesizableFeatures() const
     float size = m_platformData.size();
     CTFontSymbolicTraits fontTraits = CTFontGetSymbolicTraits(m_platformData.font());
     RetainPtr<CTFontRef> ctFont = createCTFontWithoutSynthesizableFeatures(m_platformData.font());
-    return createDerivativeFont(ctFont.get(), size, m_platformData.orientation(), fontTraits, m_platformData.syntheticBold(), m_platformData.syntheticOblique(), m_platformData.widthVariant(), m_platformData.textRenderingMode(), m_platformData.creationData() ? &m_platformData.creationData().value() : nullptr);
+    return createDerivativeFont(ctFont.get(), size, m_platformData.orientation(), fontTraits, m_platformData.syntheticBold(), m_platformData.syntheticOblique(), m_platformData.widthVariant(), m_platformData.textRenderingMode(), m_platformData.creationData());
 }
 
 RefPtr<Font> Font::platformCreateScaledFont(const FontDescription&, float scaleFactor) const
@@ -568,7 +568,7 @@ RefPtr<Font> Font::platformCreateScaledFont(const FontDescription&, float scaleF
     RetainPtr<CTFontDescriptorRef> fontDescriptor = adoptCF(CTFontCopyFontDescriptor(m_platformData.font()));
     RetainPtr<CTFontRef> scaledFont = adoptCF(CTFontCreateWithFontDescriptor(fontDescriptor.get(), size, nullptr));
 
-    return createDerivativeFont(scaledFont.get(), size, m_platformData.orientation(), fontTraits, m_platformData.syntheticBold(), m_platformData.syntheticOblique(), m_platformData.widthVariant(), m_platformData.textRenderingMode(), m_platformData.creationData() ? &m_platformData.creationData().value() : nullptr);
+    return createDerivativeFont(scaledFont.get(), size, m_platformData.orientation(), fontTraits, m_platformData.syntheticBold(), m_platformData.syntheticOblique(), m_platformData.widthVariant(), m_platformData.textRenderingMode(), m_platformData.creationData());
 }
 
 float Font::platformWidthForGlyph(Glyph glyph) const
@@ -619,7 +619,7 @@ GlyphBufferAdvance Font::applyTransforms(GlyphBuffer& glyphBuffer, unsigned begi
 
     auto substring = text.substring(beginningStringIndex);
     auto upconvertedCharacters = substring.upconvertedCharacters();
-    auto localeString = LocaleCocoa::canonicalLanguageIdentifierFromString(locale).string().createCFString();
+    auto localeString = locale.isNull() ? nullptr : LocaleCocoa::canonicalLanguageIdentifierFromString(locale).string().createCFString();
     auto numberOfInputGlyphs = glyphBuffer.size() - beginningGlyphIndex;
     // FIXME: Enable kerning for single glyphs when rdar://82195405 is fixed
     CTFontShapeOptions options = kCTFontShapeWithClusterComposition
@@ -812,6 +812,33 @@ bool Font::platformSupportsCodePoint(UChar32 character, std::optional<UChar32> v
     return CTFontGetGlyphsForCharacters(platformData().ctFont(), codeUnits, glyphs, count);
 }
 
+static bool hasGlyphsForCharacterRange(CTFontRef font, UniChar firstCharacter, UniChar lastCharacter, bool expectValidGlyphsForAllCharacters)
+{
+    const unsigned numberOfCharacters = lastCharacter - firstCharacter + 1;
+    Vector<CGGlyph> glyphs;
+    glyphs.fill(0, numberOfCharacters);
+    CTFontGetGlyphsForCharacterRange(font, glyphs.begin(), CFRangeMake(firstCharacter, numberOfCharacters));
+    glyphs.removeAll(0);
+
+    if (glyphs.isEmpty())
+        return false;
+
+    Vector<CGRect> boundingRects;
+    boundingRects.fill(CGRectZero, glyphs.size());
+    CTFontGetBoundingRectsForGlyphs(font, kCTFontOrientationDefault, glyphs.begin(), boundingRects.begin(), glyphs.size());
+
+    unsigned validGlyphsCount = 0;
+    for (auto& rect : boundingRects) {
+        if (!CGRectIsEmpty(rect))
+            ++validGlyphsCount;
+    }
+
+    if (expectValidGlyphsForAllCharacters)
+        return validGlyphsCount == glyphs.size();
+
+    return validGlyphsCount;
+}
+
 bool Font::isProbablyOnlyUsedToRenderIcons() const
 {
     auto platformFont = platformData().ctFont();
@@ -831,25 +858,7 @@ bool Font::isProbablyOnlyUsedToRenderIcons() const
     if (CFCharacterSetHasMemberInPlane(supportedCharacters.get(), 1) || CFCharacterSetHasMemberInPlane(supportedCharacters.get(), 2))
         return false;
 
-    // This encompasses all basic Latin non-control characters.
-    constexpr UniChar firstCharacterToTest = ' ';
-    constexpr UniChar lastCharacterToTest = '~';
-    constexpr auto numberOfCharactersToTest = lastCharacterToTest - firstCharacterToTest + 1;
-
-    Vector<CGGlyph> glyphs;
-    glyphs.fill(0, numberOfCharactersToTest);
-    CTFontGetGlyphsForCharacterRange(platformFont, glyphs.begin(), CFRangeMake(firstCharacterToTest, numberOfCharactersToTest));
-    glyphs.removeAll(0);
-
-    if (glyphs.isEmpty())
-        return false;
-
-    Vector<CGRect> boundingRects;
-    boundingRects.fill(CGRectZero, glyphs.size());
-    CTFontGetBoundingRectsForGlyphs(platformFont, kCTFontOrientationDefault, glyphs.begin(), boundingRects.begin(), glyphs.size());
-    return notFound == boundingRects.findMatching([](auto& rect) {
-        return !CGRectIsEmpty(rect);
-    });
+    return !hasGlyphsForCharacterRange(platformFont, ' ', '~', false) && !hasGlyphsForCharacterRange(platformFont, 0x0600, 0x06FF, true);
 }
 
 #if PLATFORM(COCOA)

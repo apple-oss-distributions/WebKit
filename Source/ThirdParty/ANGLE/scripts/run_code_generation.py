@@ -7,13 +7,13 @@
 # run_code_generation.py:
 #   Runs ANGLE format table and other script code generation scripts.
 
+import argparse
 import hashlib
 import json
 import os
 import subprocess
 import sys
 import platform
-import argparse
 
 script_dir = sys.path[0]
 root_dir = os.path.abspath(os.path.join(script_dir, '..'))
@@ -80,12 +80,12 @@ def auto_script(script):
 
 
 generators = {
+    'ANGLE features':
+        'include/platform/gen_features.py',
     'ANGLE format':
         'src/libANGLE/renderer/gen_angle_format_table.py',
     'ANGLE load functions table':
         'src/libANGLE/renderer/gen_load_functions_table.py',
-    'ANGLE load texture border functions table':
-        'src/libANGLE/renderer/gen_load_texture_border_functions_table.py',
     'ANGLE shader preprocessor':
         'src/compiler/preprocessor/generate_parser.py',
     'ANGLE shader translator':
@@ -220,24 +220,22 @@ def main():
         '-v',
         '--verify-no-dirty',
         dest='verify_only',
-        type=bool,
+        action='store_true',
         help='verify hashes are not dirty')
     parser.add_argument(
-        '-g', '--generator', action='append', nargs='*', type=str, dest='specifiedGenerators'),
+        '-g', '--generator', action='append', nargs='*', type=str, dest='specified_generators'),
 
     args = parser.parse_args()
-    filteredGenerators = args.specifiedGenerators[0]
-    verify_only = args.verify_only
-    ranGenerators = {}
 
-    if (filteredGenerators):
-        ranGenerators = {k: v for k, v in generators.items() if k in filteredGenerators}
-    else:
-        ranGenerators = generators
+    ranGenerators = generators
+    runningSingleGenerator = False
+    if (args.specified_generators):
+        ranGenerators = {k: v for k, v in generators.items() if k in args.specified_generators[0]}
+        runningSingleGenerator = True
 
-    if (len(ranGenerators) == 0):
+    if len(ranGenerators) == 0:
         print("No valid generators specified.")
-        return -1
+        return 1
 
     for name, script in sorted(ranGenerators.items()):
         info = auto_script(script)
@@ -249,7 +247,7 @@ def main():
         if any_hash_dirty(name, filenames, new_hashes, all_old_hashes[fname]):
             any_dirty = True
 
-            if not verify_only:
+            if not args.verify_only:
                 print('Running ' + name + ' code generator')
 
                 # Set the CWD to the script directory.
@@ -264,10 +262,10 @@ def main():
         # Update the hash dictionary.
         all_new_hashes[fname] = new_hashes
 
-    if any_old_hash_missing(all_new_hashes, all_old_hashes):
+    if not runningSingleGenerator and any_old_hash_missing(all_new_hashes, all_old_hashes):
         any_dirty = True
 
-    if verify_only:
+    if args.verify_only:
         sys.exit(any_dirty)
 
     if any_dirty:

@@ -104,7 +104,7 @@ public:
     WEBCORE_EXPORT URL url() const;
     WEBCORE_EXPORT URL originalURL() const;
     WEBCORE_EXPORT const String& referrer() const;
-    WEBCORE_EXPORT const String& target() const;
+    WEBCORE_EXPORT const AtomString& target() const;
     WEBCORE_EXPORT bool isTargetItem() const;
     
     WEBCORE_EXPORT FormData* formData();
@@ -122,8 +122,8 @@ public:
     WEBCORE_EXPORT float pageScaleFactor() const;
     WEBCORE_EXPORT void setPageScaleFactor(float);
     
-    WEBCORE_EXPORT const Vector<String>& documentState() const;
-    WEBCORE_EXPORT void setDocumentState(const Vector<String>&);
+    WEBCORE_EXPORT const Vector<AtomString>& documentState() const;
+    WEBCORE_EXPORT void setDocumentState(const Vector<AtomString>&);
     void clearDocumentState();
 
     WEBCORE_EXPORT void setShouldOpenExternalURLsPolicy(ShouldOpenExternalURLsPolicy);
@@ -133,7 +133,7 @@ public:
     WEBCORE_EXPORT void setURLString(const String&);
     WEBCORE_EXPORT void setOriginalURLString(const String&);
     WEBCORE_EXPORT void setReferrer(const String&);
-    WEBCORE_EXPORT void setTarget(const String&);
+    WEBCORE_EXPORT void setTarget(const AtomString&);
     WEBCORE_EXPORT void setTitle(const String&);
     WEBCORE_EXPORT void setIsTargetItem(bool);
     
@@ -154,7 +154,7 @@ public:
 
     WEBCORE_EXPORT void addChildItem(Ref<HistoryItem>&&);
     void setChildItem(Ref<HistoryItem>&&);
-    WEBCORE_EXPORT HistoryItem* childItemWithTarget(const String&);
+    WEBCORE_EXPORT HistoryItem* childItemWithTarget(const AtomString&);
     HistoryItem* childItemWithDocumentSequenceNumber(long long number);
     WEBCORE_EXPORT const Vector<Ref<HistoryItem>>& children() const;
     WEBCORE_EXPORT bool hasChildren() const;
@@ -209,6 +209,9 @@ public:
     void setWasRestoredFromSession(bool wasRestoredFromSession) { m_wasRestoredFromSession = wasRestoredFromSession; }
     bool wasRestoredFromSession() const { return m_wasRestoredFromSession; }
 
+    void setWasCreatedByJSWithoutUserInteraction(bool wasCreatedByJSWithoutUserInteraction) { m_wasCreatedByJSWithoutUserInteraction = wasCreatedByJSWithoutUserInteraction; }
+    bool wasCreatedByJSWithoutUserInteraction() const { return m_wasCreatedByJSWithoutUserInteraction; }
+
 #if !LOG_DISABLED
     const char* logString() const;
 #endif
@@ -231,13 +234,13 @@ private:
     String m_urlString;
     String m_originalURLString;
     String m_referrer;
-    String m_target;
+    AtomString m_target;
     String m_title;
     String m_displayTitle;
     
     IntPoint m_scrollPosition;
     float m_pageScaleFactor { 0 }; // 0 indicates "unset".
-    Vector<String> m_documentState;
+    Vector<AtomString> m_documentState;
 
     ShouldOpenExternalURLsPolicy m_shouldOpenExternalURLsPolicy { ShouldOpenExternalURLsPolicy::ShouldNotAllow };
     
@@ -246,6 +249,7 @@ private:
     bool m_lastVisitWasFailure { false };
     bool m_isTargetItem { false };
     bool m_wasRestoredFromSession { false };
+    bool m_wasCreatedByJSWithoutUserInteraction { false };
     bool m_shouldRestoreScrollPosition { true };
 
     // If two HistoryItems have the same item sequence number, then they are

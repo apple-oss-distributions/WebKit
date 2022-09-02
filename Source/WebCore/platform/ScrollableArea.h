@@ -66,7 +66,6 @@ public:
     virtual bool isScrollView() const { return false; }
     virtual bool isRenderLayer() const { return false; }
     virtual bool isListBox() const { return false; }
-    virtual bool isPDFPlugin() const { return false; }
 
     WEBCORE_EXPORT bool scroll(ScrollDirection, ScrollGranularity, unsigned stepCount = 1);
     WEBCORE_EXPORT void scrollToPositionWithAnimation(const FloatPoint&, ScrollClamping = ScrollClamping::Clamped);
@@ -171,7 +170,12 @@ public:
     };
     WEBCORE_EXPORT virtual void availableContentSizeChanged(AvailableSizeChangeReason);
 
+    // This returns information about existing scrollbars, not scrollbars that may be created in future.
     bool hasOverlayScrollbars() const;
+
+    // Returns true if any scrollbars that might be created would be non-overlay scrollbars.
+    WEBCORE_EXPORT virtual bool canShowNonOverlayScrollbars() const;
+
     WEBCORE_EXPORT virtual void setScrollbarOverlayStyle(ScrollbarOverlayStyle);
     ScrollbarOverlayStyle scrollbarOverlayStyle() const { return m_scrollbarOverlayStyle; }
     void invalidateScrollbars();
@@ -289,6 +293,8 @@ public:
         LegacyIOSDocumentVisibleRect = ContentsVisibleRect
 #endif
     };
+    
+    virtual bool isVisibleToHitTesting() const { return false; };
 
     WEBCORE_EXPORT IntRect visibleContentRect(VisibleContentRectBehavior = ContentsVisibleRect) const;
     WEBCORE_EXPORT IntRect visibleContentRectIncludingScrollbars(VisibleContentRectBehavior = ContentsVisibleRect) const;
@@ -373,6 +379,12 @@ public:
     }
 
     virtual void didStartScrollAnimation() { }
+    
+    bool horizontalOverscrollBehaviorPreventsPropagation() const { return horizontalOverscrollBehavior() != OverscrollBehavior::Auto; }
+    bool verticalOverscrollBehaviorPreventsPropagation() const { return verticalOverscrollBehavior() != OverscrollBehavior::Auto; }
+    bool overscrollBehaviorAllowsRubberBand() const { return horizontalOverscrollBehavior() != OverscrollBehavior::None || verticalOverscrollBehavior() != OverscrollBehavior::None; }
+    bool shouldBlockScrollPropagation(const FloatSize&) const;
+    FloatSize deltaForPropagation(const FloatSize&) const;
 
 protected:
     WEBCORE_EXPORT ScrollableArea();

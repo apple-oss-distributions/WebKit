@@ -28,6 +28,7 @@
 #include "ShadowRealmObject.h"
 
 #include "AuxiliaryBarrierInlines.h"
+#include "JSObjectInlines.h"
 #include "StructureInlines.h"
 
 namespace JSC {
@@ -38,7 +39,7 @@ STATIC_ASSERT_IS_TRIVIALLY_DESTRUCTIBLE(ShadowRealmObject);
 
 namespace JSC {
 
-const ClassInfo ShadowRealmObject::s_info = { "ShadowRealm", &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(ShadowRealmObject) };
+const ClassInfo ShadowRealmObject::s_info = { "ShadowRealm"_s, &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(ShadowRealmObject) };
 
 ShadowRealmObject::ShadowRealmObject(VM& vm, Structure* structure)
     : Base(vm, structure)
@@ -57,19 +58,18 @@ void ShadowRealmObject::visitChildrenImpl(JSCell* cell, Visitor& visitor)
 
 DEFINE_VISIT_CHILDREN(ShadowRealmObject);
 
-ShadowRealmObject* ShadowRealmObject::create(VM& vm, Structure* structure, const GlobalObjectMethodTable* methodTable)
+ShadowRealmObject* ShadowRealmObject::create(VM& vm, Structure* structure, JSGlobalObject* globalObject)
 {
     ShadowRealmObject* object = new (NotNull, allocateCell<ShadowRealmObject>(vm)) ShadowRealmObject(vm, structure);
     object->finishCreation(vm);
-    JSGlobalObject* globalObject = JSGlobalObject::createWithCustomMethodTable(vm, JSGlobalObject::createStructure(vm, jsNull()), methodTable);
-    object->m_globalObject.set(vm, object, globalObject);
+    object->m_globalObject.set(vm, object, globalObject->globalObjectMethodTable()->deriveShadowRealmGlobalObject(globalObject));
     return object;
 }
 
 void ShadowRealmObject::finishCreation(VM& vm)
 {
     Base::finishCreation(vm);
-    ASSERT(inherits(vm, info()));
+    ASSERT(inherits(info()));
     JSC_TO_STRING_TAG_WITHOUT_TRANSITION();
 }
 

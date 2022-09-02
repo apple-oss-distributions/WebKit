@@ -32,6 +32,7 @@
 #include "Encoder.h"
 #include "MessageReceiveQueueMap.h"
 #include "MessageReceiver.h"
+#include "ReceiverMatcher.h"
 #include "Timeout.h"
 #include <wtf/CompletionHandler.h>
 #include <wtf/Condition.h>
@@ -56,11 +57,6 @@
 #include <wtf/glib/GSocketMonitor.h>
 #endif
 
-namespace WebKit {
-namespace IPCTestingAPI {
-class JSIPC;
-}
-}
 
 namespace IPC {
 
@@ -205,6 +201,13 @@ public:
 
     static Ref<Connection> createServerConnection(Identifier, Client&);
     static Ref<Connection> createClientConnection(Identifier, Client&);
+
+    struct ConnectionIdentifierPair {
+        IPC::Connection::Identifier server;
+        IPC::Attachment client;
+    };
+    static std::optional<ConnectionIdentifierPair> createConnectionIdentifierPair();
+
     ~Connection();
 
     Client& client() const { return m_client; }
@@ -228,19 +231,21 @@ public:
 
     // Adds a message receive queue. The client should make sure the instance is removed before it goes
     // out of scope.
-    void addMessageReceiveQueue(MessageReceiveQueue&, ReceiverName, uint64_t destinationID = 0);
-
-    void removeMessageReceiveQueue(ReceiverName, uint64_t destinationID = 0);
+    // std::nullopt ReceiverMatchSpec matches all receivers.
+    void addMessageReceiveQueue(MessageReceiveQueue&, const ReceiverMatcher&);
+    void removeMessageReceiveQueue(const ReceiverMatcher&);
 
     // Adds a message receieve queue that dispatches through WorkQueue to WorkQueueMessageReceiver.
     // Keeps the WorkQueue and the WorkQueueMessageReceiver alive. Dispatched tasks keep WorkQueueMessageReceiver alive.
-    void addWorkQueueMessageReceiver(ReceiverName, WorkQueue&, WorkQueueMessageReceiver*, uint64_t destinationID = 0);
-    void removeWorkQueueMessageReceiver(ReceiverName receiverName, uint64_t destinationID = 0) { removeMessageReceiveQueue(receiverName, destinationID); }
+    // destinationID == 0 matches all ids.
+    void addWorkQueueMessageReceiver(ReceiverName, WorkQueue&, WorkQueueMessageReceiver&, uint64_t destinationID = 0);
+    void removeWorkQueueMessageReceiver(ReceiverName, uint64_t destinationID = 0);
 
     // Adds a message receieve queue that dispatches through ThreadMessageReceiver.
     // Keeps the ThreadMessageReceiver alive. Dispatched tasks keep the ThreadMessageReceiver alive.
+    // destinationID == 0 matches all ids.
     void addThreadMessageReceiver(ReceiverName, ThreadMessageReceiver*, uint64_t destinationID = 0);
-    void removeThreadMessageReceiver(ReceiverName receiverName, uint64_t destinationID = 0) { removeMessageReceiveQueue(receiverName, destinationID); }
+    void removeThreadMessageReceiver(ReceiverName, uint64_t destinationID = 0);
 
     bool open();
     void invalidate();
@@ -322,6 +327,8 @@ public:
 
     void setIgnoreInvalidMessageForTesting() { m_ignoreInvalidMessageForTesting = true; }
     bool ignoreInvalidMessageForTesting() const { return m_ignoreInvalidMessageForTesting; }
+    void dispatchIncomingMessageForTesting(std::unique_ptr<Decoder>&&);
+    std::unique_ptr<Decoder> waitForMessageForTesting(MessageName, uint64_t destinationID, Timeout, OptionSet<WaitForOption>);
 #endif
 
     void dispatchMessageReceiverMessage(MessageReceiver&, std::unique_ptr<Decoder>&&);
@@ -343,7 +350,7 @@ private:
     void popPendingSyncRequestID(SyncRequestID);
     std::unique_ptr<Decoder> waitForSyncReply(SyncRequestID, MessageName, Timeout, OptionSet<SendSyncOption>);
 
-    void enqueueMatchingMessagesToMessageReceiveQueue(MessageReceiveQueue&, ReceiverName, uint64_t destinationID) WTF_REQUIRES_LOCK(m_incomingMessagesLock);
+    void enqueueMatchingMessagesToMessageReceiveQueue(MessageReceiveQueue&, const ReceiverMatcher&) WTF_REQUIRES_LOCK(m_incomingMessagesLock);
 
     // Called on the connection work queue.
     void processIncomingMessage(std::unique_ptr<Decoder>);
@@ -396,6 +403,7 @@ private:
     Client& m_client;
     UniqueID m_uniqueID;
     bool m_isServer;
+    bool m_didInvalidationOnMainThread { false }; // Main thread only.
     std::atomic<bool> m_isValid { true };
 
     bool m_onlySendMessagesAsDispatchWhenWaitingForSyncReplyWhenProcessingSuchAMessage { false };
@@ -513,13 +521,12 @@ private:
     HANDLE m_connectionPipe { INVALID_HANDLE_VALUE };
 #endif
     friend class StreamClientConnection;
-    friend class WebKit::IPCTestingAPI::JSIPC;
 };
 
 template<typename T>
 bool Connection::send(T&& message, uint64_t destinationID, OptionSet<SendOption> sendOptions, std::optional<Thread::QOS> qos)
 {
-    COMPILE_ASSERT(!T::isSync, AsyncMessageExpected);
+    static_assert(!T::isSync, "Async message expected");
 
     auto encoder = makeUniqueRef<Encoder>(T::name(), destinationID);
     encoder.get() << message.arguments();
@@ -544,7 +551,7 @@ CompletionHandler<void(Decoder*)> takeAsyncReplyHandler(Connection&, uint64_t);
 template<typename T, typename C>
 uint64_t Connection::sendWithAsyncReply(T&& message, C&& completionHandler, uint64_t destinationID, OptionSet<SendOption> sendOptions)
 {
-    COMPILE_ASSERT(!T::isSync, AsyncMessageExpected);
+    static_assert(!T::isSync, "Async message expected");
 
     if (!isValid()) {
         RunLoop::main().dispatch([completionHandler = WTFMove(completionHandler)]() mutable {
@@ -588,7 +595,7 @@ void moveTuple(std::tuple<A...>&& a, std::tuple<B...>& b)
 
 template<typename T> Connection::SendSyncResult Connection::sendSync(T&& message, typename T::Reply&& reply, uint64_t destinationID, Timeout timeout, OptionSet<SendSyncOption> sendSyncOptions)
 {
-    COMPILE_ASSERT(T::isSync, SyncMessageExpected);
+    static_assert(T::isSync, "Sync message expected");
     RELEASE_ASSERT(RunLoop::isMain());
 
     SyncRequestID syncRequestID;
@@ -645,6 +652,14 @@ template<typename T> bool Connection::waitForAsyncCallbackAndDispatchImmediately
     handler(decoder.get());
     return true;
 }
+
+#if ENABLE(IPC_TESTING_API)
+inline std::unique_ptr<Decoder> Connection::waitForMessageForTesting(MessageName messageName, uint64_t destinationID, Timeout timeout, OptionSet<WaitForOption> options)
+{
+    return waitForMessage(messageName, destinationID, timeout, options);
+}
+#endif
+
 
 class UnboundedSynchronousIPCScope {
 public:

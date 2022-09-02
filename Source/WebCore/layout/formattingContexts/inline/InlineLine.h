@@ -43,7 +43,7 @@ public:
     Line(const InlineFormattingContext&);
     ~Line();
 
-    void initialize(const Vector<InlineItem>& lineSpanningInlineBoxes);
+    void initialize(const Vector<InlineItem>& lineSpanningInlineBoxes, bool collapseLeadingNonBreakingSpace);
 
     void append(const InlineItem&, const RenderStyle&, InlineLayoutUnit logicalWidth);
 
@@ -76,7 +76,8 @@ public:
             HardLineBreak,
             SoftLineBreak,
             WordBreakOpportunity,
-            AtomicBox,
+            GenericInlineLevelBox,
+            ListMarker,
             InlineBoxStart,
             InlineBoxEnd,
             LineSpanningInlineBoxStart
@@ -84,7 +85,8 @@ public:
 
         bool isText() const { return m_type == Type::Text || isWordSeparator(); }
         bool isWordSeparator() const { return m_type == Type::WordSeparator; }
-        bool isBox() const { return m_type == Type::AtomicBox; }
+        bool isBox() const { return m_type == Type::GenericInlineLevelBox; }
+        bool isListMarker() const { return m_type == Type::ListMarker; }
         bool isLineBreak() const { return isHardLineBreak() || isSoftLineBreak(); }
         bool isSoftLineBreak() const  { return m_type == Type::SoftLineBreak; }
         bool isHardLineBreak() const { return m_type == Type::HardLineBreak; }
@@ -235,6 +237,8 @@ private:
     InlineBoxListWithClonedDecorationEnd m_inlineBoxListWithClonedDecorationEnd;
     InlineLayoutUnit m_clonedEndDecorationWidthForInlineBoxRuns { 0 };
     bool m_hasNonDefaultBidiLevelRun { false };
+    // Note that this is only needed for the special (and ancient and not supported by other browsers) "-webkit-nbsp-mode: space".
+    bool m_collapseLeadingNonBreakingSpace { false };
 };
 
 

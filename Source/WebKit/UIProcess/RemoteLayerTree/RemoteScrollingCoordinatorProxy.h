@@ -62,7 +62,7 @@ public:
     bool scrollingTreeNodeRequestsScroll(WebCore::ScrollingNodeID, const WebCore::RequestedScrollData&);
     void scrollingTreeNodeDidStopAnimatedScroll(WebCore::ScrollingNodeID);
 
-    WebCore::TrackingType eventTrackingTypeForPoint(const AtomString& eventName, WebCore::IntPoint) const;
+    WebCore::TrackingType eventTrackingTypeForPoint(WebCore::EventTrackingRegions::EventType, WebCore::IntPoint) const;
 
     // Called externally when native views move around.
     void viewportChangedViaDelegatedScrolling(const WebCore::FloatPoint& scrollPosition, const WebCore::FloatRect& layoutViewport, double scale);
@@ -109,6 +109,12 @@ public:
     void clearTouchActionsForTouchIdentifier(unsigned);
     
     void resetStateAfterProcessExited();
+    WebCore::ScrollingTreeScrollingNode* rootNode() const;
+
+#if ENABLE(OVERLAY_REGIONS_IN_EVENT_REGION)
+    void removeFixedScrollingNodeLayerIDs(const Vector<WebCore::GraphicsLayer::PlatformLayerID>&);
+    const HashSet<WebCore::GraphicsLayer::PlatformLayerID>& fixedScrollingNodeLayerIDs() const { return m_fixedScrollingNodeLayerIDs; }
+#endif
 
 private:
     void connectStateNodeLayers(WebCore::ScrollingStateTree&, const RemoteLayerTreeHost&);
@@ -128,6 +134,9 @@ private:
     std::optional<unsigned> m_currentVerticalSnapPointIndex;
     bool m_propagatesMainFrameScrolls { true };
     HashSet<WebCore::GraphicsLayer::PlatformLayerID> m_layersWithScrollingRelations;
+#if ENABLE(OVERLAY_REGIONS_IN_EVENT_REGION)
+    HashSet<WebCore::GraphicsLayer::PlatformLayerID> m_fixedScrollingNodeLayerIDs;
+#endif
 };
 
 } // namespace WebKit

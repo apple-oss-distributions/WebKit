@@ -40,6 +40,7 @@ const AtomString& placeholder();
 const AtomString& webkitContactsAutoFillButton();
 const AtomString& webkitCredentialsAutoFillButton();
 const AtomString& webkitCreditCardAutoFillButton();
+const AtomString& webkitLoadingAutoFillButton();
 const AtomString& webkitStrongPasswordAutoFillButton();
 
 const AtomString& webkitCapsLockIndicator();
@@ -58,12 +59,7 @@ const AtomString& webkitGenericCueRoot();
 
 const AtomString& webkitInnerSpinButton();
 
-const AtomString& webkitKeygenSelect();
-
 const AtomString& webkitListButton();
-
-const AtomString& webkitMediaSliderThumb();
-const AtomString& webkitMediaSliderContainer();
 
 const AtomString& webkitMediaTextTrackContainer();
 
@@ -78,6 +74,8 @@ const AtomString& webkitMeterInnerElement();
 const AtomString& webkitMeterOptimumValue();
 const AtomString& webkitMeterSuboptimumValue();
 const AtomString& webkitMeterEvenLessGoodValue();
+
+const AtomString& webkitPluginReplacement();
 
 const AtomString& webkitProgressBar();
 const AtomString& webkitProgressValue();

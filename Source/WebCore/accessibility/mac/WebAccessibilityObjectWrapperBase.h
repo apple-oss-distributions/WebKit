@@ -27,6 +27,7 @@
  */
 
 #import "AccessibilityObjectInterface.h"
+#import "FontPlatformData.h"
 #import <CoreGraphics/CoreGraphics.h>
 #import <variant>
 #import <wtf/RefPtr.h>
@@ -57,11 +58,18 @@ static NSString * const UIAccessibilityTokenAttachment = @"UIAccessibilityTokenA
 static NSString * const UIAccessibilityTextAttributeContext = @"UIAccessibilityTextAttributeContext";
 static NSString * const UIAccessibilityTextualContextSourceCode = @"UIAccessibilityTextualContextSourceCode";
 
+bool AXAttributedStringRangeIsValid(NSAttributedString *, const NSRange&);
+void AXAttributedStringSetFont(NSMutableAttributedString *, CTFontRef, const NSRange&);
+
 @interface WebAccessibilityObjectWrapperBase : NSObject {
     WebCore::AXCoreObject* m_axObject;
+
 #if ENABLE(ACCESSIBILITY_ISOLATED_TREE)
     WebCore::AXCoreObject* m_isolatedObject;
+    // To be accessed only on the main thread.
+    bool m_isolatedObjectInitialized;
 #endif
+
     WebCore::AXID _identifier;
 }
 
@@ -92,7 +100,6 @@ static NSString * const UIAccessibilityTextualContextSourceCode = @"UIAccessibil
 - (NSArray<NSDictionary *> *)lineRectsAndText;
 
 // These are pre-fixed with base so that AppKit does not end up calling into these directly (bypassing safety checks).
-- (NSString *)baseAccessibilityDescription;
 - (NSString *)baseAccessibilityHelpText;
 - (NSArray<NSString *> *)baseAccessibilitySpeechHint;
 

@@ -153,6 +153,15 @@ angle::Result IOSurfaceSurfaceMtl::ensureColorTextureCreated(const gl::Context *
         mColorTexture =
             mtl::Texture::MakeFromMetal(contextMtl->getMetalDevice().newTextureWithDescriptor(
                 texDesc, mIOSurface, mIOSurfacePlane));
+
+        if (mColorTexture)
+        {
+            size_t resourceSize = EstimateTextureSizeInBytes(
+                mColorFormat, mColorTexture->widthAt0(), mColorTexture->heightAt0(),
+                mColorTexture->depthAt0(), mColorTexture->samples(), mColorTexture->mipmapLevels());
+
+            mColorTexture->setEstimatedByteSize(resourceSize);
+        }
     }
 
     mColorRenderTarget.set(mColorTexture, mtl::kZeroNativeMipLevel, 0, mColorFormat);
@@ -214,7 +223,12 @@ bool IOSurfaceSurfaceMtl::ValidateAttributes(EGLClientBuffer buffer,
     // We could map IOSurfaceGetPixelFormat to expected type plane and format type.
     // However, the caller might supply us non-public pixel format, which makes exhaustive checks
     // problematic.
+    if (IOSurfaceGetBytesPerElementOfPlane(ioSurface, plane) !=
+        kIOSurfaceFormats[formatIndex].componentBytes)
+    {
+        WARN() << "IOSurface bytes per elements does not match the pbuffer internal format.";
+    }
 
     return true;
 }
-}
+}  // namespace rx

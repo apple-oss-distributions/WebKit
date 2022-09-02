@@ -54,14 +54,15 @@ public:
         ASSERT(!result.isValid());
         return result;
     }
-    
-    static ObjectPropertyConditionSet create(Vector<ObjectPropertyCondition>&& vector)
+
+    template<typename Vector>
+    static ObjectPropertyConditionSet create(Vector&& vector)
     {
         if (vector.isEmpty())
             return ObjectPropertyConditionSet();
         
         ObjectPropertyConditionSet result;
-        result.m_data = Conditions::createFromVector(WTFMove(vector));
+        result.m_data = Conditions::createFromVector(std::forward<Vector>(vector));
         ASSERT(result.isValid());
         return result;
     }
@@ -70,8 +71,6 @@ public:
     {
         return !m_data || !m_data->isEmpty();
     }
-
-    bool isValidAndWatchable() const;
 
     size_t size() const { return m_data ? m_data->size() : 0; }
     bool isEmpty() const
@@ -139,7 +138,6 @@ public:
     ObjectPropertyConditionSet mergedWith(const ObjectPropertyConditionSet& other) const;
     
     bool structuresEnsureValidity() const;
-    bool structuresEnsureValidityAssumingImpurePropertyWatchpoint() const;
     
     bool needImpurePropertyWatchpoint() const;
 

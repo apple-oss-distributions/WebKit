@@ -26,7 +26,10 @@
 namespace rx
 {
 // Time interval in seconds that we should try to prune default buffer pools.
-constexpr double kTimeElapsedForPruneDefaultBufferPool = 1;
+constexpr double kTimeElapsedForPruneDefaultBufferPool = 0.25;
+
+// Set to true will log bufferpool stats into INFO stream
+#define ANGLE_ENABLE_BUFFER_POOL_STATS_LOGGING 0
 
 DisplayVk::DisplayVk(const egl::DisplayState &state)
     : DisplayImpl(state),
@@ -98,11 +101,11 @@ std::string DisplayVk::getVendorString()
     return std::string();
 }
 
-std::string DisplayVk::getVersionString()
+std::string DisplayVk::getVersionString(bool includeFullVersion)
 {
     if (mRenderer)
     {
-        return mRenderer->getVersionString();
+        return mRenderer->getVersionString(includeFullVersion);
     }
     return std::string();
 }
@@ -222,6 +225,25 @@ egl::Error DisplayVk::validateImageClientBuffer(const gl::Context *context,
                 return egl::EglBadParameter() << "clientBuffer is invalid.";
             }
 
+            GLenum internalFormat =
+                static_cast<GLenum>(attribs.get(EGL_TEXTURE_INTERNAL_FORMAT_ANGLE, GL_NONE));
+            switch (internalFormat)
+            {
+                case GL_RGBA:
+                case GL_BGRA_EXT:
+                case GL_RGB:
+                case GL_RED_EXT:
+                case GL_RG_EXT:
+                case GL_RGB10_A2_EXT:
+                case GL_R16_EXT:
+                case GL_RG16_EXT:
+                case GL_NONE:
+                    break;
+                default:
+                    return egl::EglBadParameter() << "Invalid EGLImage texture internal format: 0x"
+                                                  << std::hex << internalFormat;
+            }
+
             uint64_t hi = static_cast<uint64_t>(attribs.get(EGL_VULKAN_IMAGE_CREATE_INFO_HI_ANGLE));
             uint64_t lo = static_cast<uint64_t>(attribs.get(EGL_VULKAN_IMAGE_CREATE_INFO_LO_ANGLE));
             uint64_t info = ((hi & 0xffffffff) << 32) | (lo & 0xffffffff);
@@ -276,8 +298,8 @@ void DisplayVk::generateExtensions(egl::DisplayExtensions *outExtensions) const
     outExtensions->imagePixmap           = false;  // ANGLE does not support pixmaps
     outExtensions->glTexture2DImage      = true;
     outExtensions->glTextureCubemapImage = true;
-    outExtensions->glTexture3DImage      = false;
-    outExtensions->glRenderbufferImage   = true;
+    outExtensions->glTexture3DImage = getRenderer()->getFeatures().supportsImage2dViewOf3d.enabled;
+    outExtensions->glRenderbufferImage = true;
     outExtensions->imageNativeBuffer =
         getRenderer()->getFeatures().supportsAndroidHardwareBuffer.enabled;
     outExtensions->surfacelessContext = true;
@@ -324,6 +346,11 @@ void DisplayVk::generateExtensions(egl::DisplayExtensions *outExtensions) const
         getRenderer()->getFeatures().supportsSharedPresentableImageExtension.enabled;
 
     outExtensions->vulkanImageANGLE = true;
+
+    outExtensions->lockSurface3KHR =
+        getRenderer()->getFeatures().supportsLockSurfaceExtension.enabled;
+
+    outExtensions->partialUpdateKHR = true;
 }
 
 void DisplayVk::generateCaps(egl::Caps *outCaps) const
@@ -380,14 +407,34 @@ egl::Error DisplayVk::getEGLError(EGLint errorCode)
     return egl::Error(errorCode, 0, std::move(errorString));
 }
 
+void DisplayVk::initializeFrontendFeatures(angle::FrontendFeatures *features) const
+{
+    mRenderer->initializeFrontendFeatures(features);
+}
+
 void DisplayVk::populateFeatureList(angle::FeatureList *features)
 {
     mRenderer->getFeatures().populateFeatureList(features);
 }
 
-ShareGroupVk::ShareGroupVk()
+ShareGroupVk::ShareGroupVk() : mOrphanNonEmptyBufferBlock(false)
 {
     mLastPruneTime = angle::GetCurrentSystemTime();
+}
+
+void ShareGroupVk::addContext(ContextVk *contextVk)
+{
+    mContexts.insert(contextVk);
+
+    if (contextVk->getState().hasDisplayTextureShareGroup())
+    {
+        mOrphanNonEmptyBufferBlock = true;
+    }
+}
+
+void ShareGroupVk::removeContext(ContextVk *contextVk)
+{
+    mContexts.erase(contextVk);
 }
 
 void ShareGroupVk::onDestroy(const egl::Display *display)
@@ -398,27 +445,72 @@ void ShareGroupVk::onDestroy(const egl::Display *display)
     {
         if (pool)
         {
-            pool->destroy(renderer);
+            pool->destroy(renderer, mOrphanNonEmptyBufferBlock);
         }
+    }
+
+    if (mSmallBufferPool)
+    {
+        mSmallBufferPool->destroy(renderer, mOrphanNonEmptyBufferBlock);
     }
 
     mPipelineLayoutCache.destroy(renderer);
     mDescriptorSetLayoutCache.destroy(renderer);
 
+    mMetaDescriptorPools[DescriptorSetIndex::UniformsAndXfb].destroy(
+        renderer, VulkanCacheType::UniformsAndXfbDescriptors);
+    mMetaDescriptorPools[DescriptorSetIndex::Texture].destroy(renderer,
+                                                              VulkanCacheType::TextureDescriptors);
+    mMetaDescriptorPools[DescriptorSetIndex::ShaderResource].destroy(
+        renderer, VulkanCacheType::ShaderResourcesDescriptors);
+
+    mFramebufferCache.destroy(renderer);
+
     ASSERT(mResourceUseLists.empty());
 }
 
-vk::BufferPool *ShareGroupVk::getDefaultBufferPool(RendererVk *renderer, uint32_t memoryTypeIndex)
+void ShareGroupVk::releaseResourceUseLists(const Serial &submitSerial)
 {
-    if (!mDefaultBufferPools[memoryTypeIndex])
+    if (!mResourceUseLists.empty())
     {
-        vk::BufferMemoryAllocator &bufferMemoryAllocator = renderer->getBufferMemoryAllocator();
+        for (vk::ResourceUseList &it : mResourceUseLists)
+        {
+            it.releaseResourceUsesAndUpdateSerials(submitSerial);
+        }
+        mResourceUseLists.clear();
+    }
+}
 
-        VkBufferUsageFlags usageFlags = GetDefaultBufferUsageFlags(renderer);
+vk::BufferPool *ShareGroupVk::getDefaultBufferPool(RendererVk *renderer,
+                                                   VkDeviceSize size,
+                                                   uint32_t memoryTypeIndex)
+{
+    if (size <= kMaxSizeToUseSmallBufferPool &&
+        memoryTypeIndex ==
+            renderer->getVertexConversionBufferMemoryTypeIndex(vk::MemoryHostVisibility::Visible))
+    {
+        if (!mSmallBufferPool)
+        {
+            const vk::Allocator &allocator = renderer->getAllocator();
+            VkBufferUsageFlags usageFlags  = GetDefaultBufferUsageFlags(renderer);
+
+            VkMemoryPropertyFlags memoryPropertyFlags;
+            allocator.getMemoryTypeProperties(memoryTypeIndex, &memoryPropertyFlags);
+
+            std::unique_ptr<vk::BufferPool> pool = std::make_unique<vk::BufferPool>();
+            pool->initWithFlags(renderer, vma::VirtualBlockCreateFlagBits::BUDDY, usageFlags, 0,
+                                memoryTypeIndex, memoryPropertyFlags);
+            mSmallBufferPool = std::move(pool);
+        }
+        return mSmallBufferPool.get();
+    }
+    else if (!mDefaultBufferPools[memoryTypeIndex])
+    {
+        const vk::Allocator &allocator = renderer->getAllocator();
+        VkBufferUsageFlags usageFlags  = GetDefaultBufferUsageFlags(renderer);
 
         VkMemoryPropertyFlags memoryPropertyFlags;
-        bufferMemoryAllocator.getMemoryTypeProperties(renderer, memoryTypeIndex,
-                                                      &memoryPropertyFlags);
+        allocator.getMemoryTypeProperties(memoryTypeIndex, &memoryPropertyFlags);
 
         std::unique_ptr<vk::BufferPool> pool = std::make_unique<vk::BufferPool>();
         pool->initWithFlags(renderer, vma::VirtualBlockCreateFlagBits::GENERAL, usageFlags, 0,
@@ -433,6 +525,12 @@ void ShareGroupVk::pruneDefaultBufferPools(RendererVk *renderer)
 {
     mLastPruneTime = angle::GetCurrentSystemTime();
 
+    // Bail out if no suballocation have been destroyed since last prune.
+    if (renderer->getSuballocationDestroyedSize() == 0)
+    {
+        return;
+    }
+
     for (std::unique_ptr<vk::BufferPool> &pool : mDefaultBufferPools)
     {
         if (pool)
@@ -440,11 +538,78 @@ void ShareGroupVk::pruneDefaultBufferPools(RendererVk *renderer)
             pool->pruneEmptyBuffers(renderer);
         }
     }
+    if (mSmallBufferPool)
+    {
+        mSmallBufferPool->pruneEmptyBuffers(renderer);
+    }
+
+    renderer->onBufferPoolPrune();
+
+#if ANGLE_ENABLE_BUFFER_POOL_STATS_LOGGING
+    logBufferPools();
+#endif
 }
 
-bool ShareGroupVk::isDueForBufferPoolPrune()
+bool ShareGroupVk::isDueForBufferPoolPrune(RendererVk *renderer)
 {
+    // Ensure we periodically prune to maintain the heuristic information
     double timeElapsed = angle::GetCurrentSystemTime() - mLastPruneTime;
-    return timeElapsed > kTimeElapsedForPruneDefaultBufferPool;
+    if (timeElapsed > kTimeElapsedForPruneDefaultBufferPool)
+    {
+        return true;
+    }
+
+    // If we have destroyed a lot of memory, also prune to ensure memory gets freed as soon as
+    // possible
+    if (renderer->getSuballocationDestroyedSize() >= kMaxTotalEmptyBufferBytes)
+    {
+        return true;
+    }
+
+    return false;
+}
+
+void ShareGroupVk::calculateTotalBufferCount(size_t *bufferCount, VkDeviceSize *totalSize) const
+{
+    *bufferCount = 0;
+    *totalSize   = 0;
+    for (const std::unique_ptr<vk::BufferPool> &pool : mDefaultBufferPools)
+    {
+        if (pool)
+        {
+            *bufferCount += pool->getBufferCount();
+            *totalSize += pool->getMemorySize();
+        }
+    }
+    if (mSmallBufferPool)
+    {
+        *bufferCount += mSmallBufferPool->getBufferCount();
+        *totalSize += mSmallBufferPool->getMemorySize();
+    }
+}
+
+void ShareGroupVk::logBufferPools() const
+{
+    size_t totalBufferCount;
+    VkDeviceSize totalMemorySize;
+    calculateTotalBufferCount(&totalBufferCount, &totalMemorySize);
+
+    INFO() << "BufferBlocks count:" << totalBufferCount << " memorySize:" << totalMemorySize / 1024
+           << " UnusedBytes/memorySize (KBs):";
+    for (const std::unique_ptr<vk::BufferPool> &pool : mDefaultBufferPools)
+    {
+        if (pool && pool->getBufferCount() > 0)
+        {
+            std::ostringstream log;
+            pool->addStats(&log);
+            INFO() << "\t" << log.str();
+        }
+    }
+    if (mSmallBufferPool && mSmallBufferPool->getBufferCount() > 0)
+    {
+        std::ostringstream log;
+        mSmallBufferPool->addStats(&log);
+        INFO() << "\t" << log.str();
+    }
 }
 }  // namespace rx

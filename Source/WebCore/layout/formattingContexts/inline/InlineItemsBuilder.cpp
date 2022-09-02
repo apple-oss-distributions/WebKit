@@ -42,13 +42,13 @@ struct WhitespaceContent {
     size_t length { 0 };
     bool isWordSeparator { true };
 };
-static std::optional<WhitespaceContent> moveToNextNonWhitespacePosition(StringView textContent, size_t startPosition, bool preserveNewline, bool preserveTab, bool treatNonBreakingSpaceAsRegularSpace, bool stopAtWordSeparatorBoundary)
+static std::optional<WhitespaceContent> moveToNextNonWhitespacePosition(StringView textContent, size_t startPosition, bool preserveNewline, bool preserveTab, bool stopAtWordSeparatorBoundary)
 {
     auto hasWordSeparatorCharacter = false;
     auto isWordSeparatorCharacter = false;
     auto isWhitespaceCharacter = [&](auto character) {
         // white space processing in CSS affects only the document white space characters: spaces (U+0020), tabs (U+0009), and segment breaks.
-        auto isTreatedAsSpaceCharacter = character == space || (character == newlineCharacter && !preserveNewline) || (character == tabCharacter && !preserveTab) || (character == noBreakSpace && treatNonBreakingSpaceAsRegularSpace);
+        auto isTreatedAsSpaceCharacter = character == space || (character == newlineCharacter && !preserveNewline) || (character == tabCharacter && !preserveTab);
         isWordSeparatorCharacter = isTreatedAsSpaceCharacter;
         hasWordSeparatorCharacter = hasWordSeparatorCharacter || isWordSeparatorCharacter;
         return isTreatedAsSpaceCharacter || character == tabCharacter;
@@ -163,16 +163,16 @@ static void replaceNonPreservedNewLineCharactersAndAppend(const InlineTextBox& i
             continue;
 
         if (nonReplacedContentStartPosition < startPosition)
-            paragraphContentBuilder.append(textContent.substring(nonReplacedContentStartPosition, startPosition - nonReplacedContentStartPosition));
+            paragraphContentBuilder.append(StringView(textContent).substring(nonReplacedContentStartPosition, startPosition - nonReplacedContentStartPosition));
         paragraphContentBuilder.append(space);
         nonReplacedContentStartPosition = position;
     }
     if (nonReplacedContentStartPosition < contentLength)
-        paragraphContentBuilder.append(textContent.right(contentLength - nonReplacedContentStartPosition));
+        paragraphContentBuilder.append(StringView(textContent).right(contentLength - nonReplacedContentStartPosition));
 }
 
 struct BidiContext {
-    EUnicodeBidi unicodeBidi;
+    UnicodeBidi unicodeBidi;
     bool isLeftToRightDirection { false };
     bool isBlockLevel { false };
 };
@@ -184,27 +184,27 @@ enum class EnterExitType : uint8_t {
     EnteringInlineBox,
     ExitingInlineBox
 };
-static inline void handleEnterExitBidiContext(StringBuilder& paragraphContentBuilder, EUnicodeBidi unicodeBidi, bool isLTR, EnterExitType enterExitType, BidiContextStack& bidiContextStack)
+static inline void handleEnterExitBidiContext(StringBuilder& paragraphContentBuilder, UnicodeBidi unicodeBidi, bool isLTR, EnterExitType enterExitType, BidiContextStack& bidiContextStack)
 {
     auto isEnteringBidi = enterExitType == EnterExitType::EnteringBlock || enterExitType == EnterExitType::EnteringInlineBox;
     switch (unicodeBidi) {
-    case EUnicodeBidi::UBNormal:
+    case UnicodeBidi::Normal:
         // The box does not open an additional level of embedding with respect to the bidirectional algorithm.
         // For inline boxes, implicit reordering works across box boundaries.
         break;
-    case EUnicodeBidi::Embed:
+    case UnicodeBidi::Embed:
         paragraphContentBuilder.append(isEnteringBidi ? (isLTR ? leftToRightEmbed : rightToLeftEmbed) : popDirectionalFormatting);
         break;
-    case EUnicodeBidi::Override:
+    case UnicodeBidi::Override:
         paragraphContentBuilder.append(isEnteringBidi ? (isLTR ? leftToRightOverride : rightToLeftOverride) : popDirectionalFormatting);
         break;
-    case EUnicodeBidi::Isolate:
+    case UnicodeBidi::Isolate:
         paragraphContentBuilder.append(isEnteringBidi ? (isLTR ? leftToRightIsolate : rightToLeftIsolate) : popDirectionalIsolate);
         break;
-    case EUnicodeBidi::Plaintext:
+    case UnicodeBidi::Plaintext:
         paragraphContentBuilder.append(isEnteringBidi ? firstStrongIsolate : popDirectionalIsolate);
         break;
-    case EUnicodeBidi::IsolateOverride:
+    case UnicodeBidi::IsolateOverride:
         if (isEnteringBidi) {
             paragraphContentBuilder.append(firstStrongIsolate);
             paragraphContentBuilder.append(isLTR ? leftToRightOverride : rightToLeftOverride);
@@ -226,7 +226,7 @@ static inline void buildBidiParagraph(const RenderStyle& rootStyle, const Inline
     auto bidiContextStack = BidiContextStack { };
     handleEnterExitBidiContext(paragraphContentBuilder, rootStyle.unicodeBidi(), rootStyle.isLeftToRightDirection(), EnterExitType::EnteringBlock, bidiContextStack);
     if (rootStyle.rtlOrdering() != Order::Logical)
-        handleEnterExitBidiContext(paragraphContentBuilder, EUnicodeBidi::Override, rootStyle.isLeftToRightDirection(), EnterExitType::EnteringBlock, bidiContextStack);
+        handleEnterExitBidiContext(paragraphContentBuilder, UnicodeBidi::Override, rootStyle.isLeftToRightDirection(), EnterExitType::EnteringBlock, bidiContextStack);
 
     const Box* lastInlineTextBox = nullptr;
     size_t inlineTextBoxOffset = 0;
@@ -252,7 +252,7 @@ static inline void buildBidiParagraph(const RenderStyle& rootStyle, const Inline
         } else if (inlineItem.isInlineBoxStart() || inlineItem.isInlineBoxEnd()) {
             // https://drafts.csswg.org/css-writing-modes/#unicode-bidi
             auto& style = inlineItem.style();
-            auto initiatesControlCharacter = style.rtlOrdering() == Order::Logical && style.unicodeBidi() != EUnicodeBidi::UBNormal;
+            auto initiatesControlCharacter = style.rtlOrdering() == Order::Logical && style.unicodeBidi() != UnicodeBidi::Normal;
             if (!initiatesControlCharacter) {
                 // Opaque items do not have position in the bidi paragraph. They inherit their bidi level from the next inline item.
                 inlineItemOffsetList.uncheckedAppend({ });
@@ -339,7 +339,7 @@ void InlineItemsBuilder::breakAndComputeBidiLevels(InlineItems& inlineItems)
     });
 
     UBiDiLevel rootBidiLevel = UBIDI_DEFAULT_LTR;
-    bool useHeuristicBaseDirection = root().style().unicodeBidi() == EUnicodeBidi::Plaintext;
+    bool useHeuristicBaseDirection = root().style().unicodeBidi() == UnicodeBidi::Plaintext;
     if (!useHeuristicBaseDirection)
         rootBidiLevel = root().style().isLeftToRightDirection() ? UBIDI_LTR : UBIDI_RTL;
 
@@ -428,7 +428,8 @@ void InlineItemsBuilder::breakAndComputeBidiLevels(InlineItems& inlineItems)
                 continue;
             }
             // Mark the inline box stack with "content yes", when we come across a content type of inline item.
-            inlineBoxContentFlagStack.fill(InlineBoxHasContent::Yes);
+            if (!inlineItem.isText() || !downcast<InlineTextItem>(inlineItem).isWhitespace() || TextUtil::shouldPreserveSpacesAndTabs(inlineItem.layoutBox()))
+                inlineBoxContentFlagStack.fill(InlineBoxHasContent::Yes);
         }
     };
     setBidiLevelForOpaqueInlineItems();
@@ -462,19 +463,10 @@ void InlineItemsBuilder::computeInlineTextItemWidths(InlineItems& inlineItems)
         auto& inlineTextBox = inlineTextItem.inlineTextBox();
         auto start = inlineTextItem.start();
         auto length = inlineTextItem.length();
-        if (!canCacheMeasuredWidthOnInlineTextItem(inlineTextBox, start, length, inlineTextItem.isWhitespace()))
+        auto needsMeasuring = length && !inlineTextItem.isZeroWidthSpaceSeparator();
+        if (!needsMeasuring || !canCacheMeasuredWidthOnInlineTextItem(inlineTextBox, start, length, inlineTextItem.isWhitespace()))
             continue;
-
-        auto width = [&]() -> std::optional<InlineLayoutUnit> {
-            auto singleWhiteSpace = inlineTextItem.isWhitespace() && (!TextUtil::shouldPreserveSpacesAndTabs(inlineTextBox) || (length == 1 && inlineTextBox.canUseSimplifiedContentMeasuring()));
-            if (singleWhiteSpace)
-                return TextUtil::spaceWidth(inlineTextItem.style().fontCascade());
-            if (length && !inlineTextItem.isZeroWidthSpaceSeparator())
-                return TextUtil::width(inlineTextBox, inlineTextItem.style().fontCascade(), start, start + length, { });
-            return { };
-        }();
-        if (width)
-            inlineTextItem.setWidth(*width);
+        inlineTextItem.setWidth(TextUtil::width(inlineTextItem, inlineTextItem.style().fontCascade(), start, start + length, { }));
     }
 }
 
@@ -489,7 +481,6 @@ void InlineItemsBuilder::handleTextContent(const InlineTextBox& inlineTextBox, I
     auto& style = inlineTextBox.style();
     auto shouldPreserveSpacesAndTabs = TextUtil::shouldPreserveSpacesAndTabs(inlineTextBox);
     auto shouldPreserveNewline = TextUtil::shouldPreserveNewline(inlineTextBox);
-    auto shouldTreatNonBreakingSpaceAsRegularSpace = style.nbspMode() == NBSPMode::Space;
     auto lineBreakIterator = LazyLineBreakIterator { text, style.computedLocale(), TextUtil::lineBreakIteratorMode(style.lineBreak()) };
     unsigned currentPosition = 0;
 
@@ -507,7 +498,7 @@ void InlineItemsBuilder::handleTextContent(const InlineTextBox& inlineTextBox, I
 
         auto handleWhitespace = [&] {
             auto stopAtWordSeparatorBoundary = shouldPreserveSpacesAndTabs && style.fontCascade().wordSpacing();
-            auto whitespaceContent = moveToNextNonWhitespacePosition(text, currentPosition, shouldPreserveNewline, shouldPreserveSpacesAndTabs, shouldTreatNonBreakingSpaceAsRegularSpace, stopAtWordSeparatorBoundary);
+            auto whitespaceContent = moveToNextNonWhitespacePosition(text, currentPosition, shouldPreserveNewline, shouldPreserveSpacesAndTabs, stopAtWordSeparatorBoundary);
             if (!whitespaceContent)
                 return false;
 
@@ -524,6 +515,26 @@ void InlineItemsBuilder::handleTextContent(const InlineTextBox& inlineTextBox, I
             return true;
         };
         if (handleWhitespace())
+            continue;
+
+        auto handleNonBreakingSpace = [&] {
+            if (style.nbspMode() != NBSPMode::Space) {
+                // Let's just defer to regular non-whitespace inline items when non breaking space needs no special handling.
+                return false;
+            }
+            auto startPosition = currentPosition;
+            auto endPosition = startPosition;
+            for (; endPosition < contentLength; ++endPosition) {
+                if (text[endPosition] != noBreakSpace)
+                    break;
+            }
+            if (startPosition == endPosition)
+                return false;
+            inlineItems.append(InlineTextItem::createNonWhitespaceItem(inlineTextBox, startPosition, endPosition - startPosition, UBIDI_DEFAULT_LTR, { }, { }));
+            currentPosition = endPosition;
+            return true;
+        };
+        if (handleNonBreakingSpace())
             continue;
 
         auto handleNonWhitespace = [&] {
@@ -557,14 +568,14 @@ void InlineItemsBuilder::handleInlineBoxStart(const Box& inlineBox, InlineItems&
 {
     inlineItems.append({ inlineBox, InlineItem::Type::InlineBoxStart });
     auto& style = inlineBox.style();
-    m_needsVisualReordering = m_needsVisualReordering || !style.isLeftToRightDirection() || (style.rtlOrdering() == Order::Logical && style.unicodeBidi() != EUnicodeBidi::UBNormal);
+    m_needsVisualReordering = m_needsVisualReordering || !style.isLeftToRightDirection() || (style.rtlOrdering() == Order::Logical && style.unicodeBidi() != UnicodeBidi::Normal);
 }
 
 void InlineItemsBuilder::handleInlineBoxEnd(const Box& inlineBox, InlineItems& inlineItems)
 {
     inlineItems.append({ inlineBox, InlineItem::Type::InlineBoxEnd });
     // Inline box end item itself can not trigger bidi content.
-    ASSERT(needsVisualReordering() || inlineBox.style().isLeftToRightDirection() || inlineBox.style().rtlOrdering() == Order::Visual || inlineBox.style().unicodeBidi() == EUnicodeBidi::UBNormal);
+    ASSERT(needsVisualReordering() || inlineBox.style().isLeftToRightDirection() || inlineBox.style().rtlOrdering() == Order::Visual || inlineBox.style().unicodeBidi() == UnicodeBidi::Normal);
 }
 
 void InlineItemsBuilder::handleInlineLevelBox(const Box& layoutBox, InlineItems& inlineItems)

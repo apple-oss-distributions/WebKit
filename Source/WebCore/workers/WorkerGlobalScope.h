@@ -28,6 +28,7 @@
 
 #include "Base64Utilities.h"
 #include "CacheStorageConnection.h"
+#include "ClientOrigin.h"
 #include "ImageBitmap.h"
 #include "ScriptExecutionContext.h"
 #include "Supplementable.h"
@@ -38,8 +39,8 @@
 #include <JavaScriptCore/ConsoleMessage.h>
 #include <memory>
 #include <wtf/FixedVector.h>
-#include <wtf/HashMap.h>
 #include <wtf/MemoryPressureHandler.h>
+#include <wtf/RobinHoodHashMap.h>
 #include <wtf/URL.h>
 #include <wtf/URLHash.h>
 #include <wtf/WeakHashSet.h>
@@ -96,8 +97,10 @@ public:
     WEBCORE_EXPORT WorkerFileSystemStorageConnection* fileSystemStorageConnection();
     WorkerCacheStorageConnection& cacheStorageConnection();
     MessagePortChannelProvider& messagePortChannelProvider();
+
 #if ENABLE(SERVICE_WORKER)
     WorkerSWClientConnection& swClientConnection();
+    void updateServiceWorkerClientData() final;
 #endif
 
     WorkerThread& thread() const;
@@ -156,6 +159,8 @@ public:
     void setMainScriptSourceProvider(ScriptBufferSourceProvider&);
     void addImportedScriptSourceProvider(const URL&, ScriptBufferSourceProvider&);
 
+    ClientOrigin clientOrigin() const { return { topOrigin().data(), securityOrigin()->data() }; }
+
 protected:
     WorkerGlobalScope(WorkerThreadType, const WorkerParameters&, Ref<SecurityOrigin>&&, WorkerThread&, Ref<SecurityOrigin>&& topOrigin, IDBClient::IDBConnectionProxy*, SocketProvider*);
 
@@ -212,7 +217,7 @@ private:
     mutable RefPtr<Crypto> m_crypto;
 
     WeakPtr<ScriptBufferSourceProvider> m_mainScriptSourceProvider;
-    HashMap<URL, WeakHashSet<ScriptBufferSourceProvider>> m_importedScriptsSourceProviders;
+    MemoryCompactRobinHoodHashMap<URL, WeakHashSet<ScriptBufferSourceProvider>> m_importedScriptsSourceProviders;
 
     RefPtr<WorkerCacheStorageConnection> m_cacheStorageConnection;
     std::unique_ptr<WorkerMessagePortChannelProvider> m_messagePortChannelProvider;

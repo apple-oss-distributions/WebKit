@@ -27,6 +27,7 @@
 
 #if PLATFORM(MAC)
 
+#include "ImageAnalysisUtilities.h"
 #include "PDFPluginIdentifier.h"
 #include "ShareableBitmap.h"
 #include "WKLayoutMode.h"
@@ -55,13 +56,14 @@ OBJC_CLASS NSPopover;
 OBJC_CLASS NSTextInputContext;
 OBJC_CLASS NSView;
 OBJC_CLASS QLPreviewPanel;
-OBJC_CLASS VKImageAnalyzer;
 OBJC_CLASS WKAccessibilitySettingsObserver;
 OBJC_CLASS WKBrowsingContextController;
 OBJC_CLASS WKDOMPasteMenuDelegate;
 OBJC_CLASS WKEditorUndoTarget;
 OBJC_CLASS WKFullScreenWindowController;
+OBJC_CLASS WKImageAnalysisOverlayViewDelegate;
 OBJC_CLASS WKImmediateActionController;
+OBJC_CLASS WKMouseTrackingObserver;
 OBJC_CLASS WKRevealItemPresenter;
 OBJC_CLASS WKSafeBrowsingWarning;
 OBJC_CLASS WKShareSheet;
@@ -84,6 +86,9 @@ OBJC_CLASS WebPlaybackControlsManager;
 #if ENABLE(UI_PROCESS_PDF_HUD)
 OBJC_CLASS WKPDFHUDView;
 #endif
+
+OBJC_CLASS VKCImageAnalysis;
+OBJC_CLASS VKCImageAnalysisOverlayView;
 
 namespace API {
 class HitTestResult;
@@ -166,7 +171,6 @@ class WebProcessProxy;
 struct WebHitTestResultData;
 
 enum class ContinueUnsafeLoad : bool;
-enum class ImageAnalysisType : uint8_t;
 enum class UndoOrRedo : bool;
 
 typedef id <NSValidatedUserInterfaceItem> ValidationItem;
@@ -446,7 +450,7 @@ public:
     id accessibilityAttributeValue(NSString *, id parameter = nil);
 
     NSTrackingArea *primaryTrackingArea() const { return m_primaryTrackingArea.get(); }
-    void setPrimaryTrackingArea(NSTrackingArea *);
+    void updatePrimaryTrackingAreaOptions(NSTrackingAreaOptions);
 
     NSTrackingRectTag addTrackingRect(CGRect, id owner, void* userData, bool assumeInside);
     NSTrackingRectTag addTrackingRectWithTrackingNum(CGRect, id owner, void* userData, bool assumeInside, int tag);
@@ -590,9 +594,16 @@ public:
     bool shouldRequestCandidates() const;
 
 #if ENABLE(IMAGE_ANALYSIS)
-    void requestTextRecognition(const URL& imageURL, const ShareableBitmap::Handle& imageData, const String& identifier, CompletionHandler<void(WebCore::TextRecognitionResult&&)>&&);
-    void computeHasImageAnalysisResults(const URL& imageURL, ShareableBitmap& imageBitmap, ImageAnalysisType, CompletionHandler<void(bool)>&&);
+    void requestTextRecognition(const URL& imageURL, const ShareableBitmap::Handle& imageData, const String& sourceLanguageIdentifier, const String& targetLanguageIdentifier, CompletionHandler<void(WebCore::TextRecognitionResult&&)>&&);
+    void computeHasVisualSearchResults(const URL& imageURL, ShareableBitmap& imageBitmap, CompletionHandler<void(bool)>&&);
 #endif
+
+#if ENABLE(IMAGE_ANALYSIS_ENHANCEMENTS)
+    WebCore::FloatRect imageAnalysisInteractionBounds() const { return m_imageAnalysisInteractionBounds; }
+    VKCImageAnalysisOverlayView *imageAnalysisOverlayView() const { return m_imageAnalysisOverlayView.get(); }
+#endif
+
+    bool imageAnalysisOverlayViewHasCursorAtPoint(NSPoint locationInView) const;
 
     bool acceptsPreviewPanelControl(QLPreviewPanel *);
     void beginPreviewPanelControl(QLPreviewPanel *);
@@ -667,6 +678,9 @@ public:
     void didFinishPresentation(WKRevealItemPresenter *);
 #endif
 
+    void beginTextRecognitionForVideoInElementFullscreen(const ShareableBitmap::Handle&, WebCore::FloatRect);
+    void cancelTextRecognitionForVideoInElementFullscreen();
+
 private:
 #if HAVE(TOUCH_BAR)
     void setUpTextTouchBar(NSTouchBar *);
@@ -675,6 +689,11 @@ private:
 
     bool useMediaPlaybackControlsView() const;
     bool isRichlyEditableForTouchBar() const;
+
+#if ENABLE(IMAGE_ANALYSIS_ENHANCEMENTS)
+    void installImageAnalysisOverlayView(VKCImageAnalysis *);
+    void uninstallImageAnalysisOverlayView();
+#endif
 
     bool m_clientWantsMediaPlaybackControlsView { false };
     bool m_canCreateTouchBars { false };
@@ -736,12 +755,15 @@ private:
 
     void viewWillMoveToWindowImpl(NSWindow *);
 
+    id toolTipOwnerForSendingMouseEvents() const;
+
 #if ENABLE(DRAG_SUPPORT)
     void sendDragEndToPage(CGPoint endPoint, NSDragOperation);
 #endif
 
 #if ENABLE(IMAGE_ANALYSIS)
-    VKImageAnalyzer *ensureImageAnalyzer();
+    CocoaImageAnalyzer *ensureImageAnalyzer();
+    int32_t processImageAnalyzerRequest(CocoaImageAnalyzerRequest *, CompletionHandler<void(CocoaImageAnalysis *, NSError *)>&&);
 #endif
 
     WeakObjCPtr<NSView<WebViewImplDelegate>> m_view;
@@ -815,10 +837,11 @@ private:
 
     bool m_allowsLinkPreview { true };
 
+    RetainPtr<WKMouseTrackingObserver> m_mouseTrackingObserver;
     RetainPtr<NSTrackingArea> m_primaryTrackingArea;
 
     NSToolTipTag m_lastToolTipTag { 0 };
-    id m_trackingRectOwner { nil };
+    WeakObjCPtr<id> m_trackingRectOwner;
     void* m_trackingRectUserData { nullptr };
 
     RetainPtr<CALayer> m_rootLayer;
@@ -841,8 +864,6 @@ private:
     RefPtr<WebCore::Image> m_promisedImage;
     String m_promisedFilename;
     String m_promisedURL;
-
-    std::optional<NSInteger> m_spellCheckerDocumentTag;
 
     CGFloat m_totalHeightOfBanners { 0 };
 
@@ -886,7 +907,14 @@ private:
 
 #if ENABLE(IMAGE_ANALYSIS)
     RefPtr<WorkQueue> m_imageAnalyzerQueue;
-    RetainPtr<VKImageAnalyzer> m_imageAnalyzer;
+    RetainPtr<CocoaImageAnalyzer> m_imageAnalyzer;
+#endif
+
+#if ENABLE(IMAGE_ANALYSIS_ENHANCEMENTS)
+    RetainPtr<VKCImageAnalysisOverlayView> m_imageAnalysisOverlayView;
+    RetainPtr<WKImageAnalysisOverlayViewDelegate> m_imageAnalysisOverlayViewDelegate;
+    uint32_t m_currentImageAnalysisRequestID { 0 };
+    WebCore::FloatRect m_imageAnalysisInteractionBounds;
 #endif
 
 #if HAVE(TRANSLATION_UI_SERVICES) && ENABLE(CONTEXT_MENUS)

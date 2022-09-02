@@ -51,6 +51,11 @@ static inline bool checkEval(ContentSecurityPolicySourceListDirective* directive
     return !directive || directive->allowEval();
 }
 
+static inline bool checkWasmEval(ContentSecurityPolicySourceListDirective* directive)
+{
+    return !directive || directive->allowWasmEval();
+}
+
 static inline bool checkInline(ContentSecurityPolicySourceListDirective* directive)
 {
     return !directive || directive->allowInline();
@@ -140,15 +145,32 @@ std::unique_ptr<ContentSecurityPolicyDirectiveList> ContentSecurityPolicyDirecti
     auto directives = makeUnique<ContentSecurityPolicyDirectiveList>(policy, type);
     directives->parse(header, from);
 
-    if (!checkEval(directives->operativeDirective(directives->m_scriptSrc.get(), ContentSecurityPolicyDirectiveNames::scriptSrc))) {
+    if (!checkEval(directives->operativeDirective(directives->m_scriptSrc.get(), ContentSecurityPolicyDirectiveNames::scriptSrc)))
         directives->setEvalDisabledErrorMessage(makeString("Refused to evaluate a string as JavaScript because 'unsafe-eval' is not an allowed source of script in the following Content Security Policy directive: \"", directives->operativeDirective(directives->m_scriptSrc.get(), ContentSecurityPolicyDirectiveNames::scriptSrc)->text(), "\".\n"));
-        directives->setWebAssemblyDisabledErrorMessage(makeString("Refused to create a WebAssembly object because 'unsafe-eval' is not an allowed source of script in the following Content Security Policy directive: \"", directives->operativeDirective(directives->m_scriptSrc.get(), ContentSecurityPolicyDirectiveNames::scriptSrc)->text(), "\".\n"));
-    }
+
+    if (!checkWasmEval(directives->operativeDirective(directives->m_scriptSrc.get(), ContentSecurityPolicyDirectiveNames::scriptSrc)))
+        directives->setWebAssemblyDisabledErrorMessage(makeString("Refused to create a WebAssembly object because 'unsafe-eval' or 'wasm-unsafe-eval' is not an allowed source of script in the following Content Security Policy directive: \"", directives->operativeDirective(directives->m_scriptSrc.get(), ContentSecurityPolicyDirectiveNames::scriptSrc)->text(), "\".\n"));
 
     if (directives->isReportOnly() && directives->reportURIs().isEmpty())
         policy.reportMissingReportURI(header);
 
     return directives;
+}
+
+ContentSecurityPolicySourceListDirective* ContentSecurityPolicyDirectiveList::operativeDirectiveForWorkerSrc(ContentSecurityPolicySourceListDirective* directive, const String& nameForReporting) const
+{
+    // worker-src defers to child-src, then script-src, then default-src (https://www.w3.org/TR/CSP3/#changes-from-level-2).
+    if (directive) {
+        directive->setNameForReporting(nameForReporting);
+        return directive;
+    }
+
+    if (m_childSrc.get()) {
+        m_childSrc.get()->setNameForReporting(nameForReporting);
+        return m_childSrc.get();
+    }
+
+    return operativeDirective(m_scriptSrc.get(), nameForReporting);
 }
 
 ContentSecurityPolicySourceListDirective* ContentSecurityPolicyDirectiveList::operativeDirective(ContentSecurityPolicySourceListDirective* directive, const String& nameForReporting) const
@@ -220,11 +242,12 @@ const ContentSecurityPolicyDirective* ContentSecurityPolicyDirectiveList::violat
 
 const ContentSecurityPolicyDirective* ContentSecurityPolicyDirectiveList::violatedDirectiveForNonParserInsertedScripts(const String& nonce, const Vector<ContentSecurityPolicyHash>& hashes, const URL& url, ParserInserted parserInserted) const
 {
-    auto* operativeDirective = this->operativeDirectiveScript(m_scriptSrcElem.get(), ContentSecurityPolicyDirectiveNames::scriptSrc);
+    auto* operativeDirective = this->operativeDirectiveScript(m_scriptSrcElem.get(), ContentSecurityPolicyDirectiveNames::scriptSrcElem);
     if (checkHashes(operativeDirective, hashes)
         || checkNonParserInsertedScripts(operativeDirective, parserInserted)
         || checkNonce(operativeDirective, nonce)
-        || checkSource(operativeDirective, url))
+        || checkSource(operativeDirective, url)
+        || (url.isEmpty() && checkInline(operativeDirective)))
         return nullptr;
     return operativeDirective;
 }
@@ -373,9 +396,19 @@ const ContentSecurityPolicyDirective* ContentSecurityPolicyDirectiveList::violat
     return m_pluginTypes.get();
 }
 
+const ContentSecurityPolicyDirective* ContentSecurityPolicyDirectiveList::violatedDirectiveForWorker(const URL& url, bool didReceiveRedirectResponse)
+{
+    auto* operativeDirective = this->operativeDirectiveForWorkerSrc(m_workerSrc.get(), ContentSecurityPolicyDirectiveNames::workerSrc);
+    // Per https://github.com/w3c/webappsec-csp/issues/200 we should allow workers when the directive contains 'strict-dynamic'
+    if (checkSource(operativeDirective, url, didReceiveRedirectResponse)
+        || checkNonParserInsertedScripts(operativeDirective, ParserInserted::No))
+        return nullptr;
+    return operativeDirective;
+}
+
 const ContentSecurityPolicyDirective* ContentSecurityPolicyDirectiveList::violatedDirectiveForScript(const URL& url, bool didReceiveRedirectResponse, const Vector<ResourceCryptographicDigest>& subResourceIntegrityDigests, const String& nonce) const
 {
-    auto* operativeDirective = this->operativeDirective(m_scriptSrc.get(), ContentSecurityPolicyDirectiveNames::scriptSrcElem);
+    auto* operativeDirective = this->operativeDirectiveScript(m_scriptSrcElem.get(), ContentSecurityPolicyDirectiveNames::scriptSrcElem);
 
     if (!operativeDirective
         || operativeDirective->containsAllHashes(subResourceIntegrityDigests)
@@ -586,6 +619,8 @@ void ContentSecurityPolicyDirectiveList::addDirective(ParsedDirective&& directiv
         m_policy.addHashAlgorithmsForInlineStylesheets(m_styleSrcAttr->hashAlgorithmsUsed());
     } else if (equalIgnoringASCIICase(directive.name, ContentSecurityPolicyDirectiveNames::objectSrc))
         setCSPDirective<ContentSecurityPolicySourceListDirective>(WTFMove(directive), m_objectSrc);
+    else if (equalIgnoringASCIICase(directive.name, ContentSecurityPolicyDirectiveNames::workerSrc))
+        setCSPDirective<ContentSecurityPolicySourceListDirective>(WTFMove(directive), m_workerSrc);
     else if (equalIgnoringASCIICase(directive.name, ContentSecurityPolicyDirectiveNames::frameSrc)) {
         // FIXME: Log to console "The frame-src directive is deprecated. Use the child-src directive instead."
         // See <https://bugs.webkit.org/show_bug.cgi?id=155773>.
@@ -637,9 +672,9 @@ bool ContentSecurityPolicyDirectiveList::strictDynamicIncluded()
 bool ContentSecurityPolicyDirectiveList::shouldReportSample(const String& violatedDirective) const
 {
     ContentSecurityPolicySourceListDirective* directive = nullptr;
-    if (violatedDirective.startsWith(ContentSecurityPolicyDirectiveNames::styleSrc))
+    if (violatedDirective.startsWith(StringView { ContentSecurityPolicyDirectiveNames::styleSrc }))
         directive = m_styleSrc.get();
-    else if (violatedDirective.startsWith(ContentSecurityPolicyDirectiveNames::scriptSrc))
+    else if (violatedDirective.startsWith(StringView { ContentSecurityPolicyDirectiveNames::scriptSrc }))
         directive = m_scriptSrc.get();
 
     return directive && directive->shouldReportSample();

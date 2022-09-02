@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2014 Cable Television Labs Inc.  All rights reserved.
- * Copyright (C) 2014-2017 Apple Inc. All rights reserved.
+ * Copyright (C) 2014-2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -71,8 +71,9 @@ void InbandDataTextTrack::addDataCue(const MediaTime& start, const MediaTime& en
     }
 
     auto* textTrackList = downcast<TextTrackList>(trackList());
-    if (end.isPositiveInfinite() && textTrackList && textTrackList->duration().isValid()) {
-        cue->setEndTime(textTrackList->duration());
+    if (end.isPositiveInfinite()) {
+        if (textTrackList && textTrackList->duration().isValid())
+            cue->setEndTime(textTrackList->duration());
         m_incompleteCueMap.append(&cue.get());
     }
 
@@ -83,7 +84,7 @@ void InbandDataTextTrack::addDataCue(const MediaTime& start, const MediaTime& en
 
 RefPtr<DataCue> InbandDataTextTrack::findIncompleteCue(const SerializedPlatformDataCue& cueToFind)
 {
-    auto index = m_incompleteCueMap.findMatching([&](const auto& cue) {
+    auto index = m_incompleteCueMap.findIf([&](const auto& cue) {
         return cueToFind.isEqual(*cue->platformValue());
     });
 

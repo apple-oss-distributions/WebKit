@@ -33,6 +33,7 @@
 #include "NetworkCache.h"
 #include "NetworkLoad.h"
 #include "NetworkSession.h"
+#include "PrivateRelayed.h"
 #include <WebCore/NavigationPreloadState.h>
 
 namespace WebKit {
@@ -44,10 +45,10 @@ ServiceWorkerNavigationPreloader::ServiceWorkerNavigationPreloader(NetworkSessio
     , m_parameters(WTFMove(parameters))
     , m_state(state)
     , m_shouldCaptureExtraNetworkLoadMetrics(shouldCaptureExtraNetworkLoadMetrics())
+    , m_startTime(MonotonicTime::now())
 {
     RELEASE_LOG(ServiceWorker, "ServiceWorkerNavigationPreloader::ServiceWorkerNavigationPreloader %p", this);
-    if (!m_state.enabled || parameters.isMainFrameNavigation)
-        start();
+    start();
 }
 
 void ServiceWorkerNavigationPreloader::start()
@@ -111,7 +112,7 @@ void ServiceWorkerNavigationPreloader::cancel()
 
 void ServiceWorkerNavigationPreloader::loadWithCacheEntry(NetworkCache::Entry& entry)
 {
-    didReceiveResponse(ResourceResponse { entry.response() }, [body = RefPtr { entry.buffer() }, weakThis = WeakPtr { *this }](auto) mutable {
+    didReceiveResponse(ResourceResponse { entry.response() }, PrivateRelayed::No, [body = RefPtr { entry.buffer() }, weakThis = WeakPtr { *this }](auto) mutable {
         if (!weakThis || weakThis->m_isCancelled)
             return;
 
@@ -153,13 +154,18 @@ void ServiceWorkerNavigationPreloader::loadFromNetwork()
 
 void ServiceWorkerNavigationPreloader::willSendRedirectedRequest(ResourceRequest&&, ResourceRequest&&, ResourceResponse&& response)
 {
-    didReceiveResponse(WTFMove(response), [](auto) { });
-    didComplete();
+    didReceiveResponse(WTFMove(response), PrivateRelayed::No, [weakThis = WeakPtr { *this }](auto) {
+        if (weakThis)
+            weakThis->didComplete();
+    });
 }
 
-void ServiceWorkerNavigationPreloader::didReceiveResponse(ResourceResponse&& response, ResponseCompletionHandler&& completionHandler)
+void ServiceWorkerNavigationPreloader::didReceiveResponse(ResourceResponse&& response, PrivateRelayed, ResponseCompletionHandler&& completionHandler)
 {
     RELEASE_LOG(ServiceWorker, "ServiceWorkerNavigationPreloader::didReceiveResponse %p", this);
+
+    if (response.isRedirection())
+        response.setTainting(ResourceResponse::Tainting::Opaqueredirect);
 
     if (response.httpStatusCode() == 304 && m_cacheEntry) {
         auto cacheEntry = WTFMove(m_cacheEntry);
@@ -214,8 +220,6 @@ void ServiceWorkerNavigationPreloader::didComplete()
 
 void ServiceWorkerNavigationPreloader::waitForResponse(ResponseCallback&& callback)
 {
-    start();
-
     if (!m_error.isNull()) {
         callback();
         return;

@@ -36,6 +36,7 @@
 #include "URLSchemeTaskParameters.h"
 #include "WebBackForwardCacheEntry.h"
 #include "WebBackForwardList.h"
+#include "WebBackForwardListCounts.h"
 #include "WebBackForwardListItem.h"
 #include "WebErrors.h"
 #include "WebNavigationDataStore.h"
@@ -83,8 +84,10 @@ ProvisionalPageProxy::ProvisionalPageProxy(WebPageProxy& page, Ref<WebProcessPro
     m_process->addMessageReceiver(Messages::WebPageProxy::messageReceiverName(), m_webPageID, *this);
     m_process->addProvisionalPageProxy(*this);
 
-    if (&m_process->websiteDataStore() != &m_page.websiteDataStore())
-        m_process->processPool().pageBeginUsingWebsiteDataStore(m_page.identifier(), m_process->websiteDataStore());
+    m_websiteDataStore = m_process->websiteDataStore();
+    ASSERT(m_websiteDataStore);
+    if (m_websiteDataStore && m_websiteDataStore != &m_page.websiteDataStore())
+        m_process->processPool().pageBeginUsingWebsiteDataStore(m_page.identifier(), *m_websiteDataStore);
 
     // If we are reattaching to a SuspendedPage, then the WebProcess' WebPage already exists and
     // WebPageProxy::didCreateMainFrame() will not be called to initialize m_mainFrame. In such
@@ -112,18 +115,13 @@ ProvisionalPageProxy::~ProvisionalPageProxy()
     if (!m_wasCommitted) {
         m_page.inspectorController().willDestroyProvisionalPage(*this);
 
-        if (&m_process->websiteDataStore() != &m_page.websiteDataStore())
-            m_process->processPool().pageEndUsingWebsiteDataStore(m_page.identifier(), m_process->websiteDataStore());
+        auto dataStore = m_process->websiteDataStore();
+        if (dataStore && dataStore!= &m_page.websiteDataStore())
+            m_process->processPool().pageEndUsingWebsiteDataStore(m_page.identifier(), *dataStore);
 
         m_process->removeMessageReceiver(Messages::WebPageProxy::messageReceiverName(), m_webPageID);
         send(Messages::WebPage::Close());
         m_process->removeVisitedLinkStoreUser(m_page.visitedLinkStore(), m_page.identifier());
-
-        // If we were process-swapping on navigation response then there is still a provisional load going on in the previous process
-        // and its layer tree is frozen. Since we didn't end up committing the provisional process, we need to stop the load in the
-        // previous process so that it cancels its navigation and unfreezes its layer tree.
-        if (isProcessSwappingOnNavigationResponse())
-            m_page.send(Messages::WebPage::StopLoading());
     }
 
     m_process->removeProvisionalPageProxy(*this);
@@ -143,7 +141,7 @@ std::unique_ptr<DrawingAreaProxy> ProvisionalPageProxy::takeDrawingArea()
 void ProvisionalPageProxy::cancel()
 {
     // If the provisional load started, then indicate that it failed due to cancellation by calling didFailProvisionalLoadForFrame().
-    if (m_provisionalLoadURL.isEmpty() || m_isProcessSwappingOnNavigationResponse)
+    if (m_provisionalLoadURL.isEmpty() || !m_mainFrame)
         return;
 
     ASSERT(m_process->state() == WebProcessProxy::State::Running);
@@ -244,8 +242,10 @@ void ProvisionalPageProxy::didCreateMainFrame(FrameIdentifier frameID)
 
     // Restore the main frame's committed URL as some clients may rely on it until the next load is committed.
     RefPtr previousMainFrame = m_page.mainFrame();
-    if (previousMainFrame)
+    if (previousMainFrame) {
         m_mainFrame->frameLoadState().setURL(previousMainFrame->url());
+        previousMainFrame->transferNavigationCallbackToFrame(*m_mainFrame);
+    }
 
     // Normally, notification of a server redirect comes from the WebContent process.
     // If we are process swapping in response to a server redirect then that notification will not come from the new WebContent process.
@@ -296,15 +296,6 @@ void ProvisionalPageProxy::didFailProvisionalLoadForFrame(FrameIdentifier frameI
     PROVISIONALPAGEPROXY_RELEASE_LOG_ERROR(ProcessSwapping, "didFailProvisionalLoadForFrame: frameID=%" PRIu64, frameID.toUInt64());
     ASSERT(!m_provisionalLoadURL.isNull());
     m_provisionalLoadURL = { };
-
-    if (m_isProcessSwappingOnNavigationResponse) {
-        // If the provisional load fails and we were process-swapping on navigation response, then we simply destroy ourselves.
-        // In this case, the provisional load is still ongoing in the committed process and the ProvisionalPageProxy destructor
-        // will stop it and cause the committed process to send its own DidFailProvisionalLoadForFrame IPC.
-        ASSERT(m_page.provisionalPageProxy() == this);
-        m_page.destroyProvisionalPage();
-        return;
-    }
 
     // Make sure the Page's main frame's expectedURL gets cleared since we updated it in didStartProvisionalLoad.
     if (auto* pageMainFrame = m_page.mainFrame())

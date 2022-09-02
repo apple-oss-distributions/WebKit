@@ -84,6 +84,9 @@ struct pas_segregated_size_directory {
 
     pas_allocator_index view_cache_index; /* This could be in the size_directory_data but we put it here
                                              because it takes less space to put it here. */
+
+    pas_allocator_index allocator_index; /* This could be in the size_directory_data but we put it here
+                                            because it takes less space to put it here. */
     
     pas_segregated_size_directory_data_ptr data;
 
@@ -95,12 +98,9 @@ struct pas_segregated_size_directory_data {
     unsigned offset_from_page_boundary_to_first_object; /* Cached to make refill fast. */
     unsigned offset_from_page_boundary_to_end_of_last_object; /* Cached to make refill fast. */
     
-    pas_allocator_index allocator_index;
-    
     uint8_t full_num_non_empty_words;
 
     pas_compact_tagged_unsigned_ptr full_alloc_bits; /* Precomputed alloc bits in the case that a page is empty. */
-    pas_compact_atomic_thread_local_cache_layout_node next_for_layout;
 };
 
 struct pas_extended_segregated_size_directory_data {
@@ -268,7 +268,7 @@ static inline pas_bitfit_size_class* pas_segregated_size_directory_get_bitfit_si
     uintptr_t result;
     PAS_TESTING_ASSERT(pas_segregated_size_directory_is_bitfit(directory));
     result = (uintptr_t)(directory + 1);
-    PAS_TESTING_ASSERT(pas_is_aligned(result, alignof(pas_bitfit_size_class)));
+    PAS_TESTING_ASSERT(pas_is_aligned(result, PAS_ALIGNOF(pas_bitfit_size_class)));
     return (pas_bitfit_size_class*)result;
 }
 
@@ -300,19 +300,13 @@ PAS_API void pas_segregated_size_directory_create_tlc_allocator(
 static inline bool pas_segregated_size_directory_has_tlc_allocator(
     pas_segregated_size_directory* directory)
 {
-    pas_segregated_size_directory_data* data;
-    data = pas_segregated_size_directory_data_ptr_load(&directory->data);
-    return data && data->allocator_index;
+    return directory->allocator_index;
 }
 
 static inline pas_allocator_index pas_segregated_size_directory_get_tlc_allocator_index(
     pas_segregated_size_directory* directory)
 {
-    pas_segregated_size_directory_data* data;
-    data = pas_segregated_size_directory_data_ptr_load(&directory->data);
-    if (data)
-        return data->allocator_index;
-    return 0;
+    return directory->allocator_index;
 }
 
 /* Call with heap lock held. */

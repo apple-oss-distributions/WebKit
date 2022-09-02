@@ -134,13 +134,14 @@ void PingLoad::willPerformHTTPRedirection(ResourceResponse&& redirectResponse, R
 {
     m_networkLoadChecker->checkRedirection(ResourceRequest { }, WTFMove(request), WTFMove(redirectResponse), nullptr, [this, completionHandler = WTFMove(completionHandler)] (auto&& result) mutable {
         if (!result.has_value()) {
-            completionHandler({ });
             this->didFinish(result.error());
+            completionHandler({ });
             return;
         }
         auto request = WTFMove(result->redirectRequest);
         if (!request.url().protocolIsInHTTPFamily()) {
             this->didFinish(ResourceError { String { }, 0, request.url(), "Redirection to URL with a scheme that is not HTTP(S)"_s, ResourceError::Type::AccessControl });
+            completionHandler({ });
             return;
         }
 
@@ -162,7 +163,7 @@ void PingLoad::didReceiveChallenge(AuthenticationChallenge&& challenge, Negotiat
     didFinish(ResourceError { String(), 0, currentURL(), "Failed HTTP authentication"_s, ResourceError::Type::AccessControl });
 }
 
-void PingLoad::didReceiveResponse(ResourceResponse&& response, NegotiatedLegacyTLS, ResponseCompletionHandler&& completionHandler)
+void PingLoad::didReceiveResponse(ResourceResponse&& response, NegotiatedLegacyTLS, PrivateRelayed, ResponseCompletionHandler&& completionHandler)
 {
     PING_RELEASE_LOG("didReceiveResponse - httpStatusCode=%d", response.httpStatusCode());
     WeakPtr weakThis { *this };

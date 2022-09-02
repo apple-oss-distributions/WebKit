@@ -1,4 +1,4 @@
-; Copyright (C) 2010-2021 Apple Inc. All rights reserved.
+; Copyright (C) 2010-2022 Apple Inc. All rights reserved.
 ;
 ; Redistribution and use in source and binary forms, with or without
 ; modification, are permitted provided that the following conditions
@@ -27,11 +27,19 @@
 (deny system-privilege)
 (allow system-audit file-read-metadata)
 
+;; We can remove the catch once we no longer need to support older macOS
+(catch (lambda)
+    (import "dyld-support.sb"))
+
 ;; Silence spurious logging due to rdar://20117923 and rdar://72366475
 (deny system-privilege (privilege-id PRIV_GLOBAL_PROC_INFO) (with no-report))
 
 #include "Shared/Sandbox/preferences.sb"
 
+#if ENABLE(SYSTEM_CONTENT_PATH_SANDBOX_RULES)
+#include <WebKitAdditions/SystemContentSandbox-macos.defs>
+#endif
+ 
 ;;;
 ;;; The following rules were originally contained in 'system.sb'. We are duplicating them here so we can
 ;;; remove unneeded sandbox extensions.
@@ -93,7 +101,7 @@
     (allow file-read* (with telemetry)
         (prefix "/private/var/db/CVMS/cvmsCodeSignObj"))
     ;; OpenCL
-    (allow iokit-open (with telemetry)
+    (allow iokit-open
         (iokit-connection "IOAccelerator")
         (iokit-registry-entry-class "IOSurfaceRootUserClient"))
     (deny iokit-open (with telemetry)
@@ -137,6 +145,7 @@
 (deny process-info*)
 (allow process-info-dirtycontrol (target self))
 (allow process-info-pidinfo)
+(allow process-info-rusage (target self))
 (allow process-info-setcontrol (target self))
 (allow process-codesigning-status*)
 
@@ -456,6 +465,10 @@
         (iokit-property "acoustic-id") ;; <rdar://problem/65290967>
     ))
 
+(with-filter (iokit-registry-entry-class "IOService")
+    (allow iokit-get-properties
+        (iokit-property "supports-advanced-vp-chatflavor")))
+
 (if (equal? (param "CPU") "arm64")
     (with-filter (iokit-registry-entry-class "IOService")
         (allow iokit-get-properties
@@ -484,15 +497,14 @@
                             "display-scale"))))
 
 (deny mach-lookup (xpc-service-name-prefix ""))
+(allow mach-lookup
+    (xpc-service-name "com.apple.audio.SandboxHelper"))
 (allow mach-lookup (with telemetry)
-    (xpc-service-name "com.apple.audio.SandboxHelper")
     (xpc-service-name "com.apple.coremedia.videodecoder")
-    (xpc-service-name "com.apple.coremedia.videoencoder")
-)
+    (xpc-service-name "com.apple.coremedia.videoencoder"))
 
-(allow mach-lookup (with telemetry)
-    (global-name "com.apple.accessibility.mediaaccessibilityd")
-)
+(allow mach-lookup
+    (global-name "com.apple.accessibility.mediaaccessibilityd"))
 
 ;; Utility functions for home directory relative path filters
 (define (home-regex home-relative-regex)
@@ -513,7 +525,7 @@
 (define (allow-read-write-directory-and-issue-read-write-extensions path)
     (if path
         (begin
-            (allow file-read* file-write* (with telemetry) (subpath path))
+            (allow file-read* file-write* (subpath path))
             (allow file-issue-extension (require-all (extension-class "com.apple.app-sandbox.read") (subpath path)))
             (allow file-issue-extension (require-all (extension-class "com.apple.app-sandbox.read-write") (subpath path))))))
 
@@ -618,7 +630,7 @@
     (allow-read-write-directory-and-issue-read-write-extensions (param "DARWIN_USER_TEMP_DIR")))
 
 ;; IOKit user clients
-(allow iokit-open (with telemetry)
+(allow iokit-open
     (iokit-user-client-class "AppleUpstreamUserClient")
     (iokit-user-client-class "RootDomainUserClient")
     (iokit-user-client-class "IOAudioControlUserClient")
@@ -634,8 +646,16 @@
 (allow ipc-posix-shm-read* ipc-posix-shm-write-data
     (ipc-posix-name-prefix "AudioIO"))
 
+#if HAVE(AUDIO_COMPONENT_SERVER_REGISTRATIONS) && ENABLE(AUDIO_COMPONENT_SERVER_REGISTRATIONS_IN_GPU_PROCESS)
+(deny mach-lookup (with no-log)
+    (global-name "com.apple.audio.AudioComponentRegistrar"))
+#else
 (allow mach-lookup
     (global-name "com.apple.audio.AudioComponentRegistrar"))
+#endif
+
+(deny mach-lookup (with no-log)
+    (xpc-service-name "com.apple.audio.toolbox.reporting.service"))
 
 #if !ENABLE(CFPREFS_DIRECT_MODE)
 (allow mach-lookup (with telemetry)
@@ -644,7 +664,15 @@
 #endif
 
 (allow mach-lookup
-    (global-name "com.apple.powerlog.plxpclogger.xpc"))
+    (require-all
+#if HAVE(POWERLOG_TASK_MODE_QUERY)
+        (extension "com.apple.webkit.extension.mach")
+#endif
+        (global-name "com.apple.powerlog.plxpclogger.xpc")))
+
+(with-filter (system-attribute apple-internal)
+    (allow mach-lookup
+        (global-name "com.apple.powerlog.plxpclogger.xpc")))
 
 (with-filter (uid 0)
     (allow mach-lookup
@@ -667,7 +695,7 @@
        (global-name "com.apple.trustd.agent")
        (global-name "com.apple.logd.events"))
 
-(allow mach-lookup (with telemetry)
+(allow mach-lookup
 #if !ENABLE(CFPREFS_DIRECT_MODE)
        (global-name "com.apple.cfprefsd.daemon")
 #endif
@@ -677,7 +705,7 @@
        (global-name "com.apple.tccd"))
 
 ;; <rdar://problem/47268166>
-(allow mach-lookup (with telemetry) (xpc-service-name "com.apple.MTLCompilerService"))
+(allow mach-lookup (xpc-service-name "com.apple.MTLCompilerService"))
 
 (deny mach-lookup (with no-log)
     (global-name "com.apple.CoreServices.coreservicesd")
@@ -731,7 +759,7 @@
 (allow file-read-data (path "/private/var/db/nsurlstoraged/dafsaData.bin"))
 
 #if PLATFORM(MAC)
-(allow mach-lookup (with telemetry)
+(allow mach-lookup
        (global-name "com.apple.system.notification_center"))
 #endif
 
@@ -851,15 +879,34 @@
         (iokit-user-client-class "IOUSBDeviceUserClientV2")
         (iokit-user-client-class "IOUSBInterfaceUserClientV2"))
     (allow device-camera))
+
 #endif // PLATFORM(MAC)
+
+#if HAVE(SC_CONTENT_SHARING_SESSION)
+(allow mach-lookup
+    (require-all
+        (extension "com.apple.webkit.extension.mach")
+        (global-name
+            "com.apple.replaykit.sharingsession.notification"
+            "com.apple.replaykit.sharingsession"
+            "com.apple.tccd.system"
+            "com.apple.replayd"
+        )
+    )
+)
+#endif
+
+(allow mach-lookup
+    (require-all
+        (extension "com.apple.webkit.extension.mach")
+        (global-name "com.apple.system.opendirectoryd.libinfo")))
 
 (allow mach-lookup (with telemetry)
     (global-name "com.apple.relatived.tempest")
 )
 
-(allow iokit-open (with telemetry)
-    (iokit-user-client-class "AppleAVDUserClient")
-)
+(allow iokit-open
+    (iokit-user-client-class "AppleAVDUserClient"))
 
 (when (equal? (param "CPU") "arm64")
     (allow iokit-open (with telemetry)
@@ -876,42 +923,59 @@
             (allow mach-message-send (with telemetry)))))
             
 (when (and (equal? (param "ENABLE_SANDBOX_MESSAGE_FILTER") "YES") (defined? 'syscall-mach))
-    (allow syscall-mach (with telemetry))
+    (deny syscall-mach (with telemetry))
     (allow syscall-mach (machtrap-number
         MSC__kernelrpc_mach_port_allocate_trap
         MSC__kernelrpc_mach_port_construct_trap
         MSC__kernelrpc_mach_port_deallocate_trap
         MSC__kernelrpc_mach_port_destruct_trap
         MSC__kernelrpc_mach_port_extract_member_trap
+        MSC__kernelrpc_mach_port_get_attributes_trap
         MSC__kernelrpc_mach_port_guard_trap
         MSC__kernelrpc_mach_port_insert_member_trap
         MSC__kernelrpc_mach_port_insert_right_trap
         MSC__kernelrpc_mach_port_mod_refs_trap
         MSC__kernelrpc_mach_port_request_notification_trap
         MSC__kernelrpc_mach_port_type_trap
+        MSC__kernelrpc_mach_port_unguard_trap
         MSC__kernelrpc_mach_vm_allocate_trap
         MSC__kernelrpc_mach_vm_deallocate_trap
         MSC__kernelrpc_mach_vm_map_trap
         MSC__kernelrpc_mach_vm_protect_trap
+        MSC__kernelrpc_mach_vm_purgable_control_trap
         MSC_host_create_mach_voucher_trap
         MSC_host_self_trap
+        MSC_iokit_user_client_trap
+        MSC_mach_generate_activity_id
         MSC_mach_msg_trap
         MSC_mach_reply_port
         MSC_mach_voucher_extract_attr_recipe_trap
+        MSC_mk_timer_arm
+        MSC_mk_timer_cancel
+        MSC_mk_timer_create
+        MSC_mk_timer_destroy
         MSC_pid_for_task
         MSC_semaphore_signal_trap
+        MSC_semaphore_timedwait_trap
         MSC_semaphore_wait_trap
         MSC_swtch_pri
         MSC_syscall_thread_switch
-        MSC_thread_get_special_reply_port)))
+        MSC_task_name_for_pid
+        MSC_task_self_trap
+        MSC_thread_get_special_reply_port))
+
+    (when (defined? 'MSC_mach_msg2_trap)
+        (allow syscall-mach
+            (machtrap-number MSC_mach_msg2_trap))))
 #endif // HAVE(SANDBOX_MESSAGE_FILTERING)
 
 (when (defined? 'syscall-unix)
-    (allow syscall-unix (with telemetry))
+    (deny syscall-unix (with telemetry))
     (allow syscall-unix (syscall-number
         SYS___channel_open
         SYS___disable_threadsignal
         SYS___mac_syscall
+        SYS___pthread_canceled
         SYS___pthread_kill
         SYS___pthread_sigmask
         SYS___semwait_signal
@@ -929,6 +993,7 @@
         SYS_fcntl
         SYS_fcntl_nocancel
         SYS_fgetxattr
+        SYS_fileport_makefd
         SYS_flock
         SYS_fsgetpath
         SYS_fstat
@@ -953,6 +1018,7 @@
         SYS_gettimeofday
         SYS_getuid
         SYS_getxattr
+        SYS_guarded_open_np
         SYS_issetugid
         SYS_kdebug_trace
         SYS_kdebug_trace64
@@ -996,8 +1062,13 @@
         SYS_readlink
         SYS_rename
         SYS_sendto
+        SYS_setrlimit
+        SYS_setsockopt
         SYS_sigaltstack
         SYS_sigprocmask
+#if !PLATFORM(MAC)
+        SYS_shared_region_map_and_slide_2_np
+#endif
         SYS_socket
         SYS_stat
         SYS_stat64
@@ -1009,5 +1080,5 @@
         SYS_work_interval_ctl
         SYS_workq_kernreturn)))
 
-(when (defined? 'SYS__map_with_linking_np)
-    (allow syscall-unix (syscall-number SYS__map_with_linking_np)))
+(when (defined? 'SYS_map_with_linking_np)
+    (allow syscall-unix (syscall-number SYS_map_with_linking_np)))

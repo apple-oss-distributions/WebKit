@@ -26,10 +26,11 @@
 
 #pragma once
 
-#if PLATFORM(IOS_FAMILY) && ENABLE(VIDEO_PRESENTATION_MODE)
+#if PLATFORM(IOS_FAMILY) && ENABLE(VIDEO_PRESENTATION_MODE) && !HAVE(PIP_CONTROLLER)
 
 #include "EventListener.h"
 #include "HTMLMediaElementEnums.h"
+#include "MediaPlayerIdentifier.h"
 #include "PlatformLayer.h"
 #include "PlaybackSessionInterfaceAVKit.h"
 #include "VideoFullscreenModel.h"
@@ -42,6 +43,7 @@
 #include <wtf/ThreadSafeRefCounted.h>
 #include <wtf/WeakPtr.h>
 
+OBJC_CLASS AVPlayerViewController;
 OBJC_CLASS UIViewController;
 OBJC_CLASS UIWindow;
 OBJC_CLASS UIView;
@@ -76,6 +78,7 @@ public:
     WEBCORE_EXPORT void hasVideoChanged(bool) final;
     WEBCORE_EXPORT void videoDimensionsChanged(const FloatSize&) final;
     WEBCORE_EXPORT void modelDestroyed() final;
+    WEBCORE_EXPORT void setPlayerIdentifier(std::optional<MediaPlayerIdentifier>) final;
 
     // PlaybackSessionModelClient
     WEBCORE_EXPORT void externalPlaybackChanged(bool enabled, PlaybackSessionModel::ExternalPlaybackTargetType, const String& localizedDeviceName) final;
@@ -154,10 +157,15 @@ public:
     void clearMode(HTMLMediaElementEnums::VideoFullscreenMode, bool shouldNotifyModel);
     bool hasMode(HTMLMediaElementEnums::VideoFullscreenMode mode) const { return m_currentMode.hasMode(mode); }
 
+#if PLATFORM(WATCHOS)
     UIViewController *presentingViewController();
     UIViewController *fullscreenViewController() const { return m_viewController.get(); }
+#endif
     WebAVPlayerLayerView* playerLayerView() const { return m_playerLayerView.get(); }
     WEBCORE_EXPORT bool pictureInPictureWasStartedWhenEnteringBackground() const;
+
+    std::optional<MediaPlayerIdentifier> playerIdentifier() const { return m_playerIdentifier; }
+    WEBCORE_EXPORT AVPlayerViewController *avPlayerViewController() const;
 
 protected:
     WEBCORE_EXPORT VideoFullscreenInterfaceAVKit(PlaybackSessionInterfaceAVKit&);
@@ -171,6 +179,7 @@ protected:
     WebAVPlayerController *playerController() const;
 
     Ref<PlaybackSessionInterfaceAVKit> m_playbackSessionInterface;
+    std::optional<MediaPlayerIdentifier> m_playerIdentifier;
     RetainPtr<WebAVPlayerViewControllerDelegate> m_playerViewControllerDelegate;
     RetainPtr<WebAVPlayerViewController> m_playerViewController;
     VideoFullscreenModel* m_videoFullscreenModel { nullptr };

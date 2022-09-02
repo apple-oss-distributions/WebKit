@@ -29,6 +29,7 @@
 #import "PlatformCAAnimationRemote.h"
 #import "PlatformCALayerRemote.h"
 #import "RemoteLayerTreeHost.h"
+#import "RemoteLayerTreeInteractionRegionLayers.h"
 #import <QuartzCore/QuartzCore.h>
 #import <WebCore/PlatformCAFilters.h>
 #import <WebCore/ScrollbarThemeMac.h>
@@ -120,7 +121,7 @@ static NSString *toCAFilterType(PlatformCALayer::FilterType type)
     case PlatformCALayer::Trilinear:
         return kCAFilterTrilinear;
     };
-    
+
     ASSERT_NOT_REACHED();
     return 0;
 }
@@ -130,8 +131,6 @@ static void updateCustomAppearance(CALayer *layer, GraphicsLayer::CustomAppearan
 #if HAVE(RUBBER_BANDING)
     switch (customAppearance) {
     case GraphicsLayer::CustomAppearance::None:
-    case GraphicsLayer::CustomAppearance::DarkBackdrop:
-    case GraphicsLayer::CustomAppearance::LightBackdrop:
         ScrollbarThemeMac::removeOverhangAreaBackground(layer);
         ScrollbarThemeMac::removeOverhangAreaShadow(layer);
         break;
@@ -291,6 +290,11 @@ void RemoteLayerTreePropertyApplier::applyPropertiesToLayer(CALayer *layer, Remo
     }
 #endif
 #endif
+
+#if ENABLE(INTERACTION_REGIONS_IN_EVENT_REGION)
+    if (properties.changedProperties & RemoteLayerTreeTransaction::EventRegionChanged)
+        updateLayersForInteractionRegions(layer, properties);
+#endif // ENABLE(INTERACTION_REGIONS_IN_EVENT_REGION)
 }
 
 void RemoteLayerTreePropertyApplier::applyProperties(RemoteLayerTreeNode& node, RemoteLayerTreeHost* layerTreeHost, const RemoteLayerTreeTransaction::LayerProperties& properties, const RelatedLayerMap& relatedLayers, RemoteLayerBackingStore::LayerContentsType layerContentsType)
@@ -328,18 +332,9 @@ void RemoteLayerTreePropertyApplier::applyHierarchyUpdates(RemoteLayerTreeNode& 
         return childNode && childNode->uiView();
     };
 
-    auto contentView = [&] {
-        if (properties.customAppearance == GraphicsLayer::CustomAppearance::LightBackdrop || properties.customAppearance == GraphicsLayer::CustomAppearance::DarkBackdrop) {
-            // This is a UIBackdropView, which should have children attached to
-            // its content view, not directly on its layers.
-            return [(_UIBackdropView *)node.uiView() contentView];
-        }
-        return node.uiView();
-    };
-
     if (hasViewChildren()) {
         ASSERT(node.uiView());
-        [contentView() _web_setSubviews:createNSArray(properties.children, [&] (auto& child) -> UIView * {
+        [node.uiView() _web_setSubviews:createNSArray(properties.children, [&] (auto& child) -> UIView * {
             auto* childNode = relatedLayers.get(child);
             ASSERT(childNode);
             if (!childNode)
@@ -351,7 +346,7 @@ void RemoteLayerTreePropertyApplier::applyHierarchyUpdates(RemoteLayerTreeNode& 
     }
 #endif
 
-    node.layer().sublayers = createNSArray(properties.children, [&] (auto& child) -> CALayer * {
+    auto sublayers = createNSArray(properties.children, [&] (auto& child) -> CALayer * {
         auto* childNode = relatedLayers.get(child);
         ASSERT(childNode);
         if (!childNode)
@@ -360,7 +355,13 @@ void RemoteLayerTreePropertyApplier::applyHierarchyUpdates(RemoteLayerTreeNode& 
         ASSERT(!childNode->uiView());
 #endif
         return childNode->layer();
-    }).get();
+    });
+
+#if ENABLE(INTERACTION_REGIONS_IN_EVENT_REGION)
+    appendInteractionRegionLayersForLayer(sublayers.get(), node.layer());
+#endif
+
+    node.layer().sublayers = sublayers.get();
 
     END_BLOCK_OBJC_EXCEPTIONS
 }
@@ -370,21 +371,10 @@ void RemoteLayerTreePropertyApplier::updateMask(RemoteLayerTreeNode& node, const
     if (!properties.changedProperties.contains(RemoteLayerTreeTransaction::MaskLayerChanged))
         return;
 
-    auto maskOwnerLayer = [&] {
-        CALayer *layer = node.layer();
-#if PLATFORM(IOS_FAMILY)
-        if (properties.customAppearance == GraphicsLayer::CustomAppearance::LightBackdrop || properties.customAppearance == GraphicsLayer::CustomAppearance::DarkBackdrop) {
-            // This is a UIBackdropView, which means any mask must be applied to the CABackdropLayer rather
-            // that the view's layer. The backdrop is the first layer child.
-            if (layer.sublayers.count && [layer.sublayers[0] isKindOfClass:[CABackdropLayer class]])
-                layer = layer.sublayers[0];
-        }
-#endif
-        return layer;
-    };
+    auto maskOwnerLayer = node.layer();
 
     if (!properties.maskLayerID) {
-        maskOwnerLayer().mask = nullptr;
+        maskOwnerLayer.mask = nullptr;
         return;
     }
 
@@ -396,7 +386,7 @@ void RemoteLayerTreePropertyApplier::updateMask(RemoteLayerTreeNode& node, const
     ASSERT(!maskLayer.superlayer);
     if (maskLayer.superlayer)
         return;
-    maskOwnerLayer().mask = maskLayer;
+    maskOwnerLayer.mask = maskLayer;
 }
 
 #if PLATFORM(IOS_FAMILY)

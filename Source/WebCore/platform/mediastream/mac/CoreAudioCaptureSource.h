@@ -51,15 +51,15 @@ class WebAudioSourceProviderAVFObjC;
 
 class CoreAudioCaptureSource : public RealtimeMediaSource {
 public:
-    static CaptureSourceOrError create(String&& deviceID, String&& hashSalt, const MediaConstraints*);
-    static CaptureSourceOrError createForTesting(String&& deviceID, String&& label, String&& hashSalt, const MediaConstraints*, BaseAudioSharedUnit& overrideUnit);
+    WEBCORE_EXPORT static CaptureSourceOrError create(String&& deviceID, String&& hashSalt, const MediaConstraints*, PageIdentifier);
+    static CaptureSourceOrError createForTesting(String&& deviceID, AtomString&& label, String&& hashSalt, const MediaConstraints*, BaseAudioSharedUnit& overrideUnit, PageIdentifier);
 
     WEBCORE_EXPORT static AudioCaptureFactory& factory();
 
     CMClockRef timebaseClock();
 
 protected:
-    CoreAudioCaptureSource(String&& deviceID, String&& label, String&& hashSalt, uint32_t persistentID, BaseAudioSharedUnit* = nullptr);
+    CoreAudioCaptureSource(String&& deviceID, AtomString&& label, String&& hashSalt, uint32_t persistentID, BaseAudioSharedUnit*, PageIdentifier);
     virtual ~CoreAudioCaptureSource();
     BaseAudioSharedUnit& unit();
     const BaseAudioSharedUnit& unit() const;
@@ -74,7 +74,6 @@ private:
     void stopProducingData() final;
 
     void delaySamples(Seconds) final;
-    void setInterruptedForTesting(bool) final;
 
     std::optional<Vector<int>> discreteSampleRates() const final { return { { 8000, 16000, 32000, 44100, 48000, 96000 } }; }
 
@@ -129,14 +128,14 @@ public:
     WEBCORE_EXPORT void whenAudioCaptureUnitIsNotRunning(Function<void()>&&);
 
 private:
-    CaptureSourceOrError createAudioCaptureSource(const CaptureDevice&, String&&, const MediaConstraints*) override;
+    CaptureSourceOrError createAudioCaptureSource(const CaptureDevice&, String&&, const MediaConstraints*, PageIdentifier) override;
     CaptureDeviceManager& audioCaptureDeviceManager() final;
     const Vector<CaptureDevice>& speakerDevices() const final;
 };
 
-inline CaptureSourceOrError CoreAudioCaptureSourceFactory::createAudioCaptureSource(const CaptureDevice& device, String&& hashSalt, const MediaConstraints* constraints)
+inline CaptureSourceOrError CoreAudioCaptureSourceFactory::createAudioCaptureSource(const CaptureDevice& device, String&& hashSalt, const MediaConstraints* constraints, PageIdentifier pageIdentifier)
 {
-    return CoreAudioCaptureSource::create(String { device.persistentId() }, WTFMove(hashSalt), constraints);
+    return CoreAudioCaptureSource::create(String { device.persistentId() }, WTFMove(hashSalt), constraints, pageIdentifier);
 }
 
 } // namespace WebCore
