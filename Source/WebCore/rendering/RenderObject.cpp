@@ -120,7 +120,9 @@ struct SameSizeAsRenderObject {
     unsigned m_bitfields;
 };
 
+#if CPU(ADDRESS64)
 static_assert(sizeof(RenderObject) == sizeof(SameSizeAsRenderObject), "RenderObject should stay small");
+#endif
 
 DEFINE_DEBUG_ONLY_GLOBAL(WTF::RefCountedLeakCounter, renderObjectCounter, ("RenderObject"));
 
@@ -459,19 +461,6 @@ RenderLayer* RenderObject::enclosingLayer() const
             return renderer.layer();
     }
     return nullptr;
-}
-
-bool RenderObject::scrollRectToVisible(const LayoutRect& absoluteRect, bool insideFixed, const ScrollRectToVisibleOptions& options)
-{
-    if (options.revealMode == SelectionRevealMode::DoNotReveal)
-        return false;
-
-    RenderLayer* enclosingLayer = this->enclosingLayer();
-    if (!enclosingLayer)
-        return false;
-
-    enclosingLayer->scrollRectToVisible(absoluteRect, insideFixed, options);
-    return true;
 }
 
 RenderBox& RenderObject::enclosingBox() const

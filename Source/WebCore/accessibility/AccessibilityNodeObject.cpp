@@ -126,7 +126,7 @@ void AccessibilityNodeObject::updateRole()
     m_role = determineAccessibilityRole();
     if (previousRole != m_role) {
         if (auto* cache = axObjectCache())
-            cache->handleRoleChange(this);
+            cache->handleRoleChanged(this);
     }
 }
 
@@ -447,6 +447,20 @@ bool AccessibilityNodeObject::isDescendantOfElementType(const HashSet<QualifiedN
     return false;
 }
 
+void AccessibilityNodeObject::updateChildrenIfNecessary()
+{
+    if (needsToUpdateChildren())
+        clearChildren();
+
+    AccessibilityObject::updateChildrenIfNecessary();
+}
+
+void AccessibilityNodeObject::clearChildren()
+{
+    AccessibilityObject::clearChildren();
+    m_childrenDirty = false;
+}
+
 void AccessibilityNodeObject::addChildren()
 {
     // If the need to add more children in addition to existing children arises, 
@@ -554,11 +568,6 @@ bool AccessibilityNodeObject::canvasHasFallbackContent() const
     return childrenOfType<Element>(canvasElement).first();
 }
 
-bool AccessibilityNodeObject::isImageButton() const
-{
-    return isNativeImage() && isButton();
-}
-
 bool AccessibilityNodeObject::isNativeTextControl() const
 {
     Node* node = this->node();
@@ -637,25 +646,6 @@ bool AccessibilityNodeObject::isPasswordField() const
         return false;
 
     return downcast<HTMLInputElement>(*node).isPasswordField();
-}
-
-AccessibilityObject* AccessibilityNodeObject::passwordFieldOrContainingPasswordField()
-{
-    Node* node = this->node();
-    if (!node)
-        return nullptr;
-
-    if (is<HTMLInputElement>(*node) && downcast<HTMLInputElement>(*node).isPasswordField())
-        return this;
-
-    auto* element = node->shadowHost();
-    if (!is<HTMLInputElement>(element))
-        return nullptr;
-
-    if (auto* cache = axObjectCache())
-        return cache->getOrCreate(element);
-
-    return nullptr;
 }
 
 bool AccessibilityNodeObject::isInputImage() const
@@ -1202,9 +1192,9 @@ bool AccessibilityNodeObject::isDescendantOfBarrenParent() const
     return false;
 }
 
-void AccessibilityNodeObject::alterSliderValue(bool increase)
+void AccessibilityNodeObject::alterRangeValue(StepAction stepAction)
 {
-    if (roleValue() != AccessibilityRole::Slider)
+    if (roleValue() != AccessibilityRole::Slider && roleValue() != AccessibilityRole::SpinButton)
         return;
     
     auto element = this->element();
@@ -1212,21 +1202,21 @@ void AccessibilityNodeObject::alterSliderValue(bool increase)
         return;
 
     if (!getAttribute(stepAttr).isEmpty())
-        changeValueByStep(increase);
+        changeValueByStep(stepAction);
     else
-        changeValueByPercent(increase ? 5 : -5);
+        changeValueByPercent(stepAction == StepAction::Increment ? 5 : -5);
 }
     
 void AccessibilityNodeObject::increment()
 {
     UserGestureIndicator gestureIndicator(ProcessingUserGesture, document());
-    alterSliderValue(true);
+    alterRangeValue(StepAction::Increment);
 }
 
 void AccessibilityNodeObject::decrement()
 {
     UserGestureIndicator gestureIndicator(ProcessingUserGesture, document());
-    alterSliderValue(false);
+    alterRangeValue(StepAction::Decrement);
 }
 
 static bool dispatchSimulatedKeyboardUpDownEvent(AccessibilityObject* object, const KeyboardEvent::Init& keyInit)
@@ -1273,24 +1263,28 @@ bool AccessibilityNodeObject::performDismissAction()
 }
 
 // Fire a keyboard event if we were not able to set this value natively.
-bool AccessibilityNodeObject::postKeyboardKeysForValueChange(bool increase)
+bool AccessibilityNodeObject::postKeyboardKeysForValueChange(StepAction stepAction)
 {
     auto keyInit = KeyboardEvent::Init();
-    bool vertical = orientation() == AccessibilityOrientation::Vertical;
     bool isLTR = page()->userInterfaceLayoutDirection() == UserInterfaceLayoutDirection::LTR;
-    
+    // https://w3c.github.io/aria/#spinbutton
+    // `spinbutton` elements don't have an implicit orientation, but the spec does say:
+    //     > Authors SHOULD also ensure the up and down arrows on a keyboard perform the increment and decrement functions
+    // So let's force a vertical orientation for `spinbutton`s so we simulate the correct keypress (either up or down).
+    bool vertical = orientation() == AccessibilityOrientation::Vertical || roleValue() == AccessibilityRole::SpinButton;
+
     // The goal is to mimic existing keyboard dispatch completely, so that this is indistinguishable from a real key press.
     typedef enum { left = 37, up = 38, right = 39, down = 40 } keyCode;
-    keyInit.key = increase ? (vertical ? "ArrowUp"_s : (isLTR ? "ArrowRight"_s : "ArrowLeft"_s)) : (vertical ? "ArrowDown"_s : (isLTR ? "ArrowLeft"_s : "ArrowRight"_s));
-    keyInit.keyCode = increase ? (vertical ? keyCode::up : (isLTR ? keyCode::right : keyCode::left)) : (vertical ? keyCode::down : (isLTR ? keyCode::left : keyCode::right));
-    keyInit.keyIdentifier = increase ? (vertical ? "Up"_s : (isLTR ? "Right"_s : "Left"_s)) : (vertical ? "Down"_s : (isLTR ? "Left"_s : "Right"_s));
+    keyInit.key = stepAction == StepAction::Increment ? (vertical ? "ArrowUp"_s : (isLTR ? "ArrowRight"_s : "ArrowLeft"_s)) : (vertical ? "ArrowDown"_s : (isLTR ? "ArrowLeft"_s : "ArrowRight"_s));
+    keyInit.keyCode = stepAction == StepAction::Increment ? (vertical ? keyCode::up : (isLTR ? keyCode::right : keyCode::left)) : (vertical ? keyCode::down : (isLTR ? keyCode::left : keyCode::right));
+    keyInit.keyIdentifier = stepAction == StepAction::Increment ? (vertical ? "Up"_s : (isLTR ? "Right"_s : "Left"_s)) : (vertical ? "Down"_s : (isLTR ? "Left"_s : "Right"_s));
 
     InitializeLegacyKeyInitProperties(keyInit, *this);
 
     return dispatchSimulatedKeyboardUpDownEvent(this, keyInit);
 }
 
-void AccessibilityNodeObject::setNodeValue(bool increase, float value)
+void AccessibilityNodeObject::setNodeValue(StepAction stepAction, float value)
 {
     bool didSet = setValue(String::number(value));
     
@@ -1298,20 +1292,23 @@ void AccessibilityNodeObject::setNodeValue(bool increase, float value)
         if (auto* cache = axObjectCache())
             cache->postNotification(this, document(), AXObjectCache::AXValueChanged);
     } else
-        postKeyboardKeysForValueChange(increase);
+        postKeyboardKeysForValueChange(stepAction);
 }
 
-void AccessibilityNodeObject::changeValueByStep(bool increase)
+void AccessibilityNodeObject::changeValueByStep(StepAction stepAction)
 {
     float step = stepValueForRange();
     float value = valueForRange();
 
-    value += increase ? step : -step;
-    setNodeValue(increase, value);
+    value += stepAction == StepAction::Increment ? step : -step;
+    setNodeValue(stepAction, value);
 }
 
 void AccessibilityNodeObject::changeValueByPercent(float percentChange)
 {
+    if (!percentChange)
+        return;
+
     float range = maxValueForRange() - minValueForRange();
     float step = range * (percentChange / 100);
     float value = valueForRange();
@@ -1321,7 +1318,7 @@ void AccessibilityNodeObject::changeValueByPercent(float percentChange)
         step = std::abs(percentChange) * (1 / percentChange);
 
     value += step;
-    setNodeValue(percentChange > 0, value);
+    setNodeValue(percentChange > 0 ? StepAction::Increment : StepAction::Decrement, value);
 }
 
 bool AccessibilityNodeObject::elementAttributeValue(const QualifiedName& attributeName) const
@@ -2223,6 +2220,9 @@ String AccessibilityNodeObject::text() const
             return textOrder[0].text;
     }
 
+    if (isStaticText())
+        return textUnderElement();
+    
     if (!isTextControl())
         return String();
 
@@ -2428,6 +2428,58 @@ bool AccessibilityNodeObject::hasAttributesRequiredForInclusion() const
         return true;
 
     return false;
+}
+
+bool AccessibilityNodeObject::isFocused() const
+{
+    if (!m_node)
+        return false;
+
+    auto& document = m_node->document();
+    auto* focusedElement = document.focusedElement();
+    if (!focusedElement)
+        return false;
+
+    // A web area is represented by the Document node in the DOM tree, which isn't focusable.
+    // Check instead if the frame's selection controller is focused
+    if (focusedElement == m_node
+        || (roleValue() == AccessibilityRole::WebArea && document.frame()->selection().isFocusedAndActive()))
+        return true;
+
+    return false;
+}
+
+void AccessibilityNodeObject::setFocused(bool on)
+{
+    // Call the base class setFocused to ensure the view is focused and active.
+    AccessibilityObject::setFocused(on);
+
+    if (!canSetFocusAttribute())
+        return;
+
+    auto* document = this->document();
+    if (!on || !is<Element>(m_node)) {
+        document->setFocusedElement(nullptr);
+        return;
+    }
+
+    // When a node is told to set focus, that can cause it to be deallocated, which means that doing
+    // anything else inside this object will crash. To fix this, we added a RefPtr to protect this object
+    // long enough for duration.
+    RefPtr<AccessibilityObject> protectedThis(this);
+
+    // If this node is already the currently focused node, then calling focus() won't do anything.
+    // That is a problem when focus is removed from the webpage to chrome, and then returns.
+    // In these cases, we need to do what keyboard and mouse focus do, which is reset focus first.
+    if (document->focusedElement() == m_node)
+        document->setFocusedElement(nullptr);
+
+    // If we return from setFocusedElement and our element has been removed from a tree, axObjectCache() may be null.
+    if (auto* cache = axObjectCache()) {
+        cache->setIsSynchronizingSelection(true);
+        downcast<Element>(*m_node).focus();
+        cache->setIsSynchronizingSelection(false);
+    }
 }
 
 bool AccessibilityNodeObject::canSetFocusAttribute() const

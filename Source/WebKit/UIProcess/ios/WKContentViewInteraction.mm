@@ -141,6 +141,7 @@
 #import <pal/spi/cocoa/LaunchServicesSPI.h>
 #import <pal/spi/cocoa/NSAttributedStringSPI.h>
 #import <pal/spi/cocoa/QuartzCoreSPI.h>
+#import <pal/spi/ios/BarcodeSupportSPI.h>
 #import <pal/spi/ios/DataDetectorsUISPI.h>
 #import <pal/spi/ios/GraphicsServicesSPI.h>
 #import <pal/spi/ios/ManagedConfigurationSPI.h>
@@ -1667,7 +1668,26 @@ typedef NS_ENUM(NSInteger, EndEditingReason) {
     }
 
     [self _cancelInteraction];
-    [_textInteractionAssistant deactivateSelection];
+
+    BOOL shouldDeactivateSelection = [&]() -> BOOL {
+#if PLATFORM(MACCATALYST)
+        if (reason == EndEditingReasonResigningFirstResponder) {
+            // This logic is based on a similar check on macOS (in WebViewImpl::resignFirstResponder()) to
+            // maintain the active selection when resigning first responder, if the new responder is in a
+            // modal popover or panel.
+            // FIXME: Ideally, this would additionally check that the new first responder corresponds to
+            // a view underneath this view controller; however, there doesn't seem to be any way of doing
+            // so at the moment. In lieu of this, we can at least check that the web view itself isn't
+            // inside the popover.
+            auto *controller = [UIViewController _viewControllerForFullScreenPresentationFromView:self];
+            return [self isDescendantOfView:controller.viewIfLoaded] || controller.modalPresentationStyle != UIModalPresentationPopover;
+        }
+#endif // PLATFORM(MACCATALYST)
+        return YES;
+    }();
+
+    if (shouldDeactivateSelection)
+        [_textInteractionAssistant deactivateSelection];
 
     [self _resetInputViewDeferral];
 }
@@ -1848,9 +1868,6 @@ typedef NS_ENUM(NSInteger, EndEditingReason) {
 
 #if HAVE(UIKIT_WITH_MOUSE_SUPPORT)
     if (gestureRecognizer != _mouseGestureRecognizer && [_mouseGestureRecognizer mouseTouch] == touch && touch._isPointerTouch)
-        return NO;
-    
-    if (gestureRecognizer != _alternateMouseGestureRecognizer && [_alternateMouseGestureRecognizer mouseTouch] == touch)
         return NO;
 
     if (gestureRecognizer == _doubleTapGestureRecognizer || gestureRecognizer == _nonBlockingDoubleTapGestureRecognizer)
@@ -10522,6 +10539,11 @@ static RetainPtr<NSItemProvider> createItemProvider(const WebKit::WebPageProxy& 
 
 - (BOOL)supportsTextReplacement
 {
+    return self.webView.supportsTextReplacement;
+}
+
+- (BOOL)supportsTextReplacementForWebView
+{
     return self.webView._editable;
 }
 
@@ -10919,6 +10941,19 @@ static RetainPtr<NSItemProvider> createItemProvider(const WebKit::WebPageProxy& 
     } forRequest:request];
 }
 
+#if ENABLE(IMAGE_ANALYSIS_FOR_MACHINE_READABLE_CODES)
+static BOOL shouldUseMachineReadableCodeMenuFromImageAnalysisResult(CocoaImageAnalysis *result)
+{
+#if HAVE(BCS_LIVE_CAMERA_ONLY_ACTION_SPI)
+    return [result.barcodeActions indexOfObjectPassingTest:^BOOL(BCSAction *action, NSUInteger index, BOOL *stop) {
+        return [action respondsToSelector:@selector(isLiveCameraOnlyAction)] && [(id)action isLiveCameraOnlyAction];
+    }] == NSNotFound;
+#else // not HAVE(BCS_LIVE_CAMERA_ONLY_ACTION_SPI)
+    return YES;
+#endif // HAVE(BCS_LIVE_CAMERA_ONLY_ACTION_SPI)
+}
+#endif // ENABLE(IMAGE_ANALYSIS_FOR_MACHINE_READABLE_CODES)
+
 - (void)_completeImageAnalysisRequestForContextMenu:(CGImageRef)image requestIdentifier:(WebKit::ImageAnalysisRequestIdentifier)requestIdentifier hasTextResults:(BOOL)hasTextResults
 {
     _waitingForDynamicImageAnalysisContextMenuActions = YES;
@@ -10996,7 +11031,8 @@ static RetainPtr<NSItemProvider> createItemProvider(const WebKit::WebPageProxy& 
             return;
 
 #if ENABLE(IMAGE_ANALYSIS_FOR_MACHINE_READABLE_CODES)
-        data->machineReadableCodeMenu = result.mrcMenu;
+        if (shouldUseMachineReadableCodeMenuFromImageAnalysisResult(result))
+            data->machineReadableCodeMenu = result.mrcMenu;
 #endif
 #if USE(QUICK_LOOK)
         data->hasVisualSearchResults = hasVisualSearchResults;

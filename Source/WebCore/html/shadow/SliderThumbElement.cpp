@@ -204,11 +204,6 @@ bool SliderThumbElement::matchesReadWritePseudoClass() const
     return input && input->matchesReadWritePseudoClass();
 }
 
-RefPtr<Element> SliderThumbElement::focusDelegate()
-{
-    return hostInput();
-}
-
 void SliderThumbElement::dragFrom(const LayoutPoint& point)
 {
     Ref<SliderThumbElement> protectedThis(*this);
@@ -474,7 +469,7 @@ void SliderThumbElement::handleTouchEvent(TouchEvent& touchEvent)
 {
     auto input = hostInput();
     ASSERT(input);
-    if (input->isReadOnly() || input->isDisabledFormControl()) {
+    if (!input->isMutable()) {
         clearExclusiveTouchIdentifier();
         stopDragging();
         touchEvent.setDefaultHandled();

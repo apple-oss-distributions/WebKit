@@ -750,6 +750,15 @@ void NetworkProcess::setNotifyPagesWhenDataRecordsWereScanned(PAL::SessionID ses
     }
 }
 
+void NetworkProcess::setResourceLoadStatisticsTimeAdvanceForTesting(PAL::SessionID sessionID, Seconds time, CompletionHandler<void()>&& completionHandler)
+{
+    if (auto* session = networkSession(sessionID)) {
+        if (auto* resourceLoadStatistics = session->resourceLoadStatistics())
+            return resourceLoadStatistics->setTimeAdvanceForTesting(time, WTFMove(completionHandler));
+    }
+    completionHandler();
+}
+
 void NetworkProcess::setIsRunningResourceLoadStatisticsTest(PAL::SessionID sessionID, bool value, CompletionHandler<void()>&& completionHandler)
 {
     if (auto* session = networkSession(sessionID)) {
@@ -2399,6 +2408,17 @@ void NetworkProcess::getOriginsWithPushAndNotificationPermissions(PAL::SessionID
 #if ENABLE(BUILT_IN_NOTIFICATIONS)
     if (auto* session = networkSession(sessionID)) {
         session->notificationManager().getOriginsWithPushAndNotificationPermissions(WTFMove(callback));
+        return;
+    }
+#endif
+    callback({ });
+}
+
+void NetworkProcess::getOriginsWithPushSubscriptions(PAL::SessionID sessionID, CompletionHandler<void(const Vector<WebCore::SecurityOriginData>&)>&& callback)
+{
+#if ENABLE(BUILT_IN_NOTIFICATIONS)
+    if (auto* session = networkSession(sessionID)) {
+        session->notificationManager().getOriginsWithPushSubscriptions(WTFMove(callback));
         return;
     }
 #endif

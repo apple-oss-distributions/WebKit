@@ -404,7 +404,9 @@ CompletionHandlerCallingScope HTMLSelectElement::optionToSelectFromChildChangeSc
 
 void HTMLSelectElement::childrenChanged(const ChildChange& change)
 {
-    if (!change.affectsElements()) {
+    ASSERT(change.affectsElements != ChildChange::AffectsElements::Unknown);
+
+    if (change.affectsElements == ChildChange::AffectsElements::No) {
         HTMLFormControlElementWithState::childrenChanged(change);
         return;
     }

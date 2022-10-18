@@ -59,8 +59,10 @@ std::unique_ptr<ServiceWorkerFetchTask> ServiceWorkerFetchTask::fromNavigationPr
         return nullptr;
 
     auto task = session ? session->navigationPreloaderTaskFromFetchIdentifier(*loader.parameters().navigationPreloadIdentifier) : nullptr;
-    if (!task || !task->m_preloader || task->m_isLoadingFromPreloader)
+    if (!task || !task->m_preloader || task->m_isLoadingFromPreloader) {
+        RELEASE_LOG_ERROR(ServiceWorker, "Unable to retrieve preloader, load will go to the network");
         return nullptr;
+    }
 
     auto preload = std::exchange(task->m_preloader, { });
     return makeUnique<ServiceWorkerFetchTask>(swServerConnection, loader, WTFMove(preload));
@@ -85,15 +87,19 @@ ServiceWorkerFetchTask::ServiceWorkerFetchTask(WebSWServerConnection& swServerCo
     , m_serverConnectionIdentifier(serverConnectionIdentifier)
     , m_serviceWorkerIdentifier(serviceWorkerIdentifier)
     , m_currentRequest(WTFMove(request))
-    , m_timeoutTimer(makeUnique<Timer>(*this, &ServiceWorkerFetchTask::timeoutTimerFired))
     , m_serviceWorkerRegistrationIdentifier(registration.identifier())
     , m_shouldSoftUpdate(registration.shouldSoftUpdate(loader.parameters().options))
 {
     SWFETCH_RELEASE_LOG("ServiceWorkerFetchTask: (serverConnectionIdentifier=%" PRIu64 ", serviceWorkerRegistrationIdentifier=%" PRIu64 ", serviceWorkerIdentifier=%" PRIu64 ", %d)", m_serverConnectionIdentifier.toUInt64(), m_serviceWorkerRegistrationIdentifier.toUInt64(), m_serviceWorkerIdentifier.toUInt64(), isWorkerReady);
 
-    m_timeoutTimer->startOneShot(loader.connectionToWebProcess().networkProcess().serviceWorkerFetchTimeout());
+    // We only do the timeout logic for main document navigations because it is not Web-compatible to do so for subresources.
+    if (loader.parameters().request.requester() == WebCore::ResourceRequest::Requester::Main) {
+        m_timeoutTimer = makeUnique<Timer>(*this, &ServiceWorkerFetchTask::timeoutTimerFired);
+        m_timeoutTimer->startOneShot(loader.connectionToWebProcess().networkProcess().serviceWorkerFetchTimeout());
+    }
 
-    bool shouldDoNavigationPreload = session && isNavigationRequest(loader.parameters().options.destination) && loader.originalRequest().httpMethod() == "GET"_s;
+    bool shouldDoNavigationPreload = session && isNavigationRequest(loader.parameters().options.destination) && m_currentRequest.httpMethod() == "GET"_s;
+
     if (shouldDoNavigationPreload && (!isWorkerReady || registration.navigationPreloadState().enabled)) {
         NetworkLoadParameters parameters = loader.parameters();
         parameters.request = m_currentRequest;
@@ -438,7 +444,7 @@ void ServiceWorkerFetchTask::loadBodyFromPreloader()
     ASSERT(m_isLoadingFromPreloader);
     if (!m_preloader) {
         SWFETCH_RELEASE_LOG_ERROR("loadBodyFromPreloader preloader is null");
-        didFail(ResourceError(errorDomainWebKitInternal, 0, m_loader.originalRequest().url(), "Request canceled from preloader"_s, ResourceError::Type::Cancellation));
+        didFail(ResourceError(errorDomainWebKitInternal, 0, m_currentRequest.url(), "Request canceled from preloader"_s, ResourceError::Type::Cancellation));
         return;
     }
 

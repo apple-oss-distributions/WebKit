@@ -75,6 +75,7 @@ class CertificateInfo;
 class RegistrableDomain;
 class SecurityOrigin;
 class LocalWebLockRegistry;
+class PrivateClickMeasurement;
 
 struct MockWebAuthenticationConfiguration;
 struct NotificationData;
@@ -153,6 +154,7 @@ public:
     void isResourceLoadStatisticsEphemeral(CompletionHandler<void(bool)>&&) const;
 
     void setPrivateClickMeasurementDebugMode(bool);
+    void storePrivateClickMeasurement(const WebCore::PrivateClickMeasurement&);
 
     uint64_t perOriginStorageQuota() const { return m_resolvedConfiguration->perOriginStorageQuota(); }
     uint64_t perThirdPartyOriginStorageQuota() const;
@@ -208,6 +210,7 @@ public:
     void mergeStatisticForTesting(const URL&, const URL& topFrameUrl1, const URL& topFrameUrl2, Seconds lastSeen, bool hadUserInteraction, Seconds mostRecentUserInteraction, bool isGrandfathered, bool isPrevalent, bool isVeryPrevalent, unsigned dataRecordsRemoved, CompletionHandler<void()>&&);
     void insertExpiredStatisticForTesting(const URL&, unsigned numberOfOperatingDaysPassed, bool hadUserInteraction, bool isScheduledForAllButCookieDataRemoval, bool isPrevalent, CompletionHandler<void()>&&);
     void setNotifyPagesWhenDataRecordsWereScanned(bool, CompletionHandler<void()>&&);
+    void setResourceLoadStatisticsTimeAdvanceForTesting(Seconds, CompletionHandler<void()>&&);
     void setIsRunningResourceLoadStatisticsTest(bool, CompletionHandler<void()>&&);
     void setPruneEntriesDownTo(size_t, CompletionHandler<void()>&&);
     void setSubframeUnderTopFrameDomain(const URL& subframe, const URL& topFrame, CompletionHandler<void()>&&);
@@ -345,8 +348,8 @@ public:
     static WTF::String defaultAlternativeServicesDirectory();
     static WTF::String defaultApplicationCacheDirectory();
     static WTF::String defaultWebSQLDatabaseDirectory();
-#if USE(GLIB)
-    static WTF::String defaultHSTSDirectory();
+#if USE(GLIB) || PLATFORM(COCOA)
+    static WTF::String defaultHSTSStorageDirectory();
 #endif
 #if ENABLE(ARKIT_INLINE_PREVIEW)
     static WTF::String defaultModelElementCacheDirectory();

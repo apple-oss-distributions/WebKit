@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2011-2021 Apple Inc. All rights reserved.
+ * Copyright (C) 2011-2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -10999,7 +10999,7 @@ void SpeculativeJIT::compileCallDOM(Node* node)
 
     // FIXME: Revisit JSGlobalObject.
     // https://bugs.webkit.org/show_bug.cgi?id=203204
-    auto function = CFunctionPtr(signature->functionWithoutTypeCheck);
+    auto function = signature->functionWithoutTypeCheck();
     unsigned argumentCountIncludingThis = signature->argumentCount + 1;
     switch (argumentCountIncludingThis) {
     case 1:
@@ -11042,7 +11042,7 @@ void SpeculativeJIT::compileCallDOMGetter(Node* node)
         if (Options::useJITCage())
             m_jit.appendCall(vmEntryCustomGetter);
         else {
-            FunctionPtr<OperationPtrTag> bypassedFunction = FunctionPtr<OperationPtrTag>(MacroAssemblerCodePtr<OperationPtrTag>(WTF::tagNativeCodePtrImpl<OperationPtrTag>(WTF::untagNativeCodePtrImpl<CustomAccessorPtrTag>(getter.executableAddress()))));
+            FunctionPtr<OperationPtrTag> bypassedFunction = MacroAssemblerCodePtr<OperationPtrTag>(WTF::tagNativeCodePtrImpl<OperationPtrTag>(WTF::untagNativeCodePtrImpl<CustomAccessorPtrTag>(getter.executableAddress()))).toFunctionPtr();
             m_jit.appendOperationCall(bypassedFunction);
         }
         m_jit.setupResults(resultRegs);
@@ -13322,6 +13322,70 @@ void SpeculativeJIT::compileStringReplace(Node* node)
     bool sample = false;
     if (sample)
         m_jit.incrementSuperSamplerCount();
+    auto scopeExit = WTF::makeScopeExit([&] {
+        if (sample)
+            m_jit.decrementSuperSamplerCount();
+    });
+
+    if (node->op() == StringReplace
+        && node->child1().useKind() == StringUse
+        && node->child2().useKind() == StringUse
+        && node->child3().useKind() == StringUse) {
+        String replacement = node->child3()->tryGetString(m_graph);
+        if (!!replacement) {
+            if (!replacement.length()) {
+                SpeculateCellOperand string(this, node->child1());
+                SpeculateCellOperand search(this, node->child2());
+                GPRReg stringGPR = string.gpr();
+                GPRReg searchGPR = search.gpr();
+                speculateString(node->child1(), stringGPR);
+                speculateString(node->child2(), searchGPR);
+
+                flushRegisters();
+                GPRFlushedCallResult result(this);
+                callOperation(operationStringReplaceStringEmptyString, result.gpr(), JITCompiler::LinkableConstant(m_jit, m_graph.globalObjectFor(node->origin.semantic)), stringGPR, searchGPR);
+                m_jit.exceptionCheck();
+                cellResult(result.gpr(), node);
+                return;
+            }
+
+            if (replacement.find('$') == notFound) {
+                SpeculateCellOperand string(this, node->child1());
+                SpeculateCellOperand search(this, node->child2());
+                SpeculateCellOperand replace(this, node->child3());
+                GPRReg stringGPR = string.gpr();
+                GPRReg searchGPR = search.gpr();
+                GPRReg replaceGPR = replace.gpr();
+                speculateString(node->child1(), stringGPR);
+                speculateString(node->child2(), searchGPR);
+                speculateString(node->child3(), replaceGPR);
+
+                flushRegisters();
+                GPRFlushedCallResult result(this);
+                callOperation(operationStringReplaceStringStringWithoutSubstitution, result.gpr(), JITCompiler::LinkableConstant(m_jit, m_graph.globalObjectFor(node->origin.semantic)), stringGPR, searchGPR, replaceGPR);
+                m_jit.exceptionCheck();
+                cellResult(result.gpr(), node);
+                return;
+            }
+        }
+
+        SpeculateCellOperand string(this, node->child1());
+        SpeculateCellOperand search(this, node->child2());
+        SpeculateCellOperand replace(this, node->child3());
+        GPRReg stringGPR = string.gpr();
+        GPRReg searchGPR = search.gpr();
+        GPRReg replaceGPR = replace.gpr();
+        speculateString(node->child1(), stringGPR);
+        speculateString(node->child2(), searchGPR);
+        speculateString(node->child3(), replaceGPR);
+
+        flushRegisters();
+        GPRFlushedCallResult result(this);
+        callOperation(operationStringReplaceStringString, result.gpr(), JITCompiler::LinkableConstant(m_jit, m_graph.globalObjectFor(node->origin.semantic)), stringGPR, searchGPR, replaceGPR);
+        m_jit.exceptionCheck();
+        cellResult(result.gpr(), node);
+        return;
+    }
 
     if (node->child1().useKind() == StringUse
         && node->child2().useKind() == RegExpObjectUse
@@ -13340,8 +13404,6 @@ void SpeculativeJIT::compileStringReplace(Node* node)
                 callOperation(operationStringProtoFuncReplaceRegExpEmptyStr, result.gpr(), JITCompiler::LinkableConstant(m_jit, m_graph.globalObjectFor(node->origin.semantic)), stringGPR, regExpGPR);
                 m_jit.exceptionCheck();
                 cellResult(result.gpr(), node);
-                if (sample)
-                    m_jit.decrementSuperSamplerCount();
                 return;
             }
         }
@@ -13361,8 +13423,6 @@ void SpeculativeJIT::compileStringReplace(Node* node)
         callOperation(operationStringProtoFuncReplaceRegExpString, result.gpr(), JITCompiler::LinkableConstant(m_jit, m_graph.globalObjectFor(node->origin.semantic)), stringGPR, regExpGPR, replaceGPR);
         m_jit.exceptionCheck();
         cellResult(result.gpr(), node);
-        if (sample)
-            m_jit.decrementSuperSamplerCount();
         return;
     }
 
@@ -13383,8 +13443,6 @@ void SpeculativeJIT::compileStringReplace(Node* node)
     callOperation(operationStringProtoFuncReplaceGeneric, result.gpr(), JITCompiler::LinkableConstant(m_jit, m_graph.globalObjectFor(node->origin.semantic)), stringRegs, searchRegs, replaceRegs);
     m_jit.exceptionCheck();
     cellResult(result.gpr(), node);
-    if (sample)
-        m_jit.decrementSuperSamplerCount();
 }
 
 void SpeculativeJIT::compileRegExpExecNonGlobalOrSticky(Node* node)

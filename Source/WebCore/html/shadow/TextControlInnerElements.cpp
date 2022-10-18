@@ -218,6 +218,8 @@ std::optional<Style::ElementStyle> TextControlPlaceholderElement::resolveCustomS
     if (is<HTMLInputElement>(controlElement)) {
         auto& inputElement = downcast<HTMLInputElement>(controlElement);
         style.renderStyle->setTextOverflow(inputElement.shouldTruncateText(*shadowHostStyle) ? TextOverflow::Ellipsis : TextOverflow::Clip);
+        style.renderStyle->setPaddingTop(Length { 0, LengthType::Fixed });
+        style.renderStyle->setPaddingBottom(Length { 0, LengthType::Fixed });
     }
     return style;
 }
@@ -244,7 +246,16 @@ std::optional<Style::ElementStyle> SearchFieldResultsButtonElement::resolveCusto
     if (input && input->maxResults() >= 0)
         return std::nullopt;
 
-    if (shadowHostStyle && shadowHostStyle->effectiveAppearance() != SearchFieldPart) {
+    if (!shadowHostStyle)
+        return std::nullopt;
+
+    auto appearance = shadowHostStyle->effectiveAppearance();
+    if (appearance == TextFieldPart) {
+        auto elementStyle = resolveStyle(resolutionContext);
+        elementStyle.renderStyle->setDisplay(DisplayType::None);
+        return elementStyle;
+    }
+    if (appearance != SearchFieldPart) {
         SetForScope canAdjustStyleForAppearance(m_canAdjustStyleForAppearance, false);
         return resolveStyle(resolutionContext);
     }
@@ -304,18 +315,22 @@ Ref<SearchFieldCancelButtonElement> SearchFieldCancelButtonElement::create(Docum
     return element;
 }
 
-std::optional<Style::ElementStyle> SearchFieldCancelButtonElement::resolveCustomStyle(const Style::ResolutionContext& resolutionContext, const RenderStyle*)
+std::optional<Style::ElementStyle> SearchFieldCancelButtonElement::resolveCustomStyle(const Style::ResolutionContext& resolutionContext, const RenderStyle* shadowHostStyle)
 {
     auto elementStyle = resolveStyle(resolutionContext);
     auto& inputElement = downcast<HTMLInputElement>(*shadowHost());
     elementStyle.renderStyle->setVisibility(elementStyle.renderStyle->visibility() == Visibility::Hidden || inputElement.value().isEmpty() ? Visibility::Hidden : Visibility::Visible);
+
+    if (shadowHostStyle && shadowHostStyle->effectiveAppearance() == TextFieldPart)
+        elementStyle.renderStyle->setDisplay(DisplayType::None);
+
     return elementStyle;
 }
 
 void SearchFieldCancelButtonElement::defaultEventHandler(Event& event)
 {
     RefPtr<HTMLInputElement> input(downcast<HTMLInputElement>(shadowHost()));
-    if (!input || input->isDisabledOrReadOnly()) {
+    if (!input || !input->isMutable()) {
         if (!event.defaultHandled())
             HTMLDivElement::defaultEventHandler(event);
         return;
@@ -341,7 +356,7 @@ void SearchFieldCancelButtonElement::defaultEventHandler(Event& event)
 bool SearchFieldCancelButtonElement::willRespondToMouseClickEventsWithEditability(Editability editability) const
 {
     const RefPtr<HTMLInputElement> input = downcast<HTMLInputElement>(shadowHost());
-    if (input && !input->isDisabledOrReadOnly())
+    if (input && input->isMutable())
         return true;
 
     return HTMLDivElement::willRespondToMouseClickEventsWithEditability(editability);

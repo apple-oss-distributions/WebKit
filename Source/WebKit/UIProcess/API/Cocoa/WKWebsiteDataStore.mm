@@ -420,6 +420,13 @@ static Vector<WebKit::WebsiteDataRecord> toWebsiteDataRecords(NSArray *dataRecor
 #endif
 }
 
+- (void)_setResourceLoadStatisticsTimeAdvanceForTesting:(NSTimeInterval)time completionHandler:(void(^)(void))completionHandler
+{
+#if ENABLE(INTELLIGENT_TRACKING_PREVENTION)
+    _websiteDataStore->setResourceLoadStatisticsTimeAdvanceForTesting(Seconds(time), makeBlockPtr(completionHandler));
+#endif
+}
+
 + (void)_allowWebsiteDataRecordsForAllOrigins
 {
     WebKit::WebsiteDataStore::allowWebsiteDataRecordsForAllOrigins();
@@ -886,6 +893,18 @@ static Vector<WebKit::WebsiteDataRecord> toWebsiteDataRecords(NSArray *dataRecor
 {
     auto completionHandlerCopy = makeBlockPtr(completionHandler);
     _websiteDataStore->networkProcess().getOriginsWithPushAndNotificationPermissions(_websiteDataStore->sessionID(), [completionHandlerCopy](const Vector<WebCore::SecurityOriginData>& origins) {
+        auto set = adoptNS([[NSMutableSet alloc] initWithCapacity:origins.size()]);
+        for (auto& origin : origins) {
+            auto apiOrigin = API::SecurityOrigin::create(origin);
+            [set addObject:wrapper(apiOrigin.get())];
+        }
+        completionHandlerCopy(set.get());
+    });
+}
+
+- (void)_getOriginsWithPushSubscriptions:(void(^)(NSSet<WKSecurityOrigin *> *))completionHandler {
+    auto completionHandlerCopy = makeBlockPtr(completionHandler);
+    _websiteDataStore->networkProcess().getOriginsWithPushSubscriptions(_websiteDataStore->sessionID(), [completionHandlerCopy](const Vector<WebCore::SecurityOriginData>& origins) {
         auto set = adoptNS([[NSMutableSet alloc] initWithCapacity:origins.size()]);
         for (auto& origin : origins) {
             auto apiOrigin = API::SecurityOrigin::create(origin);

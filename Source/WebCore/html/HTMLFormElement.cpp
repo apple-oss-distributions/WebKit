@@ -322,8 +322,13 @@ void HTMLFormElement::submitIfPossible(Event* event, HTMLFormControlElement* sub
 
     m_isSubmittingOrPreparingForSubmission = false;
 
-    if (m_shouldSubmit)
-        submit(event, !submitter, trigger, submitter);
+    if (!m_shouldSubmit)
+        return;
+
+    if (auto plannedFormSubmission = std::exchange(m_plannedFormSubmission, nullptr))
+        plannedFormSubmission->cancel();
+
+    submit(event, !submitter, trigger, submitter);
 }
 
 void HTMLFormElement::submit()
@@ -440,9 +445,6 @@ void HTMLFormElement::submit(Event* event, bool processingUserGesture, FormSubmi
         formSubmission->setNewFrameOpenerPolicy(NewFrameOpenerPolicy::Suppress);
     if (relAttributes.noreferrer)
         formSubmission->setReferrerPolicy(ReferrerPolicy::NoReferrer);
-
-    if (m_plannedFormSubmission)
-        m_plannedFormSubmission->cancel();
 
     m_plannedFormSubmission = formSubmission;
 
@@ -982,7 +984,7 @@ void HTMLFormElement::finishParsingChildren()
     document().formController().restoreControlStateIn(*this);
 }
 
-const Vector<WeakPtr<HTMLElement>>& HTMLFormElement::unsafeAssociatedElements() const
+const Vector<WeakPtr<HTMLElement, WeakPtrImplWithEventTargetData>>& HTMLFormElement::unsafeAssociatedElements() const
 {
     ASSERT(ScriptDisallowedScope::InMainThread::hasDisallowedScope());
     return m_associatedElements;

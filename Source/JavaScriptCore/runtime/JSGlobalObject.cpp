@@ -28,6 +28,7 @@
  */
 
 #include "config.h"
+#include "JSCast.h"
 #include "JSGlobalObject.h"
 
 #include "AggregateError.h"
@@ -179,6 +180,7 @@
 #include "NumberConstructor.h"
 #include "NumberPrototype.h"
 #include "ObjCCallbackFunction.h"
+#include "ObjectAdaptiveStructureWatchpoint.h"
 #include "ObjectConstructor.h"
 #include "ObjectPropertyChangeAdaptiveWatchpoint.h"
 #include "ObjectPropertyConditionSet.h"
@@ -502,7 +504,7 @@ JSC_DEFINE_HOST_FUNCTION(signpostStart, (JSGlobalObject* globalObject, CallFrame
     auto message = asSignpostString(globalObject, callFrame->argument(0));
     RETURN_IF_EXCEPTION(scope, EncodedJSValue());
 
-    WTFBeginSignpost(globalObject, "JSGlobalObject signpost", "%{public}s", message.ascii().data());
+    WTFBeginSignpost(globalObject, "JSGlobalObject signpost", "%" PUBLIC_LOG_STRING, message.ascii().data());
 
     return JSValue::encode(jsUndefined());
 }
@@ -515,7 +517,7 @@ JSC_DEFINE_HOST_FUNCTION(signpostStop, (JSGlobalObject* globalObject, CallFrame*
     auto message = asSignpostString(globalObject, callFrame->argument(0));
     RETURN_IF_EXCEPTION(scope, EncodedJSValue());
 
-    WTFEndSignpost(globalObject, "JSGlobalObject signpost", "%{public}s", message.ascii().data());
+    WTFEndSignpost(globalObject, "JSGlobalObject signpost", "%" PUBLIC_LOG_STRING, message.ascii().data());
 
     return JSValue::encode(jsUndefined());
 }
@@ -691,14 +693,14 @@ static ObjectPropertyCondition setupAdaptiveWatchpoint(JSGlobalObject* globalObj
     VM& vm = globalObject->vm();
     DeferTermination deferScope(vm);
     auto catchScope = DECLARE_CATCH_SCOPE(vm);
-    PropertySlot slot(base, PropertySlot::InternalMethodType::Get);
+    PropertySlot slot(base, PropertySlot::InternalMethodType::VMInquiry, &vm);
     bool result = base->getOwnPropertySlot(base, globalObject, ident, slot);
     ASSERT_UNUSED(result, result);
     catchScope.assertNoException();
-    RELEASE_ASSERT(slot.isCacheableValue());
-    JSValue functionValue = slot.getValue(globalObject, ident);
+    RELEASE_ASSERT(slot.isCacheableValue() || slot.isCacheableGetter());
+    JSValue functionValue = slot.isCacheableValue() ? slot.getValue(globalObject, ident) : slot.getterSetter();
     catchScope.assertNoException();
-    ASSERT(jsDynamicCast<JSFunction*>(functionValue));
+    ASSERT(jsDynamicCast<JSFunction*>(functionValue) || jsDynamicCast<GetterSetter*>(functionValue));
 
     ObjectPropertyCondition condition = generateConditionForSelfEquivalence(vm, nullptr, base, ident.impl());
     RELEASE_ASSERT(condition.requiredValue() == functionValue);
@@ -1702,6 +1704,37 @@ capitalName ## Constructor* lowerName ## Constructor = featureFlag ? capitalName
         ObjectPropertyCondition condition = setupAdaptiveWatchpoint(this, m_stringPrototype.get(), vm.propertyNames->iteratorSymbol);
         m_stringPrototypeSymbolIteratorWatchpoint = makeUnique<ObjectPropertyChangeAdaptiveWatchpoint<InlineWatchpointSet>>(this, condition, m_stringIteratorProtocolWatchpointSet);
         m_stringPrototypeSymbolIteratorWatchpoint->install(vm);
+    }
+    {
+        m_regExpPrototypeExecWatchpoint = makeUnique<ObjectPropertyChangeAdaptiveWatchpoint<InlineWatchpointSet>>(this, setupAdaptiveWatchpoint(this, m_regExpPrototype.get(), vm.propertyNames->exec), m_regExpPrimordialPropertiesWatchpointSet);
+        m_regExpPrototypeExecWatchpoint->install(vm);
+        m_regExpPrototypeGlobalWatchpoint = makeUnique<ObjectPropertyChangeAdaptiveWatchpoint<InlineWatchpointSet>>(this, setupAdaptiveWatchpoint(this, m_regExpPrototype.get(), vm.propertyNames->global), m_regExpPrimordialPropertiesWatchpointSet);
+        m_regExpPrototypeGlobalWatchpoint->install(vm);
+        m_regExpPrototypeUnicodeWatchpoint = makeUnique<ObjectPropertyChangeAdaptiveWatchpoint<InlineWatchpointSet>>(this, setupAdaptiveWatchpoint(this, m_regExpPrototype.get(), vm.propertyNames->unicode), m_regExpPrimordialPropertiesWatchpointSet);
+        m_regExpPrototypeUnicodeWatchpoint->install(vm);
+        m_regExpPrototypeSymbolReplaceWatchpoint = makeUnique<ObjectPropertyChangeAdaptiveWatchpoint<InlineWatchpointSet>>(this, setupAdaptiveWatchpoint(this, m_regExpPrototype.get(), vm.propertyNames->replaceSymbol), m_regExpPrimordialPropertiesWatchpointSet);
+        m_regExpPrototypeSymbolReplaceWatchpoint->install(vm);
+    }
+    {
+        auto absenceCondition = [&](JSGlobalObject* globalObject, JSObject* base, PropertyName propertyName, JSObject* prototype) {
+            PropertySlot slot(base, PropertySlot::InternalMethodType::VMInquiry, &vm);
+            bool result = base->getOwnPropertySlot(base, globalObject, propertyName, slot);
+            RELEASE_ASSERT(!result);
+            catchScope.assertNoException();
+            RELEASE_ASSERT(slot.isUnset());
+            RELEASE_ASSERT(base->getPrototypeDirect() == (prototype ? JSValue(prototype) : jsNull()));
+            return ObjectPropertyCondition::absence(vm, globalObject, base, propertyName.uid(), prototype);
+        };
+        auto absenceStringPrototype = absenceCondition(this, m_stringPrototype.get(), vm.propertyNames->replaceSymbol, objectPrototype());
+        auto absenceObjectPrototype = absenceCondition(this, m_objectPrototype.get(), vm.propertyNames->replaceSymbol, nullptr);
+
+        RELEASE_ASSERT(absenceStringPrototype.isWatchable(PropertyCondition::EnsureWatchability));
+        m_stringPrototypeSymbolReplaceMissWatchpoint = makeUnique<ObjectAdaptiveStructureWatchpoint>(this, absenceStringPrototype, m_stringSymbolReplaceWatchpointSet);
+        m_stringPrototypeSymbolReplaceMissWatchpoint->install(vm);
+
+        RELEASE_ASSERT(absenceObjectPrototype.isWatchable(PropertyCondition::EnsureWatchability));
+        m_objectPrototypeSymbolReplaceMissWatchpoint = makeUnique<ObjectAdaptiveStructureWatchpoint>(this, absenceObjectPrototype, m_stringSymbolReplaceWatchpointSet);
+        m_objectPrototypeSymbolReplaceMissWatchpoint->install(vm);
     }
 
     // Unfortunately, the prototype objects of the builtin objects can be touched from concurrent compilers. So eagerly initialize them only if we use JIT.

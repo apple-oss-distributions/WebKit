@@ -120,6 +120,14 @@ bool URL::hasSpecialScheme() const
         || protocolIs("wss"_s);
 }
 
+bool URL::hasLocalScheme() const
+{
+    // https://fetch.spec.whatwg.org/#local-scheme
+    return protocolIs("about"_s)
+        || protocolIs("blob"_s)
+        || protocolIs("data"_s);
+}
+
 unsigned URL::pathStart() const
 {
     unsigned start = m_hostEnd + m_portLength;
@@ -236,6 +244,24 @@ StringView URL::fragmentIdentifier() const
         return { };
 
     return StringView(m_string).substring(m_queryEnd + 1);
+}
+
+// https://wicg.github.io/scroll-to-text-fragment/#the-fragment-directive
+String URL::consumefragmentDirective()
+{
+    ASCIILiteral fragmentDirectiveDelimiter = ":~:"_s;
+    auto fragment = fragmentIdentifier();
+    
+    auto fragmentDirectiveStart = fragment.find(fragmentDirectiveDelimiter);
+    
+    if (fragmentDirectiveStart == notFound)
+        return { };
+    
+    auto fragmentDirective = fragment.substring(fragmentDirectiveStart + fragmentDirectiveDelimiter.length()).toString();
+    
+    setFragmentIdentifier(fragment.left(fragmentDirectiveStart));
+    
+    return fragmentDirective;
 }
 
 URL URL::truncatedForUseAsBase() const

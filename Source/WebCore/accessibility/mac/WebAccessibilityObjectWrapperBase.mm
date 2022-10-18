@@ -31,6 +31,7 @@
 
 #if ENABLE(ACCESSIBILITY)
 
+#import "AXIsolatedObject.h"
 #import "AXObjectCache.h"
 #import "AccessibilityARIAGridRow.h"
 #import "AccessibilityList.h"
@@ -58,7 +59,9 @@
 #import "TextCheckerClient.h"
 #import "TextIterator.h"
 #import "VisibleUnits.h"
+#import <Accessibility/Accessibility.h>
 #import <wtf/cocoa/VectorCocoa.h>
+#import <pal/cocoa/AccessibilitySoftLink.h>
 
 #if PLATFORM(MAC)
 #import "WebAccessibilityObjectWrapperMac.h"
@@ -280,7 +283,7 @@ NSArray *makeNSArray(const WebCore::AXCoreObject::AccessibilityChildrenVector& c
 
 @synthesize identifier = _identifier;
 
-- (id)initWithAccessibilityObject:(AXCoreObject*)axObject
+- (id)initWithAccessibilityObject:(AccessibilityObject*)axObject
 {
     ASSERT(isMainThread());
 
@@ -290,7 +293,7 @@ NSArray *makeNSArray(const WebCore::AXCoreObject::AccessibilityChildrenVector& c
     return self;
 }
 
-- (void)attachAXObject:(AXCoreObject*)axObject
+- (void)attachAXObject:(AccessibilityObject*)axObject
 {
     ASSERT(axObject && (!_identifier.isValid() || _identifier == axObject->objectID()));
     m_axObject = axObject;
@@ -299,7 +302,7 @@ NSArray *makeNSArray(const WebCore::AXCoreObject::AccessibilityChildrenVector& c
 }
 
 #if ENABLE(ACCESSIBILITY_ISOLATED_TREE)
-- (void)attachIsolatedObject:(AXCoreObject*)isolatedObject
+- (void)attachIsolatedObject:(AXIsolatedObject*)isolatedObject
 {
     ASSERT(isolatedObject && (!_identifier.isValid() || _identifier == isolatedObject->objectID()));
     m_isolatedObject = isolatedObject;
@@ -308,6 +311,11 @@ NSArray *makeNSArray(const WebCore::AXCoreObject::AccessibilityChildrenVector& c
 
     if (!_identifier.isValid())
         _identifier = m_isolatedObject->objectID();
+}
+
+- (BOOL)hasIsolatedObject
+{
+    return !!m_isolatedObject;
 }
 #endif
 
@@ -402,6 +410,24 @@ NSArray *makeNSArray(const WebCore::AXCoreObject::AccessibilityChildrenVector& c
 {
     return [(NSString *)self.axBackingObject->speechHintAttributeValue() componentsSeparatedByString:@" "];
 }
+
+#if HAVE(ACCESSIBILITY_FRAMEWORK)
+- (NSArray<AXCustomContent *> *)accessibilityCustomContent
+{
+    auto* backingObject = [self baseUpdateBackingStore];
+    if (!backingObject)
+        return nil;
+    
+    RetainPtr<NSMutableArray<AXCustomContent *>> accessibilityCustomContent = nil;
+    auto extendedDescription = backingObject->extendedDescription();
+    if (extendedDescription.length()) {
+        accessibilityCustomContent = adoptNS([[NSMutableArray alloc] init]);
+        [accessibilityCustomContent addObject:[PAL::getAXCustomContentClass() customContentWithLabel:WEB_UI_STRING("description", "description detail") value:extendedDescription]];
+    }
+    
+    return accessibilityCustomContent.autorelease();
+}
+#endif
 
 - (NSString *)baseAccessibilityHelpText
 {

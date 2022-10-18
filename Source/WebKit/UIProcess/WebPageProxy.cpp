@@ -2033,6 +2033,8 @@ void WebPageProxy::setTopContentInset(float contentInset)
 
     m_topContentInset = contentInset;
 
+    pageClient().topContentInsetDidChange();
+
     if (!hasRunningProcess())
         return;
 #if PLATFORM(COCOA)
@@ -2171,13 +2173,18 @@ void WebPageProxy::updateActivityState(OptionSet<ActivityState::Flag> flagsToUpd
         m_activityState.add(ActivityState::IsVisibleOrOccluded);
     if (flagsToUpdate & ActivityState::IsInWindow && pageClient().isViewInWindow())
         m_activityState.add(ActivityState::IsInWindow);
-    if (flagsToUpdate & ActivityState::IsVisuallyIdle && pageClient().isVisuallyIdle())
+    bool isVisuallyIdle = pageClient().isVisuallyIdle();
+#if PLATFORM(COCOA) && !HAVE(CGS_FIX_FOR_RADAR_97530095) && ENABLE(MEDIA_USAGE)
+    if (pageClient().isViewVisible() && m_mediaUsageManager && m_mediaUsageManager->isPlayingVideoInViewport())
+        isVisuallyIdle = false;
+#endif
+    if (flagsToUpdate & ActivityState::IsVisuallyIdle && isVisuallyIdle)
         m_activityState.add(ActivityState::IsVisuallyIdle);
     if (flagsToUpdate & ActivityState::IsAudible && m_mediaState.contains(MediaProducerMediaState::IsPlayingAudio) && !(m_mutedState.contains(MediaProducerMutedState::AudioIsMuted)))
         m_activityState.add(ActivityState::IsAudible);
     if (flagsToUpdate & ActivityState::IsLoading && m_pageLoadState.isLoading())
         m_activityState.add(ActivityState::IsLoading);
-    if (flagsToUpdate & ActivityState::IsCapturingMedia && m_mediaState.containsAny({ MediaProducerMediaState::HasActiveAudioCaptureDevice,  MediaProducerMediaState::HasActiveVideoCaptureDevice }))
+    if (flagsToUpdate & ActivityState::IsCapturingMedia && m_mediaState.containsAny(MediaProducer::ActiveCaptureMask))
         m_activityState.add(ActivityState::IsCapturingMedia);
 }
 
@@ -5136,7 +5143,7 @@ void WebPageProxy::didCommitLoadForFrame(FrameIdentifier frameID, FrameInfoData&
             privateClickMeasurement = navigation->privateClickMeasurement();
         if (privateClickMeasurement) {
             if (privateClickMeasurement->destinationSite().matches(frame->url()) || privateClickMeasurement->isSKAdNetworkAttribution())
-                websiteDataStore().networkProcess().send(Messages::NetworkProcess::StorePrivateClickMeasurement(m_websiteDataStore->sessionID(), *privateClickMeasurement), 0);
+                websiteDataStore().storePrivateClickMeasurement(*privateClickMeasurement);
         }
     }
     m_privateClickMeasurement.reset();
@@ -6225,6 +6232,10 @@ void WebPageProxy::didExitFullscreen(PlaybackSessionContextIdentifier identifier
     }
 }
 
+void WebPageProxy::failedToEnterFullscreen(PlaybackSessionContextIdentifier identifier)
+{
+}
+
 #else
 
 void WebPageProxy::didEnterFullscreen()
@@ -6971,6 +6982,11 @@ void WebPageProxy::backForwardGoToItem(const BackForwardItemIdentifier& itemID, 
         return completionHandler(m_backForwardList->counts());
 
     backForwardGoToItemShared(m_process.copyRef(), itemID, WTFMove(completionHandler));
+}
+
+void WebPageProxy::backForwardListContainsItem(const WebCore::BackForwardItemIdentifier& itemID, CompletionHandler<void(bool)>&& completionHandler)
+{
+    completionHandler(m_backForwardList->itemForID(itemID));
 }
 
 void WebPageProxy::backForwardGoToItemShared(Ref<WebProcessProxy>&& process, const BackForwardItemIdentifier& itemID, CompletionHandler<void(const WebBackForwardListCounts&)>&& completionHandler)
@@ -8829,6 +8845,12 @@ void WebPageProxy::revokeGeolocationAuthorizationToken(const String& authorizati
     m_geolocationPermissionRequestManager.revokeAuthorizationToken(authorizationToken);
 }
 
+static bool isOriginUnique(const SecurityOriginData& origin)
+{
+    ASSERT(!origin.isEmpty());
+    return origin.protocol == emptyString() && origin.host == emptyString() && !origin.port;
+}
+
 void WebPageProxy::queryPermission(const ClientOrigin& clientOrigin, const PermissionDescriptor& descriptor, CompletionHandler<void(std::optional<PermissionState>, bool shouldCache)>&& completionHandler)
 {
     bool canAPISucceed = true;
@@ -8865,8 +8887,7 @@ void WebPageProxy::queryPermission(const ClientOrigin& clientOrigin, const Permi
         return;
     }
 
-    auto origin = API::SecurityOrigin::create(clientOrigin.topOrigin);
-    m_uiClient->queryPermission(name, origin, [clientOrigin, shouldChangeDeniedToPrompt, shouldChangePromptToGrant, completionHandler = WTFMove(completionHandler)](auto result) mutable {
+    CompletionHandler<void(std::optional<WebCore::PermissionState>)> callback = [clientOrigin, shouldChangeDeniedToPrompt, shouldChangePromptToGrant, completionHandler = WTFMove(completionHandler)](auto result) mutable {
         if (!result) {
             completionHandler({ }, false);
             return;
@@ -8876,7 +8897,15 @@ void WebPageProxy::queryPermission(const ClientOrigin& clientOrigin, const Permi
         else if (*result == PermissionState::Prompt && shouldChangePromptToGrant)
             result = PermissionState::Granted;
         completionHandler(*result, false);
-    });
+    };
+
+    if (isOriginUnique(clientOrigin.topOrigin)) {
+        callback(PermissionState::Prompt);
+        return;
+    }
+
+    auto origin = API::SecurityOrigin::create(clientOrigin.topOrigin);
+    m_uiClient->queryPermission(name, origin, WTFMove(callback));
 }
 
 #if ENABLE(MEDIA_STREAM)
@@ -10683,6 +10712,11 @@ void WebPageProxy::getApplicationManifest(CompletionHandler<void(const std::opti
     sendWithAsyncReply(Messages::WebPage::GetApplicationManifest(), WTFMove(callback));
 }
 #endif
+
+void WebPageProxy::getTextFragmentMatch(CompletionHandler<void(const String&)>&& callback)
+{
+    sendWithAsyncReply(Messages::WebPage::GetTextFragmentMatch(), WTFMove(callback));
+}
 
 #if ENABLE(APP_HIGHLIGHTS)
 void WebPageProxy::storeAppHighlight(const WebCore::AppHighlight& highlight)

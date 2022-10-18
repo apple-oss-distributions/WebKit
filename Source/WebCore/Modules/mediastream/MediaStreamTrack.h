@@ -51,7 +51,7 @@ template<typename IDLType> class DOMPromiseDeferred;
 class MediaStreamTrack
     : public RefCounted<MediaStreamTrack>
     , public ActiveDOMObject
-    , public EventTargetWithInlineData
+    , public EventTarget
     , private MediaStreamTrackPrivate::Observer
     , private PlatformMediaSession::AudioCaptureSource
 #if !RELEASE_LOG_DISABLED
@@ -204,7 +204,6 @@ private:
     Vector<Observer*> m_observers;
 
     MediaTrackConstraints m_constraints;
-    std::unique_ptr<DOMPromiseDeferred<void>> m_promise;
 
     State m_readyState { State::Live };
     bool m_muted { false };

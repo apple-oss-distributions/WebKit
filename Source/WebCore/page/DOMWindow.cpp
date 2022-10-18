@@ -157,9 +157,9 @@ using namespace Inspector;
 
 static constexpr Seconds defaultTransientActivationDuration { 5_s };
 
-static WeakHashSet<DOMWindow>& windowsInterestedInStorageEvents()
+static WeakHashSet<DOMWindow, WeakPtrImplWithEventTargetData>& windowsInterestedInStorageEvents()
 {
-    static MainThreadNeverDestroyed<WeakHashSet<DOMWindow>> set;
+    static MainThreadNeverDestroyed<WeakHashSet<DOMWindow, WeakPtrImplWithEventTargetData>> set;
     return set;
 }
 
@@ -848,7 +848,7 @@ ExceptionOr<Storage*> DOMWindow::sessionStorage()
     if (!page)
         return nullptr;
 
-    auto storageArea = page->sessionStorage()->storageArea(document->securityOrigin());
+    auto storageArea = page->storageNamespaceProvider().sessionStorageArea(*document);
     m_sessionStorage = Storage::create(*this, WTFMove(storageArea));
     if (hasEventListeners(eventNames().storageEvent))
         windowsInterestedInStorageEvents().add(*this);
@@ -1745,7 +1745,7 @@ void DOMWindow::scrollTo(const ScrollToOptions& options, ScrollClamping clamping
         return;
     }
 
-    view->cancelScheduledScrollToFocusedElement();
+    view->cancelScheduledScrolls();
     document()->updateLayoutIgnorePendingStylesheets();
 
     IntPoint layoutPos(view->mapFromCSSToLayoutUnits(scrollToOptions.left.value()), view->mapFromCSSToLayoutUnits(scrollToOptions.top.value()));

@@ -136,6 +136,7 @@
 #include "markup.h"
 #include <wtf/IsoMallocInlines.h>
 #include <wtf/NeverDestroyed.h>
+#include <wtf/Scope.h>
 #include <wtf/text/CString.h>
 #include <wtf/text/TextStream.h>
 
@@ -204,8 +205,9 @@ static bool shouldAutofocus(const Element& element)
         return false;
 
     auto& document = element.document();
-    if (!element.isConnected() || !document.hasBrowsingContext())
+    if (!element.isInDocumentTree() || !document.hasBrowsingContext())
         return false;
+
     if (document.isSandboxed(SandboxAutomaticFeatures)) {
         // FIXME: This message should be moved off the console once a solution to https://bugs.webkit.org/show_bug.cgi?id=103274 exists.
         document.addConsoleMessage(MessageSource::Security, MessageLevel::Error, "Blocked autofocusing on a form control because the form's frame is sandboxed and the 'allow-scripts' permission is not set."_s);
@@ -379,11 +381,6 @@ void Element::hideNonce()
 bool Element::supportsFocus() const
 {
     return !!tabIndexSetExplicitly();
-}
-
-RefPtr<Element> Element::focusDelegate()
-{
-    return this;
 }
 
 int Element::tabIndexForBindings() const
@@ -1042,7 +1039,7 @@ void Element::scrollIntoView(std::optional<std::variant<bool, ScrollIntoViewOpti
         ShouldAllowCrossOriginScrolling::No,
         options.behavior.value_or(ScrollBehavior::Auto)
     };
-    renderer()->scrollRectToVisible(absoluteBounds, insideFixed, visibleOptions);
+    FrameView::scrollRectToVisible(absoluteBounds, *renderer(), insideFixed, visibleOptions);
 }
 
 void Element::scrollIntoView(bool alignToTop) 
@@ -1060,7 +1057,7 @@ void Element::scrollIntoView(bool alignToTop)
     auto alignX = ScrollAlignment::alignToEdgeIfNeeded;
     alignX.disableLegacyHorizontalVisibilityThreshold();
 
-    renderer()->scrollRectToVisible(absoluteBounds, insideFixed, { SelectionRevealMode::Reveal, alignX, alignY, ShouldAllowCrossOriginScrolling::No });
+    FrameView::scrollRectToVisible(absoluteBounds, *renderer(), insideFixed, { SelectionRevealMode::Reveal, alignX, alignY, ShouldAllowCrossOriginScrolling::No });
 }
 
 void Element::scrollIntoViewIfNeeded(bool centerIfNeeded)
@@ -1077,7 +1074,7 @@ void Element::scrollIntoViewIfNeeded(bool centerIfNeeded)
     auto alignX = centerIfNeeded ? ScrollAlignment::alignCenterIfNeeded : ScrollAlignment::alignToEdgeIfNeeded;
     alignX.disableLegacyHorizontalVisibilityThreshold();
 
-    renderer()->scrollRectToVisible(absoluteBounds, insideFixed, { SelectionRevealMode::Reveal, alignX, alignY, ShouldAllowCrossOriginScrolling::No });
+    FrameView::scrollRectToVisible(absoluteBounds, *renderer(), insideFixed, { SelectionRevealMode::Reveal, alignX, alignY, ShouldAllowCrossOriginScrolling::No });
 }
 
 void Element::scrollIntoViewIfNotVisible(bool centerIfNotVisible)
@@ -1089,10 +1086,8 @@ void Element::scrollIntoViewIfNotVisible(bool centerIfNotVisible)
     
     bool insideFixed;
     LayoutRect absoluteBounds = renderer()->absoluteAnchorRectWithScrollMargin(&insideFixed);
-    if (centerIfNotVisible)
-        renderer()->scrollRectToVisible(absoluteBounds, insideFixed, { SelectionRevealMode::Reveal, ScrollAlignment::alignCenterIfNotVisible, ScrollAlignment::alignCenterIfNotVisible, ShouldAllowCrossOriginScrolling::No });
-    else
-        renderer()->scrollRectToVisible(absoluteBounds, insideFixed, { SelectionRevealMode::Reveal, ScrollAlignment::alignToEdgeIfNotVisible, ScrollAlignment::alignToEdgeIfNotVisible, ShouldAllowCrossOriginScrolling::No });
+    auto align = centerIfNotVisible ? ScrollAlignment::alignCenterIfNotVisible : ScrollAlignment::alignToEdgeIfNotVisible;
+    FrameView::scrollRectToVisible(absoluteBounds, *renderer(), insideFixed, { SelectionRevealMode::Reveal, align, align, ShouldAllowCrossOriginScrolling::No });
 }
 
 void Element::scrollBy(const ScrollToOptions& options)
@@ -1120,7 +1115,7 @@ void Element::scrollTo(const ScrollToOptions& options, ScrollClamping clamping, 
     }
     
     if (auto* view = document().view())
-        view->cancelScheduledScrollToFocusedElement();
+        view->cancelScheduledScrolls();
 
     document().updateLayoutIgnorePendingStylesheets();
 
@@ -1885,6 +1880,13 @@ void Element::setAttribute(const QualifiedName& name, const AtomString& value)
     setAttributeInternal(index, name, value, NotInSynchronizationOfLazyAttribute);
 }
 
+void Element::setAttributeWithoutOverwriting(const QualifiedName& name, const AtomString& value)
+{
+    synchronizeAttribute(name);
+    if (!elementData() || elementData()->findAttributeIndexByName(name) == ElementData::attributeNotFound)
+        addAttributeInternal(name, value, NotInSynchronizationOfLazyAttribute);
+}
+
 void Element::setAttributeWithoutSynchronization(const QualifiedName& name, const AtomString& value)
 {
     unsigned index = elementData() ? elementData()->findAttributeIndexByName(name) : ElementData::attributeNotFound;
@@ -2013,7 +2015,7 @@ void Element::attributeChanged(const QualifiedName& name, const AtomString& oldV
     invalidateNodeListAndCollectionCachesInAncestorsForAttribute(name);
 
     if (AXObjectCache* cache = document().existingAXObjectCache())
-        cache->deferAttributeChangeIfNeeded(name, this);
+        cache->deferAttributeChangeIfNeeded(this, name, oldValue, newValue);
 }
 
 ExplicitlySetAttrElementsMap& Element::explicitlySetAttrElementsMap()
@@ -2067,7 +2069,7 @@ void Element::setElementAttribute(const QualifiedName& attributeName, Element* e
     else
         setAttribute(attributeName, emptyAtom());
 
-    explicitlySetAttrElementsMap().set(attributeName, Vector<WeakPtr<Element>> { element });
+    explicitlySetAttrElementsMap().set(attributeName, Vector<WeakPtr<Element, WeakPtrImplWithEventTargetData>> { element });
 }
 
 std::optional<Vector<RefPtr<Element>>> Element::getElementsArrayAttribute(const QualifiedName& attributeName) const
@@ -2113,7 +2115,7 @@ void Element::setElementsArrayAttribute(const QualifiedName& attributeName, std:
         return;
     }
 
-    Vector<WeakPtr<Element>> newElements;
+    Vector<WeakPtr<Element, WeakPtrImplWithEventTargetData>> newElements;
     newElements.reserveInitialCapacity(elements->size());
     StringBuilder value;
     for (auto element : elements.value()) {
@@ -2134,46 +2136,16 @@ void Element::setElementsArrayAttribute(const QualifiedName& attributeName, std:
     explicitlySetAttrElementsMap().set(attributeName, WTFMove(newElements));
 }
 
-template <typename CharacterType>
-static inline bool isNonEmptyTokenList(const CharacterType* characters, unsigned length)
-{
-    ASSERT(length > 0);
-
-    unsigned i = 0;
-    do {
-        if (isNotHTMLSpace(characters[i]))
-            break;
-        ++i;
-    } while (i < length);
-
-    return i < length;
-}
-
-static inline bool isNonEmptyTokenList(const AtomString& stringValue)
-{
-    unsigned length = stringValue.length();
-
-    if (!length)
-        return false;
-
-    if (stringValue.is8Bit())
-        return isNonEmptyTokenList(stringValue.characters8(), length);
-    return isNonEmptyTokenList(stringValue.characters16(), length);
-}
-
 void Element::classAttributeChanged(const AtomString& newClassString)
 {
     // Note: We'll need ElementData, but it doesn't have to be UniqueElementData.
     if (!elementData())
         ensureUniqueElementData();
 
-    auto shouldFoldCase = document().inQuirksMode() ? SpaceSplitString::ShouldFoldCase::Yes : SpaceSplitString::ShouldFoldCase::No;
-    bool newStringHasClasses = isNonEmptyTokenList(newClassString);
-
-    auto oldClassNames = elementData()->classNames();
-    auto newClassNames = newStringHasClasses ? SpaceSplitString(newClassString, shouldFoldCase) : SpaceSplitString();
     {
-        Style::ClassChangeInvalidation styleInvalidation(*this, oldClassNames, newClassNames);
+        auto shouldFoldCase = document().inQuirksMode() ? SpaceSplitString::ShouldFoldCase::Yes : SpaceSplitString::ShouldFoldCase::No;
+        SpaceSplitString newClassNames(newClassString, shouldFoldCase);
+        Style::ClassChangeInvalidation styleInvalidation(*this, elementData()->classNames(), newClassNames);
         elementData()->setClassNames(WTFMove(newClassNames));
     }
 
@@ -2185,11 +2157,9 @@ void Element::classAttributeChanged(const AtomString& newClassString)
 
 void Element::partAttributeChanged(const AtomString& newValue)
 {
-    bool hasParts = isNonEmptyTokenList(newValue);
-    if (hasParts || !partNames().isEmpty()) {
-        auto newParts = hasParts ? SpaceSplitString(newValue, SpaceSplitString::ShouldFoldCase::No) : SpaceSplitString();
+    SpaceSplitString newParts(newValue, SpaceSplitString::ShouldFoldCase::No);
+    if (!newParts.isEmpty() || !partNames().isEmpty())
         ensureElementRareData().setPartNames(WTFMove(newParts));
-    }
 
     if (hasRareData()) {
         if (auto* partList = elementRareData()->partList())
@@ -2307,6 +2277,11 @@ void Element::invalidateForQueryContainerSizeChange()
     // FIXME: Ideally we would just recompute things that are actually affected by containers queries within the subtree.
     Node::invalidateStyle(Style::Validity::SubtreeInvalid);
     setNodeFlag(NodeFlag::NeedsUpdateQueryContainerDependentStyle);
+}
+
+void Element::invalidateForResumingQueryContainerResolution()
+{
+    markAncestorsForInvalidatedStyle();
 }
 
 bool Element::needsUpdateQueryContainerDependentStyle() const
@@ -2479,10 +2454,12 @@ Node::InsertedIntoAncestorResult Element::insertedIntoAncestor(InsertionType ins
         setContainsFullScreenElementOnAncestorsCrossingFrameBoundaries(true);
 #endif
 
-    if (parentNode() == &parentOfInsertedTree) {
-        if (auto* shadowRoot = parentNode()->shadowRoot())
-            shadowRoot->hostChildElementDidChange(*this);
-    }
+    auto hostChildElementDidChange = makeScopeExit([&] () {
+        if (parentNode() == &parentOfInsertedTree) {
+            if (auto* shadowRoot = parentNode()->shadowRoot())
+                shadowRoot->hostChildElementDidChange(*this);
+        }
+    });
 
     if (!parentOfInsertedTree.isInTreeScope())
         return InsertedIntoAncestorResult::Done;
@@ -2547,26 +2524,22 @@ void Element::removedFromAncestor(RemovalType removalType, ContainerNode& oldPar
         if (!removalType.treeScopeChanged)
             oldScope = nullptr;
 
-        const AtomString& idValue = getIdAttribute();
-        if (!idValue.isNull()) {
+        if (auto& idValue = getIdAttribute(); !idValue.isEmpty()) {
             if (oldScope)
-                updateIdForTreeScope(*oldScope, idValue, nullAtom());
+                oldScope->removeElementById(*idValue.impl(), *this);
             if (oldHTMLDocument)
                 updateIdForDocument(*oldHTMLDocument, idValue, nullAtom(), AlwaysUpdateHTMLDocumentNamedItemMaps);
         }
 
-        const AtomString& nameValue = getNameAttribute();
-        if (!nameValue.isNull()) {
+        if (auto& nameValue = getNameAttribute(); !nameValue.isEmpty()) {
             if (oldScope)
-                updateNameForTreeScope(*oldScope, nameValue, nullAtom());
+                oldScope->removeElementByName(*nameValue.impl(), *this);
             if (oldHTMLDocument)
                 updateNameForDocument(*oldHTMLDocument, nameValue, nullAtom());
         }
 
-        if (oldDocument) {
-            if (oldDocument->cssTarget() == this)
-                oldDocument->setCSSTarget(nullptr);
-        }
+        if (oldDocument && oldDocument->cssTarget() == this)
+            oldDocument->setCSSTarget(nullptr);
 
         if (removalType.disconnectedFromDocument && UNLIKELY(isDefinedCustomElement()))
             CustomElementReactionQueue::enqueueDisconnectedCallbackIfNeeded(*this);
@@ -3207,17 +3180,42 @@ static bool isProgramaticallyFocusable(Element& element)
     return element.supportsFocus();
 }
 
-static RefPtr<Element> findFirstProgramaticallyFocusableElementInComposedTree(Element& host)
+// https://html.spec.whatwg.org/multipage/interaction.html#autofocus-delegate
+static RefPtr<Element> autoFocusDelegate(ContainerNode& target)
 {
-    ASSERT(host.shadowRoot());
-    for (auto& node : composedTreeDescendants(host)) {
-        if (!is<Element>(node))
+    for (auto& element : descendantsOfType<Element>(target)) {
+        if (!element.hasAttributeWithoutSynchronization(HTMLNames::autofocusAttr))
             continue;
-        auto& element = downcast<Element>(node);
+        if (auto root = shadowRootWithDelegatesFocus(element)) {
+            if (auto target = autoFocusDelegate(*root))
+                return target;
+        }
         if (isProgramaticallyFocusable(element))
             return &element;
     }
     return nullptr;
+}
+
+// https://html.spec.whatwg.org/multipage/interaction.html#focus-delegate
+static RefPtr<Element> findFocusDelegateInternal(ContainerNode& target)
+{
+    if (auto element = autoFocusDelegate(target))
+        return element;
+    for (auto& element : childrenOfType<Element>(target)) {
+        if (isProgramaticallyFocusable(element))
+            return &element;
+        if (auto root = shadowRootWithDelegatesFocus(element)) {
+            if (auto target = findFocusDelegateInternal(*root))
+                return target;
+        }
+    }
+    return nullptr;
+}
+
+// https://html.spec.whatwg.org/multipage/interaction.html#focus-delegate
+RefPtr<Element> Element::findFocusDelegate()
+{
+    return findFocusDelegateInternal(*this);
 }
 
 void Element::focus(const FocusOptions& options)
@@ -3250,7 +3248,7 @@ void Element::focus(const FocusOptions& options)
             return;
         }
 
-        newTarget = findFirstProgramaticallyFocusableElementInComposedTree(*this);            
+        newTarget = findFocusDelegateInternal(*root);
         if (!newTarget)
             return;
     } else if (!isProgramaticallyFocusable(*newTarget))
@@ -4942,9 +4940,9 @@ Vector<RefPtr<WebAnimation>> Element::getAnimations(std::optional<GetAnimationsO
     return animations;
 }
 
-static WeakHashMap<Element, ElementIdentifier>& elementIdentifiersMap()
+static WeakHashMap<Element, ElementIdentifier, WeakPtrImplWithEventTargetData>& elementIdentifiersMap()
 {
-    static MainThreadNeverDestroyed<WeakHashMap<Element, ElementIdentifier>> map;
+    static MainThreadNeverDestroyed<WeakHashMap<Element, ElementIdentifier, WeakPtrImplWithEventTargetData>> map;
     return map;
 }
 

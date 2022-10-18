@@ -1877,6 +1877,17 @@ ScrollAnimatorEnabled:
       default: false
     WebCore:
       default: false
+      
+ScrollToTextFragmentIndicatorEnabled:
+  type: bool
+  defaultValue:
+    WebKit:
+      default: true
+    WebKitLegacy:
+      default: true
+    WebCore:
+      default: true
+
 
 # FIXME: This is handled via WebView SPI rather than WebPreferences for WebKitLegacy. We should change the SPI to lookup the WebPreferences value instead.
 SelectTrailingWhitespaceEnabled:
@@ -2461,17 +2472,6 @@ WantsBalancedSetDefersLoadingBehavior:
 WebArchiveDebugModeEnabled:
   type: bool
   webKitLegacyPreferenceKey: WebKitWebArchiveDebugModeEnabledPreferenceKey
-  condition: ENABLE(WEB_ARCHIVE)
-  defaultValue:
-    WebKitLegacy:
-      default: false
-    WebKit:
-      default: false
-    WebCore:
-      default: false
-
-WebArchiveTestingModeEnabled:
-  type: bool
   condition: ENABLE(WEB_ARCHIVE)
   defaultValue:
     WebKitLegacy:

@@ -271,9 +271,9 @@ bool canUseWebAssemblyFastMemory();
     \
     v(Unsigned, maximumOptimizationCandidateBytecodeCost, 100000, Normal, nullptr) \
     \
-    v(Unsigned, maximumFunctionForCallInlineCandidateBytecodeCost, 100, Normal, nullptr) \
-    v(Unsigned, maximumFunctionForClosureCallInlineCandidateBytecodeCost, 80, Normal, nullptr) \
-    v(Unsigned, maximumFunctionForConstructInlineCandidateBytecoodeCost, 80, Normal, nullptr) \
+    v(Unsigned, maximumFunctionForCallInlineCandidateBytecodeCost, 120, Normal, nullptr) \
+    v(Unsigned, maximumFunctionForClosureCallInlineCandidateBytecodeCost, 100, Normal, nullptr) \
+    v(Unsigned, maximumFunctionForConstructInlineCandidateBytecoodeCost, 100, Normal, nullptr) \
     \
     v(Unsigned, maximumFTLCandidateBytecodeCost, 20000, Normal, nullptr) \
     \
@@ -548,7 +548,7 @@ bool canUseWebAssemblyFastMemory();
     v(Bool, useImportAssertion, false, Normal, "Enable import assertion.") \
     v(Bool, useIntlEnumeration, true, Normal, "Expose the Intl enumeration APIs.") \
     v(Bool, useSharedArrayBuffer, false, Normal, nullptr) \
-    v(Bool, useShadowRealm, true, Normal, "Expose the ShadowRealm object.") \
+    v(Bool, useShadowRealm, false, Normal, "Expose the ShadowRealm object.") \
     v(Bool, useTemporal, false, Normal, "Expose the Temporal object.") \
     v(Bool, useWebAssemblyThreading, true, Normal, "Allow instructions from the wasm threading spec.") \
     v(Bool, useWebAssemblyTypedFunctionReferences, false, Normal, "Allow function types from the wasm typed function references spec.") \

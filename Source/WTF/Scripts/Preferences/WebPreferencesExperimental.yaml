@@ -1298,11 +1298,11 @@ SKAttributionEnabled:
   humanReadableDescription: "SKAttribution"
   defaultValue:
     WebCore:
-      default: false
+      default: true
     WebKitLegacy:
-      default: false
+      default: true
     WebKit:
-      default: false
+      default: true
 
 SampleBufferContentKeySessionSupportEnabled:
   type: bool
@@ -1341,9 +1341,9 @@ ScrollToTextFragmentEnabled:
     WebKitLegacy:
       default: false
     WebKit:
-      default: false
+      default: true
     WebCore:
-      default: false
+      default: true
 
 ServerTimingEnabled:
   type: bool
@@ -1521,11 +1521,15 @@ UseGPUProcessForWebGLEnabled:
   type: bool
   humanReadableName: "GPU Process: WebGL"
   humanReadableDescription: "Process all WebGL operations in GPU Process"
-  webcoreBinding: none
   condition: ENABLE(GPU_PROCESS) && ENABLE(WEBGL)
-  exposed: [ WebKit ]
   defaultValue:
+    WebKitLegacy:
+      default: false
     WebKit:
+      "ENABLE(GPU_PROCESS_BY_DEFAULT) && PLATFORM(IOS_FAMILY) && !HAVE(UIKIT_WEBKIT_INTERNALS)": true
+      "PLATFORM(WIN)": true
+      default: false
+    WebCore:
       "ENABLE(GPU_PROCESS_BY_DEFAULT) && PLATFORM(IOS_FAMILY) && !HAVE(UIKIT_WEBKIT_INTERNALS)": true
       "PLATFORM(WIN)": true
       default: false

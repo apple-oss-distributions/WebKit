@@ -466,7 +466,7 @@ void FrameSelection::setSelection(const VisibleSelection& selection, OptionSet<S
         return;
     }
 
-    updateAndRevealSelection(intent, options.contains(SmoothScroll) ? ScrollBehavior::Smooth : ScrollBehavior::Instant, options.contains(RevealSelectionBounds) ? RevealExtentOption::DoNotRevealExtent : RevealExtentOption::RevealExtent);
+    updateAndRevealSelection(intent, options.contains(SmoothScroll) ? ScrollBehavior::Smooth : ScrollBehavior::Instant, options.contains(RevealSelectionBounds) ? RevealExtentOption::DoNotRevealExtent : RevealExtentOption::RevealExtent, options.contains(ForceCenterScroll) ? ForceCenterScrollOption::ForceCenterScroll : ForceCenterScrollOption::DoNotForceCenterScroll);
 
     if (options & IsUserTriggered) {
         if (auto* client = protectedDocument->editor().client())
@@ -499,7 +499,7 @@ void FrameSelection::setNeedsSelectionUpdate(RevealSelectionAfterUpdate revealMo
         view->selection().clear();
 }
 
-void FrameSelection::updateAndRevealSelection(const AXTextStateChangeIntent& intent, ScrollBehavior scrollBehavior, RevealExtentOption revealExtent)
+void FrameSelection::updateAndRevealSelection(const AXTextStateChangeIntent& intent, ScrollBehavior scrollBehavior, RevealExtentOption revealExtent, ForceCenterScrollOption forceCenterScroll)
 {
     if (!m_pendingSelectionUpdate)
         return;
@@ -515,6 +515,9 @@ void FrameSelection::updateAndRevealSelection(const AXTextStateChangeIntent& int
             alignment = m_alwaysAlignCursorOnScrollWhenRevealingSelection ? ScrollAlignment::alignCenterAlways : ScrollAlignment::alignCenterIfNeeded;
         else
             alignment = m_alwaysAlignCursorOnScrollWhenRevealingSelection ? ScrollAlignment::alignTopAlways : ScrollAlignment::alignToEdgeIfNeeded;
+        
+        if (forceCenterScroll == ForceCenterScrollOption::ForceCenterScroll)
+            alignment = ScrollAlignment::alignCenterAlways;
 
         revealSelection(m_selectionRevealMode, alignment, revealExtent, scrollBehavior);
     }
@@ -577,6 +580,11 @@ void FrameSelection::nodeWillBeRemoved(Node& node)
     respondToNodeModification(node, removingNodeRemovesPosition(node, m_selection.anchor()), removingNodeRemovesPosition(node, m_selection.focus()),
         removingNodeRemovesPosition(node, m_selection.base()), removingNodeRemovesPosition(node, m_selection.extent()),
         removingNodeRemovesPosition(node, m_selection.start()), removingNodeRemovesPosition(node, m_selection.end()));
+        
+    if (UNLIKELY(node.contains(m_previousCaretNode.get()))) {
+        m_previousCaretNode = m_selection.start().anchorNode();
+        setCaretRectNeedsUpdate();
+    }
 }
 
 void FrameSelection::respondToNodeModification(Node& node, bool anchorRemoved, bool focusRemoved, bool baseRemoved, bool extentRemoved, bool startRemoved, bool endRemoved)
@@ -2502,24 +2510,24 @@ void FrameSelection::revealSelection(SelectionRevealMode revealMode, const Scrol
 
     Position start = m_selection.start();
     ASSERT(start.deprecatedNode());
-    if (start.deprecatedNode() && start.deprecatedNode()->renderer()) {
+    if (!start.deprecatedNode() || !start.deprecatedNode()->renderer())
+        return;
+
 #if PLATFORM(IOS_FAMILY)
-        if (RenderLayer* layer = start.deprecatedNode()->renderer()->enclosingLayer()) {
-            if (!m_scrollingSuppressCount) {
-                layer->scrollRectToVisible(rect, insideFixed, { revealMode, alignment, alignment, ShouldAllowCrossOriginScrolling::Yes, scrollBehavior});
-                updateAppearance();
-                if (m_document->page())
-                    m_document->page()->chrome().client().notifyRevealedSelectionByScrollingFrame(*m_document->frame());
-            }
-        }
-#else
-        // FIXME: This code only handles scrolling the startContainer's layer, but
-        // the selection rect could intersect more than just that.
-        // See <rdar://problem/4799899>.
-        if (start.deprecatedNode()->renderer()->scrollRectToVisible(rect, insideFixed, { revealMode, alignment, alignment, ShouldAllowCrossOriginScrolling::Yes, scrollBehavior}))
-            updateAppearance();
+    if (m_scrollingSuppressCount)
+        return;
 #endif
-    }
+
+    // FIXME: This code only handles scrolling the startContainer's layer, but
+    // the selection rect could intersect more than just that.
+    // See <rdar://problem/4799899>.
+    FrameView::scrollRectToVisible(rect, *start.deprecatedNode()->renderer(), insideFixed, { revealMode, alignment, alignment, ShouldAllowCrossOriginScrolling::Yes, scrollBehavior });
+    updateAppearance();
+
+#if PLATFORM(IOS_FAMILY)
+    if (m_document->page())
+        m_document->page()->chrome().client().notifyRevealedSelectionByScrollingFrame(*m_document->frame());
+#endif
 }
 
 void FrameSelection::setSelectionFromNone()
@@ -2889,12 +2897,12 @@ void FrameSelection::setCaretColor(const Color& caretColor)
 
 #endif // PLATFORM(IOS_FAMILY)
 
-static bool containsEndpoints(const WeakPtr<Document>& document, const std::optional<SimpleRange>& range)
+static bool containsEndpoints(const WeakPtr<Document, WeakPtrImplWithEventTargetData>& document, const std::optional<SimpleRange>& range)
 {
     return document && range && document->contains(range->start.container) && document->contains(range->end.container);
 }
 
-static bool containsEndpoints(const WeakPtr<Document>& document, const Range& liveRange)
+static bool containsEndpoints(const WeakPtr<Document, WeakPtrImplWithEventTargetData>& document, const Range& liveRange)
 {
     // Only need to check the start container because live ranges enforce the invariant that start and end have a common ancestor.
     return document && document->contains(liveRange.startContainer());

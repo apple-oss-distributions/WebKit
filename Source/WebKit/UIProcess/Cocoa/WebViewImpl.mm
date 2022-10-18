@@ -1877,7 +1877,15 @@ bool WebViewImpl::resignFirstResponder()
 
     resetSecureInputState();
 
-    if (!m_page->maintainsInactiveSelection())
+    auto shouldClearSelection = [&] {
+        if (m_page->maintainsInactiveSelection())
+            return false;
+
+        NSWindow *nextResponderWindow = dynamic_objc_cast<NSView>(nextResponder).window;
+        return !dynamic_objc_cast<NSPanel>(nextResponderWindow);
+    }();
+
+    if (shouldClearSelection)
         m_page->clearSelection();
 
     m_page->activityStateDidChange(WebCore::ActivityState::IsFocused);
@@ -2544,9 +2552,9 @@ bool WebViewImpl::acceptsFirstMouse(NSEvent *event)
     if (![m_view hitTest:event.locationInWindow])
         return false;
 
-    setLastMouseDownEvent(event);
+    auto previousEvent = setLastMouseDownEvent(event);
     bool result = m_page->acceptsFirstMouse(event.eventNumber, WebEventFactory::createWebMouseEvent(event, m_lastPressureEvent.get(), m_view.getAutoreleased()));
-    setLastMouseDownEvent(nil);
+    setLastMouseDownEvent(previousEvent.get());
     return result;
 }
 
@@ -2563,9 +2571,9 @@ bool WebViewImpl::shouldDelayWindowOrderingForEvent(NSEvent *event)
     if (![m_view hitTest:event.locationInWindow])
         return false;
 
-    setLastMouseDownEvent(event);
+    auto previousEvent = setLastMouseDownEvent(event);
     bool result = m_page->shouldDelayWindowOrderingForEvent(WebEventFactory::createWebMouseEvent(event, m_lastPressureEvent.get(), m_view.getAutoreleased()));
-    setLastMouseDownEvent(nil);
+    setLastMouseDownEvent(previousEvent.get());
     return result;
 }
 
@@ -4514,6 +4522,12 @@ void WebViewImpl::startDrag(const WebCore::DragItem& item, const ShareableBitmap
         [provider setUserInfo:context.get()];
         auto draggingItem = adoptNS([[NSDraggingItem alloc] initWithPasteboardWriter:provider.get()]);
         [draggingItem setDraggingFrame:NSMakeRect(clientDragLocation.x(), clientDragLocation.y() - size.height(), size.width(), size.height()) contents:dragNSImage.get()];
+
+        if (!m_lastMouseDownEvent) {
+            m_page->dragCancelled();
+            return;
+        }
+
         [m_view beginDraggingSessionWithItems:@[draggingItem.get()] event:m_lastMouseDownEvent.get() source:(id <NSDraggingSource>)m_view.getAutoreleased()];
 
         ASSERT(info.additionalTypes.size() == info.additionalData.size());
@@ -4994,14 +5008,11 @@ void WebViewImpl::smartMagnifyWithEvent(NSEvent *event)
     ensureGestureController().handleSmartMagnificationGesture([m_view convertPoint:event.locationInWindow fromView:nil]);
 }
 
-void WebViewImpl::setLastMouseDownEvent(NSEvent *event)
+RetainPtr<NSEvent> WebViewImpl::setLastMouseDownEvent(NSEvent *event)
 {
     ASSERT(!event || event.type == NSEventTypeLeftMouseDown || event.type == NSEventTypeRightMouseDown || event.type == NSEventTypeOtherMouseDown);
 
-    if (event == m_lastMouseDownEvent.get())
-        return;
-
-    m_lastMouseDownEvent = event;
+    return std::exchange(m_lastMouseDownEvent, event);
 }
 
 #if ENABLE(MAC_GESTURE_EVENTS)
@@ -5582,11 +5593,17 @@ void WebViewImpl::nativeMouseEventHandlerInternal(NSEvent *event)
 
 void WebViewImpl::mouseEntered(NSEvent *event)
 {
+    if (m_ignoresMouseMoveEvents)
+        return;
+
     nativeMouseEventHandler(event);
 }
 
 void WebViewImpl::mouseExited(NSEvent *event)
 {
+    if (m_ignoresMouseMoveEvents)
+        return;
+
     nativeMouseEventHandler(event);
 }
 
@@ -5642,7 +5659,7 @@ void WebViewImpl::mouseDraggedInternal(NSEvent *event)
 
 void WebViewImpl::mouseMoved(NSEvent *event)
 {
-    if (m_ignoresNonWheelEvents)
+    if (m_ignoresNonWheelEvents || m_ignoresMouseMoveEvents)
         return;
 
 #if ENABLE(UI_PROCESS_PDF_HUD)

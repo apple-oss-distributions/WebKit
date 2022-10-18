@@ -1042,7 +1042,7 @@ bool DocumentLoader::disallowWebArchive() const
     if (!LegacySchemeRegistry::shouldTreatURLSchemeAsLocal(m_request.url().protocol()))
         return true;
 
-    if (!frame() || (frame()->isMainFrame() && m_allowsWebArchiveForMainFrame))
+    if (!frame() || (frame()->isMainFrame() && allowsWebArchiveForMainFrame()))
         return false;
 
     // On purpose of maintaining existing tests.
@@ -1057,7 +1057,7 @@ bool DocumentLoader::disallowDataRequest() const
     if (!m_response.url().protocolIsData())
         return false;
 
-    if (!frame() || !frame()->isMainFrame() || m_allowsDataURLsForMainFrame || frame()->settings().allowTopNavigationToDataURLs())
+    if (!frame() || !frame()->isMainFrame() || allowsDataURLsForMainFrame() || frame()->settings().allowTopNavigationToDataURLs())
         return false;
 
     if (auto* currentDocument = frame()->document()) {
@@ -1212,27 +1212,11 @@ static inline bool shouldUseActiveServiceWorkerFromParent(const Document& docume
 }
 #endif
 
-#if ENABLE(WEB_ARCHIVE)
-bool DocumentLoader::isLoadingRemoteArchive() const
-{
-    bool isQuickLookPreview = false;
-#if USE(QUICK_LOOK)
-    isQuickLookPreview = isQuickLookPreviewURL(m_response.url());
-#endif
-    return m_archive && !m_frame->settings().webArchiveTestingModeEnabled() && !isQuickLookPreview;
-}
-#endif
-
 void DocumentLoader::commitData(const SharedBuffer& data)
 {
-#if ENABLE(WEB_ARCHIVE)
-    URL documentOrEmptyURL = isLoadingRemoteArchive() ? URL() : documentURL();
-#else
-    URL documentOrEmptyURL = documentURL();
-#endif
     if (!m_gotFirstByte) {
         m_gotFirstByte = true;
-        bool hasBegun = m_writer.begin(documentOrEmptyURL, false, nullptr, m_resultingClientId);
+        bool hasBegun = m_writer.begin(documentURL(), false, nullptr, m_resultingClientId, &triggeringAction());
         if (!hasBegun)
             return;
 
@@ -1254,12 +1238,9 @@ void DocumentLoader::commitData(const SharedBuffer& data)
         if (frameLoader()->stateMachine().creatingInitialEmptyDocument())
             return;
 
-#if ENABLE(WEB_ARCHIVE)
-        if (isLoadingRemoteArchive()) {
+#if ENABLE(WEB_ARCHIVE) || ENABLE(MHTML)
+        if (m_archive && m_archive->shouldOverrideBaseURL())
             document.setBaseURLOverride(m_archive->mainResource()->url());
-            if (LegacySchemeRegistry::shouldTreatURLSchemeAsLocal(documentURL().protocol().toStringWithoutCopying()))
-                document.securityOrigin().grantLoadLocalResources();
-        }
 #endif
 #if ENABLE(SERVICE_WORKER)
         if (m_canUseServiceWorkers) {
@@ -1812,11 +1793,10 @@ bool DocumentLoader::scheduleArchiveLoad(ResourceLoader& loader, const ResourceR
         return false;
 
 #if ENABLE(WEB_ARCHIVE)
-    if (isLoadingRemoteArchive()) {
-        DOCUMENTLOADER_RELEASE_LOG("scheduleArchiveLoad: Failed to unarchive subresource");
-        loader.didFail(ResourceError(errorDomainWebKitInternal, 0, request.url(), "Failed to unarchive subresource"_s));
+    // The idea of WebArchiveDebugMode is that we should fail instead of trying to fetch from the network.
+    // Returning true ensures the caller will not try to fetch from the network.
+    if (m_frame->settings().webArchiveDebugModeEnabled() && responseMIMEType() == "application/x-webarchive"_s)
         return true;
-    }
 #endif
 
     // If we want to load from the archive only, then we should always return true so that the caller

@@ -804,21 +804,6 @@ std::optional<SimpleRange> AccessibilityObject::visibleCharacterRange() const
     return computedRange;
 }
 
-#if PLATFORM(IOS_FAMILY)
-static const RenderStyle* styleFromNode(Node* node)
-{
-    if (auto* textNode = dynamicDowncast<Text>(node)) {
-        if (auto* renderer = textNode->renderer())
-            return &renderer->style();
-    }
-
-    if (auto* element = dynamicDowncast<Element>(node))
-        return element->computedStyle();
-
-    return nullptr;
-}
-#endif
-
 std::optional<SimpleRange> AccessibilityObject::visibleCharacterRangeInternal(const std::optional<SimpleRange>& range, const FloatRect& contentRect, const IntRect& startingElementRect) const
 {
     if (!range || !contentRect.intersects(startingElementRect))
@@ -828,12 +813,6 @@ std::optional<SimpleRange> AccessibilityObject::visibleCharacterRangeInternal(co
     auto startBoundary = range->start;
     auto endBoundary = range->end;
 
-#if PLATFORM(IOS_FAMILY)
-    auto* style = styleFromNode(node());
-    // If we can't get style for this object, assume a horizontal writing mode.
-    bool isHorizontalWritingMode = style ? style->isHorizontalWritingMode() : true;
-#endif
-
     // Origin isn't contained in visible rect, start moving forward by line.
     while (!contentRect.contains(elementRect.location())) {
         auto nextLinePosition = nextLineEndPosition(VisiblePosition(makeContainerOffsetPosition(startBoundary)));
@@ -841,23 +820,47 @@ std::optional<SimpleRange> AccessibilityObject::visibleCharacterRangeInternal(co
         if (!testStartBoundary || !contains(*range, *testStartBoundary))
             break;
 
-#if PLATFORM(IOS_FAMILY)
-        float lastX = elementRect.x();
-#endif
-
         // testStartBoundary is valid, so commit it and update the elementRect.
         startBoundary = *testStartBoundary;
         elementRect = boundsForRange(SimpleRange(startBoundary, range->end));
         if (elementRect.isEmpty() || elementRect.x() < 0 || elementRect.y() < 0)
             break;
+    }
 
-#if PLATFORM(IOS_FAMILY)
-        // If the x-coordinate of the element's frame has grown, we should break because that likely means
-        // we have crossed a viewport boundary (e.g. moved to a new page in Books).
-        // FIXME: We should investigate further to understand if this is the correct behavior for all platforms.
-        if (isHorizontalWritingMode && lastX < elementRect.x())
-            break;
-#endif
+    bool didCorrectStartBoundary = false;
+    // Sometimes we shrink one line too far -- check the previous line start to see if it's in bounds.
+    auto previousLineStartPosition = previousLineStartPositionInternal(VisiblePosition(makeContainerOffsetPosition(startBoundary)));
+    if (previousLineStartPosition) {
+        if (auto previousLineStartBoundaryPoint = makeBoundaryPoint(*previousLineStartPosition)) {
+            auto lineStartRect = boundsForRange(SimpleRange(*previousLineStartBoundaryPoint, range->end));
+            if (previousLineStartBoundaryPoint->container.ptr() == startBoundary.container.ptr() && contentRect.contains(lineStartRect.location())) {
+                elementRect = lineStartRect;
+                startBoundary = *previousLineStartBoundaryPoint;
+                didCorrectStartBoundary = true;
+            }
+        }
+    }
+
+    if (!didCorrectStartBoundary) {
+        // We iterated to a line-end position above. We must also check if the start of this line is in bounds.
+        auto startBoundaryLineStartPosition = startOfLine(VisiblePosition(makeContainerOffsetPosition(startBoundary)));
+        auto lineStartBoundaryPoint = makeBoundaryPoint(startBoundaryLineStartPosition);
+        if (lineStartBoundaryPoint && lineStartBoundaryPoint->container.ptr() == startBoundary.container.ptr()) {
+            auto lineStartRect = boundsForRange(SimpleRange(*lineStartBoundaryPoint, range->end));
+            if (contentRect.contains(lineStartRect.location())) {
+                elementRect = lineStartRect;
+                startBoundary = *lineStartBoundaryPoint;
+            } else if (lineStartBoundaryPoint->offset < lineStartBoundaryPoint->container->length()) {
+                // Sometimes we're one character off from being in-bounds. Check for this too.
+                lineStartBoundaryPoint->offset = lineStartBoundaryPoint->offset + 1;
+                lineStartRect = boundsForRange(SimpleRange(*lineStartBoundaryPoint, range->end));
+                lineStartBoundaryPoint->offset = lineStartBoundaryPoint->offset - 1;
+                if (contentRect.contains(lineStartRect.location())) {
+                    elementRect = lineStartRect;
+                    startBoundary = *lineStartBoundaryPoint;
+                }
+            }
+        }
     }
 
     // Computing previous line start positions is cheap relative to computing boundsForRange, so compute the end boundary by
@@ -883,6 +886,16 @@ std::optional<SimpleRange> AccessibilityObject::visibleCharacterRangeInternal(co
         }
         boundaryPoints = previousLineStartBoundaryPoints(VisiblePosition(makeContainerOffsetPosition(lastBoundaryPoint)), *range, 64);
     } while (!boundaryPoints.isEmpty());
+
+    // Sometimes we shrink one line too far. Check the next line end to see if it's in bounds.
+    auto nextLineEndPosition = this->nextLineEndPosition(VisiblePosition(makeContainerOffsetPosition(endBoundary)));
+    auto nextLineEndBoundaryPoint = makeBoundaryPoint(nextLineEndPosition);
+    if (nextLineEndBoundaryPoint && nextLineEndBoundaryPoint->container.ptr() == endBoundary.container.ptr()) {
+        auto lineEndRect = boundsForRange(SimpleRange(startBoundary, *nextLineEndBoundaryPoint));
+
+        if (contentRect.contains(lineEndRect.location() + lineEndRect.size()))
+            endBoundary = *nextLineEndBoundaryPoint;
+    }
 
     return { { startBoundary, endBoundary } };
 }
@@ -1448,9 +1461,10 @@ bool AccessibilityObject::replacedNodeNeedsCharacter(Node* replacedNode)
         return false;
 
     // create an AX object, but skip it if it is not supposed to be seen
-    AccessibilityObject* object = replacedNode->renderer()->document().axObjectCache()->getOrCreate(replacedNode);
-    if (object->accessibilityIsIgnored())
-        return false;
+    if (auto* cache = replacedNode->renderer()->document().axObjectCache()) {
+        if (auto* axObject = cache->getOrCreate(replacedNode))
+            return !axObject->accessibilityIsIgnored();
+    }
 
     return true;
 }
@@ -1550,86 +1564,6 @@ String AccessibilityObject::stringForVisiblePositionRange(const VisiblePositionR
     return builder.toString();
 }
 
-int AccessibilityObject::lengthForVisiblePositionRange(const VisiblePositionRange& visiblePositionRange) const
-{
-    // FIXME: Multi-byte support
-
-    auto range = makeSimpleRange(visiblePositionRange);
-    if (!range)
-        return -1; // FIXME: Why not return 0?
-
-    // FIXME: Use characterCount instead of writing our own loop?
-    int length = 0;
-    for (TextIterator it(*range); !it.atEnd(); it.advance()) {
-        // non-zero length means textual node, zero length means replaced node (AKA "attachments" in AX)
-        if (it.text().length())
-            length += it.text().length();
-        else {
-            if (replacedNodeNeedsCharacter(it.node()))
-                ++length;
-        }
-    }
-    return length;
-}
-
-VisiblePosition AccessibilityObject::visiblePositionForBounds(const IntRect& rect, AccessibilityVisiblePositionForBounds visiblePositionForBounds) const
-{
-    if (rect.isEmpty())
-        return VisiblePosition();
-    
-    auto* mainFrame = this->mainFrame();
-    if (!mainFrame)
-        return VisiblePosition();
-    
-    // FIXME: Add support for right-to-left languages.
-    IntPoint corner = (visiblePositionForBounds == AccessibilityVisiblePositionForBounds::First) ? rect.minXMinYCorner() : rect.maxXMaxYCorner();
-    VisiblePosition position = mainFrame->visiblePositionForPoint(corner);
-    
-    if (rect.contains(position.absoluteCaretBounds().center()))
-        return position;
-    
-    // If the initial position is located outside the bounds adjust it incrementally as needed.
-    VisiblePosition nextPosition = position.next();
-    VisiblePosition previousPosition = position.previous();
-    while (nextPosition.isNotNull() || previousPosition.isNotNull()) {
-        if (rect.contains(nextPosition.absoluteCaretBounds().center()))
-            return nextPosition;
-        if (rect.contains(previousPosition.absoluteCaretBounds().center()))
-            return previousPosition;
-        
-        nextPosition = nextPosition.next();
-        previousPosition = previousPosition.previous();
-    }
-    
-    return VisiblePosition();
-}
-
-VisiblePosition AccessibilityObject::nextWordEnd(const VisiblePosition& visiblePos) const
-{
-    if (visiblePos.isNull())
-        return VisiblePosition();
-
-    // make sure we move off of a word end
-    VisiblePosition nextVisiblePos = visiblePos.next();
-    if (nextVisiblePos.isNull())
-        return VisiblePosition();
-
-    return endOfWord(nextVisiblePos, LeftWordIfOnBoundary);
-}
-
-VisiblePosition AccessibilityObject::previousWordStart(const VisiblePosition& visiblePos) const
-{
-    if (visiblePos.isNull())
-        return VisiblePosition();
-
-    // make sure we move off of a word start
-    VisiblePosition prevVisiblePos = visiblePos.previous();
-    if (prevVisiblePos.isNull())
-        return VisiblePosition();
-
-    return startOfWord(prevVisiblePos, RightWordIfOnBoundary);
-}
-
 VisiblePosition AccessibilityObject::nextLineEndPosition(const VisiblePosition& visiblePos) const
 {
     if (visiblePos.isNull())
@@ -1717,18 +1651,6 @@ VisiblePosition AccessibilityObject::previousParagraphStartPosition(const Visibl
     return startOfParagraph(position.previous());
 }
 
-AccessibilityObject* AccessibilityObject::accessibilityObjectForPosition(const VisiblePosition& visiblePos) const
-{
-    if (visiblePos.isNull())
-        return nullptr;
-
-    RenderObject* obj = visiblePos.deepEquivalent().deprecatedNode()->renderer();
-    if (!obj)
-        return nullptr;
-
-    return obj->document().axObjectCache()->getOrCreate(obj);
-}
-    
 // If you call node->hasEditableStyle() since that will return true if an ancestor is editable.
 // This only returns true if this is the element that actually has the contentEditable attribute set.
 bool AccessibilityObject::hasContentEditableAttributeSet() const
@@ -2402,10 +2324,12 @@ bool AccessibilityObject::replaceTextInRange(const String& replacementString, co
 
 bool AccessibilityObject::insertText(const String& text)
 {
+    AXTRACE(makeString("AccessibilityObject::insertText text = ", text));
+
     if (!renderer() || !is<Element>(node()))
         return false;
 
-    auto& element = downcast<Element>(*renderer()->node());
+    auto& element = downcast<Element>(*node());
     // Only try to insert text if the field is in editing mode (excluding password fields, which we do still want to try to insert into).
     if (!isPasswordField() && !element.shouldUseInputMethod())
         return false;
@@ -2565,6 +2489,7 @@ static void initializeRoleMap()
         { "spinbutton"_s, AccessibilityRole::SpinButton },
         { "status"_s, AccessibilityRole::ApplicationStatus },
         { "subscript"_s, AccessibilityRole::Subscript },
+        { "suggestion"_s, AccessibilityRole::Suggestion },
         { "superscript"_s, AccessibilityRole::Superscript },
         { "switch"_s, AccessibilityRole::Switch },
         { "tab"_s, AccessibilityRole::Tab },
@@ -2767,6 +2692,9 @@ String AccessibilityObject::roleDescription() const
 
     if (roleValue() == AccessibilityRole::Figure)
         return AXFigureText();
+    
+    if (roleValue() == AccessibilityRole::Suggestion)
+        return AXSuggestionRoleDescriptionText();
 
     return roleDescription;
 }
@@ -2841,9 +2769,14 @@ Element* AccessibilityObject::element() const
 
 const RenderStyle* AccessibilityObject::style() const
 {
-    if (auto* element = this->element())
-        return element->computedStyle();
-    return nullptr;
+    const RenderStyle* style = nullptr;
+    if (auto* renderer = this->renderer())
+        style = &renderer->style();
+    if (!style) {
+        if (auto* element = this->element())
+            style = element->computedStyle();
+    }
+    return style;
 }
 
 bool AccessibilityObject::isValueAutofillAvailable() const
@@ -2864,18 +2797,6 @@ AutoFillButtonType AccessibilityObject::valueAutofillButtonType() const
         return AutoFillButtonType::None;
     
     return downcast<HTMLInputElement>(*this->node()).autoFillButtonType();
-}
-    
-bool AccessibilityObject::isValueAutofilled() const
-{
-    if (!isNativeTextControl())
-        return false;
-    
-    Node* node = this->node();
-    if (!is<HTMLInputElement>(node))
-        return false;
-    
-    return downcast<HTMLInputElement>(*node).isAutoFilled();
 }
 
 const String AccessibilityObject::placeholderValue() const
@@ -3126,17 +3047,19 @@ String AccessibilityObject::identifierAttribute() const
     return getAttribute(idAttr);
 }
 
-void AccessibilityObject::classList(Vector<String>& classList) const
+Vector<String> AccessibilityObject::classList() const
 {
-    Node* node = this->node();
-    if (!is<Element>(node))
-        return;
-    
-    Element* element = downcast<Element>(node);
-    DOMTokenList& list = element->classList();
-    unsigned length = list.length();
+    auto* element = this->element();
+    if (!element)
+        return { };
+
+    auto& domClassList = element->classList();
+    Vector<String> classList;
+    unsigned length = domClassList.length();
+    classList.reserveInitialCapacity(length);
     for (unsigned k = 0; k < length; k++)
-        classList.append(list.item(k).string());
+        classList.append(domClassList.item(k).string());
+    return classList;
 }
 
 bool AccessibilityObject::supportsPressed() const
@@ -3407,7 +3330,7 @@ void AccessibilityObject::scrollToMakeVisible(const ScrollRectToVisibleOptions& 
         parentObject()->scrollToMakeVisible();
 
     if (auto* renderer = this->renderer())
-        renderer->scrollRectToVisible(boundingBoxRect(), false, options);
+        FrameView::scrollRectToVisible(boundingBoxRect(), *renderer, false, options);
 }
 
 void AccessibilityObject::scrollToMakeVisibleWithSubFocus(const IntRect& subfocus) const
@@ -3640,28 +3563,9 @@ bool AccessibilityObject::scrollByPage(ScrollByPageDirection direction) const
     return false;
 }
 
-
-bool AccessibilityObject::lastKnownIsIgnoredValue()
-{
-    if (m_lastKnownIsIgnoredValue == AccessibilityObjectInclusion::DefaultBehavior)
-        m_lastKnownIsIgnoredValue = accessibilityIsIgnored() ? AccessibilityObjectInclusion::IgnoreObject : AccessibilityObjectInclusion::IncludeObject;
-
-    return m_lastKnownIsIgnoredValue == AccessibilityObjectInclusion::IgnoreObject;
-}
-
 void AccessibilityObject::setLastKnownIsIgnoredValue(bool isIgnored)
 {
     m_lastKnownIsIgnoredValue = isIgnored ? AccessibilityObjectInclusion::IgnoreObject : AccessibilityObjectInclusion::IncludeObject;
-}
-
-bool AccessibilityObject::hasIgnoredValueChanged()
-{
-    bool isIgnored = accessibilityIsIgnored();
-    if (lastKnownIsIgnoredValue() != isIgnored) {
-        setLastKnownIsIgnoredValue(isIgnored);
-        return true;
-    }
-    return false;
 }
 
 bool AccessibilityObject::pressedIsPresent() const
@@ -3728,12 +3632,9 @@ bool AccessibilityObject::isAXHidden() const
 // https://www.w3.org/TR/wai-aria/#dfn-hidden
 bool AccessibilityObject::isDOMHidden() const
 {
-    RenderObject* renderer = this->renderer();
-    if (!renderer)
-        return true;
-    
-    const RenderStyle& style = renderer->style();
-    return style.display() == DisplayType::None || style.visibility() != Visibility::Visible;
+    if (auto* style = this->style())
+        return style->display() == DisplayType::None || style->visibility() != Visibility::Visible;
+    return true;
 }
 
 bool AccessibilityObject::isShowingValidationMessage() const
@@ -3774,9 +3675,9 @@ AccessibilityObjectInclusion AccessibilityObject::defaultObjectInclusion() const
 bool AccessibilityObject::accessibilityIsIgnored() const
 {
     AXComputedObjectAttributeCache* attributeCache = nullptr;
-    AXObjectCache* cache = axObjectCache();
-    if (cache)
-        attributeCache = cache->computedObjectAttributeCache();
+    auto* axObjectCache = this->axObjectCache();
+    if (axObjectCache)
+        attributeCache = axObjectCache->computedObjectAttributeCache();
     
     if (attributeCache) {
         AccessibilityObjectInclusion ignored = attributeCache->getIgnored(objectID());
@@ -3790,6 +3691,17 @@ bool AccessibilityObject::accessibilityIsIgnored() const
         }
     }
 
+    bool ignored = accessibilityIsIgnoredWithoutCache(axObjectCache);
+
+    // Refetch the attribute cache in case it was enabled as part of computing accessibilityIsIgnored.
+    if (axObjectCache && (attributeCache = axObjectCache->computedObjectAttributeCache()))
+        attributeCache->setIgnored(objectID(), ignored ? AccessibilityObjectInclusion::IgnoreObject : AccessibilityObjectInclusion::IncludeObject);
+
+    return ignored;
+}
+
+bool AccessibilityObject::accessibilityIsIgnoredWithoutCache(AXObjectCache* cache) const
+{
     // If we are in the midst of retrieving the current modal node, we only need to consider whether the object
     // is inherently ignored via computeAccessibilityIsIgnored. Also, calling ignoredFromModalPresence
     // in this state would cause infinite recursion.
@@ -3797,9 +3709,13 @@ bool AccessibilityObject::accessibilityIsIgnored() const
     if (!ignored)
         ignored = computeAccessibilityIsIgnored();
 
-    // In case computing axIsIgnored disables attribute caching, we should refetch the object to see if it exists.
-    if (cache && (attributeCache = cache->computedObjectAttributeCache()))
-        attributeCache->setIgnored(objectID(), ignored ? AccessibilityObjectInclusion::IgnoreObject : AccessibilityObjectInclusion::IncludeObject);
+    auto previousLastKnownIsIgnoredValue = m_lastKnownIsIgnoredValue;
+    const_cast<AccessibilityObject*>(this)->setLastKnownIsIgnoredValue(ignored);
+
+    if (cache
+        && ((previousLastKnownIsIgnoredValue == AccessibilityObjectInclusion::IgnoreObject && !ignored)
+        || (previousLastKnownIsIgnoredValue == AccessibilityObjectInclusion::IncludeObject && ignored)))
+        cache->childrenChanged(parentObject());
 
     return ignored;
 }
@@ -3956,11 +3872,18 @@ bool AccessibilityObject::isContainedByPasswordField() const
     return is<HTMLInputElement>(element) && downcast<HTMLInputElement>(*element).isPasswordField();
 }
     
-AXCoreObject* AccessibilityObject::selectedListItem()
+AccessibilityObject* AccessibilityObject::selectedListItem()
 {
     for (const auto& child : children()) {
-        if (child->isListItem() && (child->isSelected() || child->isActiveDescendantOfFocusedContainer()))
-            return child.get();
+        if (!child->isListItem())
+            continue;
+
+        auto* axObject = dynamicDowncast<AccessibilityObject>(child.get());
+        if (!axObject)
+            continue;
+
+        if (axObject->isSelected() || axObject->isActiveDescendantOfFocusedContainer())
+            return axObject;
     }
     
     return nullptr;
@@ -3989,9 +3912,9 @@ bool AccessibilityObject::isActiveDescendantOfFocusedContainer() const
     return false;
 }
 
-void AccessibilityObject::setIsIgnoredFromParentDataForChild(AXCoreObject* child)
+void AccessibilityObject::setIsIgnoredFromParentDataForChild(AccessibilityObject* child)
 {
-    if (!is<AccessibilityObject>(child))
+    if (!child)
         return;
 
     if (child->parentObject() != this) {
@@ -4001,13 +3924,13 @@ void AccessibilityObject::setIsIgnoredFromParentDataForChild(AXCoreObject* child
 
     AccessibilityIsIgnoredFromParentData result = AccessibilityIsIgnoredFromParentData(this);
     if (!m_isIgnoredFromParentData.isNull()) {
-        result.isAXHidden = (m_isIgnoredFromParentData.isAXHidden || equalLettersIgnoringASCIICase(downcast<AccessibilityObject>(child)->getAttribute(aria_hiddenAttr), "true"_s)) && !child->isFocused();
+        result.isAXHidden = (m_isIgnoredFromParentData.isAXHidden || equalLettersIgnoringASCIICase(child->getAttribute(aria_hiddenAttr), "true"_s)) && !child->isFocused();
         result.isPresentationalChildOfAriaRole = m_isIgnoredFromParentData.isPresentationalChildOfAriaRole || ariaRoleHasPresentationalChildren();
         result.isDescendantOfBarrenParent = m_isIgnoredFromParentData.isDescendantOfBarrenParent || !canHaveChildren();
     } else {
         result.isAXHidden = child->isAXHidden();
         result.isPresentationalChildOfAriaRole = child->isPresentationalChildOfAriaRole();
-        result.isDescendantOfBarrenParent = downcast<AccessibilityObject>(child)->isDescendantOfBarrenParent();
+        result.isDescendantOfBarrenParent = child->isDescendantOfBarrenParent();
     }
 
     child->setIsIgnoredFromParentData(result);

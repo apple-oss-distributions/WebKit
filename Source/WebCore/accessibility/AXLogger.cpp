@@ -403,6 +403,9 @@ TextStream& operator<<(TextStream& stream, AXObjectCache::AXNotification notific
     case AXObjectCache::AXNotification::AXDropEffectChanged:
         stream << "AXDropEffectChanged";
         break;
+    case AXObjectCache::AXNotification::AXFlowToChanged:
+        stream << "AXFlowToChanged";
+        break;
     case AXObjectCache::AXNotification::AXFocusedUIElementChanged:
         stream << "AXFocusedUIElementChanged";
         break;
@@ -477,6 +480,12 @@ TextStream& operator<<(TextStream& stream, AXObjectCache::AXNotification notific
         break;
     case AXObjectCache::AXNotification::AXSetSizeChanged:
         stream << "AXSetSizeChanged";
+        break;
+    case AXObjectCache::AXNotification::AXTableHeadersChanged:
+        stream << "AXTableHeadersChanged";
+        break;
+    case AXObjectCache::AXNotification::AXURLChanged:
+        stream << "AXURLChanged";
         break;
     case AXObjectCache::AXNotification::AXValueChanged:
         stream << "AXValueChanged";

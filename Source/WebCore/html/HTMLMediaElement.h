@@ -151,8 +151,9 @@ class HTMLMediaElement
 {
     WTF_MAKE_ISO_ALLOCATED(HTMLMediaElement);
 public:
-    using WeakValueType = HTMLElement::WeakValueType;
     using HTMLElement::weakPtrFactory;
+    using HTMLElement::WeakValueType;
+    using HTMLElement::WeakPtrImplType;
 
     RefPtr<MediaPlayer> player() const { return m_player; }
     WEBCORE_EXPORT std::optional<MediaPlayerIdentifier> playerIdentifier() const;
@@ -650,6 +651,7 @@ protected:
     bool isChangingVideoFullscreenMode() const { return m_changingVideoFullscreenMode; }
 
     void mediaPlayerEngineUpdated() override;
+    void visibilityStateChanged() final;
 
 private:
     friend class Internals;
@@ -681,8 +683,6 @@ private:
     void stopWithoutDestroyingMediaPlayer();
     void contextDestroyed() override;
     
-    void visibilityStateChanged() final;
-
     void setReadyState(MediaPlayer::ReadyState);
     void setNetworkState(MediaPlayer::NetworkState);
 

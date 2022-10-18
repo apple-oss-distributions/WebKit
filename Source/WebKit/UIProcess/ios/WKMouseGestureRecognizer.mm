@@ -63,6 +63,7 @@ static String pointerTypeForUITouchType(UITouchType)
     RetainPtr<UITouch> _currentTouch;
 
     BOOL _touching;
+    BOOL _cancelledOrExited;
 
     std::unique_ptr<WebKit::NativeWebMouseEvent> _lastEvent;
     std::optional<CGPoint> _lastLocation;
@@ -80,6 +81,7 @@ static String pointerTypeForUITouchType(UITouchType)
         _lastEvent = nil;
         _lastLocation = std::nullopt;
         _pressedButtonMask = std::nullopt;
+        _cancelledOrExited = YES;
     }
 }
 
@@ -185,14 +187,19 @@ static String pointerTypeForUITouchType(UITouchType)
 
 - (void)_hoverEntered:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event
 {
-    _lastEvent = [self createMouseEventWithType:WebKit::WebEvent::MouseMove wasCancelled:NO];
-
-    if (_currentHoverEvent == nil && touches.count == 1 && [event isKindOfClass:NSClassFromString(@"UIHoverEvent")]) {
+    bool shouldBeginGesture = _currentHoverEvent == nil && touches.count == 1 && [event isKindOfClass:NSClassFromString(@"UIHoverEvent")];
+    _cancelledOrExited = NO;
+    
+    if (shouldBeginGesture) {
         _currentHoverEvent = event;
         _currentTouch = touches.anyObject;
         _lastLocation = [self locationInView:self.view];
-        self.state = UIGestureRecognizerStateBegan;
     }
+
+    _lastEvent = [self createMouseEventWithType:WebKit::WebEvent::MouseMove wasCancelled:NO];
+    
+    if (shouldBeginGesture)
+        self.state = UIGestureRecognizerStateBegan;
 }
 
 - (void)_hoverMoved:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event
@@ -202,6 +209,7 @@ static String pointerTypeForUITouchType(UITouchType)
         return;
     }
 
+    _cancelledOrExited = NO;
     _lastEvent = [self createMouseEventWithType:WebKit::WebEvent::MouseMove wasCancelled:NO];
     _lastLocation = [self locationInView:self.view];
 
@@ -211,6 +219,7 @@ static String pointerTypeForUITouchType(UITouchType)
 
 - (void)_hoverExited:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event
 {
+    _cancelledOrExited = YES;
     _lastEvent = [self createMouseEventWithType:WebKit::WebEvent::MouseMove wasCancelled:NO];
     _lastLocation = [self locationInView:self.view];
 
@@ -228,7 +237,7 @@ static String pointerTypeForUITouchType(UITouchType)
 
 - (CGPoint)locationInView:(UIView *)view
 {
-    if (!_currentTouch)
+    if (!_currentTouch || _cancelledOrExited)
         return CGPointMake(-1, -1);
     return [_currentTouch locationInView:view];
 }

@@ -94,7 +94,7 @@ struct ScrollToOptions;
 struct SecurityPolicyViolationEventInit;
 struct ShadowRootInit;
 
-using ExplicitlySetAttrElementsMap = HashMap<QualifiedName, Vector<WeakPtr<Element>>>;
+using ExplicitlySetAttrElementsMap = HashMap<QualifiedName, Vector<WeakPtr<Element, WeakPtrImplWithEventTargetData>>>;
 
 namespace Style {
 class Resolver;
@@ -115,6 +115,7 @@ public:
     template<typename... QualifiedNames>
     inline const AtomString& getAttribute(const QualifiedName&, const QualifiedNames&...) const;
     WEBCORE_EXPORT void setAttribute(const QualifiedName&, const AtomString& value);
+    void setAttributeWithoutOverwriting(const QualifiedName&, const AtomString& value);
     WEBCORE_EXPORT void setAttributeWithoutSynchronization(const QualifiedName&, const AtomString& value);
     void setSynchronizedLazyAttribute(const QualifiedName&, const AtomString& value);
     bool removeAttribute(const QualifiedName&);
@@ -270,6 +271,9 @@ public:
     const AtomString& prefix() const final { return m_tagName.prefix(); }
     const AtomString& namespaceURI() const final { return m_tagName.namespaceURI(); }
 
+    ElementName elementName() const { return m_tagName.elementName(); }
+    Namespace nodeNamespace() const { return m_tagName.nodeNamespace(); }
+
     ExceptionOr<void> setPrefix(const AtomString&) final;
 
     String nodeName() const override;
@@ -371,7 +375,6 @@ public:
 
     virtual int tabIndexForBindings() const;
     WEBCORE_EXPORT void setTabIndexForBindings(int);
-    virtual RefPtr<Element> focusDelegate();
 
     // Used by the HTMLElement and SVGElement IDLs.
     WEBCORE_EXPORT const AtomString& nonce() const;
@@ -437,6 +440,8 @@ public:
 
     virtual const AtomString& imageSourceURL() const;
     virtual AtomString target() const { return nullAtom(); }
+
+    RefPtr<Element> findFocusDelegate();
 
     static AXTextStateChangeIntent defaultFocusTextStateChangeIntent() { return AXTextStateChangeIntent(AXTextStateChangeTypeSelectionMove, AXTextSelection { AXTextSelectionDirectionDiscontiguous, AXTextSelectionGranularityUnknown, true }); }
     virtual void focus(const FocusOptions& = { });
@@ -511,6 +516,7 @@ public:
     virtual bool isOutOfRange() const { return false; }
     virtual bool isUploadButton() const { return false; }
     virtual bool isSliderContainerElement() const { return false; }
+    virtual bool isSliderThumbElement() const { return false; }
     virtual bool isHTMLTablePartElement() const { return false; }
 
     bool canContainRangeEndPoint() const override;
@@ -647,6 +653,7 @@ public:
     void invalidateStyleInternal();
     void invalidateStyleForSubtreeInternal();
     void invalidateForQueryContainerSizeChange();
+    void invalidateForResumingQueryContainerResolution();
 
     bool needsUpdateQueryContainerDependentStyle() const;
     void clearNeedsUpdateQueryContainerDependentStyle();

@@ -474,7 +474,8 @@ public:
     virtual ~WebPageProxy();
 
     using IPC::MessageReceiver::weakPtrFactory;
-    using WeakValueType = IPC::MessageReceiver::WeakValueType;
+    using IPC::MessageReceiver::WeakValueType;
+    using IPC::MessageReceiver::WeakPtrImplType;
 
     static void forMostVisibleWebPageIfAny(PAL::SessionID, const WebCore::SecurityOriginData&, CompletionHandler<void(WebPageProxy*)>&&);
 
@@ -1807,6 +1808,8 @@ public:
     void getApplicationManifest(CompletionHandler<void(const std::optional<WebCore::ApplicationManifest>&)>&&);
 #endif
 
+    void getTextFragmentMatch(CompletionHandler<void(const String&)>&&);
+
     WebPreferencesStore preferencesStore() const;
 
     void setDefersLoadingForTesting(bool);
@@ -1980,6 +1983,7 @@ public:
 #endif
 
 #if ENABLE(VIDEO_PRESENTATION_MODE)
+    void failedToEnterFullscreen(PlaybackSessionContextIdentifier);
     void didEnterFullscreen(PlaybackSessionContextIdentifier);
     void didExitFullscreen(PlaybackSessionContextIdentifier);
     void didChangePlaybackRate(PlaybackSessionContextIdentifier);
@@ -2365,6 +2369,7 @@ private:
     // Back/Forward list management
     void backForwardAddItem(BackForwardListItemState&&);
     void backForwardGoToItem(const WebCore::BackForwardItemIdentifier&, CompletionHandler<void(const WebBackForwardListCounts&)>&&);
+    void backForwardListContainsItem(const WebCore::BackForwardItemIdentifier&, CompletionHandler<void(bool)>&&);
     void backForwardItemAtIndex(int32_t index, CompletionHandler<void(std::optional<WebCore::BackForwardItemIdentifier>&&)>&&);
     void backForwardListCounts(Messages::WebPageProxy::BackForwardListCountsDelayedReply&&);
     void backForwardClear();

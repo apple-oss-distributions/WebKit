@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2018-2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -163,6 +163,9 @@ public:
     WEBCORE_EXPORT bool allowLayeredFullscreenVideos() const;
 #endif
     bool shouldEnableApplicationCacheQuirk() const;
+    bool hasBrokenPermissionsAPISupportQuirk() const;
+    bool shouldEnableFontLoadingAPIQuirk() const;
+    bool needsVideoShouldMaintainAspectRatioQuirk() const;
     
 private:
     bool needsQuirks() const;
@@ -172,7 +175,7 @@ private:
     bool isGoogleMaps() const;
 #endif
 
-    WeakPtr<Document> m_document;
+    WeakPtr<Document, WeakPtrImplWithEventTargetData> m_document;
 
     mutable std::optional<bool> m_hasBrokenEncryptedMediaAPISupportQuirk;
     mutable std::optional<bool> m_needsFullWidthHeightFullscreenStyleQuirk;
@@ -216,6 +219,9 @@ private:
 #if PLATFORM(IOS_FAMILY)
     mutable std::optional<bool> m_shouldEnableApplicationCacheQuirk;
 #endif
+    mutable std::optional<bool> m_hasBrokenPermissionsAPISupportQuirk;
+    mutable std::optional<bool> m_shouldEnableFontLoadingAPIQuirk;
+    mutable std::optional<bool> m_needsVideoShouldMaintainAspectRatioQuirk;
 };
 
 } // namespace WebCore

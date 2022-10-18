@@ -54,6 +54,7 @@
 #import "WKWebViewPrivateForTestingIOS.h"
 #import "WebBackForwardList.h"
 #import "WebIOSEventFactory.h"
+#import "WebPage.h"
 #import "WebPageProxy.h"
 #import "_WKActivatedElementInfoInternal.h"
 #import <WebCore/ColorCocoa.h>
@@ -77,6 +78,7 @@
 #if ENABLE(LOCKDOWN_MODE_API)
 #import "_WKSystemPreferencesInternal.h"
 #import <WebCore/LocalizedStrings.h>
+#import <wtf/spi/cf/CFBundleSPI.h>
 #endif
 
 #if HAVE(UI_EVENT_ATTRIBUTION)
@@ -369,7 +371,7 @@ FOR_EACH_WKCONTENTVIEW_ACTION(FORWARD_ACTION_TO_WKCONTENTVIEW)
         return _findInteractionEnabled;
 
     if (action == @selector(findAndReplace:))
-        return _findInteractionEnabled && self._isEditable;
+        return _findInteractionEnabled && self.supportsTextReplacement;
 #endif
 
     return [super canPerformAction:action withSender:sender];
@@ -436,6 +438,11 @@ static CGSize roundScrollViewContentSize(const WebKit::WebPageProxy& page, CGSiz
 {
     float deviceScaleFactor = page.deviceScaleFactor();
     return CGSizeMake(floorToDevicePixel(contentSize.width, deviceScaleFactor), floorToDevicePixel(contentSize.height, deviceScaleFactor));
+}
+
+- (WKScrollView *)_wkScrollView
+{
+    return _scrollView.get();
 }
 
 - (UIView *)_currentContentView
@@ -607,8 +614,8 @@ static WebCore::Color scrollViewBackgroundColor(WKWebView *webView, AllowPageBac
 {
     auto newScrollViewBackgroundColor = scrollViewBackgroundColor(self, AllowPageBackgroundColorOverride::Yes);
     if (_scrollViewBackgroundColor != newScrollViewBackgroundColor) {
-        _scrollViewBackgroundColor = newScrollViewBackgroundColor;
         [_scrollView _setBackgroundColorInternal:cocoaColor(newScrollViewBackgroundColor).get()];
+        _scrollViewBackgroundColor = newScrollViewBackgroundColor;
     }
 
     [self _updateScrollViewIndicatorStyle];
@@ -950,7 +957,7 @@ static void changeContentOffsetBoundedInValidRange(UIScrollView *scrollView, Web
     bool scrollingEnabled = _page->scrollingCoordinatorProxy()->hasScrollableOrZoomedMainFrame() || hasDockedInputView || isZoomed || scrollingNeededToRevealUI;
     [_scrollView _setScrollEnabledInternal:scrollingEnabled];
 
-    if (!layerTreeTransaction.scaleWasSetByUIProcess() && ![_scrollView isZooming] && ![_scrollView isZoomBouncing] && ![_scrollView _isAnimatingZoom] && !WTF::areEssentiallyEqual<float>([_scrollView zoomScale], layerTreeTransaction.pageScaleFactor())) {
+    if (!layerTreeTransaction.scaleWasSetByUIProcess() && ![_scrollView isZooming] && ![_scrollView isZoomBouncing] && ![_scrollView _isAnimatingZoom] && !WebKit::scalesAreEssentiallyEqual([_scrollView zoomScale], layerTreeTransaction.pageScaleFactor())) {
         LOG_WITH_STREAM(VisibleRects, stream << " updating scroll view with pageScaleFactor " << layerTreeTransaction.pageScaleFactor());
         [_scrollView setZoomScale:layerTreeTransaction.pageScaleFactor()];
     }
@@ -969,7 +976,7 @@ static void changeContentOffsetBoundedInValidRange(UIScrollView *scrollView, Web
         WebCore::FloatPoint scaledScrollOffset = _scrollOffsetToRestore.value();
         _scrollOffsetToRestore = std::nullopt;
 
-        if (WTF::areEssentiallyEqual<float>(contentZoomScale(self), _scaleToRestore)) {
+        if (WebKit::scalesAreEssentiallyEqual(contentZoomScale(self), _scaleToRestore)) {
             scaledScrollOffset.scale(_scaleToRestore);
             WebCore::FloatPoint contentOffsetInScrollViewCoordinates = scaledScrollOffset - WebCore::FloatSize(_obscuredInsetsWhenSaved.left(), _obscuredInsetsWhenSaved.top());
 
@@ -984,7 +991,7 @@ static void changeContentOffsetBoundedInValidRange(UIScrollView *scrollView, Web
         WebCore::FloatPoint unobscuredCenterToRestore = _unobscuredCenterToRestore.value();
         _unobscuredCenterToRestore = std::nullopt;
 
-        if (WTF::areEssentiallyEqual<float>(contentZoomScale(self), _scaleToRestore)) {
+        if (WebKit::scalesAreEssentiallyEqual(contentZoomScale(self), _scaleToRestore)) {
             CGRect unobscuredRect = UIEdgeInsetsInsetRect(self.bounds, _obscuredInsets);
             WebCore::FloatSize unobscuredContentSizeAtNewScale = WebCore::FloatSize(unobscuredRect.size) / _scaleToRestore;
             WebCore::FloatPoint topLeftInDocumentCoordinates = unobscuredCenterToRestore - unobscuredContentSizeAtNewScale / 2;
@@ -1322,9 +1329,17 @@ static WebCore::FloatPoint constrainContentOffset(WebCore::FloatPoint contentOff
 
     [_scrollView _stopScrollingAndZoomingAnimations];
 
-    if (!CGPointEqualToPoint(contentOffsetInScrollViewCoordinates, [_scrollView contentOffset]))
+    CGPoint scrollViewContentOffset = [_scrollView contentOffset];
+
+    if (!CGPointEqualToPoint(contentOffsetInScrollViewCoordinates, scrollViewContentOffset)) {
+        if (WTF::areEssentiallyEqual<float>(scrollPosition.x(), 0) && scrollViewContentOffset.x < 0)
+            contentOffsetInScrollViewCoordinates.x = scrollViewContentOffset.x;
+
+        if (WTF::areEssentiallyEqual<float>(scrollPosition.y(), 0) && scrollViewContentOffset.y < 0)
+            contentOffsetInScrollViewCoordinates.y = scrollViewContentOffset.y;
+
         [_scrollView setContentOffset:contentOffsetInScrollViewCoordinates animated:animated];
-    else {
+    } else {
         // If we haven't changed anything, there would not be any VisibleContentRect update sent to the content.
         // The WebProcess would keep the invalid contentOffset as its scroll position.
         // To synchronize the WebProcess with what is on screen, we send the VisibleContentRect again.
@@ -1757,7 +1772,7 @@ static WebCore::FloatPoint constrainContentOffset(WebCore::FloatPoint contentOff
     // At this point, we have a page that asked for width = device-width. However,
     // if the content's width and height were large, we might have had to shrink it.
     // We'll enable double tap zoom whenever we're not at the actual initial scale.
-    return !WTF::areEssentiallyEqual<float>(contentZoomScale(self), _initialScaleFactor);
+    return !WebKit::scalesAreEssentiallyEqual(contentZoomScale(self), _initialScaleFactor);
 }
 
 #pragma mark UIScrollViewDelegate
@@ -2496,8 +2511,8 @@ static bool scrollViewCanScroll(UIScrollView *scrollView)
 
     CGFloat scaleFactor = contentZoomScale(self);
     CGRect unobscuredRect = UIEdgeInsetsInsetRect(self.bounds, computedContentInsetUnadjustedForKeyboard);
-    CGRect unobscuredRectInContentCoordinates = _frozenUnobscuredContentRect ? _frozenUnobscuredContentRect.value() : [self convertRect:unobscuredRect toView:_contentView.get()];
-    unobscuredRectInContentCoordinates = CGRectIntersection(unobscuredRectInContentCoordinates, [self _contentBoundsExtendedForRubberbandingWithScale:scaleFactor]);
+    WebCore::FloatRect unobscuredRectInContentCoordinates = WebCore::FloatRect(_frozenUnobscuredContentRect ? _frozenUnobscuredContentRect.value() : [self convertRect:unobscuredRect toView:_contentView.get()]);
+    unobscuredRectInContentCoordinates.intersect([self _contentBoundsExtendedForRubberbandingWithScale:scaleFactor]);
 
     auto contentInsets = [self currentlyVisibleContentInsetsWithScale:scaleFactor obscuredInsets:computedContentInsetUnadjustedForKeyboard];
 
@@ -2757,6 +2772,11 @@ static int32_t activeOrientation(WKWebView *webView)
     if ([_contentView isFocusingElement])
         return YES;
 
+#if HAVE(UIFINDINTERACTION)
+    if ([_findInteraction isFindNavigatorVisible])
+        return YES;
+#endif
+
     NSNumber *isLocalKeyboard = [keyboardInfo valueForKey:UIKeyboardIsLocalUserInfoKey];
     return isLocalKeyboard && !isLocalKeyboard.boolValue;
 }
@@ -3013,7 +3033,15 @@ static WebCore::UserInterfaceLayoutDirection toUserInterfaceLayoutDirection(UISe
     return _contentView.get();
 }
 
-#endif
+- (BOOL)supportsTextReplacement
+{
+    if ([_customContentView respondsToSelector:@selector(supportsTextReplacement)])
+        return [(id<UITextSearching>)_customContentView.get() supportsTextReplacement];
+
+    return [_contentView supportsTextReplacementForWebView];
+}
+
+#endif // HAVE(UIFINDINTERACTION)
 
 #if HAVE(UIKIT_RESIZABLE_WINDOWS)
 

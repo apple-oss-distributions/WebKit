@@ -608,12 +608,6 @@ void SWServer::refreshImportedScripts(const ServiceWorkerJobData& jobData, SWSer
     };
     bool shouldRefreshCache = registration.updateViaCache() == ServiceWorkerUpdateViaCache::None || (registration.getNewestWorker() && registration.isStale());
 
-    auto* connection = m_connections.get(jobData.connectionIdentifier());
-    if (connection) {
-        connection->refreshImportedScripts(jobData.identifier().jobIdentifier, shouldRefreshCache ? FetchOptions::Cache::NoCache : FetchOptions::Cache::Default, urls, WTFMove(callback));
-        return;
-    }
-
     ASSERT(jobData.connectionIdentifier() == Process::identifier());
     auto handler = RefreshImportedScriptsHandler::create(urls.size(), WTFMove(callback));
     for (auto& url : urls) {
@@ -744,7 +738,13 @@ std::optional<ExceptionData> SWServer::claim(SWServerWorker& worker)
 
     auto& origin = worker.origin();
     forEachClientForOrigin(origin, [&](auto& clientData) {
-        if (doRegistrationMatching(origin.topOrigin, clientData.url) != registration)
+        // FIXME: The specification currently doesn't deal properly via Blob URL clients.
+        // https://github.com/w3c/ServiceWorker/issues/1554
+        URL& clientURLForRegistrationMatching = clientData.url;
+        if (clientURLForRegistrationMatching.protocolIsBlob() && clientData.ownerURL.isValid())
+            clientURLForRegistrationMatching = clientData.ownerURL;
+
+        if (doRegistrationMatching(origin.topOrigin, clientURLForRegistrationMatching) != registration)
             return;
 
         auto result = m_clientToControllingRegistration.add(clientData.identifier, registration->identifier());

@@ -540,8 +540,11 @@ public:
     OptionSet<Containment> effectiveContainment() const { return m_rareNonInheritedData->effectiveContainment(); }
     bool containsLayout() const { return effectiveContainment().contains(Containment::Layout); }
     bool containsSize() const { return effectiveContainment().contains(Containment::Size); }
+    bool containsInlineSize() const { return effectiveContainment().contains(Containment::InlineSize); }
+    bool containsSizeOrInlineSize() const { return effectiveContainment().containsAny({ Containment::Size, Containment::InlineSize }); }
     bool containsStyle() const { return effectiveContainment().contains(Containment::Style); }
     bool containsPaint() const { return effectiveContainment().contains(Containment::Paint); }
+    bool containsLayoutOrPaint() const { return effectiveContainment().containsAny({ Containment::Layout, Containment::Paint }); }
     ContainerType containerType() const { return static_cast<ContainerType>(m_rareNonInheritedData->containerType); }
     const Vector<AtomString>& containerNames() const { return m_rareNonInheritedData->containerNames; }
 
@@ -1562,6 +1565,7 @@ public:
     bool isDisplayFlexibleOrGridBox() const { return isDisplayFlexibleOrGridBox(display()); }
     bool isDisplayFlexibleBoxIncludingDeprecatedOrGridBox() const { return isDisplayFlexibleOrGridBox() || isDisplayDeprecatedFlexibleBox(display()); }
     bool isDisplayRegionType() const;
+    bool isDisplayBlockLevel() const;
     bool isDisplayTableOrTablePart() const { return isDisplayTableOrTablePart(display()); }
     bool isOriginalDisplayListItemType() const { return isDisplayListItemType(originalDisplay()); }
 
@@ -2441,6 +2445,13 @@ inline bool RenderStyle::isDisplayRegionType() const
     return display() == DisplayType::Block || display() == DisplayType::InlineBlock
         || display() == DisplayType::TableCell || display() == DisplayType::TableCaption
         || display() == DisplayType::ListItem;
+}
+
+inline bool RenderStyle::isDisplayBlockLevel() const
+{
+    return display() == DisplayType::Block || display() == DisplayType::Table
+        || display() == DisplayType::FlowRoot || display() == DisplayType::Grid
+        || display() == DisplayType::Flex || display() == DisplayType::ListItem;
 }
 
 inline bool RenderStyle::setWritingMode(WritingMode v)

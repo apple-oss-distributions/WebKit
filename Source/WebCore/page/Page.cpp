@@ -374,6 +374,8 @@ Page::Page(PageConfiguration&& pageConfiguration)
     pageCounter.increment();
 #endif
 
+    m_storageNamespaceProvider->setSessionStorageQuota(m_settings->sessionStorageQuota());
+
 #if ENABLE(REMOTE_INSPECTOR)
     if (m_inspectorController->inspectorClient() && m_inspectorController->inspectorClient()->allowRemoteInspectionToPageDirectly())
         m_inspectorDebuggable->init();
@@ -1626,7 +1628,7 @@ void Page::updateRendering()
 #endif
 
     // Timestamps should not change while serving the rendering update steps.
-    Vector<WeakPtr<Document>> initialDocuments;
+    Vector<WeakPtr<Document, WeakPtrImplWithEventTargetData>> initialDocuments;
     forEachDocument([&initialDocuments] (Document& document) {
         document.domWindow()->freezeNowTimestamp();
         initialDocuments.append(document);
@@ -1756,7 +1758,7 @@ void Page::doAfterUpdateRendering()
         
         if (appHighlightStorage->hasUnrestoredHighlights() && MonotonicTime::now() - appHighlightStorage->lastRangeSearchTime() > 1_s) {
             appHighlightStorage->resetLastRangeSearchTime();
-            document.eventLoop().queueTask(TaskSource::InternalAsyncTask, [weakDocument = WeakPtr { document }] {
+            document.eventLoop().queueTask(TaskSource::InternalAsyncTask, [weakDocument = WeakPtr<Document, WeakPtrImplWithEventTargetData> { document }] {
                 RefPtr document { weakDocument.get() };
                 if (!document)
                     return;
@@ -2123,21 +2125,6 @@ void Page::setDebugger(JSC::Debugger* debugger)
 
     for (Frame* frame = &m_mainFrame.get(); frame; frame = frame->tree().traverseNext())
         frame->windowProxy().attachDebugger(m_debugger);
-}
-
-StorageNamespace* Page::sessionStorage(bool optionalCreate)
-{
-    if (!m_sessionStorage && optionalCreate) {
-        ASSERT(m_settings->sessionStorageQuota() != StorageMap::noQuota);
-        m_sessionStorage = m_storageNamespaceProvider->createSessionStorageNamespace(*this, m_settings->sessionStorageQuota());
-    }
-
-    return m_sessionStorage.get();
-}
-
-void Page::setSessionStorage(RefPtr<StorageNamespace>&& newStorage)
-{
-    m_sessionStorage = WTFMove(newStorage);
 }
 
 bool Page::hasCustomHTMLTokenizerTimeDelay() const
@@ -3121,8 +3108,11 @@ void Page::setSessionID(PAL::SessionID sessionID)
     if (sessionID != m_sessionID)
         m_idbConnectionToServer = nullptr;
 
-    if (sessionID != m_sessionID && m_sessionStorage)
-        m_sessionStorage->setSessionIDForTesting(sessionID);
+    if (sessionID != m_sessionID) {
+        constexpr auto doNotCreate = StorageNamespaceProvider::ShouldCreateNamespace::No;
+        if (auto sessionStorage = m_storageNamespaceProvider->sessionStorageNamespace(m_mainFrame->document()->topOrigin(), *this, doNotCreate))
+            sessionStorage->setSessionIDForTesting(sessionID);
+    }
 
     bool privateBrowsingStateChanged = (sessionID.isEphemeral() != m_sessionID.isEphemeral());
 

@@ -787,6 +787,16 @@ void WebResourceLoadStatisticsStore::clearUserInteraction(RegistrableDomain&& do
     });
 }
 
+void WebResourceLoadStatisticsStore::setTimeAdvanceForTesting(Seconds time, CompletionHandler<void()>&& completionHandler)
+{
+    ASSERT(RunLoop::isMain());
+    postTask([this, time, completionHandler = WTFMove(completionHandler)]() mutable {
+        if (m_statisticsStore)
+            m_statisticsStore->setTimeAdvanceForTesting(time);
+        postTaskReply(WTFMove(completionHandler));
+    });
+}
+
 void WebResourceLoadStatisticsStore::clearUserInteractionEphemeral(const RegistrableDomain& domain, CompletionHandler<void()>&& completionHandler)
 {
     ASSERT(isEphemeral());
@@ -898,7 +908,18 @@ void WebResourceLoadStatisticsStore::setVeryPrevalentResource(RegistrableDomain&
         postTaskReply(WTFMove(completionHandler));
     });
 }
-    
+
+void WebResourceLoadStatisticsStore::setMostRecentWebPushInteractionTime(RegistrableDomain&& domain, CompletionHandler<void()>&& completionHandler)
+{
+    ASSERT(RunLoop::isMain());
+
+    postTask([this, completionHandler = WTFMove(completionHandler), domain = WTFMove(domain).isolatedCopy()] () mutable {
+        if (m_statisticsStore)
+            m_statisticsStore->setMostRecentWebPushInteractionTime(domain);
+        postTaskReply(WTFMove(completionHandler));
+    });
+}
+
 void WebResourceLoadStatisticsStore::dumpResourceLoadStatistics(CompletionHandler<void(String&&)>&& completionHandler)
 {
     ASSERT(RunLoop::isMain());

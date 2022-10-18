@@ -51,6 +51,7 @@
 #import "ContextMenuController.h"
 #import "Editing.h"
 #import "Editor.h"
+#import "ElementInlines.h"
 #import "Font.h"
 #import "FontCascade.h"
 #import "Frame.h"
@@ -121,10 +122,6 @@ using namespace WebCore;
 
 #ifndef NSAccessibilityAccessKeyAttribute
 #define NSAccessibilityAccessKeyAttribute @"AXAccessKey"
-#endif
-
-#ifndef NSAccessibilityValueAutofilledAttribute
-#define NSAccessibilityValueAutofilledAttribute @"AXValueAutofilled"
 #endif
 
 #ifndef NSAccessibilityValueAutofillAvailableAttribute
@@ -860,6 +857,15 @@ static void AXAttributeStringSetStyle(NSMutableAttributedString* attrString, Ren
     for (Node* node = renderer->node(); node; node = node->parentNode()) {
         if (node->hasTagName(HTMLNames::markTag))
             AXAttributeStringSetNumber(attrString, @"AXHighlight", @YES, range);
+        if (auto* element = dynamicDowncast<Element>(*node)) {
+            auto& roleValue = element->attributeWithoutSynchronization(HTMLNames::roleAttr);
+            if (equalLettersIgnoringASCIICase(roleValue, "insertion"_s))
+                AXAttributeStringSetNumber(attrString, @"AXIsSuggestedInsertion", @YES, range);
+            else if (equalLettersIgnoringASCIICase(roleValue, "deletion"_s))
+                AXAttributeStringSetNumber(attrString, @"AXIsSuggestedDeletion", @YES, range);
+            else if (equalLettersIgnoringASCIICase(roleValue, "suggestion"_s))
+                AXAttributeStringSetNumber(attrString, @"AXIsSuggestion", @YES, range);
+        }
     }
 }
 
@@ -993,7 +999,8 @@ static void AXAttributedStringAppendText(NSMutableAttributedString* attrString, 
     NSRange attrStringRange = NSMakeRange([attrString length], text.length());
     
     // append the string from this node
-    [[attrString mutableString] appendString:text.createNSStringWithoutCopying().get()];
+    NSAttributedString *stringToAppend = adoptNS([[NSAttributedString alloc] initWithString:text.createNSStringWithoutCopying().get()]).autorelease();
+    [attrString appendAttributedString:stringToAppend];
     
     // add new attributes and remove irrelevant inherited ones
     // NOTE: color attributes are handled specially because -[NSMutableAttributedString addAttribute: value: range:] does not merge
@@ -1341,7 +1348,6 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
         [tempArray addObject:NSAccessibilityRequiredAttribute];
         [tempArray addObject:NSAccessibilityInvalidAttribute];
         [tempArray addObject:NSAccessibilityPlaceholderValueAttribute];
-        [tempArray addObject:NSAccessibilityValueAutofilledAttribute];
         return tempArray;
     }();
     static NeverDestroyed listAttrs = [] {
@@ -1491,7 +1497,6 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
         [tempArray addObject:NSAccessibilityRequiredAttribute];
         [tempArray addObject:NSAccessibilityInvalidAttribute];
         [tempArray addObject:NSAccessibilityPlaceholderValueAttribute];
-        [tempArray addObject:NSAccessibilityValueAutofilledAttribute];
         return tempArray;
     }();
     static NeverDestroyed tabListAttrs = [] {
@@ -2403,9 +2408,10 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
         return backingObject->currentValue();
 
     if ([attributeName isEqualToString: NSAccessibilityServesAsTitleForUIElementsAttribute] && backingObject->isMenuButton()) {
-        AccessibilityObject* uiElement = downcast<AccessibilityRenderObject>(*backingObject).menuForMenuButton();
-        if (uiElement)
-            return @[uiElement->wrapper()];
+        if (auto* axRenderObject = dynamicDowncast<AccessibilityRenderObject>(backingObject)) {
+            if (auto* uiElement = axRenderObject->menuForMenuButton())
+                return @[uiElement->wrapper()];
+        }
     }
 
     if ([attributeName isEqualToString:NSAccessibilityTitleUIElementAttribute]) {
@@ -2500,9 +2506,6 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
         }
     }
 
-    if ([attributeName isEqualToString:NSAccessibilityValueAutofilledAttribute])
-        return @(backingObject->isValueAutofilled());
-
     if ([attributeName isEqualToString:NSAccessibilityHasPopupAttribute])
         return [NSNumber numberWithBool:backingObject->hasPopup()];
 
@@ -2565,11 +2568,8 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
 
     if ([attributeName isEqualToString:NSAccessibilityDOMIdentifierAttribute])
         return backingObject->identifierAttribute();
-    if ([attributeName isEqualToString:NSAccessibilityDOMClassListAttribute]) {
-        Vector<String> classList;
-        backingObject->classList(classList);
-        return createNSArray(classList).autorelease();
-    }
+    if ([attributeName isEqualToString:NSAccessibilityDOMClassListAttribute])
+        return createNSArray(backingObject->classList()).autorelease();
 
     if ([attributeName isEqualToString:@"AXResolvedEditingStyles"])
         return [self baseAccessibilityResolvedEditingStyles];
@@ -2603,9 +2603,6 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
 
     if ([attributeName isEqualToString:@"AXReadOnlyValue"])
         return backingObject->readOnlyValue();
-
-    if ([attributeName isEqualToString:@"AXIsActiveDescendantOfFocusedContainer"])
-        return [NSNumber numberWithBool:backingObject->isActiveDescendantOfFocusedContainer()];
 
     if ([attributeName isEqualToString:AXHasDocumentRoleAncestorAttribute])
         return [NSNumber numberWithBool:backingObject->hasDocumentRoleAncestor()];
@@ -4025,6 +4022,11 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
         }
     }
 
+    if (backingObject->isTextControl() || backingObject->isStaticText()) {
+        if ([attribute isEqualToString:(NSString *)kAXAttributedStringForRangeParameterizedAttribute])
+            return rangeSet ? [self doAXAttributedStringForRange:range] : nil;
+    }
+
     if (backingObject->isTextControl()) {
         if ([attribute isEqualToString: (NSString *)kAXLineForIndexParameterizedAttribute]) {
             int lineNumber = backingObject->doAXLineForIndex([number intValue]);
@@ -4067,9 +4069,6 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
 
         if ([attribute isEqualToString: (NSString*)kAXRTFForRangeParameterizedAttribute])
             return rangeSet ? [self doAXRTFForRange:range] : nil;
-
-        if ([attribute isEqualToString: (NSString*)kAXAttributedStringForRangeParameterizedAttribute])
-            return rangeSet ? [self doAXAttributedStringForRange:range] : nil;
 
         if ([attribute isEqualToString: (NSString*)kAXStyleRangeForIndexParameterizedAttribute]) {
             PlainTextRange textRange = backingObject->doAXStyleRangeForIndex([number intValue]);

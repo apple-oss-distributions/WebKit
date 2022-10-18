@@ -1087,7 +1087,7 @@ void HTMLMediaElement::setSrcObject(MediaProvider&& mediaProvider)
     m_mediaStreamSrcObject = nullptr;
 #endif
 #if ENABLE(MEDIA_SOURCE)
-    m_mediaSource = nullptr;
+    detachMediaSource();
 #endif
     m_blob = nullptr;
 
@@ -1765,7 +1765,7 @@ void HTMLMediaElement::updateActiveTextTrackCues(const MediaTime& movieTime)
     INFO_LOG(identifier, "nextInterestingTime:", nextInterestingTime);
 
     if (nextInterestingTime.isValid() && m_player) {
-        m_player->performTaskAtMediaTime([this, weakThis = WeakPtr { *this }, identifier] {
+        m_player->performTaskAtMediaTime([this, weakThis = WeakPtr<HTMLMediaElement, WeakPtrImplWithEventTargetData> { *this }, identifier] {
             if (!weakThis)
                 return;
 
@@ -3021,7 +3021,7 @@ void HTMLMediaElement::progressEventTimerFired()
     if (!m_player->supportsProgressMonitoring())
         return;
 
-    m_player->didLoadingProgress([this, weakThis = WeakPtr { *this }](bool progress) {
+    m_player->didLoadingProgress([this, weakThis = WeakPtr<HTMLMediaElement, WeakPtrImplWithEventTargetData> { *this }](bool progress) {
         if (!weakThis)
             return;
         MonotonicTime time = MonotonicTime::now();
@@ -6097,7 +6097,7 @@ bool HTMLMediaElement::elementIsHidden() const
     if (m_videoFullscreenMode != VideoFullscreenModeNone)
         return false;
 
-    return document().hidden();
+    return document().hidden() && (!m_player || !m_player->isVisibleForCanvas());
 }
 
 void HTMLMediaElement::visibilityStateChanged()
@@ -8591,6 +8591,10 @@ void HTMLMediaElement::updateMediaPlayer(IntSize elementSize, bool shouldMaintai
     m_player->setSize(elementSize);
     visibilityStateChanged();
     m_player->setVisibleInViewport(isVisibleInViewport());
+
+    if (document().quirks().needsVideoShouldMaintainAspectRatioQuirk())
+        shouldMaintainAspectRatio = true;
+
     m_player->setShouldMaintainAspectRatio(shouldMaintainAspectRatio);
 }
 

@@ -58,7 +58,6 @@ public:
     
     bool isAttachment() const override;
     bool isSelected() const override;
-    bool isFocused() const override;
     bool isLoaded() const override;
     bool isOffScreen() const override;
     bool isUnvisited() const override;
@@ -134,11 +133,7 @@ public:
     Widget* widgetForAttachmentView() const override;
     AccessibilityChildrenVector documentLinks() override;
     FrameView* documentFrameView() const override;
-
-    void clearChildren() override;
-    void updateChildrenIfNecessary() override;
     
-    void setFocused(bool) override;
     void setSelectedTextRange(const PlainTextRange&) override;
     bool setValue(const String&) override;
     void setSelectedRows(AccessibilityChildrenVector&) override;
@@ -173,7 +168,6 @@ public:
     VisiblePosition visiblePositionForIndex(int) const override;
     int indexForVisiblePosition(const VisiblePosition&) const override;
 
-    void lineBreaks(Vector<int>&) const override;
     PlainTextRange doAXRangeForLine(unsigned) const override;
     PlainTextRange doAXRangeForIndex(unsigned) const override;
     
@@ -217,9 +211,6 @@ private:
     PlainTextRange documentBasedSelectedTextRange() const;
     Element* rootEditableElementForPosition(const Position&) const;
     bool nodeIsTextControl(const Node*) const;
-    void setNeedsToUpdateChildren() override { m_childrenDirty = true; }
-    bool needsToUpdateChildren() const override { return m_childrenDirty; }
-    void setNeedsToUpdateSubtree() override { m_subtreeDirty = true; }
     Path elementPath() const override;
     
     bool isTabItemSelected() const;
