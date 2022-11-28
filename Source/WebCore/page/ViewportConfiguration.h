@@ -129,7 +129,6 @@ public:
     double layoutSizeScaleFactor() const { return m_layoutSizeScaleFactor; }
 
     void setPrefersHorizontalScrollingBelowDesktopViewportWidths(bool value) { m_prefersHorizontalScrollingBelowDesktopViewportWidths = value; }
-    void setCanIgnoreViewportArgumentsToAvoidExcessiveZoom(bool value) { m_canIgnoreViewportArgumentsToAvoidExcessiveZoom = value; }
 
     WEBCORE_EXPORT IntSize layoutSize() const;
     WEBCORE_EXPORT int layoutWidth() const;
@@ -213,7 +212,6 @@ private:
     bool m_forceAlwaysUserScalable;
     bool m_isKnownToLayOutWiderThanViewport { false };
     bool m_prefersHorizontalScrollingBelowDesktopViewportWidths { false };
-    bool m_canIgnoreViewportArgumentsToAvoidExcessiveZoom { false };
 };
 
 WTF::TextStream& operator<<(WTF::TextStream&, const ViewportConfiguration::Parameters&);

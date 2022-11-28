@@ -374,18 +374,8 @@ void MediaPlayerPrivateAVFoundation::setReadyState(MediaPlayer::ReadyState state
     if (state == m_readyState)
         return;
 
-    auto oldState = std::exchange(m_readyState, state);
+    m_readyState = state;
     m_player->readyStateChanged();
-
-    if (oldState >= MediaPlayer::ReadyState::HaveMetadata)
-        return;
-
-    // Many state methods in MediaPlayerPrivateAVFoundation will return defaults
-    // if queried before reaching HaveMetadata. Re-fire their changed events after
-    // the ready state moves beyond HaveMetadata so the correct values are reflected
-    // upwards to clients.
-    if (!m_cachedNaturalSize.isEmpty())
-        m_player->sizeChanged();
 }
 
 void MediaPlayerPrivateAVFoundation::characteristicsChanged()
@@ -587,6 +577,9 @@ void MediaPlayerPrivateAVFoundation::updateStates()
         }
     }
 
+    if (isReadyForVideoSetup() && currentRenderingMode() != preferredRenderingMode())
+        setUpVideoRendering();
+
     if (firstVideoFrameBecomeAvailable) {
         if (m_readyState < MediaPlayer::ReadyState::HaveCurrentData)
             newReadyState = MediaPlayer::ReadyState::HaveCurrentData;
@@ -600,9 +593,6 @@ void MediaPlayerPrivateAVFoundation::updateStates()
 
     setNetworkState(newNetworkState);
     setReadyState(newReadyState);
-
-    if (isReadyForVideoSetup() && currentRenderingMode() != preferredRenderingMode())
-        setUpVideoRendering();
 }
 
 void MediaPlayerPrivateAVFoundation::setPageIsVisible(bool visible)
