@@ -5078,11 +5078,11 @@ void WebPage::didReceiveGeolocationPermissionDecision(GeolocationIdentifier geol
 
 #if ENABLE(MEDIA_STREAM)
 
-void WebPage::userMediaAccessWasGranted(UserMediaRequestIdentifier userMediaID, WebCore::CaptureDevice&& audioDevice, WebCore::CaptureDevice&& videoDevice, String&& mediaDeviceIdentifierHashSalt, SandboxExtension::Handle&& handle, CompletionHandler<void()>&& completionHandler)
+void WebPage::userMediaAccessWasGranted(UserMediaRequestIdentifier userMediaID, WebCore::CaptureDevice&& audioDevice, WebCore::CaptureDevice&& videoDevice, WebCore::MediaDeviceHashSalts&& mediaDeviceIdentifierHashSalts, SandboxExtension::Handle&& handle, CompletionHandler<void()>&& completionHandler)
 {
     SandboxExtension::consumePermanently(handle);
 
-    m_userMediaPermissionRequestManager->userMediaAccessWasGranted(userMediaID, WTFMove(audioDevice), WTFMove(videoDevice), WTFMove(mediaDeviceIdentifierHashSalt), WTFMove(completionHandler));
+    m_userMediaPermissionRequestManager->userMediaAccessWasGranted(userMediaID, WTFMove(audioDevice), WTFMove(videoDevice), WTFMove(mediaDeviceIdentifierHashSalts), WTFMove(completionHandler));
 }
 
 void WebPage::userMediaAccessWasDenied(UserMediaRequestIdentifier userMediaID, uint64_t reason, String&& invalidConstraint)
@@ -6756,6 +6756,7 @@ void WebPage::didCommitLoad(WebFrame* frame)
     
     bool viewportChanged = false;
 
+    m_viewportConfiguration.setCanIgnoreViewportArgumentsToAvoidExcessiveZoom(shouldIgnoreMetaViewport());
     m_viewportConfiguration.setPrefersHorizontalScrollingBelowDesktopViewportWidths(shouldEnableViewportBehaviorsForResizableWindows());
 
     LOG_WITH_STREAM(VisibleRects, stream << "WebPage " << m_identifier.toUInt64() << " didCommitLoad setting content size to " << coreFrame->view()->contentsSize());
@@ -6983,6 +6984,10 @@ void WebPage::updateWebsitePolicies(WebsitePoliciesData&& websitePolicies)
     
 #if ENABLE(VIDEO)
     m_page->updateMediaElementRateChangeRestrictions();
+#endif
+
+#if ENABLE(META_VIEWPORT)
+    m_viewportConfiguration.setCanIgnoreViewportArgumentsToAvoidExcessiveZoom(shouldIgnoreMetaViewport());
 #endif
 }
 
@@ -8089,17 +8094,17 @@ bool WebPage::createAppHighlightInSelectedRange(WebCore::CreateNewGroupForHighli
     return true;
 }
 
-void WebPage::restoreAppHighlightsAndScrollToIndex(const Vector<SharedMemory::IPCHandle>&& memoryHandles, const std::optional<unsigned> index)
+void WebPage::restoreAppHighlightsAndScrollToIndex(const Vector<SharedMemory::Handle>&& memoryHandles, const std::optional<unsigned> index)
 {
     RefPtr document = CheckedRef(m_page->focusController())->focusedOrMainFrame().document();
 
     unsigned i = 0;
-    for (const auto& ipcHandle : memoryHandles) {
-        auto sharedMemory = SharedMemory::map(ipcHandle.handle, SharedMemory::Protection::ReadOnly);
+    for (const auto& handle : memoryHandles) {
+        auto sharedMemory = SharedMemory::map(handle, SharedMemory::Protection::ReadOnly);
         if (!sharedMemory)
             continue;
 
-        document->appHighlightStorage().restoreAndScrollToAppHighlight(sharedMemory->createSharedBuffer(ipcHandle.dataSize), i == index ? ScrollToHighlight::Yes : ScrollToHighlight::No);
+        document->appHighlightStorage().restoreAndScrollToAppHighlight(sharedMemory->createSharedBuffer(handle.size()), i == index ? ScrollToHighlight::Yes : ScrollToHighlight::No);
         i++;
     }
 }

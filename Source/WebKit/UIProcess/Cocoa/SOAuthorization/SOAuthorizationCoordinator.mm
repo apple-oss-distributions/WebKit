@@ -48,19 +48,19 @@ namespace WebKit {
 
 SOAuthorizationCoordinator::SOAuthorizationCoordinator()
 {
+    m_hasAppSSO = !!PAL::getSOAuthorizationClass();
 #if PLATFORM(MAC)
     // In the case of base system, which doesn't have AppSSO.framework.
-    if (!PAL::getSOAuthorizationClass())
+    if (!m_hasAppSSO)
         return;
 #endif
-    m_soAuthorization = adoptNS([PAL::allocSOAuthorizationInstance() init]);
     m_soAuthorizationDelegate = adoptNS([[WKSOAuthorizationDelegate alloc] init]);
     [NSURLSession _disableAppSSO];
 }
 
 bool SOAuthorizationCoordinator::canAuthorize(const URL& url) const
 {
-    return m_soAuthorization && [PAL::getSOAuthorizationClass() canPerformAuthorizationWithURL:url responseCode:0];
+    return m_hasAppSSO && [PAL::getSOAuthorizationClass() canPerformAuthorizationWithURL:url responseCode:0];
 }
 
 void SOAuthorizationCoordinator::tryAuthorize(Ref<API::NavigationAction>&& navigationAction, WebPageProxy& page, Function<void(bool)>&& completionHandler)
@@ -81,7 +81,7 @@ void SOAuthorizationCoordinator::tryAuthorize(Ref<API::NavigationAction>&& navig
         return;
     }
 
-    auto session = subframeNavigation ? SubFrameSOAuthorizationSession::create(WTFMove(navigationAction), page, WTFMove(completionHandler), targetFrame->handle()->frameID()) : RedirectSOAuthorizationSession::create(WTFMove(navigationAction), page, WTFMove(completionHandler));
+    auto session = subframeNavigation ? SubFrameSOAuthorizationSession::create(m_soAuthorizationDelegate, WTFMove(navigationAction), page, WTFMove(completionHandler), targetFrame->handle()->frameID()) : RedirectSOAuthorizationSession::create(m_soAuthorizationDelegate, WTFMove(navigationAction), page, WTFMove(completionHandler));
     [m_soAuthorizationDelegate setSession:WTFMove(session)];
 }
 
@@ -107,7 +107,7 @@ void SOAuthorizationCoordinator::tryAuthorize(Ref<API::NavigationAction>&& navig
         return;
     }
 
-    auto session = PopUpSOAuthorizationSession::create(page, WTFMove(navigationAction), WTFMove(newPageCallback), WTFMove(uiClientCallback));
+    auto session = PopUpSOAuthorizationSession::create(m_soAuthorizationDelegate, page, WTFMove(navigationAction), WTFMove(newPageCallback), WTFMove(uiClientCallback));
     [m_soAuthorizationDelegate setSession:WTFMove(session)];
 }
 
