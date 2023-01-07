@@ -34,7 +34,6 @@
 #include "RemoteGraphicsContextGLProxyMessages.h"
 #include "WebProcess.h"
 #include <WebCore/ImageBuffer.h>
-#include <wtf/StdLibExtras.h>
 
 #if ENABLE(VIDEO)
 #include "RemoteVideoFrameObjectHeapProxy.h"
@@ -47,7 +46,6 @@ namespace WebKit {
 using namespace WebCore;
 
 static constexpr size_t defaultStreamSize = 1 << 21;
-static constexpr size_t readPixelsInlineSizeLimit = 64 * KB;
 
 namespace {
 template<typename T0, typename T1, typename S0, typename S1>
@@ -284,13 +282,7 @@ void RemoteGraphicsContextGLProxy::simulateEventForTesting(SimulatedEventForTest
 
 void RemoteGraphicsContextGLProxy::readnPixels(GCGLint x, GCGLint y, GCGLsizei width, GCGLsizei height, GCGLenum format, GCGLenum type, GCGLSpan<GCGLvoid> data)
 {
-    if (data.bufSize > readPixelsInlineSizeLimit) {
-        readnPixelsSharedMemory(x, y, width, height, format, type, data);
-        return;
-    }
-
     IPC::ArrayReference<uint8_t> dataReply;
-
     if (!isContextLost()) {
         auto sendResult = sendSync(Messages::RemoteGraphicsContextGL::ReadnPixels0(x, y, width, height, format, type, IPC::ArrayReference<uint8_t>(reinterpret_cast<uint8_t*>(data.data), data.bufSize)), Messages::RemoteGraphicsContextGL::ReadnPixels0::Reply(dataReply));
         if (!sendResult)
@@ -309,30 +301,6 @@ void RemoteGraphicsContextGLProxy::readnPixels(GCGLint x, GCGLint y, GCGLsizei w
     }
 }
 
-void RemoteGraphicsContextGLProxy::readnPixelsSharedMemory(GCGLint x, GCGLint y, GCGLsizei width, GCGLsizei height, GCGLenum format, GCGLenum type, GCGLSpan<GCGLvoid> data)
-{
-    if (!isContextLost()) {
-        auto buffer = SharedMemory::allocate(data.bufSize);
-        if (!buffer) {
-            markContextLost();
-            return;
-        }
-        SharedMemory::Handle handle;
-        buffer->createHandle(handle, SharedMemory::Protection::ReadWrite);
-        if (handle.isNull()) {
-            markContextLost();
-            return;
-        }
-        memcpy(buffer->data(), data.data, data.bufSize);
-        bool success = false;
-        auto sendResult = sendSync(Messages::RemoteGraphicsContextGL::ReadnPixels2(x, y, width, height, format, type, WTFMove(handle)), Messages::RemoteGraphicsContextGL::ReadnPixels2::Reply(success));
-        if (sendResult) {
-            if (success)
-                memcpy(data.data, buffer->data(), data.bufSize);
-        } else
-            markContextLost();
-    }
-}
 
 void RemoteGraphicsContextGLProxy::multiDrawArraysANGLE(GCGLenum mode, GCGLSpanTuple<const GCGLint, const GCGLsizei> firstsAndCounts)
 {
