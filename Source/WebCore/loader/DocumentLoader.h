@@ -40,6 +40,7 @@
 #include "FrameDestructionObserver.h"
 #include "LinkIcon.h"
 #include "NavigationAction.h"
+#include "NetworkConnectionIntegrity.h"
 #include "ResourceError.h"
 #include "ResourceLoaderIdentifier.h"
 #include "ResourceLoaderOptions.h"
@@ -328,6 +329,9 @@ public:
     void setCustomUserAgent(const String& customUserAgent) { m_customUserAgent = customUserAgent; }
     const String& customUserAgent() const { return m_customUserAgent; }
 
+    void setAllowPrivacyProxy(bool allow) { m_allowPrivacyProxy = allow; }
+    bool allowPrivacyProxy() const { return m_allowPrivacyProxy; }
+
     void setCustomUserAgentAsSiteSpecificQuirks(const String& customUserAgent) { m_customUserAgentAsSiteSpecificQuirks = customUserAgent; }
     const String& customUserAgentAsSiteSpecificQuirks() const { return m_customUserAgentAsSiteSpecificQuirks; }
 
@@ -358,6 +362,7 @@ public:
     ModalContainerObservationPolicy modalContainerObservationPolicy() const { return m_modalContainerObservationPolicy; }
     void setModalContainerObservationPolicy(ModalContainerObservationPolicy policy) { m_modalContainerObservationPolicy = policy; }
 
+    // FIXME: Why is this in a Loader?
     WEBCORE_EXPORT ColorSchemePreference colorSchemePreference() const;
     void setColorSchemePreference(ColorSchemePreference preference) { m_colorSchemePreference = preference; }
 
@@ -429,11 +434,8 @@ public:
     WEBCORE_EXPORT void setCustomHeaderFields(Vector<CustomHeaderFields>&&);
     const Vector<CustomHeaderFields>& customHeaderFields() const { return m_customHeaderFields; }
 
-    void setAllowsWebArchiveForMainFrame(bool allowsWebArchiveForMainFrame) { m_allowsWebArchiveForMainFrame = allowsWebArchiveForMainFrame; }
-    bool allowsWebArchiveForMainFrame() const { return m_allowsWebArchiveForMainFrame; }
-
-    void setAllowsDataURLsForMainFrame(bool allowsDataURLsForMainFrame) { m_allowsDataURLsForMainFrame = allowsDataURLsForMainFrame; }
-    bool allowsDataURLsForMainFrame() const { return m_allowsDataURLsForMainFrame; }
+    bool allowsWebArchiveForMainFrame() const { return m_isRequestFromClientOrUserInput; }
+    bool allowsDataURLsForMainFrame() const { return m_isRequestFromClientOrUserInput; }
 
     const AtomString& downloadAttribute() const { return m_triggeringAction.downloadAttribute(); }
 
@@ -441,6 +443,9 @@ public:
 
     void setAllowContentChangeObserverQuirk(bool allow) { m_allowContentChangeObserverQuirk = allow; }
     bool allowContentChangeObserverQuirk() const { return m_allowContentChangeObserverQuirk; }
+
+    void setNetworkConnectionIntegrityPolicy(OptionSet<NetworkConnectionIntegrity> policy) { m_networkConnectionIntegrityPolicy = policy; }
+    OptionSet<NetworkConnectionIntegrity> networkConnectionIntegrityPolicy() const { return m_networkConnectionIntegrityPolicy; }
 
     void setIdempotentModeAutosizingOnlyHonorsPercentages(bool idempotentModeAutosizingOnlyHonorsPercentages) { m_idempotentModeAutosizingOnlyHonorsPercentages = idempotentModeAutosizingOnlyHonorsPercentages; }
     bool idempotentModeAutosizingOnlyHonorsPercentages() const { return m_idempotentModeAutosizingOnlyHonorsPercentages; }
@@ -458,6 +463,9 @@ public:
 
     bool isContinuingLoadAfterProvisionalLoadStarted() const { return m_isContinuingLoadAfterProvisionalLoadStarted; }
     void setIsContinuingLoadAfterProvisionalLoadStarted(bool isContinuingLoadAfterProvisionalLoadStarted) { m_isContinuingLoadAfterProvisionalLoadStarted = isContinuingLoadAfterProvisionalLoadStarted; }
+
+    bool isRequestFromClientOrUserInput() const { return m_isRequestFromClientOrUserInput; }
+    void setIsRequestFromClientOrUserInput(bool isRequestFromClientOrUserInput) { m_isRequestFromClientOrUserInput = isRequestFromClientOrUserInput; }
 
     bool isInFinishedLoadingOfEmptyDocument() const { return m_isInFinishedLoadingOfEmptyDocument; }
 #if ENABLE(CONTENT_FILTERING)
@@ -502,10 +510,6 @@ private:
     bool maybeCreateArchive();
 #if ENABLE(WEB_ARCHIVE) || ENABLE(MHTML)
     void clearArchiveResources();
-#endif
-
-#if ENABLE(WEB_ARCHIVE)
-    bool isLoadingRemoteArchive() const;
 #endif
 
     void willSendRequest(ResourceRequest&&, const ResourceResponse&, CompletionHandler<void(ResourceRequest&&)>&&);
@@ -560,7 +564,6 @@ private:
 
     // ContentSecurityPolicyClient
     WEBCORE_EXPORT void addConsoleMessage(MessageSource, MessageLevel, const String&, unsigned long requestIdentifier) final;
-    WEBCORE_EXPORT void sendCSPViolationReport(URL&&, Ref<FormData>&&) final;
     WEBCORE_EXPORT void enqueueSecurityPolicyViolationEvent(SecurityPolicyViolationEventInit&&) final;
 
     bool disallowWebArchive() const;
@@ -694,10 +697,12 @@ private:
     String m_customUserAgent;
     String m_customUserAgentAsSiteSpecificQuirks;
     bool m_allowContentChangeObserverQuirk { false };
+    OptionSet<NetworkConnectionIntegrity> m_networkConnectionIntegrityPolicy;
     bool m_idempotentModeAutosizingOnlyHonorsPercentages { false };
     String m_customNavigatorPlatform;
     bool m_userContentExtensionsEnabled { true };
     MemoryCompactRobinHoodHashMap<String, Vector<UserContentURLPattern>> m_activeContentRuleListActionPatterns;
+
 #if ENABLE(DEVICE_ORIENTATION)
     DeviceOrientationOrMotionPermissionState m_deviceOrientationAndMotionAccessState { DeviceOrientationOrMotionPermissionState::Prompt };
 #endif
@@ -713,7 +718,7 @@ private:
     ColorSchemePreference m_colorSchemePreference { ColorSchemePreference::NoPreference };
 
 #if ENABLE(SERVICE_WORKER)
-    std::optional<ServiceWorkerRegistrationData> m_serviceWorkerRegistrationData;
+    std::unique_ptr<ServiceWorkerRegistrationData> m_serviceWorkerRegistrationData;
     bool m_canUseServiceWorkers { true };
 #endif
     ScriptExecutionContextIdentifier m_resultingClientId;
@@ -722,10 +727,9 @@ private:
     bool m_hasEverBeenAttached { false };
 #endif
 
-    bool m_allowsWebArchiveForMainFrame { false };
-    bool m_allowsDataURLsForMainFrame { false };
-
+    bool m_isRequestFromClientOrUserInput { false };
     bool m_lastNavigationWasAppInitiated { true };
+    bool m_allowPrivacyProxy { true };
 };
 
 inline void DocumentLoader::recordMemoryCacheLoadForFutureClientNotification(const ResourceRequest& request)

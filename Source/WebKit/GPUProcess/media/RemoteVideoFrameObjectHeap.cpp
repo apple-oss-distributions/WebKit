@@ -31,6 +31,7 @@
 #include "RemoteVideoFrameObjectHeapMessages.h"
 #include "RemoteVideoFrameObjectHeapProxyProcessorMessages.h"
 #include "RemoteVideoFrameProxy.h"
+#include <wtf/MainThread.h>
 #include <wtf/Scope.h>
 #include <wtf/WorkQueue.h>
 
@@ -180,9 +181,9 @@ void RemoteVideoFrameObjectHeap::setSharedVideoFrameSemaphore(IPC::Semaphore&& s
     m_sharedVideoFrameReader.setSemaphore(WTFMove(semaphore));
 }
 
-void RemoteVideoFrameObjectHeap::setSharedVideoFrameMemory(const SharedMemory::IPCHandle& ipcHandle)
+void RemoteVideoFrameObjectHeap::setSharedVideoFrameMemory(const SharedMemory::Handle& handle)
 {
-    m_sharedVideoFrameReader.setSharedMemory(ipcHandle);
+    m_sharedVideoFrameReader.setSharedMemory(handle);
 }
 
 #endif

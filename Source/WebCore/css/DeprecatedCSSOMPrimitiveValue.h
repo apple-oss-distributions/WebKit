@@ -25,6 +25,7 @@
 
 #pragma once
 
+#include "CSSParserIdioms.h"
 #include "CSSPrimitiveValue.h"
 #include "DeprecatedCSSOMValue.h"
 
@@ -86,17 +87,17 @@ public:
     static ExceptionOr<void> setStringValue(unsigned short, const String&) { return Exception { NoModificationAllowedError }; }
 
     String stringValue() const { return m_value->stringValue(); }
-    bool isCSSWideKeyword() const { return m_value->isCSSWideKeyword(); }
-    unsigned cssValueType() const { return m_value->cssValueType(); }
+    bool isCSSWideKeyword() const { return WebCore::isCSSWideKeyword(valueID(m_value.get())); }
+    static unsigned short cssValueType() { return CSS_PRIMITIVE_VALUE; }
 
 private:
     DeprecatedCSSOMPrimitiveValue(const CSSPrimitiveValue& value, CSSStyleDeclaration& owner)
-        : DeprecatedCSSOMValue(DeprecatedPrimitiveValueClass, owner)
-        , m_value(const_cast<CSSPrimitiveValue&>(value))
+        : DeprecatedCSSOMValue(ClassType::Primitive, owner)
+        , m_value(value)
     {
     }
 
-    Ref<CSSPrimitiveValue> m_value;
+    Ref<const CSSPrimitiveValue> m_value;
 };
     
 } // namespace WebCore

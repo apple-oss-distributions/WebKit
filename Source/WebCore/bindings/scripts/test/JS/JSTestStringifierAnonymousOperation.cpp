@@ -110,8 +110,8 @@ template<> void JSTestStringifierAnonymousOperationDOMConstructor::initializePro
 
 static const HashTableValue JSTestStringifierAnonymousOperationPrototypeTableValues[] =
 {
-    { "constructor"_s, static_cast<unsigned>(JSC::PropertyAttribute::DontEnum), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestStringifierAnonymousOperationConstructor), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(0) } },
-    { "toString"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestStringifierAnonymousOperationPrototypeFunction_toString), (intptr_t) (0) } },
+    { "constructor"_s, static_cast<unsigned>(JSC::PropertyAttribute::DontEnum), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestStringifierAnonymousOperationConstructor, 0 } },
+    { "toString"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestStringifierAnonymousOperationPrototypeFunction_toString, 0 } },
 };
 
 const ClassInfo JSTestStringifierAnonymousOperationPrototype::s_info = { "TestStringifierAnonymousOperation"_s, &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(JSTestStringifierAnonymousOperationPrototype) };
@@ -189,9 +189,9 @@ JSC::GCClient::IsoSubspace* JSTestStringifierAnonymousOperation::subspaceForImpl
 {
     return WebCore::subspaceForImpl<JSTestStringifierAnonymousOperation, UseCustomHeapCellType::No>(vm,
         [] (auto& spaces) { return spaces.m_clientSubspaceForTestStringifierAnonymousOperation.get(); },
-        [] (auto& spaces, auto&& space) { spaces.m_clientSubspaceForTestStringifierAnonymousOperation = WTFMove(space); },
+        [] (auto& spaces, auto&& space) { spaces.m_clientSubspaceForTestStringifierAnonymousOperation = std::forward<decltype(space)>(space); },
         [] (auto& spaces) { return spaces.m_subspaceForTestStringifierAnonymousOperation.get(); },
-        [] (auto& spaces, auto&& space) { spaces.m_subspaceForTestStringifierAnonymousOperation = WTFMove(space); }
+        [] (auto& spaces, auto&& space) { spaces.m_subspaceForTestStringifierAnonymousOperation = std::forward<decltype(space)>(space); }
     );
 }
 

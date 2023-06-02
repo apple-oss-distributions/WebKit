@@ -32,7 +32,7 @@
 #include "MessageReceiver.h"
 #include "RemoteVideoFrameIdentifier.h"
 #include "SharedVideoFrame.h"
-
+#include "WorkQueueMessageReceiver.h"
 #include <wtf/Function.h>
 #include <wtf/HashMap.h>
 #include <wtf/Lock.h>
@@ -55,7 +55,7 @@ namespace WebKit {
 
 class RemoteVideoFrameProxy;
 
-class RemoteVideoFrameObjectHeapProxyProcessor : public IPC::Connection::WorkQueueMessageReceiver, public GPUProcessConnection::Client {
+class RemoteVideoFrameObjectHeapProxyProcessor : public IPC::WorkQueueMessageReceiver, public GPUProcessConnection::Client {
 public:
     static Ref<RemoteVideoFrameObjectHeapProxyProcessor> create(GPUProcessConnection&);
     ~RemoteVideoFrameObjectHeapProxyProcessor();
@@ -66,12 +66,13 @@ public:
 
 private:
     explicit RemoteVideoFrameObjectHeapProxyProcessor(GPUProcessConnection&);
+    void initialize();
 
     void didReceiveMessage(IPC::Connection&, IPC::Decoder&) final;
 
     // Messages
     void setSharedVideoFrameSemaphore(IPC::Semaphore&&);
-    void setSharedVideoFrameMemory(const SharedMemory::IPCHandle&);
+    void setSharedVideoFrameMemory(const SharedMemory::Handle&);
     void newVideoFrameBuffer(RemoteVideoFrameIdentifier, std::optional<SharedVideoFrame::Buffer>&&);
     void newConvertedVideoFrameBuffer(std::optional<SharedVideoFrame::Buffer>&&);
 
@@ -83,7 +84,7 @@ private:
 
 private:
     Lock m_connectionLock;
-    IPC::Connection::UniqueID m_connectionID WTF_GUARDED_BY_LOCK(m_connectionLock);
+    RefPtr<IPC::Connection> m_connection WTF_GUARDED_BY_LOCK(m_connectionLock);
     Lock m_callbacksLock;
     HashMap<RemoteVideoFrameIdentifier, Callback> m_callbacks WTF_GUARDED_BY_LOCK(m_callbacksLock);
     Ref<WorkQueue> m_queue;

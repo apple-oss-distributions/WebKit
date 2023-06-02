@@ -64,8 +64,8 @@ public:
 
     using AudioCallback = Function<void(uint64_t startFrame, uint64_t numberOfFrames)>;
     WEBCORE_EXPORT void setAudioCallback(AudioCallback&&);
-    using RingBufferCreationCallback = Function<UniqueRef<CARingBuffer>()>;
-    WEBCORE_EXPORT void setRingBufferCreationCallback(RingBufferCreationCallback&&);
+    using ConfigureAudioStorageCallback = Function<std::unique_ptr<CARingBuffer>(const CAAudioStreamDescription&, size_t frameCount)>;
+    WEBCORE_EXPORT void setConfigureAudioStorageCallback(ConfigureAudioStorageCallback&&);
 
 private:
     AudioSourceProviderAVFObjC(AVPlayerItem *);
@@ -75,7 +75,7 @@ private:
 
     // AudioSourceProvider
     void provideInput(AudioBus*, size_t framesToProcess) override;
-    void setClient(AudioSourceProviderClient*) override;
+    void setClient(WeakPtr<AudioSourceProviderClient>&&) override;
     bool isHandlingAVPlayer() const final { return true; }
 
     static void initCallback(MTAudioProcessingTapRef, void*, void**);
@@ -105,13 +105,13 @@ private:
     enum { NoSeek = std::numeric_limits<uint64_t>::max() };
     uint64_t m_seekTo { NoSeek };
     bool m_paused { true };
-    AudioSourceProviderClient* m_client { nullptr };
+    WeakPtr<AudioSourceProviderClient> m_client;
     WeakPtrFactory<AudioSourceProviderAVFObjC> m_weakFactory;
 
     class TapStorage;
     RefPtr<TapStorage> m_tapStorage;
     AudioCallback m_audioCallback;
-    RingBufferCreationCallback m_ringBufferCreationCallback;
+    ConfigureAudioStorageCallback m_configureAudioStorageCallback;
 };
 
 }

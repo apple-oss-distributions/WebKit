@@ -57,7 +57,9 @@ void WebsitePoliciesData::encode(IPC::Encoder& encoder) const
     encoder << mouseEventPolicy;
     encoder << modalContainerObservationPolicy;
     encoder << colorSchemePreference;
+    encoder << networkConnectionIntegrityPolicy;
     encoder << idempotentModeAutosizingOnlyHonorsPercentages;
+    encoder << allowPrivacyProxy;
 }
 
 std::optional<WebsitePoliciesData> WebsitePoliciesData::decode(IPC::Decoder& decoder)
@@ -159,9 +161,19 @@ std::optional<WebsitePoliciesData> WebsitePoliciesData::decode(IPC::Decoder& dec
     if (!colorSchemePreference)
         return std::nullopt;
 
+    std::optional<OptionSet<WebCore::NetworkConnectionIntegrity>> networkConnectionIntegrityPolicy;
+    decoder >> networkConnectionIntegrityPolicy;
+    if (!networkConnectionIntegrityPolicy)
+        return std::nullopt;
+
     std::optional<bool> idempotentModeAutosizingOnlyHonorsPercentages;
     decoder >> idempotentModeAutosizingOnlyHonorsPercentages;
     if (!idempotentModeAutosizingOnlyHonorsPercentages)
+        return std::nullopt;
+
+    std::optional<bool> allowPrivacyProxy;
+    decoder >> allowPrivacyProxy;
+    if (!allowPrivacyProxy)
         return std::nullopt;
 
     return { {
@@ -186,7 +198,9 @@ std::optional<WebsitePoliciesData> WebsitePoliciesData::decode(IPC::Decoder& dec
         WTFMove(*mouseEventPolicy),
         WTFMove(*modalContainerObservationPolicy),
         WTFMove(*colorSchemePreference),
+        WTFMove(*networkConnectionIntegrityPolicy),
         WTFMove(*idempotentModeAutosizingOnlyHonorsPercentages),
+        WTFMove(*allowPrivacyProxy),
     } };
 }
 
@@ -196,6 +210,7 @@ void WebsitePoliciesData::applyToDocumentLoader(WebsitePoliciesData&& websitePol
     documentLoader.setCustomUserAgent(websitePolicies.customUserAgent);
     documentLoader.setCustomUserAgentAsSiteSpecificQuirks(websitePolicies.customUserAgentAsSiteSpecificQuirks);
     documentLoader.setCustomNavigatorPlatform(websitePolicies.customNavigatorPlatform);
+    documentLoader.setAllowPrivacyProxy(websitePolicies.allowPrivacyProxy);
 
 #if ENABLE(DEVICE_ORIENTATION)
     documentLoader.setDeviceOrientationAndMotionAccessState(websitePolicies.deviceOrientationAndMotionAccessState);
@@ -313,10 +328,10 @@ void WebsitePoliciesData::applyToDocumentLoader(WebsitePoliciesData&& websitePol
     documentLoader.setModalContainerObservationPolicy(websitePolicies.modalContainerObservationPolicy);
     documentLoader.setColorSchemePreference(websitePolicies.colorSchemePreference);
     documentLoader.setAllowContentChangeObserverQuirk(websitePolicies.allowContentChangeObserverQuirk);
+    documentLoader.setNetworkConnectionIntegrityPolicy(websitePolicies.networkConnectionIntegrityPolicy);
     documentLoader.setIdempotentModeAutosizingOnlyHonorsPercentages(websitePolicies.idempotentModeAutosizingOnlyHonorsPercentages);
 
-    auto* frame = documentLoader.frame();
-    if (!frame)
+    if (!documentLoader.frame())
         return;
 
     documentLoader.applyPoliciesToSettings();

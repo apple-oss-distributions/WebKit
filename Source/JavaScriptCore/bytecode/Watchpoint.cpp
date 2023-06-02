@@ -28,11 +28,13 @@
 
 #include "AdaptiveInferredPropertyValueWatchpointBase.h"
 #include "CachedSpecialPropertyAdaptiveStructureWatchpoint.h"
+#include "ChainedWatchpoint.h"
 #include "CodeBlockJettisoningWatchpoint.h"
 #include "DFGAdaptiveStructureWatchpoint.h"
 #include "FunctionRareData.h"
 #include "HeapInlines.h"
 #include "LLIntPrototypeLoadAdaptiveStructureWatchpoint.h"
+#include "ObjectAdaptiveStructureWatchpoint.h"
 #include "StructureRareDataInlines.h"
 #include "StructureStubClearingWatchpoint.h"
 #include "VM.h"
@@ -45,6 +47,27 @@ DEFINE_ALLOCATOR_WITH_HEAP_IDENTIFIER(WatchpointSet);
 void StringFireDetail::dump(PrintStream& out) const
 {
     out.print(m_string);
+}
+
+template<typename Func>
+inline void Watchpoint::runWithDowncast(const Func& func)
+{
+    switch (m_type) {
+#define JSC_DEFINE_WATCHPOINT_DISPATCH(type, cast) \
+    case Type::type: \
+        func(static_cast<cast*>(this)); \
+        break;
+    JSC_WATCHPOINT_TYPES(JSC_DEFINE_WATCHPOINT_DISPATCH)
+#undef JSC_DEFINE_WATCHPOINT_DISPATCH
+    }
+}
+
+void Watchpoint::operator delete(Watchpoint* watchpoint, std::destroying_delete_t)
+{
+    watchpoint->runWithDowncast([](auto* derived) {
+        std::destroy_at(derived);
+        std::decay_t<decltype(*derived)>::freeAfterDestruction(derived);
+    });
 }
 
 Watchpoint::~Watchpoint()
@@ -62,14 +85,9 @@ Watchpoint::~Watchpoint()
 void Watchpoint::fire(VM& vm, const FireDetail& detail)
 {
     RELEASE_ASSERT(!isOnList());
-    switch (m_type) {
-#define JSC_DEFINE_WATCHPOINT_DISPATCH(type, cast) \
-    case Type::type: \
-        static_cast<cast*>(this)->fireInternal(vm, detail); \
-        break;
-    JSC_WATCHPOINT_TYPES(JSC_DEFINE_WATCHPOINT_DISPATCH)
-#undef JSC_DEFINE_WATCHPOINT_DISPATCH
-    }
+    runWithDowncast([&](auto* derived) {
+        derived->fireInternal(vm, detail);
+    });
 }
 
 WatchpointSet::WatchpointSet(WatchpointState state)
@@ -193,11 +211,6 @@ void InlineWatchpointSet::freeFat()
 {
     ASSERT(isFat());
     fat()->deref();
-}
-
-void DeferredWatchpointFire::fireAllSlow()
-{
-    m_watchpointsToFire.fireAll(m_vm, *this);
 }
 
 void DeferredWatchpointFire::takeWatchpointsToFire(WatchpointSet* watchpointsToFire)

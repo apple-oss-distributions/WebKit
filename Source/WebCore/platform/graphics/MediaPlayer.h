@@ -80,7 +80,6 @@ class MediaPlaybackTarget;
 class MediaPlayer;
 class MediaPlayerFactory;
 class MediaPlayerPrivateInterface;
-class MediaPlayerRequestInstallMissingPluginsCallback;
 class MediaSourcePrivateClient;
 class MediaStreamPrivate;
 class NativeImage;
@@ -98,6 +97,7 @@ struct MediaEngineSupportParameters {
     URL url;
     bool isMediaSource { false };
     bool isMediaStream { false };
+    bool requiresRemotePlayback { false };
     Vector<ContentType> contentTypesRequiringHardwareSupport;
     std::optional<Vector<String>> allowedMediaContainerTypes;
     std::optional<Vector<String>> allowedMediaCodecTypes;
@@ -112,6 +112,7 @@ struct MediaEngineSupportParameters {
         encoder << url;
         encoder << isMediaSource;
         encoder << isMediaStream;
+        encoder << requiresRemotePlayback;
         encoder << contentTypesRequiringHardwareSupport;
         encoder << allowedMediaContainerTypes;
         encoder << allowedMediaCodecTypes;
@@ -127,6 +128,7 @@ struct MediaEngineSupportParameters {
             && decoder.decode(parameters.url)
             && decoder.decode(parameters.isMediaSource)
             && decoder.decode(parameters.isMediaStream)
+            && decoder.decode(parameters.requiresRemotePlayback)
             && decoder.decode(parameters.contentTypesRequiringHardwareSupport)
             && decoder.decode(parameters.allowedMediaContainerTypes)
             && decoder.decode(parameters.allowedMediaCodecTypes)
@@ -263,10 +265,6 @@ public:
     virtual bool mediaPlayerIsVideoFullscreenStandby() const { return false; }
     virtual Vector<String> mediaPlayerPreferredAudioCharacteristics() const { return Vector<String>(); }
 
-#if USE(GSTREAMER)
-    virtual void requestInstallMissingPlugins(const String&, const String&, MediaPlayerRequestInstallMissingPluginsCallback&) { };
-#endif
-
     virtual bool mediaPlayerShouldDisableSleep() const { return false; }
     virtual const Vector<ContentType>& mediaContentTypesRequiringHardwareSupport() const = 0;
     virtual bool mediaPlayerShouldCheckHardwareSupport() const { return false; }
@@ -292,6 +290,8 @@ public:
 #endif
 
     virtual bool mediaPlayerPrefersSandboxedParsing() const { return false; }
+
+    virtual bool mediaPlayerShouldDisableHDR() const { return false; }
 
 #if !RELEASE_LOG_DISABLED
     virtual const void* mediaPlayerLogIdentifier() { return nullptr; }
@@ -353,10 +353,10 @@ public:
     bool hasVideo() const;
     bool hasAudio() const;
 
-    IntSize size() const { return m_size; }
-    void setSize(const IntSize& size);
+    IntSize presentationSize() const { return m_presentationSize; }
+    void setPresentationSize(const IntSize& size);
 
-    bool load(const URL&, const ContentType&, const String& keySystem);
+    bool load(const URL&, const ContentType&, const String&, bool);
 #if ENABLE(MEDIA_SOURCE)
     bool load(const URL&, const ContentType&, MediaSourcePrivateClient&);
 #endif
@@ -367,6 +367,7 @@ public:
 
     void setPageIsVisible(bool);
     void setVisibleForCanvas(bool);
+    bool isVisibleForCanvas() const { return m_visibleForCanvas; }
 
     void setVisibleInViewport(bool);
     bool isVisibleInViewport() const { return m_visibleInViewport; }
@@ -546,9 +547,8 @@ public:
     GraphicsDeviceAdapter* graphicsDeviceAdapter() const;
 #endif
 
-    bool hasSingleSecurityOrigin() const;
     bool didPassCORSAccessCheck() const;
-    bool wouldTaintOrigin(const SecurityOrigin&) const;
+    bool isCrossOrigin(const SecurityOrigin&) const;
 
     MediaTime mediaTimeForTimeValue(const MediaTime&) const;
 
@@ -682,10 +682,6 @@ public:
     void remoteEngineFailedToLoad();
     SecurityOriginData documentSecurityOrigin() const;
 
-#if USE(GSTREAMER)
-    void requestInstallMissingPlugins(const String& details, const String& description, MediaPlayerRequestInstallMissingPluginsCallback& callback) { client().requestInstallMissingPlugins(details, description, callback); }
-#endif
-
     const MediaPlayerPrivateInterface* playerPrivate() const;
     MediaPlayerPrivateInterface* playerPrivate();
 
@@ -711,6 +707,11 @@ public:
 
     void renderVideoWillBeDestroyed();
 
+    void setShouldDisableHDR(bool);
+    bool shouldDisableHDR() const { return client().mediaPlayerShouldDisableHDR(); }
+
+    bool requiresRemotePlayback() const { return m_requiresRemotePlayback; }
+
 private:
     MediaPlayer(MediaPlayerClient&);
     MediaPlayer(MediaPlayerClient&, MediaPlayerEnums::MediaEngineIdentifier);
@@ -732,10 +733,11 @@ private:
     String m_keySystem;
     std::optional<MediaPlayerEnums::MediaEngineIdentifier> m_activeEngineIdentifier;
     std::optional<MediaTime> m_pendingSeekRequest;
-    IntSize m_size;
+    IntSize m_presentationSize;
     Preload m_preload { Preload::Auto };
     double m_volume { 1 };
     bool m_pageIsVisible { false };
+    bool m_visibleForCanvas { false };
     bool m_visibleInViewport { false };
     bool m_muted { false };
     bool m_preservesPitch { true };
@@ -756,6 +758,7 @@ private:
     bool m_shouldContinueAfterKeyNeeded { false };
 #endif
     bool m_isGatheringVideoFrameMetadata { false };
+    bool m_requiresRemotePlayback { false };
     String m_lastErrorMessage;
 };
 

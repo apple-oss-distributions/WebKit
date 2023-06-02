@@ -28,6 +28,7 @@
 
 #if ENABLE(MEDIA_USAGE)
 
+#import <WebCore/NotImplemented.h>
 #import <pal/cocoa/UsageTrackingSoftLink.h>
 
 NS_ASSUME_NONNULL_BEGIN
@@ -69,7 +70,6 @@ static bool usageTrackingAvailable()
             && PAL::canLoad_UsageTracking_USVideoMetadataKeyIsMediaDocumentAndNotOwnerElement()
             && PAL::canLoad_UsageTracking_USVideoMetadataKeyPageExplicitlyAllowsElementToAutoplayInline()
             && PAL::canLoad_UsageTracking_USVideoMetadataKeyRequiresFullscreenForVideoPlaybackAndFullscreenNotPermitted()
-            && PAL::canLoad_UsageTracking_USVideoMetadataKeyHasHadUserInteractionAndQuirksContainsShouldAutoplayForArbitraryUserGesture()
             && PAL::canLoad_UsageTracking_USVideoMetadataKeyIsVideoAndRequiresUserGestureForVideoRateChange()
             && PAL::canLoad_UsageTracking_USVideoMetadataKeyIsAudioAndRequiresUserGestureForAudioRateChange()
             && PAL::canLoad_UsageTracking_USVideoMetadataKeyIsVideoAndRequiresUserGestureForVideoDueToLowPowerMode()
@@ -90,6 +90,14 @@ std::unique_ptr<MediaUsageManager> MediaUsageManager::create()
 {
     return makeUnique<MediaUsageManagerCocoa>();
 }
+
+#if PLATFORM(COCOA) && !HAVE(CGS_FIX_FOR_RADAR_97530095)
+bool MediaUsageManager::isPlayingVideoInViewport() const
+{
+    notImplemented();
+    return false;
+}
+#endif
 
 MediaUsageManagerCocoa::~MediaUsageManagerCocoa()
 {
@@ -162,7 +170,6 @@ void MediaUsageManagerCocoa::updateMediaUsage(WebCore::MediaSessionIdentifier id
             USVideoMetadataKeyIsMediaDocumentAndNotOwnerElement: @(mediaUsageInfo.isMediaDocumentAndNotOwnerElement),
             USVideoMetadataKeyPageExplicitlyAllowsElementToAutoplayInline: @(mediaUsageInfo.pageExplicitlyAllowsElementToAutoplayInline),
             USVideoMetadataKeyRequiresFullscreenForVideoPlaybackAndFullscreenNotPermitted: @(mediaUsageInfo.requiresFullscreenForVideoPlaybackAndFullscreenNotPermitted),
-            USVideoMetadataKeyHasHadUserInteractionAndQuirksContainsShouldAutoplayForArbitraryUserGesture: @(mediaUsageInfo.hasHadUserInteractionAndQuirksContainsShouldAutoplayForArbitraryUserGesture),
             USVideoMetadataKeyIsVideoAndRequiresUserGestureForVideoRateChange: @(mediaUsageInfo.isVideoAndRequiresUserGestureForVideoRateChange),
             USVideoMetadataKeyIsAudioAndRequiresUserGestureForAudioRateChange: @(mediaUsageInfo.isAudioAndRequiresUserGestureForAudioRateChange),
             USVideoMetadataKeyIsVideoAndRequiresUserGestureForVideoDueToLowPowerMode: @(mediaUsageInfo.isVideoAndRequiresUserGestureForVideoDueToLowPowerMode),
@@ -198,6 +205,17 @@ void MediaUsageManagerCocoa::updateMediaUsage(WebCore::MediaSessionIdentifier id
         WTFLogAlways("MediaUsageManagerCocoa::updateMediaUsage caught exception: %@", [[exception reason] UTF8String]);
     }
 }
+
+#if !HAVE(CGS_FIX_FOR_RADAR_97530095)
+bool MediaUsageManagerCocoa::isPlayingVideoInViewport() const
+{
+    for (auto& session : m_mediaSessions.values()) {
+        if (session->mediaUsageInfo && session->mediaUsageInfo->isPlaying && session->mediaUsageInfo->isVideo && session->mediaUsageInfo->isInViewport)
+            return true;
+    }
+    return false;
+}
+#endif
 
 } // namespace WebKit
 

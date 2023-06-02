@@ -28,7 +28,6 @@
 #pragma once
 
 #include "LayoutSize.h"
-#include "MediaQueryEvaluator.h"
 #include "StyleScopeOrdinal.h"
 #include "Timer.h"
 #include <memory>
@@ -38,15 +37,20 @@
 #include <wtf/HashSet.h>
 #include <wtf/ListHashSet.h>
 #include <wtf/RefPtr.h>
+#include <wtf/UniqueRef.h>
 #include <wtf/Vector.h>
 #include <wtf/WeakHashMap.h>
+#include <wtf/WeakHashSet.h>
+#include <wtf/text/AtomStringHash.h>
 #include <wtf/text/WTFString.h>
 
 namespace WebCore {
 
+class CSSCounterStyleRegistry;
 class CSSStyleSheet;
 class Document;
 class Element;
+class WeakPtrImplWithEventTargetData;
 class HTMLSlotElement;
 class Node;
 class ProcessingInstruction;
@@ -58,6 +62,7 @@ class TreeScope;
 
 namespace Style {
 
+class CustomPropertyRegistry;
 class Resolver;
 
 class Scope : public CanMakeWeakPtr<Scope> {
@@ -137,6 +142,11 @@ public:
     };
     bool updateQueryContainerState(QueryContainerUpdateContext&);
 
+    const CustomPropertyRegistry& customPropertyRegistry() const { return m_customPropertyRegistry.get(); }
+    CustomPropertyRegistry& customPropertyRegistry() { return m_customPropertyRegistry.get(); }
+    const CSSCounterStyleRegistry& counterStyleRegistry() const { return m_counterStyleRegistry.get(); }
+    CSSCounterStyleRegistry& counterStyleRegistry() { return m_counterStyleRegistry.get(); }
+
 private:
     Scope& documentScope();
     bool isForUserAgentShadowTree() const;
@@ -154,7 +164,12 @@ private:
     WEBCORE_EXPORT void flushPendingSelfUpdate();
     WEBCORE_EXPORT void flushPendingDescendantUpdates();
 
-    void collectActiveStyleSheets(Vector<RefPtr<StyleSheet>>&);
+    struct ActiveStyleSheetCollection {
+        Vector<RefPtr<StyleSheet>> activeStyleSheets;
+        Vector<RefPtr<StyleSheet>> styleSheetsForStyleSheetList;
+    };
+
+    ActiveStyleSheetCollection collectActiveStyleSheets();
 
     enum class ResolverUpdateType {
         Reconstruct,
@@ -179,6 +194,11 @@ private:
     void pendingUpdateTimerFired();
     void clearPendingUpdate();
 
+    TreeScope& treeScope();
+
+    using MediaQueryViewportState = std::tuple<IntSize, float, bool>;
+    static MediaQueryViewportState mediaQueryViewportStateForDocument(const Document&);
+
     Document& m_document;
     ShadowRoot* m_shadowRoot { nullptr };
 
@@ -195,9 +215,9 @@ private:
     // Sheets loaded using the @import directive are not included in this count.
     // We use this count of pending sheets to detect when we can begin attaching
     // elements and when it is safe to execute scripts.
-    HashSet<const ProcessingInstruction*> m_processingInstructionsWithPendingSheets;
-    HashSet<const Element*> m_elementsInHeadWithPendingSheets;
-    HashSet<const Element*> m_elementsInBodyWithPendingSheets;
+    WeakHashSet<const ProcessingInstruction, WeakPtrImplWithEventTargetData> m_processingInstructionsWithPendingSheets;
+    WeakHashSet<const Element, WeakPtrImplWithEventTargetData> m_elementsInHeadWithPendingSheets;
+    WeakHashSet<const Element, WeakPtrImplWithEventTargetData> m_elementsInBodyWithPendingSheets;
 
     ListHashSet<Node*> m_styleSheetCandidateNodes;
 
@@ -211,7 +231,10 @@ private:
     bool m_isUpdatingStyleResolver { false };
 
     std::optional<MediaQueryViewportState> m_viewportStateOnPreviousMediaQueryEvaluation;
-    WeakHashMap<Element, LayoutSize> m_queryContainerStates;
+    WeakHashMap<Element, LayoutSize, WeakPtrImplWithEventTargetData> m_queryContainerStates;
+
+    UniqueRef<CustomPropertyRegistry> m_customPropertyRegistry;
+    UniqueRef<CSSCounterStyleRegistry> m_counterStyleRegistry;
 
     // FIXME: These (and some things above) are only relevant for the root scope.
     HashMap<ResolverSharingKey, Ref<Resolver>> m_sharedShadowTreeResolvers;
@@ -219,21 +242,6 @@ private:
 
 HTMLSlotElement* assignedSlotForScopeOrdinal(const Element&, ScopeOrdinal);
 Element* hostForScopeOrdinal(const Element&, ScopeOrdinal);
-
-inline bool Scope::hasPendingSheets() const
-{
-    return hasPendingSheetsBeforeBody() || !m_elementsInBodyWithPendingSheets.isEmpty();
-}
-
-inline bool Scope::hasPendingSheetsBeforeBody() const
-{
-    return !m_elementsInHeadWithPendingSheets.isEmpty() || !m_processingInstructionsWithPendingSheets.isEmpty();
-}
-
-inline bool Scope::hasPendingSheetsInBody() const
-{
-    return !m_elementsInBodyWithPendingSheets.isEmpty();
-}
 
 inline void Scope::flushPendingUpdate()
 {

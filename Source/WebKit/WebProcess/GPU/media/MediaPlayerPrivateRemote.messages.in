@@ -33,7 +33,7 @@ messages -> MediaPlayerPrivateRemote NotRefCounted {
     DurationChanged(struct WebKit::RemoteMediaPlayerState state)
     RateChanged(double rate)
     PlaybackStateChanged(bool paused, MediaTime mediaTime, MonotonicTime wallTime)
-    EngineFailedToLoad(int platformErrorCode)
+    EngineFailedToLoad(int64_t platformErrorCode)
     UpdateCachedState(struct WebKit::RemoteMediaPlayerState state)
     CharacteristicChanged(struct WebKit::RemoteMediaPlayerState state)
     SizeChanged(WebCore::FloatSize naturalSize)
@@ -94,6 +94,7 @@ messages -> MediaPlayerPrivateRemote NotRefCounted {
 
 #if PLATFORM(COCOA)
     PushVideoFrameMetadata(struct WebCore::VideoFrameMetadata metadata, WebKit::RemoteVideoFrameProxy::Properties frameProperties);
+    LayerHostingContextIdChanged(std::optional<WebKit::LayerHostingContextID> inlineLayerHostingContextId, WebCore::IntSize presentationSize);
 #endif
 }
 

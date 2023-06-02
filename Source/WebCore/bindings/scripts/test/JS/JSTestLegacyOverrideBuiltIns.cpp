@@ -114,8 +114,8 @@ template<> void JSTestLegacyOverrideBuiltInsDOMConstructor::initializeProperties
 
 static const HashTableValue JSTestLegacyOverrideBuiltInsPrototypeTableValues[] =
 {
-    { "constructor"_s, static_cast<unsigned>(JSC::PropertyAttribute::DontEnum), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestLegacyOverrideBuiltInsConstructor), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(0) } },
-    { "namedItem"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestLegacyOverrideBuiltInsPrototypeFunction_namedItem), (intptr_t) (1) } },
+    { "constructor"_s, static_cast<unsigned>(JSC::PropertyAttribute::DontEnum), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestLegacyOverrideBuiltInsConstructor, 0 } },
+    { "namedItem"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestLegacyOverrideBuiltInsPrototypeFunction_namedItem, 1 } },
 };
 
 const ClassInfo JSTestLegacyOverrideBuiltInsPrototype::s_info = { "TestLegacyOverrideBuiltIns"_s, &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(JSTestLegacyOverrideBuiltInsPrototype) };
@@ -246,9 +246,9 @@ JSC::GCClient::IsoSubspace* JSTestLegacyOverrideBuiltIns::subspaceForImpl(JSC::V
 {
     return WebCore::subspaceForImpl<JSTestLegacyOverrideBuiltIns, UseCustomHeapCellType::No>(vm,
         [] (auto& spaces) { return spaces.m_clientSubspaceForTestLegacyOverrideBuiltIns.get(); },
-        [] (auto& spaces, auto&& space) { spaces.m_clientSubspaceForTestLegacyOverrideBuiltIns = WTFMove(space); },
+        [] (auto& spaces, auto&& space) { spaces.m_clientSubspaceForTestLegacyOverrideBuiltIns = std::forward<decltype(space)>(space); },
         [] (auto& spaces) { return spaces.m_subspaceForTestLegacyOverrideBuiltIns.get(); },
-        [] (auto& spaces, auto&& space) { spaces.m_subspaceForTestLegacyOverrideBuiltIns = WTFMove(space); }
+        [] (auto& spaces, auto&& space) { spaces.m_subspaceForTestLegacyOverrideBuiltIns = std::forward<decltype(space)>(space); }
     );
 }
 

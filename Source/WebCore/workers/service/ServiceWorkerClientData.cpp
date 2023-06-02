@@ -61,12 +61,12 @@ static ServiceWorkerClientFrameType toServiceWorkerClientFrameType(ScriptExecuti
 
 ServiceWorkerClientData ServiceWorkerClientData::isolatedCopy() const &
 {
-    return { identifier, type, frameType, url.isolatedCopy(), pageIdentifier, frameIdentifier, lastNavigationWasAppInitiated, isVisible, isFocused, focusOrder, crossThreadCopy(ancestorOrigins) };
+    return { identifier, type, frameType, url.isolatedCopy(), ownerURL.isolatedCopy(), pageIdentifier, frameIdentifier, lastNavigationWasAppInitiated, isVisible, isFocused, focusOrder, crossThreadCopy(ancestorOrigins) };
 }
 
 ServiceWorkerClientData ServiceWorkerClientData::isolatedCopy() &&
 {
-    return { identifier, type, frameType, WTFMove(url).isolatedCopy(), pageIdentifier, frameIdentifier, lastNavigationWasAppInitiated, isVisible, isFocused, focusOrder, crossThreadCopy(WTFMove(ancestorOrigins)) };
+    return { identifier, type, frameType, WTFMove(url).isolatedCopy(), WTFMove(ownerURL).isolatedCopy(), pageIdentifier, frameIdentifier, lastNavigationWasAppInitiated, isVisible, isFocused, focusOrder, crossThreadCopy(WTFMove(ancestorOrigins)) };
 }
 
 ServiceWorkerClientData ServiceWorkerClientData::from(ScriptExecutionContext& context)
@@ -76,8 +76,10 @@ ServiceWorkerClientData ServiceWorkerClientData::from(ScriptExecutionContext& co
 
         Vector<String> ancestorOrigins;
         if (auto* frame = document->frame()) {
-            for (auto* ancestor = frame->tree().parent(); ancestor; ancestor = ancestor->tree().parent())
-                ancestorOrigins.append(ancestor->document()->securityOrigin().toString());
+            for (auto* ancestor = frame->tree().parent(); ancestor; ancestor = ancestor->tree().parent()) {
+                if (auto* ancestorFrame = dynamicDowncast<LocalFrame>(ancestor))
+                    ancestorOrigins.append(ancestorFrame->document()->securityOrigin().toString());
+            }
         }
 
         return {
@@ -85,6 +87,7 @@ ServiceWorkerClientData ServiceWorkerClientData::from(ScriptExecutionContext& co
             ServiceWorkerClientType::Window,
             toServiceWorkerClientFrameType(context),
             document->creationURL(),
+            URL(),
             document->pageID(),
             document->frameID(),
             lastNavigationWasAppInitiated,
@@ -102,6 +105,7 @@ ServiceWorkerClientData ServiceWorkerClientData::from(ScriptExecutionContext& co
         scope.type() == WebCore::WorkerGlobalScope::Type::SharedWorker ? ServiceWorkerClientType::Sharedworker : ServiceWorkerClientType::Worker,
         ServiceWorkerClientFrameType::None,
         scope.url(),
+        scope.ownerURL(),
         { },
         { },
         LastNavigationWasAppInitiated::No,

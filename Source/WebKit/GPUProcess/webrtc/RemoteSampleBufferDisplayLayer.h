@@ -52,7 +52,8 @@ public:
     ~RemoteSampleBufferDisplayLayer();
 
     using WebCore::SampleBufferDisplayLayer::Client::weakPtrFactory;
-    using WeakValueType = WebCore::SampleBufferDisplayLayer::Client::WeakValueType;
+    using WebCore::SampleBufferDisplayLayer::Client::WeakValueType;
+    using WebCore::SampleBufferDisplayLayer::Client::WeakPtrImplType;
 
     using LayerInitializationCallback = CompletionHandler<void(std::optional<LayerHostingContextID>)>;
     void initialize(bool hideRootLayer, WebCore::IntSize, LayerInitializationCallback&&);
@@ -78,7 +79,7 @@ private:
     void enqueueVideoFrame(SharedVideoFrame&&);
     void clearVideoFrames();
     void setSharedVideoFrameSemaphore(IPC::Semaphore&&);
-    void setSharedVideoFrameMemory(const SharedMemory::IPCHandle&);
+    void setSharedVideoFrameMemory(const SharedMemory::Handle&);
 
     // IPC::MessageSender
     IPC::Connection* messageSenderConnection() const final;
@@ -94,7 +95,7 @@ private:
     std::unique_ptr<WebCore::LocalSampleBufferDisplayLayer> m_sampleBufferDisplayLayer;
     std::unique_ptr<LayerHostingContext> m_layerHostingContext;
     SharedVideoFrameReader m_sharedVideoFrameReader;
-    ThreadAssertion m_consumeThread NO_UNIQUE_ADDRESS;
+    ThreadLikeAssertion m_consumeThread NO_UNIQUE_ADDRESS;
 
 };
 

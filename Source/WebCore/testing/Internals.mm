@@ -28,6 +28,7 @@
 
 #import "AGXCompilerService.h"
 #import "DOMURL.h"
+#import "DeprecatedGlobalSettings.h"
 #import "DictionaryLookup.h"
 #import "Document.h"
 #import "EventHandler.h"
@@ -39,6 +40,13 @@
 #import "SimpleRange.h"
 #import "UTIUtilities.h"
 #import <AVFoundation/AVPlayer.h>
+
+#if PLATFORM(MAC)
+#import "NSScrollerImpDetails.h"
+#import "ScrollbarThemeMac.h"
+#import <pal/spi/mac/NSScrollerImpSPI.h>
+#endif
+
 #if PLATFORM(COCOA)
 #import <Metal/Metal.h>
 #endif
@@ -130,6 +138,22 @@ ExceptionOr<RefPtr<Range>> Internals::rangeForDictionaryLookupAtLocation(int x, 
     return RefPtr<Range> { createLiveRange(std::get<SimpleRange>(*range)) };
 }
 
+void Internals::setUsesOverlayScrollbars(bool enabled)
+{
+    WebCore::DeprecatedGlobalSettings::setUsesOverlayScrollbars(enabled);
+
+    ScrollerStyle::setUseOverlayScrollbars(enabled);
+
+    ScrollbarTheme& theme = ScrollbarTheme::theme();
+    if (theme.isMockTheme())
+        return;
+
+    static_cast<ScrollbarThemeMac&>(theme).preferencesChanged();
+
+    NSScrollerStyle style = enabled ? NSScrollerStyleOverlay : NSScrollerStyleLegacy;
+    [NSScrollerImpPair _updateAllScrollerImpPairsForNewRecommendedScrollerStyle:style];
+}
+
 #endif
 
 #if ENABLE(VIDEO)
@@ -191,16 +215,21 @@ bool Internals::platformSupportsMetal(bool isWebGL2)
 {
     auto device = adoptNS(MTLCreateSystemDefaultDevice());
 
+    UNUSED_PARAM(isWebGL2);
+
     if (device) {
 #if PLATFORM(IOS_FAMILY) && !PLATFORM(IOS_FAMILY_SIMULATOR)
         // A8 devices (iPad Mini 4, iPad Air 2) cannot use WebGL2 via Metal.
         // This check can be removed once they are no longer supported.
         if (isWebGL2)
             return [device supportsFamily:MTLGPUFamilyApple3];
+#elif PLATFORM(MAC) || PLATFORM(MACCATALYST)
+        // Old Macs, such as MacBookPro11,4 cannot use WebGL via Metal.
+        // This check can be removed once they are no longer supported.
+        return [device supportsFamily:MTLGPUFamilyMac2];
 #else
-        UNUSED_PARAM(isWebGL2);
-#endif
         return true;
+#endif
     }
 
     return false;

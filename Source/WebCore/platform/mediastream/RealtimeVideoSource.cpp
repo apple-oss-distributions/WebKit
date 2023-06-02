@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2019-2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -33,10 +33,14 @@
 #include "VideoFrameCV.h"
 #endif
 
+#if USE(GSTREAMER)
+#include "VideoFrameGStreamer.h"
+#endif
+
 namespace WebCore {
 
 RealtimeVideoSource::RealtimeVideoSource(Ref<RealtimeVideoCaptureSource>&& source, bool shouldUseIOSurface)
-    : RealtimeMediaSource(Type::Video, AtomString { source->name() }, String { source->persistentID() }, String { source->deviceIDHashSalt() }, source->pageIdentifier())
+    : RealtimeMediaSource(source->captureDevice(), MediaDeviceHashSalts { source->deviceIDHashSalts() }, source->pageIdentifier())
     , m_source(WTFMove(source))
 #if PLATFORM(COCOA)
     , m_shouldUseIOSurface(shouldUseIOSurface)
@@ -118,6 +122,14 @@ void RealtimeVideoSource::setSizeAndFrameRate(std::optional<int> width, std::opt
     RealtimeMediaSource::setSizeAndFrameRate(width, height, frameRate);
 }
 
+void RealtimeVideoSource::settingsDidChange(OptionSet<RealtimeMediaSourceSettings::Flag> settings)
+{
+    if (settings.containsAny({ RealtimeMediaSourceSettings::Flag::Width, RealtimeMediaSourceSettings::Flag::Height })) {
+        auto size = this->size();
+        setSizeAndFrameRate(size.width(), size.height(), { });
+    }
+}
+
 void RealtimeVideoSource::sourceMutedChanged()
 {
     notifyMutedChange(m_source->muted());
@@ -171,9 +183,9 @@ void RealtimeVideoSource::sourceStopped()
     });
 }
 
-#if PLATFORM(COCOA)
 RefPtr<VideoFrame> RealtimeVideoSource::adaptVideoFrame(VideoFrame& videoFrame)
 {
+#if PLATFORM(COCOA)
     if (!m_imageTransferSession || m_imageTransferSession->pixelFormat() != videoFrame.pixelFormat())
         m_imageTransferSession = ImageTransferSessionVT::create(videoFrame.pixelFormat(), m_shouldUseIOSurface);
 
@@ -182,11 +194,16 @@ RefPtr<VideoFrame> RealtimeVideoSource::adaptVideoFrame(VideoFrame& videoFrame)
         return nullptr;
 
     auto newVideoFrame = m_imageTransferSession->convertVideoFrame(videoFrame, size());
+#elif USE(GSTREAMER)
+    auto newVideoFrame = reinterpret_cast<VideoFrameGStreamer&>(videoFrame).resizeTo(size());
+#else
+    notImplemented();
+    return nullptr;
+#endif
     ASSERT(newVideoFrame);
 
     return newVideoFrame;
 }
-#endif
 
 void RealtimeVideoSource::videoFrameAvailable(VideoFrame& videoFrame, VideoFrameTimeMetadata metadata)
 {
@@ -198,7 +215,7 @@ void RealtimeVideoSource::videoFrameAvailable(VideoFrame& videoFrame, VideoFrame
     if (!m_frameDecimation)
         m_frameDecimation = 1;
 
-#if PLATFORM(COCOA)
+#if PLATFORM(COCOA) || USE(GSTREAMER)
     auto size = this->size();
     if (!size.isEmpty() && size != expandedIntSize(videoFrame.presentationSize())) {
         if (auto newVideoFrame = adaptVideoFrame(videoFrame)) {

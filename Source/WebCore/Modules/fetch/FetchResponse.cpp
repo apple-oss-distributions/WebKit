@@ -205,7 +205,7 @@ ExceptionOr<Ref<FetchResponse>> FetchResponse::clone()
 void FetchResponse::addAbortSteps(Ref<AbortSignal>&& signal)
 {
     m_abortSignal = WTFMove(signal);
-    m_abortSignal->addAlgorithm([this, weakThis = WeakPtr { *this }] {
+    m_abortSignal->addAlgorithm([this, weakThis = WeakPtr { *this }](JSC::JSValue) {
         // FIXME: Cancel request body if it is a stream.
         if (!weakThis)
             return;
@@ -450,10 +450,11 @@ FetchResponse::ResponseData FetchResponse::consumeBody()
     return body().take();
 }
 
-void FetchResponse::markAsDisturbed()
+void FetchResponse::markAsUsedForPreload()
 {
     ASSERT(!m_isDisturbed);
     m_isDisturbed = true;
+    m_isUsedForPreload = true;
 }
 
 void FetchResponse::consumeBodyReceivedByChunk(ConsumeDataByChunkCallback&& callback)

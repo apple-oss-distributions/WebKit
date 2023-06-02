@@ -30,14 +30,12 @@
 #include "DataReference.h"
 #include "DataTaskIdentifier.h"
 #include "IdentifierTypes.h"
-#include "NetworkProcessProxyMessagesReplies.h"
 #include "NetworkResourceLoadIdentifier.h"
 #include "ProcessLauncher.h"
 #include "ProcessThrottler.h"
 #include "ProcessThrottlerClient.h"
 #include "QuotaIncreaseRequestIdentifier.h"
 #include "UserContentControllerIdentifier.h"
-#include "WebProcessProxyMessagesReplies.h"
 #include "WebsiteDataStore.h"
 #include <WebCore/CrossSiteNavigationDataTransfer.h>
 #include <WebCore/FrameIdentifier.h>
@@ -126,9 +124,9 @@ public:
 
     static Vector<Ref<NetworkProcessProxy>> allNetworkProcesses();
     
-    void getNetworkProcessConnection(WebProcessProxy&, Messages::WebProcessProxy::GetNetworkProcessConnectionDelayedReply&&);
+    void getNetworkProcessConnection(WebProcessProxy&, CompletionHandler<void(NetworkProcessConnectionInfo&&)>&&);
 
-    DownloadProxy& createDownloadProxy(WebsiteDataStore&, WebProcessPool&, const WebCore::ResourceRequest&, const FrameInfoData&, WebPageProxy* originatingPage);
+    DownloadProxy& createDownloadProxy(WebsiteDataStore&, Ref<API::DownloadClient>&&, const WebCore::ResourceRequest&, const FrameInfoData&, WebPageProxy* originatingPage);
     void dataTaskWithRequest(WebPageProxy&, PAL::SessionID, WebCore::ResourceRequest&&, CompletionHandler<void(API::DataTask&)>&&);
 
     void fetchWebsiteData(PAL::SessionID, OptionSet<WebsiteDataType>, OptionSet<WebsiteDataFetchOption>, CompletionHandler<void(WebsiteData)>&&);
@@ -139,7 +137,7 @@ public:
 
     void preconnectTo(PAL::SessionID, WebPageProxyIdentifier, WebCore::PageIdentifier, const URL&, const String&, WebCore::StoredCredentialsPolicy, std::optional<NavigatingToAppBoundDomain>, LastNavigationWasAppInitiated);
 
-#if ENABLE(INTELLIGENT_TRACKING_PREVENTION)
+#if ENABLE(TRACKING_PREVENTION)
     void clearPrevalentResource(PAL::SessionID, const RegistrableDomain&, CompletionHandler<void()>&&);
     void clearUserInteraction(PAL::SessionID, const RegistrableDomain&, CompletionHandler<void()>&&);
     void dumpResourceLoadStatistics(PAL::SessionID, CompletionHandler<void(String)>&&);
@@ -163,6 +161,7 @@ public:
     void setCacheMaxAgeCap(PAL::SessionID, Seconds, CompletionHandler<void()>&&);
     void setGrandfathered(PAL::SessionID, const RegistrableDomain&, bool isGrandfathered, CompletionHandler<void()>&&);
     void setNotifyPagesWhenDataRecordsWereScanned(PAL::SessionID, bool, CompletionHandler<void()>&&);
+    void setResourceLoadStatisticsTimeAdvanceForTesting(PAL::SessionID, Seconds, CompletionHandler<void()>&&);
     void setIsRunningResourceLoadStatisticsTest(PAL::SessionID, bool, CompletionHandler<void()>&&);
     void setSubframeUnderTopFrameDomain(PAL::SessionID, const SubFrameDomain&, const TopFrameDomain&, CompletionHandler<void()>&&);
     void setSubresourceUnderTopFrameDomain(PAL::SessionID, const SubResourceDomain&, const TopFrameDomain&, CompletionHandler<void()>&&);
@@ -200,6 +199,9 @@ public:
 #if ENABLE(APP_BOUND_DOMAINS)
     void setAppBoundDomainsForResourceLoadStatistics(PAL::SessionID, const HashSet<RegistrableDomain>&, CompletionHandler<void()>&&);
 #endif
+#if ENABLE(MANAGED_DOMAINS)
+    void setManagedDomainsForResourceLoadStatistics(PAL::SessionID, const HashSet<RegistrableDomain>&, CompletionHandler<void()>&&);
+#endif
     void setShouldDowngradeReferrerForTesting(bool, CompletionHandler<void()>&&);
     void setThirdPartyCookieBlockingMode(PAL::SessionID, WebCore::ThirdPartyCookieBlockingMode, CompletionHandler<void()>&&);
     void setShouldEnbleSameSiteStrictEnforcementForTesting(PAL::SessionID, WebCore::SameSiteStrictEnforcementEnabled, CompletionHandler<void()>&&);
@@ -217,7 +219,7 @@ public:
 
     void flushCookies(PAL::SessionID, CompletionHandler<void()>&&);
 
-    void testProcessIncomingSyncMessagesWhenWaitingForSyncReply(WebPageProxyIdentifier, Messages::NetworkProcessProxy::TestProcessIncomingSyncMessagesWhenWaitingForSyncReplyDelayedReply&&);
+    void testProcessIncomingSyncMessagesWhenWaitingForSyncReply(WebPageProxyIdentifier, CompletionHandler<void(bool)>&&);
     void terminateUnresponsiveServiceWorkerProcesses(WebCore::ProcessIdentifier);
 
     void requestTermination();
@@ -248,9 +250,13 @@ public:
     void networkProcessDidTerminate(ProcessTerminationReason);
     
     void resetQuota(PAL::SessionID, CompletionHandler<void()>&&);
-    void clearStorage(PAL::SessionID, CompletionHandler<void()>&&);
+    void resetStoragePersistedState(PAL::SessionID, CompletionHandler<void()>&&);
 #if PLATFORM(IOS_FAMILY)
     void setBackupExclusionPeriodForTesting(PAL::SessionID, Seconds, CompletionHandler<void()>&&);
+#endif
+
+#if ENABLE(NETWORK_ISSUE_REPORTING)
+    void reportNetworkIssue(WebPageProxyIdentifier, const URL&);
 #endif
 
     void resourceLoadDidSendRequest(WebPageProxyIdentifier, ResourceLoadInfo&&, WebCore::ResourceRequest&&, std::optional<IPC::FormDataReference>&&);
@@ -298,13 +304,21 @@ public:
     void dataTaskDidCompleteWithError(DataTaskIdentifier, WebCore::ResourceError&&);
     void cancelDataTask(DataTaskIdentifier, PAL::SessionID);
 
+    void deleteWebsiteDataInWebProcessesForOrigin(OptionSet<WebsiteDataType>, const WebCore::ClientOrigin&, PAL::SessionID, CompletionHandler<void()>&&);
+
     void terminateRemoteWorkerContextConnectionWhenPossible(RemoteWorkerType, PAL::SessionID, const WebCore::RegistrableDomain&, WebCore::ProcessIdentifier);
 
     void openWindowFromServiceWorker(PAL::SessionID, const String& urlString, const WebCore::SecurityOriginData& serviceWorkerOrigin, CompletionHandler<void(std::optional<WebCore::PageIdentifier>&&)>&&);
 
-    void navigateServiceWorkerClient(WebCore::FrameIdentifier, WebCore::ScriptExecutionContextIdentifier, const URL&, CompletionHandler<void(std::optional<WebCore::PageIdentifier>)>&&);
+    void navigateServiceWorkerClient(WebCore::FrameIdentifier, WebCore::ScriptExecutionContextIdentifier, const URL&, CompletionHandler<void(std::optional<WebCore::PageIdentifier>, std::optional<WebCore::FrameIdentifier>)>&&);
 
     void cookiesDidChange(PAL::SessionID);
+
+#if ENABLE(INSPECTOR_NETWORK_THROTTLING)
+    void setEmulatedConditions(PAL::SessionID, std::optional<int64_t>&& bytesPerSecondLimit);
+#endif
+
+    void notifyMediaStreamingActivity(bool);
 
 private:
     explicit NetworkProcessProxy();
@@ -334,17 +348,17 @@ private:
     void didReceiveAuthenticationChallenge(PAL::SessionID, WebPageProxyIdentifier, const std::optional<WebCore::SecurityOriginData>&, WebCore::AuthenticationChallenge&&, bool, AuthenticationChallengeIdentifier);
     void negotiatedLegacyTLS(WebPageProxyIdentifier);
     void didNegotiateModernTLS(WebPageProxyIdentifier, const URL&);
+    void didFailLoadDueToNetworkConnectionIntegrity(WebPageProxyIdentifier, const URL&); 
     void setWebProcessHasUploads(WebCore::ProcessIdentifier, bool);
     void logDiagnosticMessage(WebPageProxyIdentifier, const String& message, const String& description, WebCore::ShouldSample);
     void logDiagnosticMessageWithResult(WebPageProxyIdentifier, const String& message, const String& description, uint32_t result, WebCore::ShouldSample);
     void logDiagnosticMessageWithValue(WebPageProxyIdentifier, const String& message, const String& description, double value, unsigned significantFigures, WebCore::ShouldSample);
-#if ENABLE(INTELLIGENT_TRACKING_PREVENTION)
+#if ENABLE(TRACKING_PREVENTION)
     void logTestingEvent(PAL::SessionID, const String& event);
     void notifyResourceLoadStatisticsProcessed();
     void notifyWebsiteDataDeletionForRegistrableDomainsFinished();
     void notifyWebsiteDataScanForRegistrableDomainsFinished();
 #endif
-    void retrieveCacheStorageParameters(PAL::SessionID, CompletionHandler<void(const String& cacheStorageDirectory, const WebKit::SandboxExtension::Handle& handle)>&&);
 
 #if ENABLE(CONTENT_EXTENSIONS)
     void contentExtensionRules(UserContentControllerIdentifier);
@@ -355,7 +369,7 @@ private:
     void endServiceWorkerBackgroundProcessing(WebCore::ProcessIdentifier serviceWorkerProcessIdentifier);
 #endif
     void remoteWorkerContextConnectionNoLongerNeeded(RemoteWorkerType, WebCore::ProcessIdentifier);
-    void establishRemoteWorkerContextConnectionToNetworkProcess(RemoteWorkerType, WebCore::RegistrableDomain&&, std::optional<WebCore::ProcessIdentifier> requestingProcessIdentifier, std::optional<WebCore::ScriptExecutionContextIdentifier> serviceWorkerPageIdentifier, PAL::SessionID, CompletionHandler<void()>&&);
+    void establishRemoteWorkerContextConnectionToNetworkProcess(RemoteWorkerType, WebCore::RegistrableDomain&&, std::optional<WebCore::ProcessIdentifier> requestingProcessIdentifier, std::optional<WebCore::ScriptExecutionContextIdentifier> serviceWorkerPageIdentifier, PAL::SessionID, CompletionHandler<void(WebCore::ProcessIdentifier)>&&);
     void registerRemoteWorkerClientProcess(RemoteWorkerType, WebCore::ProcessIdentifier clientProcessIdentifier, WebCore::ProcessIdentifier remoteWorkerProcessIdentifier);
     void unregisterRemoteWorkerClientProcess(RemoteWorkerType, WebCore::ProcessIdentifier clientProcessIdentifier, WebCore::ProcessIdentifier remoteWorkerProcessIdentifier);
 

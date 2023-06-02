@@ -30,8 +30,10 @@ class MediaControls extends LayoutNode
     {
         super(`<div class="media-controls"></div>`);
 
+        if (layoutTraits?.inheritsBorderRadius())
+            this.element.classList.add("inherits-border-radius");
+
         this._scaleFactor = 1;
-        this._shouldCenterControlsVertically = false;
 
         this.width = width;
         this.height = height;
@@ -57,12 +59,12 @@ class MediaControls extends LayoutNode
         this.invalidPlacard = new InvalidPlacard(this);
 
         // FIXME: Adwaita layout doesn't have an icon for pip-placard.
-        if (this.layoutTraits.supportsPiP())
+        if (this.layoutTraits?.supportsPiP())
             this.pipPlacard = new PiPPlacard(this);
         else
             this.pipPlacard = null;
 
-        if (this.layoutTraits.supportsAirPlay()) {
+        if (this.layoutTraits?.supportsAirPlay()) {
             this.airplayButton = new AirplayButton(this);
             this.airplayPlacard = new AirplayPlacard(this);
         } else {
@@ -146,20 +148,6 @@ class MediaControls extends LayoutNode
         this.markDirtyProperty("scaleFactor");
     }
 
-    get shouldCenterControlsVertically()
-    {
-        return this._shouldCenterControlsVertically;
-    }
-
-    set shouldCenterControlsVertically(flag)
-    {
-        if (this._shouldCenterControlsVertically === flag)
-            return;
-
-        this._shouldCenterControlsVertically = flag;
-        this.markDirtyProperty("scaleFactor");
-    }
-
     get placard()
     {
         return this._placard;
@@ -238,8 +226,6 @@ class MediaControls extends LayoutNode
                 this.element.style.zoom = zoom;
                 this.element.style.removeProperty("transform");
             }
-            // We also want to optionally center them vertically compared to their container.
-            this.element.style.top = this._shouldCenterControlsVertically ? `${(this.height / 2) * (zoom - 1)}px` : "auto"; 
         } else if (propertyName === "faded")
             this.element.classList.toggle("faded", this.faded);
         else

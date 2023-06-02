@@ -189,6 +189,7 @@ std::unique_ptr<AudioFileReaderWebMData> AudioFileReader::demuxWebMData(const ui
     MediaTime duration;
     RefPtr<AudioTrackPrivateWebM> track;
     Vector<Ref<MediaSampleAVFObjC>> samples;
+    parser->setLogger(m_logger, m_logIdentifier);
     parser->setDidEncounterErrorDuringParsingCallback([&](uint64_t) {
         error = true;
     });
@@ -540,6 +541,12 @@ RefPtr<AudioBus> AudioFileReader::createBus(float sampleRate, bool mixToMono)
 
     auto inFormat = fileDataFormat();
     if (!inFormat)
+        return nullptr;
+
+    // Block loading of the Audible Audio codec.
+    // FIXME: convert this to a WebPreference deny-list of codecIDs
+    if (inFormat->mFormatID == kAudioFormatAudible
+        || inFormat->mFormatID == kCMAudioCodecType_AAC_AudibleProtected)
         return nullptr;
 
     AudioStreamBasicDescription outFormat = clientDataFormat(*inFormat, sampleRate);

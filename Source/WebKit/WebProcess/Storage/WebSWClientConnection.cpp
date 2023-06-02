@@ -35,6 +35,7 @@
 #include "NetworkProcessConnection.h"
 #include "NetworkProcessMessages.h"
 #include "WebCoreArgumentCoders.h"
+#include "WebMessagePortChannelProvider.h"
 #include "WebPage.h"
 #include "WebPageProxyMessages.h"
 #include "WebProcess.h"
@@ -113,6 +114,9 @@ void WebSWClientConnection::scheduleUnregisterJobInServer(ServiceWorkerRegistrat
 
 void WebSWClientConnection::postMessageToServiceWorker(ServiceWorkerIdentifier destinationIdentifier, MessageWithMessagePorts&& message, const ServiceWorkerOrClientIdentifier& sourceIdentifier)
 {
+    for (auto& port : message.transferredPorts)
+        WebMessagePortChannelProvider::singleton().messagePortSentToRemote(port.first);
+
     send(Messages::WebSWServerConnection::PostMessageToServiceWorker { destinationIdentifier, WTFMove(message), sourceIdentifier });
 }
 
@@ -139,9 +143,9 @@ bool WebSWClientConnection::mayHaveServiceWorkerRegisteredForOrigin(const Securi
     return m_swOriginTable->contains(origin);
 }
 
-void WebSWClientConnection::setSWOriginTableSharedMemory(const SharedMemory::IPCHandle& ipcHandle)
+void WebSWClientConnection::setSWOriginTableSharedMemory(const SharedMemory::Handle& handle)
 {
-    m_swOriginTable->setSharedMemory(ipcHandle.handle);
+    m_swOriginTable->setSharedMemory(handle);
 }
 
 void WebSWClientConnection::setSWOriginTableIsImported()
@@ -189,9 +193,12 @@ void WebSWClientConnection::setServiceWorkerClientIsControlled(ScriptExecutionCo
         return;
     }
 
-    if (auto* loader = WorkerScriptLoader::fromScriptExecutionContextIdentifier(identifier)) {
-        completionHandler(data.activeWorker ? loader->setControllingServiceWorker(WTFMove(*data.activeWorker)) : false);
-        return;
+    if (auto manager = WorkerScriptLoader::serviceWorkerDataManagerFromIdentifier(identifier)) {
+        if (data.activeWorker) {
+            manager->setData(WTFMove(*data.activeWorker));
+            completionHandler(true);
+            return;
+        }
     }
 
     completionHandler(false);

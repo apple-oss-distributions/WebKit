@@ -37,6 +37,7 @@ WI.CSSProperty = class CSSProperty extends WI.Object
         this._initialState = null;
         this._modified = false;
         this._isUpdatingText = false;
+        this._isNewProperty = false;
 
         this.update(text, name, value, priority, enabled, overridden, implicit, anonymous, valid, styleSheetTextRange, true);
     }
@@ -87,6 +88,18 @@ WI.CSSProperty = class CSSProperty extends WI.Object
         }
 
         return names;
+    }
+
+    static sortPreferringNonPrefixed(a, b)
+    {
+        let aIsPrefixed = a[0] === "-" && a[1] !== "-";
+        let bIsPrefixed = b[0] === "-" && b[1] !== "-";
+        if (!aIsPrefixed && bIsPrefixed)
+            return -1;
+        if (aIsPrefixed && !bIsPrefixed)
+            return 1;
+
+        return a.extendedLocaleCompare(b);
     }
 
     static sortByPropertyNameUsageCount(propertyNameA, propertyNameB)
@@ -530,6 +543,9 @@ WI.CSSProperty = class CSSProperty extends WI.Object
         }
         return this._shorthandPropertyNames;
     }
+
+    get isNewProperty() { return this._isNewProperty; }
+    set isNewProperty(value) { this._isNewProperty = value; }
 
     hasOtherVendorNameOrKeyword()
     {

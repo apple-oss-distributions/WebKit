@@ -113,10 +113,10 @@ template<> void JSExposedStarDOMConstructor::initializeProperties(VM& vm, JSDOMG
 
 static const HashTableValue JSExposedStarPrototypeTableValues[] =
 {
-    { "constructor"_s, static_cast<unsigned>(JSC::PropertyAttribute::DontEnum), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsExposedStarConstructor), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(0) } },
-    { "operationForAllContexts"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsExposedStarPrototypeFunction_operationForAllContexts), (intptr_t) (0) } },
-    { "operationJustForWindowContexts"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsExposedStarPrototypeFunction_operationJustForWindowContexts), (intptr_t) (0) } },
-    { "operationJustForWorkerContexts"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsExposedStarPrototypeFunction_operationJustForWorkerContexts), (intptr_t) (0) } },
+    { "constructor"_s, static_cast<unsigned>(JSC::PropertyAttribute::DontEnum), NoIntrinsic, { HashTableValue::GetterSetterType, jsExposedStarConstructor, 0 } },
+    { "operationForAllContexts"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsExposedStarPrototypeFunction_operationForAllContexts, 0 } },
+    { "operationJustForWindowContexts"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsExposedStarPrototypeFunction_operationJustForWindowContexts, 0 } },
+    { "operationJustForWorkerContexts"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsExposedStarPrototypeFunction_operationJustForWorkerContexts, 0 } },
 };
 
 const ClassInfo JSExposedStarPrototype::s_info = { "ExposedStar"_s, &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(JSExposedStarPrototype) };
@@ -235,9 +235,9 @@ JSC::GCClient::IsoSubspace* JSExposedStar::subspaceForImpl(JSC::VM& vm)
 {
     return WebCore::subspaceForImpl<JSExposedStar, UseCustomHeapCellType::No>(vm,
         [] (auto& spaces) { return spaces.m_clientSubspaceForExposedStar.get(); },
-        [] (auto& spaces, auto&& space) { spaces.m_clientSubspaceForExposedStar = WTFMove(space); },
+        [] (auto& spaces, auto&& space) { spaces.m_clientSubspaceForExposedStar = std::forward<decltype(space)>(space); },
         [] (auto& spaces) { return spaces.m_subspaceForExposedStar.get(); },
-        [] (auto& spaces, auto&& space) { spaces.m_subspaceForExposedStar = WTFMove(space); }
+        [] (auto& spaces, auto&& space) { spaces.m_subspaceForExposedStar = std::forward<decltype(space)>(space); }
     );
 }
 

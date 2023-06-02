@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2018-2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,6 +26,7 @@
 #include "config.h"
 #include "Quirks.h"
 
+#include "AllowedFonts.h"
 #include "Attr.h"
 #include "DOMTokenList.h"
 #include "DOMWindow.h"
@@ -37,6 +38,7 @@
 #include "EventNames.h"
 #include "FrameLoader.h"
 #include "HTMLBodyElement.h"
+#include "HTMLCollection.h"
 #include "HTMLDivElement.h"
 #include "HTMLMetaElement.h"
 #include "HTMLObjectElement.h"
@@ -83,16 +85,6 @@ static inline bool isYahooMail(Document& document)
     return startsWithLettersIgnoringASCIICase(host, "mail."_s) && topPrivatelyControlledDomain(host.toString()).startsWith("yahoo."_s);
 }
 #endif
-
-static bool isTwitterDocument(Document& document)
-{
-    return RegistrableDomain(document.url()).string() == "twitter.com"_s;
-}
-
-static bool isYouTubeDocument(Document& document)
-{
-    return RegistrableDomain(document.url()).string() == "youtube.com"_s;
-}
 
 Quirks::Quirks(Document& document)
     : m_document(document)
@@ -158,19 +150,6 @@ bool Quirks::needsPerDocumentAutoplayBehavior() const
 #endif
 }
 
-bool Quirks::shouldAutoplayForArbitraryUserGesture() const
-{
-#if PLATFORM(MAC)
-    return needsQuirks() && allowedAutoplayQuirks(*m_document).contains(AutoplayQuirk::ArbitraryUserGestures);
-#else
-    if (!needsQuirks())
-        return false;
-
-    auto domain = RegistrableDomain { m_document->topDocument().url() };
-    return domain == "twitter.com"_s || domain == "facebook.com"_s;
-#endif
-}
-
 bool Quirks::shouldAutoplayWebAudioForArbitraryUserGesture() const
 {
     if (!needsQuirks())
@@ -196,6 +175,22 @@ bool Quirks::hasBrokenEncryptedMediaAPISupportQuirk() const
     m_hasBrokenEncryptedMediaAPISupportQuirk = domain == "starz.com"_s || domain == "youtube.com"_s || domain == "hulu.com"_s;
 
     return m_hasBrokenEncryptedMediaAPISupportQuirk.value();
+}
+
+bool Quirks::shouldDisableContentChangeObserver() const
+{
+    if (!needsQuirks())
+        return false;
+    
+    auto& topDocument = m_document->topDocument();
+    
+    auto host = topDocument.url().host();
+    auto isYouTube = host.endsWith(".youtube.com"_s) || host == "youtube.com"_s;
+    
+    if (isYouTube && (topDocument.url().path().startsWithIgnoringASCIICase("/results"_s) || topDocument.url().path().startsWithIgnoringASCIICase("/watch"_s)))
+        return true;
+
+    return false;
 }
 
 bool Quirks::shouldDisableContentChangeObserverTouchEventAdjustment() const
@@ -235,14 +230,6 @@ bool Quirks::shouldHideSearchFieldResultsButton() const
     return false;
 }
 
-bool Quirks::shouldDisableResolutionMediaQuery() const
-{
-    if (!needsQuirks())
-        return false;
-    auto host = m_document->url().host();
-    return equalLettersIgnoringASCIICase(host, "www.hotels.com"_s);
-}
-
 bool Quirks::needsMillisecondResolutionForHighResTimeStamp() const
 {
     if (!needsQuirks())
@@ -250,15 +237,6 @@ bool Quirks::needsMillisecondResolutionForHighResTimeStamp() const
     // webkit.org/b/210527
     auto host = m_document->url().host();
     return equalLettersIgnoringASCIICase(host, "www.icourse163.org"_s);
-}
-
-bool Quirks::shouldStripQuotationMarkInFontFaceSetFamily() const
-{
-    if (!needsQuirks())
-        return false;
-
-    auto host = m_document->topDocument().url().host();
-    return equalLettersIgnoringASCIICase(host, "docs.google.com"_s);
 }
 
 bool Quirks::isTouchBarUpdateSupressedForHiddenContentEditable() const
@@ -302,7 +280,7 @@ bool Quirks::isNeverRichlyEditableForTouchBar() const
     return false;
 }
 
-static bool shouldSuppressAutocorrectionAndAutocaptializationInHiddenEditableAreasForHost(StringView host)
+static bool shouldSuppressAutocorrectionAndAutocapitalizationInHiddenEditableAreasForHost(StringView host)
 {
 #if PLATFORM(IOS_FAMILY)
     return equalLettersIgnoringASCIICase(host, "docs.google.com"_s);
@@ -358,12 +336,12 @@ bool Quirks::shouldAvoidUsingIOS13ForGmail() const
 #endif
 }
 
-bool Quirks::shouldSuppressAutocorrectionAndAutocaptializationInHiddenEditableAreas() const
+bool Quirks::shouldSuppressAutocorrectionAndAutocapitalizationInHiddenEditableAreas() const
 {
     if (!needsQuirks())
         return false;
 
-    return shouldSuppressAutocorrectionAndAutocaptializationInHiddenEditableAreasForHost(m_document->topDocument().url().host());
+    return shouldSuppressAutocorrectionAndAutocapitalizationInHiddenEditableAreasForHost(m_document->topDocument().url().host());
 }
 
 #if ENABLE(TOUCH_EVENTS)
@@ -380,7 +358,7 @@ bool Quirks::isGoogleMaps() const
 
 bool Quirks::shouldDispatchSimulatedMouseEvents(const EventTarget* target) const
 {
-    if (DeprecatedGlobalSettings::mouseEventsSimulationEnabled())
+    if (m_document->settings().mouseEventsSimulationEnabled())
         return true;
 
     if (!needsQuirks())
@@ -404,8 +382,6 @@ bool Quirks::shouldDispatchSimulatedMouseEvents(const EventTarget* target) const
             return startsWithLettersIgnoringASCIICase(url.path(), "/website/templates/"_s) ? ShouldDispatchSimulatedMouseEvents::No : ShouldDispatchSimulatedMouseEvents::Yes;
         }
 
-        if ((host == "desmos.com"_s || host.endsWith(".desmos.com"_s)) && startsWithLettersIgnoringASCIICase(url.path(), "/calculator/"_s))
-            return ShouldDispatchSimulatedMouseEvents::Yes;
         if (host == "trello.com"_s || host.endsWith(".trello.com"_s))
             return ShouldDispatchSimulatedMouseEvents::Yes;
         if (host == "airtable.com"_s || host.endsWith(".airtable.com"_s))
@@ -1026,7 +1002,7 @@ bool Quirks::shouldAvoidPastingImagesAsWebContent() const
 #endif
 }
 
-#if ENABLE(INTELLIGENT_TRACKING_PREVENTION)
+#if ENABLE(TRACKING_PREVENTION)
 static bool isKinjaLoginAvatarElement(const Element& element)
 {
     // The click event handler has been found to trigger on a div or
@@ -1162,10 +1138,10 @@ Quirks::StorageAccessResult Quirks::requestStorageAccessAndHandleClick(Completio
 
 Quirks::StorageAccessResult Quirks::triggerOptionalStorageAccessQuirk(Element& element, const PlatformMouseEvent& platformEvent, const AtomString& eventType, int detail, Element* relatedTarget, bool isParentProcessAFullWebBrowser, IsSyntheticClick isSyntheticClick) const
 {
-    if (!DeprecatedGlobalSettings::resourceLoadStatisticsEnabled() || !isParentProcessAFullWebBrowser)
+    if (!DeprecatedGlobalSettings::trackingPreventionEnabled() || !isParentProcessAFullWebBrowser)
         return Quirks::StorageAccessResult::ShouldNotCancelEvent;
 
-#if ENABLE(INTELLIGENT_TRACKING_PREVENTION)
+#if ENABLE(TRACKING_PREVENTION)
     if (!needsQuirks())
         return Quirks::StorageAccessResult::ShouldNotCancelEvent;
 
@@ -1306,61 +1282,6 @@ bool Quirks::needsHDRPixelDepthQuirk() const
     return *m_needsHDRPixelDepthQuirk;
 }
 
-// FIXME: remove this once rdar://66739450 has been fixed.
-bool Quirks::needsAkamaiMediaPlayerQuirk(const HTMLVideoElement& element) const
-{
-#if PLATFORM(IOS_FAMILY)
-    // Akamai Media Player begins polling `webkitDisplayingFullscreen` every 100ms immediately after calling
-    // `webkitEnterFullscreen` and exits fullscreen as soon as it returns false. r262456 changed the HTMLMediaPlayer state
-    // machine so `webkitDisplayingFullscreen` doesn't return true until the fullscreen window has been opened in the
-    // UI process, which causes Akamai Media Player to frequently exit fullscreen mode immediately.
-
-    static NeverDestroyed<const AtomString> akamaiHTML5(MAKE_STATIC_STRING_IMPL("akamai-html5"));
-    static NeverDestroyed<const AtomString> akamaiMediaElement(MAKE_STATIC_STRING_IMPL("akamai-media-element"));
-    static NeverDestroyed<const AtomString> ampHTML5(MAKE_STATIC_STRING_IMPL("amp-html5"));
-    static NeverDestroyed<const AtomString> ampMediaElement(MAKE_STATIC_STRING_IMPL("amp-media-element"));
-
-    if (!needsQuirks())
-        return false;
-
-    if (!element.hasClass())
-        return false;
-
-    auto& classNames = element.classNames();
-    return (classNames.contains(akamaiHTML5) && classNames.contains(akamaiMediaElement)) || (classNames.contains(ampHTML5) && classNames.contains(ampMediaElement));
-#else
-    UNUSED_PARAM(element);
-    return false;
-#endif
-}
-
-// FIXME: remove this once rdar://92531240 has been fixed.
-bool Quirks::needsFlightAwareSerializationQuirk() const
-{
-    if (!needsQuirks())
-        return false;
-
-    if (!m_needsFlightAwareSerializationQuirk)
-        m_needsFlightAwareSerializationQuirk = equalLettersIgnoringASCIICase(m_document->url().host(), "flightaware.com"_s);
-
-    return *m_needsFlightAwareSerializationQuirk;
-}
-
-bool Quirks::needsBlackFullscreenBackgroundQuirk() const
-{
-    // MLB.com sets a black background-color on the :backdrop pseudo element, which WebKit does not yet support. This
-    // quirk can be removed once support for :backdrop psedue element is added.
-    if (!needsQuirks())
-        return false;
-
-    if (!m_needsBlackFullscreenBackgroundQuirk) {
-        auto host = m_document->topDocument().url().host();
-        m_needsBlackFullscreenBackgroundQuirk = equalLettersIgnoringASCIICase(host, "mlb.com"_s) || host.endsWithIgnoringASCIICase(".mlb.com"_s);
-    }
-
-    return *m_needsBlackFullscreenBackgroundQuirk;
-}
-
 bool Quirks::requiresUserGestureToPauseInPictureInPicture() const
 {
 #if ENABLE(VIDEO_PRESENTATION_MODE)
@@ -1390,8 +1311,10 @@ bool Quirks::requiresUserGestureToLoadInPictureInPicture() const
     if (!needsQuirks())
         return false;
 
-    if (!m_requiresUserGestureToLoadInPictureInPicture)
-        m_requiresUserGestureToLoadInPictureInPicture = isTwitterDocument(m_document->topDocument());
+    if (!m_requiresUserGestureToLoadInPictureInPicture) {
+        auto domain = RegistrableDomain(m_document->topDocument().url());
+        m_requiresUserGestureToLoadInPictureInPicture = domain.string() == "twitter.com"_s;
+    }
 
     return *m_requiresUserGestureToLoadInPictureInPicture;
 #else
@@ -1467,17 +1390,6 @@ bool Quirks::needsToForceUserSelectAndUserDragWhenInstallingImageOverlay() const
 
 #endif // ENABLE(IMAGE_ANALYSIS)
 
-bool Quirks::shouldDisableWebSharePolicy() const
-{
-    if (!needsQuirks())
-        return false;
-
-    if (!m_shouldDisableWebSharePolicy)
-        m_shouldDisableWebSharePolicy = isTwitterDocument(*m_document) || isYouTubeDocument(*m_document);
-
-    return *m_shouldDisableWebSharePolicy;
-}
-
 #if PLATFORM(IOS)
 bool Quirks::allowLayeredFullscreenVideos() const
 {
@@ -1513,6 +1425,114 @@ bool Quirks::shouldEnableApplicationCacheQuirk() const
 #else
     return shouldEnableBySetting;
 #endif
+}
+
+bool Quirks::shouldEnableFontLoadingAPIQuirk() const
+{
+    if (!needsQuirks() || m_document->settings().downloadableBinaryFontAllowedTypes() == DownloadableBinaryFontAllowedTypes::Any)
+        return false;
+
+    if (!m_shouldEnableFontLoadingAPIQuirk)
+        m_shouldEnableFontLoadingAPIQuirk = equalLettersIgnoringASCIICase(m_document->url().host(), "play.hbomax.com"_s);
+
+    return m_shouldEnableFontLoadingAPIQuirk.value();
+}
+
+bool Quirks::needsVideoShouldMaintainAspectRatioQuirk() const
+{
+    if (!needsQuirks())
+        return false;
+
+    if (m_needsVideoShouldMaintainAspectRatioQuirk)
+        return m_needsVideoShouldMaintainAspectRatioQuirk.value();
+
+    auto domain = RegistrableDomain(m_document->url()).string();
+    m_needsVideoShouldMaintainAspectRatioQuirk = domain == "hulu.com"_s;
+
+    return m_needsVideoShouldMaintainAspectRatioQuirk.value();
+}
+
+bool Quirks::shouldExposeShowModalDialog() const
+{
+    if (!needsQuirks())
+        return false;
+    if (!m_shouldExposeShowModalDialog) {
+        auto domain = RegistrableDomain(m_document->url()).string();
+        // Marcus: <rdar://101086391>.
+        // Pandora: <rdar://100243111>.
+        // Soundcloud: <rdar://102913500>.
+        m_shouldExposeShowModalDialog = domain == "pandora.com"_s || domain == "marcus.com"_s || domain == "soundcloud.com"_s;
+    }
+    return *m_shouldExposeShowModalDialog;
+}
+
+bool Quirks::shouldNavigatorPluginsBeEmpty() const
+{
+#if PLATFORM(IOS_FAMILY)
+    if (!needsQuirks())
+        return false;
+    if (!m_shouldNavigatorPluginsBeEmpty) {
+        auto domain = RegistrableDomain(m_document->url()).string();
+        // Marcus login issue: <rdar://103011164>.
+        m_shouldNavigatorPluginsBeEmpty = domain == "marcus.com"_s;
+    }
+    return *m_shouldNavigatorPluginsBeEmpty;
+#else
+    return false;
+#endif
+}
+
+// Fix for the UNIQLO app (rdar://104519846).
+bool Quirks::shouldDisableLazyIframeLoadingQuirk() const
+{
+    if (!needsQuirks())
+        return false;
+
+    if (!m_shouldDisableLazyIframeLoadingQuirk) {
+#if PLATFORM(IOS_FAMILY)
+        m_shouldDisableLazyIframeLoadingQuirk = !linkedOnOrAfterSDKWithBehavior(SDKAlignedBehavior::NoUNIQLOLazyIframeLoadingQuirk) && IOSApplication::isUNIQLOApp();
+#else
+        m_shouldDisableLazyIframeLoadingQuirk = false;
+#endif
+    }
+    return *m_shouldDisableLazyIframeLoadingQuirk;
+}
+
+bool Quirks::shouldDisableLazyImageLoadingQuirk() const
+{
+    // Images are displaying as fully grey when loaded lazily in significant percentage of page loads.
+    // This issue is not observed when lazy image loading is disabled, and has been fixed in future Gatsby versions.
+    // This quirk is only applied to IKEA.com when "<meta name="generator" content="Gatsby 4.24.1" />" is present.
+    // This quirk can be removed once the gatsby version has been upgraded.
+    // Further discussion can be found here https://github.com/webcompat/web-bugs/issues/113635.
+
+    if (!needsQuirks())
+        return false;
+
+    if (m_shouldDisableLazyImageLoadingQuirk)
+        return m_shouldDisableLazyImageLoadingQuirk.value();
+
+    m_shouldDisableLazyImageLoadingQuirk = false;
+
+    if (RegistrableDomain(m_document->url()).string() != "ikea.com"_s)
+        return false;
+
+    auto* metaElement = m_document->getElementsByTagName("meta"_s)->namedItem("generator"_s);
+    
+    if (metaElement && metaElement->getAttribute("content"_s) == "Gatsby 4.24.1"_s)
+        m_shouldDisableLazyImageLoadingQuirk = true;
+
+    return m_shouldDisableLazyImageLoadingQuirk.value();
+}
+
+// Breaks express checkout on victoriassecret.com (rdar://104818312).
+bool Quirks::shouldDisableFetchMetadata() const
+{
+    if (!needsQuirks())
+        return false;
+
+    auto host = m_document->topDocument().url().host();
+    return equalLettersIgnoringASCIICase(host, "victoriassecret.com"_s) || host.endsWithIgnoringASCIICase(".victoriassecret.com"_s);
 }
 
 }

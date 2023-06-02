@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019-2021 Apple Inc. All rights reserved.
+ * Copyright (C) 2019-2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -40,20 +40,20 @@
 
 @interface WKSOSecretDelegate : NSObject <WKNavigationDelegate, WKUIDelegate> {
 @private
-    WeakPtr<WebKit::PopUpSOAuthorizationSession> _session;
+    ThreadSafeWeakPtr<WebKit::PopUpSOAuthorizationSession> _weakSession;
     BOOL _isFirstNavigation;
 }
 
-- (instancetype)initWithSession:(WebKit::PopUpSOAuthorizationSession *)session;
+- (instancetype)initWithSession:(WebKit::PopUpSOAuthorizationSession&)session;
 
 @end
 
 @implementation WKSOSecretDelegate
 
-- (instancetype)initWithSession:(WebKit::PopUpSOAuthorizationSession *)session
+- (instancetype)initWithSession:(WebKit::PopUpSOAuthorizationSession&)session
 {
     if ((self = [super init])) {
-        _session = session;
+        _weakSession = session;
         _isFirstNavigation = YES;
     }
     return self;
@@ -62,9 +62,10 @@
 // WKUIDelegate
 - (void)webViewDidClose:(WKWebView *)webView
 {
-    if (!_session)
+    auto strongSession = _weakSession.get();
+    if (!strongSession)
         return;
-    _session->close(webView);
+    strongSession->close(webView);
 }
 
 // WKNavigationDelegate
@@ -83,9 +84,10 @@
 
 - (void)webView:(WKWebView *)webView didFinishNavigation:(WKNavigation *)navigation
 {
-    if (!_session)
+    auto strongSession = _weakSession.get();
+    if (!strongSession)
         return;
-    _session->close(webView);
+    strongSession->close(webView);
 }
 
 @end
@@ -94,13 +96,13 @@
 
 namespace WebKit {
 
-Ref<SOAuthorizationSession> PopUpSOAuthorizationSession::create(SOAuthorization *soAuthorization, WebPageProxy& page, Ref<API::NavigationAction>&& navigationAction, NewPageCallback&& newPageCallback, UIClientCallback&& uiClientCallback)
+Ref<SOAuthorizationSession> PopUpSOAuthorizationSession::create(RetainPtr<WKSOAuthorizationDelegate> delegate, WebPageProxy& page, Ref<API::NavigationAction>&& navigationAction, NewPageCallback&& newPageCallback, UIClientCallback&& uiClientCallback)
 {
-    return adoptRef(*new PopUpSOAuthorizationSession(soAuthorization, page, WTFMove(navigationAction), WTFMove(newPageCallback), WTFMove(uiClientCallback)));
+    return adoptRef(*new PopUpSOAuthorizationSession(delegate, page, WTFMove(navigationAction), WTFMove(newPageCallback), WTFMove(uiClientCallback)));
 }
 
-PopUpSOAuthorizationSession::PopUpSOAuthorizationSession(SOAuthorization *soAuthorization, WebPageProxy& page, Ref<API::NavigationAction>&& navigationAction, NewPageCallback&& newPageCallback, UIClientCallback&& uiClientCallback)
-    : SOAuthorizationSession(soAuthorization, WTFMove(navigationAction), page, InitiatingAction::PopUp)
+PopUpSOAuthorizationSession::PopUpSOAuthorizationSession(RetainPtr<WKSOAuthorizationDelegate> delegate, WebPageProxy& page, Ref<API::NavigationAction>&& navigationAction, NewPageCallback&& newPageCallback, UIClientCallback&& uiClientCallback)
+    : SOAuthorizationSession(delegate, WTFMove(navigationAction), page, InitiatingAction::PopUp)
     , m_newPageCallback(WTFMove(newPageCallback))
     , m_uiClientCallback(WTFMove(uiClientCallback))
 {
@@ -189,7 +191,7 @@ void PopUpSOAuthorizationSession::initSecretWebView()
     [configuration setPreferences:secretViewPreferences.get()];
     m_secretWebView = adoptNS([[WKWebView alloc] initWithFrame:CGRectZero configuration:configuration.get()]);
 
-    m_secretDelegate = adoptNS([[WKSOSecretDelegate alloc] initWithSession:this]);
+    m_secretDelegate = adoptNS([[WKSOSecretDelegate alloc] initWithSession:*this]);
     [m_secretWebView setUIDelegate:m_secretDelegate.get()];
     [m_secretWebView setNavigationDelegate:m_secretDelegate.get()];
 

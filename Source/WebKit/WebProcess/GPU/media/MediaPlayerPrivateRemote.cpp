@@ -149,24 +149,9 @@ void MediaPlayerPrivateRemote::prepareForPlayback(bool privateMode, MediaPlayer:
 
     auto scale = player->playerContentsScale();
     auto preferredDynamicRangeMode = m_player->preferredDynamicRangeMode();
+    auto presentationSize = player->presentationSize();
 
-    connection().sendWithAsyncReply(Messages::RemoteMediaPlayerProxy::PrepareForPlayback(privateMode, preload, preservesPitch, prepare, scale, preferredDynamicRangeMode), [weakThis = WeakPtr { *this }, this](auto inlineLayerHostingContextId) mutable {
-        if (!weakThis)
-            return;
-
-        if (!inlineLayerHostingContextId)
-            return;
-
-        RefPtr player = m_player.get();
-        if (!player)
-            return;
-
-        auto contentBox = snappedIntRect(player->playerContentBoxRect()).size();
-        m_videoLayer = createVideoLayerRemote(this, inlineLayerHostingContextId.value(), m_videoFullscreenGravity, contentBox);
-#if PLATFORM(COCOA)
-        m_videoLayerManager->setVideoLayer(m_videoLayer.get(), contentBox);
-#endif
-    }, m_id);
+    connection().send(Messages::RemoteMediaPlayerProxy::PrepareForPlayback(privateMode, preload, preservesPitch, prepare, presentationSize, scale, preferredDynamicRangeMode), m_id);
 }
 
 void MediaPlayerPrivateRemote::load(const URL& url, const ContentType& contentType, const String& keySystem)
@@ -204,7 +189,7 @@ void MediaPlayerPrivateRemote::load(const URL& url, const ContentType& contentTy
         sandboxExtensionHandle = WTFMove(handle);
     }
 
-    connection().sendWithAsyncReply(Messages::RemoteMediaPlayerProxy::Load(url, sandboxExtensionHandle, contentType, keySystem), [weakThis = WeakPtr { *this }, this](auto&& configuration) {
+    connection().sendWithAsyncReply(Messages::RemoteMediaPlayerProxy::Load(url, sandboxExtensionHandle, contentType, keySystem, m_player->requiresRemotePlayback()), [weakThis = WeakPtr { *this }, this](auto&& configuration) {
         if (!weakThis)
             return;
 
@@ -407,7 +392,7 @@ void MediaPlayerPrivateRemote::playbackStateChanged(bool paused, MediaTime&& med
         player->playbackStateChanged();
 }
 
-void MediaPlayerPrivateRemote::engineFailedToLoad(long platformErrorCode)
+void MediaPlayerPrivateRemote::engineFailedToLoad(int64_t platformErrorCode)
 {
     m_platformErrorCode = platformErrorCode;
     if (RefPtr player = m_player.get())
@@ -549,9 +534,8 @@ void MediaPlayerPrivateRemote::updateCachedState(RemoteMediaPlayerState&& state)
     m_cachedState.hasClosedCaptions = state.hasClosedCaptions;
     m_cachedState.hasAvailableVideoFrame = state.hasAvailableVideoFrame;
     m_cachedState.wirelessVideoPlaybackDisabled = state.wirelessVideoPlaybackDisabled;
-    m_cachedState.hasSingleSecurityOrigin = state.hasSingleSecurityOrigin;
     m_cachedState.didPassCORSAccessCheck = state.didPassCORSAccessCheck;
-    m_cachedState.wouldTaintDocumentSecurityOrigin = state.wouldTaintDocumentSecurityOrigin;
+    m_cachedState.documentIsCrossOrigin = state.documentIsCrossOrigin;
 
     if (state.bufferedRanges.length())
         m_cachedBufferedTimeRanges = makeUnique<PlatformTimeRanges>(state.bufferedRanges);
@@ -908,19 +892,15 @@ NSArray* MediaPlayerPrivateRemote::timedMetadata() const
 
 String MediaPlayerPrivateRemote::accessLog() const
 {
-    String log;
-    if (!connection().sendSync(Messages::RemoteMediaPlayerProxy::AccessLog(), Messages::RemoteMediaPlayerProxy::AccessLog::Reply(log), m_id))
-        return emptyString();
-
+    auto sendResult = connection().sendSync(Messages::RemoteMediaPlayerProxy::AccessLog(), m_id);
+    auto [log] = sendResult.takeReplyOr(emptyString());
     return log;
 }
 
 String MediaPlayerPrivateRemote::errorLog() const
 {
-    String log;
-    if (!connection().sendSync(Messages::RemoteMediaPlayerProxy::ErrorLog(), Messages::RemoteMediaPlayerProxy::ErrorLog::Reply(log), m_id))
-        return emptyString();
-
+    auto sendResult = connection().sendSync(Messages::RemoteMediaPlayerProxy::ErrorLog(), m_id);
+    auto [log] = sendResult.takeReplyOr(emptyString());
     return log;
 }
 #endif
@@ -991,6 +971,11 @@ unsigned long long MediaPlayerPrivateRemote::totalBytes() const
     return 0;
 }
 
+void MediaPlayerPrivateRemote::setPresentationSize(const IntSize& size)
+{
+    connection().send(Messages::RemoteMediaPlayerProxy::SetPresentationSize(size), m_id);
+}
+
 #if PLATFORM(COCOA)
 void MediaPlayerPrivateRemote::setVideoInlineSizeFenced(const FloatSize& size, const WTF::MachSendRight& machSendRight)
 {
@@ -1040,10 +1025,11 @@ RefPtr<WebCore::VideoFrame> MediaPlayerPrivateRemote::videoFrameForCurrentTime()
     if (readyState() < MediaPlayer::ReadyState::HaveCurrentData)
         return { };
 
-    std::optional<RemoteVideoFrameProxy::Properties> result;
-    bool changed = false;
-    if (!connection().sendSync(Messages::RemoteMediaPlayerProxy::VideoFrameForCurrentTimeIfChanged(), Messages::RemoteMediaPlayerProxy::VideoFrameForCurrentTimeIfChanged::Reply(result, changed), m_id))
+    auto sendResult = connection().sendSync(Messages::RemoteMediaPlayerProxy::VideoFrameForCurrentTimeIfChanged(), m_id);
+    if (!sendResult)
         return nullptr;
+
+    auto [result, changed] = sendResult.takeReply();
     if (changed) {
         if (result)
             m_videoFrameForCurrentTime = RemoteVideoFrameProxy::create(connection(), videoFrameObjectHeapProxy(), WTFMove(*result));
@@ -1119,31 +1105,24 @@ void MediaPlayerPrivateRemote::setShouldPlayToPlaybackTarget(bool shouldPlay)
 }
 #endif
 
-bool MediaPlayerPrivateRemote::hasSingleSecurityOrigin() const
-{
-    return m_cachedState.hasSingleSecurityOrigin;
-}
-
 bool MediaPlayerPrivateRemote::didPassCORSAccessCheck() const
 {
     return m_cachedState.didPassCORSAccessCheck;
 }
 
-std::optional<bool> MediaPlayerPrivateRemote::wouldTaintOrigin(const SecurityOrigin& origin) const
+std::optional<bool> MediaPlayerPrivateRemote::isCrossOrigin(const SecurityOrigin& origin) const
 {
     if (origin.data() == m_documentSecurityOrigin)
-        return m_cachedState.wouldTaintDocumentSecurityOrigin;
+        return m_cachedState.documentIsCrossOrigin;
 
-    if (auto result = m_wouldTaintOriginCache.get(origin.data()))
+    if (auto result = m_isCrossOriginCache.get(origin.data()))
         return result;
 
-    std::optional<bool> wouldTaint;
-    if (!connection().sendSync(Messages::RemoteMediaPlayerProxy::WouldTaintOrigin(origin.data()), Messages::RemoteMediaPlayerProxy::WouldTaintOrigin::Reply(wouldTaint), m_id))
-        return std::nullopt;
-
-    m_wouldTaintOriginCache.add(origin.data(), wouldTaint);
-
-    return wouldTaint;
+    auto sendResult = connection().sendSync(Messages::RemoteMediaPlayerProxy::IsCrossOrigin(origin.data()), m_id);
+    auto [crossOrigin] = sendResult.takeReplyOr(std::nullopt);
+    if (crossOrigin)
+        m_isCrossOriginCache.add(origin.data(), crossOrigin);
+    return crossOrigin;
 }
 
 MediaTime MediaPlayerPrivateRemote::mediaTimeForTimeValue(const MediaTime& timeValue) const
@@ -1451,6 +1430,11 @@ void MediaPlayerPrivateRemote::stopVideoFrameMetadataGathering()
 void MediaPlayerPrivateRemote::playerContentBoxRectChanged(const LayoutRect& contentRect)
 {
     connection().send(Messages::RemoteMediaPlayerProxy::PlayerContentBoxRectChanged(contentRect), m_id);
+}
+
+void MediaPlayerPrivateRemote::setShouldDisableHDR(bool shouldDisable)
+{
+    connection().send(Messages::RemoteMediaPlayerProxy::SetShouldDisableHDR(shouldDisable), m_id);
 }
 
 void MediaPlayerPrivateRemote::requestResource(RemoteMediaResourceIdentifier remoteMediaResourceIdentifier, WebCore::ResourceRequest&& request, WebCore::PlatformMediaResourceLoader::LoadOptions options)

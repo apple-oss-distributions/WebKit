@@ -185,10 +185,7 @@ void LocaleIDBuilder::setKeywordValue(ASCIILiteral key, StringView value)
 
     ASSERT(value.isAllASCII());
     Vector<char, 32> rawValue(value.length() + 1);
-    if (value.is8Bit())
-        StringImpl::copyCharacters(reinterpret_cast<LChar*>(rawValue.data()), value.characters8(), value.length());
-    else
-        StringImpl::copyCharacters(reinterpret_cast<LChar*>(rawValue.data()), value.characters16(), value.length());
+    value.getCharacters(reinterpret_cast<LChar*>(rawValue.data()));
     rawValue[value.length()] = '\0';
 
     UErrorCode status = U_ZERO_ERROR;
@@ -635,8 +632,10 @@ JSArray* IntlLocale::hourCycles(JSGlobalObject* globalObject)
 
     UErrorCode status = U_ZERO_ERROR;
     auto generator = std::unique_ptr<UDateTimePatternGenerator, ICUDeleter<udatpg_close>>(udatpg_open(m_localeID.data(), &status));
-    if (U_FAILURE(status))
+    if (U_FAILURE(status)) {
+        throwTypeError(globalObject, scope, "invalid locale"_s);
         return nullptr;
+    }
 
     // Use "j" skeleton and parse pattern to retrieve the configured hour-cycle information.
     constexpr const UChar skeleton[] = { 'j', 0 };

@@ -29,14 +29,14 @@ void reifyStaticAccessor(VM& vm, const HashTableValue& value, JSObject& thisObje
 {
     JSGlobalObject* globalObject = thisObject.globalObject();
     JSObject* getter = nullptr;
-    if (value.accessorGetter()) {
+    if (value.hasGetter()) {
         if (value.attributes() & PropertyAttribute::Builtin)
             getter = JSFunction::create(vm, value.builtinAccessorGetterGenerator()(vm), globalObject);
         else {
             String getterName = tryMakeString("get "_s, String(*propertyName.publicName()));
             if (!getterName)
                 return;
-            getter = JSFunction::create(vm, globalObject, 0, getterName, value.accessorGetter());
+            getter = JSFunction::create(vm, globalObject, 0, getterName, value.accessorGetter(), ImplementationVisibility::Public);
         }
     }
     GetterSetter* accessor = GetterSetter::create(vm, globalObject, getter, nullptr);

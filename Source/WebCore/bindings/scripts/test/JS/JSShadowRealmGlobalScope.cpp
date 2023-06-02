@@ -67,7 +67,7 @@ static const struct CompactHashIndex JSShadowRealmGlobalScopeTableIndex[2] = {
 
 static const HashTableValue JSShadowRealmGlobalScopeTableValues[] =
 {
-    { "ShadowRealmGlobalScope"_s, static_cast<unsigned>(JSC::PropertyAttribute::DontEnum), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsShadowRealmGlobalScope_ShadowRealmGlobalScopeConstructor), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(0) } },
+    { "ShadowRealmGlobalScope"_s, static_cast<unsigned>(JSC::PropertyAttribute::DontEnum), NoIntrinsic, { HashTableValue::GetterSetterType, jsShadowRealmGlobalScope_ShadowRealmGlobalScopeConstructor, 0 } },
 };
 
 static const HashTable JSShadowRealmGlobalScopeTable = { 1, 1, true, JSShadowRealmGlobalScope::info(), JSShadowRealmGlobalScopeTableValues, JSShadowRealmGlobalScopeTableIndex };
@@ -152,9 +152,9 @@ JSC::GCClient::IsoSubspace* JSShadowRealmGlobalScope::subspaceForImpl(JSC::VM& v
 {
     return WebCore::subspaceForImpl<JSShadowRealmGlobalScope, UseCustomHeapCellType::Yes>(vm,
         [] (auto& spaces) { return spaces.m_clientSubspaceForShadowRealmGlobalScope.get(); },
-        [] (auto& spaces, auto&& space) { spaces.m_clientSubspaceForShadowRealmGlobalScope = WTFMove(space); },
+        [] (auto& spaces, auto&& space) { spaces.m_clientSubspaceForShadowRealmGlobalScope = std::forward<decltype(space)>(space); },
         [] (auto& spaces) { return spaces.m_subspaceForShadowRealmGlobalScope.get(); },
-        [] (auto& spaces, auto&& space) { spaces.m_subspaceForShadowRealmGlobalScope = WTFMove(space); },
+        [] (auto& spaces, auto&& space) { spaces.m_subspaceForShadowRealmGlobalScope = std::forward<decltype(space)>(space); },
         [] (auto& server) -> JSC::HeapCellType& { return server.m_heapCellTypeForJSShadowRealmGlobalScope; }
     );
 }

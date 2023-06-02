@@ -85,7 +85,8 @@ public:
     WTFLogChannel& logChannel() const final;
 
     using MediaStreamTrackPrivate::Observer::weakPtrFactory;
-    using WeakValueType = MediaStreamTrackPrivate::Observer::WeakValueType;
+    using MediaStreamTrackPrivate::Observer::WeakValueType;
+    using MediaStreamTrackPrivate::Observer::WeakPtrImplType;
 
 private:
     PlatformLayer* rootLayer() const;
@@ -153,8 +154,6 @@ private:
 
     void acceleratedRenderingStateChanged() final { updateLayersAsNeeded(); }
     bool supportsAcceleratedRendering() const override { return true; }
-
-    bool hasSingleSecurityOrigin() const override { return true; }
 
     MediaPlayer::MovieLoadType movieLoadType() const override { return MediaPlayer::MovieLoadType::LiveStream; }
 

@@ -127,6 +127,12 @@ bool XPCServiceInitializerDelegate::getExtraInitializationData(HashMap<String, S
         extraInitializationData.add("registrable-domain"_s, WTFMove(registrableDomain));
 #endif
 
+#if ENABLE(WEBCONTENT_CRASH_TESTING)
+    auto isWebcontentCrashy = String::fromLatin1(xpc_dictionary_get_string(extraDataInitializationDataObject, "is-webcontent-crashy"));
+    if (!isWebcontentCrashy.isEmpty())
+        extraInitializationData.add("is-webcontent-crashy"_s, WTFMove(isWebcontentCrashy));
+#endif
+
     auto isPrewarmedProcess = String::fromLatin1(xpc_dictionary_get_string(extraDataInitializationDataObject, "is-prewarmed"));
     if (!isPrewarmedProcess.isEmpty())
         extraInitializationData.add("is-prewarmed"_s, isPrewarmedProcess);
@@ -154,7 +160,7 @@ bool XPCServiceInitializerDelegate::isClientSandboxed()
     return connectedProcessIsSandboxed(m_connection.get());
 }
 
-#if PLATFORM(MAC)
+#if !USE(RUNNINGBOARD)
 void setOSTransaction(OSObjectPtr<os_transaction_t>&& transaction)
 {
     static NeverDestroyed<OSObjectPtr<os_transaction_t>> globalTransaction;
@@ -179,12 +185,9 @@ void setOSTransaction(OSObjectPtr<os_transaction_t>&& transaction)
 }
 #endif
 
-void XPCServiceExit(OSObjectPtr<xpc_object_t>&& priorityBoostMessage)
+void XPCServiceExit()
 {
-    // Make sure to destroy the priority boost message to avoid leaking a transaction.
-    priorityBoostMessage = nullptr;
-
-#if PLATFORM(MAC)
+#if !USE(RUNNINGBOARD)
     setOSTransaction(nullptr);
 #endif
 

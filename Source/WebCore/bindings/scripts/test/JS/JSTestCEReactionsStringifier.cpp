@@ -116,10 +116,10 @@ template<> void JSTestCEReactionsStringifierDOMConstructor::initializeProperties
 
 static const HashTableValue JSTestCEReactionsStringifierPrototypeTableValues[] =
 {
-    { "constructor"_s, static_cast<unsigned>(JSC::PropertyAttribute::DontEnum), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestCEReactionsStringifierConstructor), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(0) } },
-    { "value"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestCEReactionsStringifier_value), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(setJSTestCEReactionsStringifier_value) } },
-    { "valueWithoutReactions"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestCEReactionsStringifier_valueWithoutReactions), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(setJSTestCEReactionsStringifier_valueWithoutReactions) } },
-    { "toString"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestCEReactionsStringifierPrototypeFunction_toString), (intptr_t) (0) } },
+    { "constructor"_s, static_cast<unsigned>(JSC::PropertyAttribute::DontEnum), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestCEReactionsStringifierConstructor, 0 } },
+    { "value"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestCEReactionsStringifier_value, setJSTestCEReactionsStringifier_value } },
+    { "valueWithoutReactions"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestCEReactionsStringifier_valueWithoutReactions, setJSTestCEReactionsStringifier_valueWithoutReactions } },
+    { "toString"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestCEReactionsStringifierPrototypeFunction_toString, 0 } },
 };
 
 const ClassInfo JSTestCEReactionsStringifierPrototype::s_info = { "TestCEReactionsStringifier"_s, &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(JSTestCEReactionsStringifierPrototype) };
@@ -194,6 +194,7 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestCEReactionsStringifier_value, (JSGlobalObject* le
 static inline bool setJSTestCEReactionsStringifier_valueSetter(JSGlobalObject& lexicalGlobalObject, JSTestCEReactionsStringifier& thisObject, JSValue value)
 {
     auto& vm = JSC::getVM(&lexicalGlobalObject);
+    UNUSED_PARAM(vm);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     CustomElementReactionStack customElementReactionStack(lexicalGlobalObject);
     auto& impl = thisObject.wrapped();
@@ -226,6 +227,7 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestCEReactionsStringifier_valueWithoutReactions, (JS
 static inline bool setJSTestCEReactionsStringifier_valueWithoutReactionsSetter(JSGlobalObject& lexicalGlobalObject, JSTestCEReactionsStringifier& thisObject, JSValue value)
 {
     auto& vm = JSC::getVM(&lexicalGlobalObject);
+    UNUSED_PARAM(vm);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     CustomElementReactionDisallowedScope customElementReactionDisallowedScope;
     auto& impl = thisObject.wrapped();
@@ -261,9 +263,9 @@ JSC::GCClient::IsoSubspace* JSTestCEReactionsStringifier::subspaceForImpl(JSC::V
 {
     return WebCore::subspaceForImpl<JSTestCEReactionsStringifier, UseCustomHeapCellType::No>(vm,
         [] (auto& spaces) { return spaces.m_clientSubspaceForTestCEReactionsStringifier.get(); },
-        [] (auto& spaces, auto&& space) { spaces.m_clientSubspaceForTestCEReactionsStringifier = WTFMove(space); },
+        [] (auto& spaces, auto&& space) { spaces.m_clientSubspaceForTestCEReactionsStringifier = std::forward<decltype(space)>(space); },
         [] (auto& spaces) { return spaces.m_subspaceForTestCEReactionsStringifier.get(); },
-        [] (auto& spaces, auto&& space) { spaces.m_subspaceForTestCEReactionsStringifier = WTFMove(space); }
+        [] (auto& spaces, auto&& space) { spaces.m_subspaceForTestCEReactionsStringifier = std::forward<decltype(space)>(space); }
     );
 }
 

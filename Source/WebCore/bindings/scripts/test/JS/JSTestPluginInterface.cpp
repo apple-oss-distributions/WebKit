@@ -105,7 +105,7 @@ template<> void JSTestPluginInterfaceDOMConstructor::initializeProperties(VM& vm
 
 static const HashTableValue JSTestPluginInterfacePrototypeTableValues[] =
 {
-    { "constructor"_s, static_cast<unsigned>(JSC::PropertyAttribute::DontEnum), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestPluginInterfaceConstructor), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(0) } },
+    { "constructor"_s, static_cast<unsigned>(JSC::PropertyAttribute::DontEnum), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestPluginInterfaceConstructor, 0 } },
 };
 
 const ClassInfo JSTestPluginInterfacePrototype::s_info = { "TestPluginInterface"_s, &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(JSTestPluginInterfacePrototype) };
@@ -241,9 +241,9 @@ JSC::GCClient::IsoSubspace* JSTestPluginInterface::subspaceForImpl(JSC::VM& vm)
 {
     return WebCore::subspaceForImpl<JSTestPluginInterface, UseCustomHeapCellType::No>(vm,
         [] (auto& spaces) { return spaces.m_clientSubspaceForTestPluginInterface.get(); },
-        [] (auto& spaces, auto&& space) { spaces.m_clientSubspaceForTestPluginInterface = WTFMove(space); },
+        [] (auto& spaces, auto&& space) { spaces.m_clientSubspaceForTestPluginInterface = std::forward<decltype(space)>(space); },
         [] (auto& spaces) { return spaces.m_subspaceForTestPluginInterface.get(); },
-        [] (auto& spaces, auto&& space) { spaces.m_subspaceForTestPluginInterface = WTFMove(space); }
+        [] (auto& spaces, auto&& space) { spaces.m_subspaceForTestPluginInterface = std::forward<decltype(space)>(space); }
     );
 }
 

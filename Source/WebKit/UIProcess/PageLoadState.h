@@ -23,16 +23,14 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef PageLoadState_h
-#define PageLoadState_h
+#pragma once
 
-#include "WebCertificateInfo.h"
+#include <WebCore/CertificateInfo.h>
 #include <wtf/URL.h>
 #include <wtf/text/WTFString.h>
 
 namespace WebKit {
 
-class WebCertificateInfo;
 class WebPageProxy;
 
 class PageLoadState {
@@ -64,6 +62,9 @@ public:
 
         virtual void willChangeNegotiatedLegacyTLS() { };
         virtual void didChangeNegotiatedLegacyTLS() { };
+
+        virtual void willChangeWasPrivateRelayed() { };
+        virtual void didChangeWasPrivateRelayed() { };
 
         virtual void willChangeEstimatedProgress() = 0;
         virtual void didChangeEstimatedProgress() = 0;
@@ -145,11 +146,12 @@ public:
     bool hasOnlySecureContent() const;
     bool hasNegotiatedLegacyTLS() const;
     void negotiatedLegacyTLS(const Transaction::Token&);
+    bool wasPrivateRelayed() const;
 
     double estimatedProgress() const;
     bool networkRequestsInProgress() const { return m_committedState.networkRequestsInProgress; }
 
-    WebCertificateInfo* certificateInfo() const { return m_committedState.certificateInfo.get(); }
+    const WebCore::CertificateInfo& certificateInfo() const { return m_committedState.certificateInfo; }
 
     const URL& resourceDirectoryURL() const;
 
@@ -163,7 +165,7 @@ public:
     void didReceiveServerRedirectForProvisionalLoad(const Transaction::Token&, const String& url);
     void didFailProvisionalLoad(const Transaction::Token&);
 
-    void didCommitLoad(const Transaction::Token&, WebCertificateInfo&, bool hasInsecureContent, bool usedLegacyTLS);
+    void didCommitLoad(const Transaction::Token&, const WebCore::CertificateInfo&, bool hasInsecureContent, bool usedLegacyTLS, bool privateRelayed);
     void didFinishLoad(const Transaction::Token&);
     void didFailLoad(const Transaction::Token&);
 
@@ -209,6 +211,7 @@ private:
         State state { State::Finished };
         bool hasInsecureContent { false };
         bool negotiatedLegacyTLS { false };
+        bool wasPrivateRelayed { false };
 
         PendingAPIRequest pendingAPIRequest;
 
@@ -228,7 +231,7 @@ private:
         double estimatedProgress { 0 };
         bool networkRequestsInProgress { false };
 
-        RefPtr<WebCertificateInfo> certificateInfo;
+        WebCore::CertificateInfo certificateInfo;
     };
 
     static bool isLoading(const Data&);
@@ -248,5 +251,3 @@ private:
 };
 
 } // namespace WebKit
-
-#endif // PageLoadState_h

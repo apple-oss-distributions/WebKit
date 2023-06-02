@@ -173,6 +173,8 @@ std::unique_ptr<MediaPlayerPrivateInterface> RemoteMediaPlayerManager::createRem
     auto documentSecurityOrigin = player->documentSecurityOrigin();
     proxyConfiguration.documentSecurityOrigin = documentSecurityOrigin;
 
+    proxyConfiguration.presentationSize = player->presentationSize();
+
     proxyConfiguration.allowedMediaContainerTypes = player->allowedMediaContainerTypes();
     proxyConfiguration.allowedMediaCodecTypes = player->allowedMediaCodecTypes();
     proxyConfiguration.allowedMediaVideoCodecIDs = player->allowedMediaVideoCodecIDs();
@@ -232,9 +234,8 @@ bool RemoteMediaPlayerManager::supportsKeySystem(MediaPlayerEnums::MediaEngineId
 
 HashSet<SecurityOriginData> RemoteMediaPlayerManager::originsInMediaCache(MediaPlayerEnums::MediaEngineIdentifier remoteEngineIdentifier, const String& path)
 {
-    HashSet<SecurityOriginData> originData;
-    if (!gpuProcessConnection().connection().sendSync(Messages::RemoteMediaPlayerManagerProxy::OriginsInMediaCache(remoteEngineIdentifier, path), Messages::RemoteMediaPlayerManagerProxy::OriginsInMediaCache::Reply(originData), 0))
-        return { };
+    auto sendResult = gpuProcessConnection().connection().sendSync(Messages::RemoteMediaPlayerManagerProxy::OriginsInMediaCache(remoteEngineIdentifier, path), 0);
+    auto [originData] = sendResult.takeReplyOr(HashSet<SecurityOriginData> { });
     return originData;
 }
 

@@ -94,7 +94,7 @@ void RemoteInspector::stopInternal(StopSource)
 
     updateHasActiveDebugSession();
 
-    m_automaticInspectionPaused = false;
+    m_pausedAutomaticInspectionCandidates.clear();
     m_socketConnection = nullptr;
 }
 
@@ -170,7 +170,7 @@ static const char* targetDebuggableType(RemoteInspectionTarget::Type type)
 
 TargetListing RemoteInspector::listingForInspectionTarget(const RemoteInspectionTarget& target) const
 {
-    if (!target.remoteDebuggingAllowed())
+    if (!target.allowsInspectionByPolicy())
         return nullptr;
 
     return g_variant_new("(tsssb)", static_cast<guint64>(target.targetIdentifier()),
@@ -219,12 +219,10 @@ void RemoteInspector::pushListingsSoon()
     });
 }
 
-void RemoteInspector::sendAutomaticInspectionCandidateMessage()
+void RemoteInspector::sendAutomaticInspectionCandidateMessage(TargetID)
 {
     ASSERT(m_enabled);
     ASSERT(m_automaticInspectionEnabled);
-    ASSERT(m_automaticInspectionPaused);
-    ASSERT(m_automaticInspectionCandidateTargetIdentifier);
     ASSERT(m_socketConnection);
     // FIXME: Implement automatic inspection.
 }

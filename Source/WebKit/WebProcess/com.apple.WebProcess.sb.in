@@ -21,25 +21,39 @@
 ; ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
 ; THE POSSIBILITY OF SUCH DAMAGE.
 
-(version 1)
-(deny default (with partial-symbolication))
-(deny nvram*)
-(deny system-privilege)
-(allow system-audit file-read-metadata)
-
-;; We can remove the catch once we no longer need to support older macOS
-(catch (lambda)
-    (import "dyld-support.sb"))
-
-;; Silence spurious logging due to rdar://20117923 and rdar://72366475
-(deny system-privilege (privilege-id PRIV_GLOBAL_PROC_INFO) (with no-report))
- 
+#include "Shared/Sandbox/macOS/common.sb"
 #include "Shared/Sandbox/preferences.sb"
 
-#if ENABLE(SYSTEM_CONTENT_PATH_SANDBOX_RULES)
-#include <WebKitAdditions/SystemContentSandbox-macos.defs>
+#if USE(SANDBOX_VERSION_3)
+(allow dynamic-code-generation)
+
+(with-filter (mac-policy-name "Sandbox")
+    (allow system-mac-syscall (mac-syscall-number 5 65)))
+
+(with-filter (mac-policy-name "Quarantine")
+    (allow system-mac-syscall (mac-syscall-number 180)))
+
+(allow process-info-rusage (target self))
+
+(allow iokit-open-service (iokit-user-client-class "IOSurfaceRoot"))
+(allow iokit-open-service (iokit-registry-entry-class
+    "AGPM"
+    "IOAccelerator"
+    "AppleM2ScalerCSCDriver"))
+
+(deny iokit-open-service (with no-report) (iokit-registry-entry-class "AppleJPEGDriver"))
+
+#if HAVE(SANDBOX_STATE_FLAGS)
+(with-filter (require-not (state-flag "WebContentProcessLaunched"))
+    (allow file-map-executable))
+(allow file-map-executable
+    (subpath "/System/Library/Components")
+    (subpath "/System/Library/Video/Plug-Ins"))
+#else
+    (allow file-map-executable)
 #endif
- 
+#endif // USE(SANDBOX_VERSION_3)
+
 ;;;
 ;;; The following rules were originally contained in 'system.sb'. We are duplicating them here so we can
 ;;; remove unneeded sandbox extensions.
@@ -133,7 +147,7 @@
 
 (define (IOAcceleratorMessageFilter)
     (apply-message-filter
-        (deny (with telemetry) (with message "IOAccelerator")
+        (deny (with message "IOAccelerator")
             iokit-async-external-method
             iokit-external-method
         )
@@ -147,7 +161,7 @@
 #endif
         )
         (allow iokit-external-method
-#if __MAC_OS_X_VERSION_MIN_REQUIRED >= 120000 && __MAC_OS_X_VERSION_MIN_REQUIRED < 130000
+#if PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED >= 120000 && __MAC_OS_X_VERSION_MIN_REQUIRED < 130000
             (iokit-method-number
                 0
                 1
@@ -200,7 +214,7 @@
             )
 #endif
         )
-#if __MAC_OS_X_VERSION_MIN_REQUIRED >= 120000 && __MAC_OS_X_VERSION_MIN_REQUIRED < 130000
+#if PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED >= 120000 && __MAC_OS_X_VERSION_MIN_REQUIRED < 130000
         (if (equal? (param "CPU") "arm64")
             (allow iokit-external-method
                 (iokit-method-number
@@ -213,15 +227,17 @@
             )
         )
 #endif
-        (deny (with telemetry)
-            iokit-external-trap
-        )
+#if PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED < 140000
+        (deny iokit-external-trap)
+#else
+        (allow iokit-external-trap)
+#endif
     )
 )
 
 (define (IOSurfaceRootUserClientMessageFilter)
     (apply-message-filter
-        (deny (with telemetry) (with message "IOSurfaceRootUserClient")
+        (deny (with message "IOSurfaceRootUserClient")
             iokit-async-external-method
             iokit-external-method
         )
@@ -263,7 +279,7 @@
 #endif
         )
 #if PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED < 130000
-        (deny (with telemetry)
+        (deny
             iokit-external-trap)
 #else
         (allow
@@ -274,7 +290,7 @@
 
 (define (AppleAVDUserClientMessageFilter)
     (apply-message-filter
-        (deny (with telemetry) (with message "AppleAVDUserClient")
+        (deny (with message "AppleAVDUserClient")
             iokit-async-external-method
             iokit-external-method
             iokit-external-trap
@@ -284,7 +300,7 @@
 
 (define (IOSurfaceAcceleratorClientMessageFilter)
     (apply-message-filter
-        (deny (with telemetry) (with message "IOSurfaceAcceleratorClient")
+        (deny (with message "IOSurfaceAcceleratorClient")
             iokit-async-external-method
             iokit-external-trap
         )
@@ -300,11 +316,11 @@
 
 (define (IOMobileFramebufferUserClientMessageFilter)
     (apply-message-filter
-        (deny (with telemetry) (with message "IOMobileFramebufferUserClient")
+        (deny (with message "IOMobileFramebufferUserClient")
             iokit-async-external-method
             iokit-external-trap
         )
-        (allow (with telemetry-backtrace) iokit-external-method
+        (allow iokit-external-method
 #if __MAC_OS_X_VERSION_MIN_REQUIRED >= 120000
             (iokit-method-number
                 8
@@ -322,45 +338,35 @@
         (preference-domain "com.apple.opengl")
         (preference-domain "com.nvidia.OpenGL"))
     ;; CVMS
-    (allow mach-lookup
-        (require-all
-            (extension "com.apple.webkit.extension.mach")
-            (global-name "com.apple.cvmsServ")
-        )
-    )
-    (deny mach-lookup
-        (require-all
-            (require-not (extension "com.apple.webkit.extension.mach"))
-            (global-name "com.apple.cvmsServ")
-        )
-    )
-    (allow file-read*
+    (deny mach-lookup (with telemetry-backtrace)
+        (global-name "com.apple.cvmsServ"))
+    (deny file-read*
         (prefix "/private/var/db/CVMS/cvmsCodeSignObj"))
     ;; OpenCL
     (if (equal? (param "ENABLE_SANDBOX_MESSAGE_FILTER") "YES")
-        (allow iokit-open
+        (allow IOKIT_OPEN_USER_CLIENT
             (require-all
                 (extension "com.apple.webkit.extension.iokit")
-                (iokit-connection "IOAccelerator")
+                (iokit-registry-entry-class "IOAccelerator")
             )
             (IOAcceleratorMessageFilter)
         )
         ; else
-        (allow iokit-open
+        (allow IOKIT_OPEN_USER_CLIENT
             (require-all
                 (extension "com.apple.webkit.extension.iokit")
-                (iokit-connection "IOAccelerator")
+                (iokit-registry-entry-class "IOAccelerator")
             )
         )
     )
     (if (equal? (param "ENABLE_SANDBOX_MESSAGE_FILTER") "YES")
-        (allow iokit-open
+        (allow IOKIT_OPEN_USER_CLIENT
             (require-all
                 (extension "com.apple.webkit.extension.iokit")
                 (iokit-registry-entry-class "IOAccelerationUserClient")
             )
             (apply-message-filter
-                (deny (with telemetry)
+                (deny
                     iokit-async-external-method
                     iokit-external-trap
                     iokit-external-method
@@ -368,7 +374,7 @@
             )
         )
         ; else
-        (allow iokit-open
+        (allow IOKIT_OPEN_USER_CLIENT
             (require-all
                 (extension "com.apple.webkit.extension.iokit")
                 (iokit-registry-entry-class "IOAccelerationUserClient")
@@ -376,7 +382,7 @@
         )
     )
     (if (equal? (param "ENABLE_SANDBOX_MESSAGE_FILTER") "YES")
-        (allow iokit-open
+        (allow IOKIT_OPEN_USER_CLIENT
             (require-all
                 (extension "com.apple.webkit.extension.iokit")
                 (iokit-registry-entry-class "IOSurfaceRootUserClient")
@@ -384,28 +390,23 @@
             (IOSurfaceRootUserClientMessageFilter)
         )
         ; else
-        (allow iokit-open
+        (allow IOKIT_OPEN_USER_CLIENT
             (require-all
                 (extension "com.apple.webkit.extension.iokit")
                 (iokit-registry-entry-class "IOSurfaceRootUserClient")
             )
         )
     )
-#if __MAC_OS_X_VERSION_MIN_REQUIRED < 110000
-    ;; CoreVideo CVCGDisplayLink
-    (allow iokit-open
-        (iokit-registry-entry-class "IOFramebufferSharedUserClient"))
-#endif
 
     ;; This is needed for Encrypted Media on some hardware (MacMini8,1 for example)
     (if (equal? (param "ENABLE_SANDBOX_MESSAGE_FILTER") "YES")
-        (allow iokit-open
+        (allow IOKIT_OPEN_USER_CLIENT
             (require-all
                 (extension "com.apple.webkit.extension.iokit")
                 (iokit-registry-entry-class "AppleIntelMEUserClient")
             )
             (apply-message-filter
-                (deny (with telemetry) (with message "AppleIntelMEUserClient")
+                (deny (with message "AppleIntelMEUserClient")
                     iokit-external-method
                 )
                 (allow iokit-external-method
@@ -415,14 +416,14 @@
                     )
 #endif
                 )
-                (deny (with telemetry)
+                (deny
                     iokit-async-external-method
                     iokit-external-trap
                 )
             )
         )
         ; else
-        (allow iokit-open
+        (allow IOKIT_OPEN_USER_CLIENT
             (require-all
                 (extension "com.apple.webkit.extension.iokit")
                 (iokit-registry-entry-class "AppleIntelMEUserClient")
@@ -432,13 +433,13 @@
 
     ;; This is needed for Encrypted Media on some hardware (MacMini8,1 for example)
     (if (equal? (param "ENABLE_SANDBOX_MESSAGE_FILTER") "YES")
-        (allow iokit-open
+        (allow IOKIT_OPEN_USER_CLIENT
             (require-all
                 (extension "com.apple.webkit.extension.iokit")
                 (iokit-registry-entry-class "AppleSNBFBUserClient")
             )
             (apply-message-filter
-                (deny (with telemetry) (with message "AppleSNBFBUserClient")
+                (deny (with message "AppleSNBFBUserClient")
                     iokit-external-method
                 )
                 (allow iokit-external-method
@@ -448,14 +449,14 @@
                     )
 #endif
                 )
-                (deny (with telemetry)
+                (deny
                     iokit-async-external-method
                     iokit-external-trap
                 )
             )
         )
         ; else
-        (allow iokit-open
+        (allow IOKIT_OPEN_USER_CLIENT
             (require-all
                 (extension "com.apple.webkit.extension.iokit")
                 (iokit-registry-entry-class "AppleSNBFBUserClient")
@@ -465,23 +466,23 @@
 
     ;; QuartzCore
 #if PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED > 110000
-    (deny iokit-open (with no-log)
+    (deny IOKIT_OPEN_USER_CLIENT (with no-report)
         (iokit-registry-entry-class "AGPMClient"))
 #else
-    (allow iokit-open
+    (allow IOKIT_OPEN_USER_CLIENT
         (require-all
             (extension "com.apple.webkit.extension.iokit")
             (iokit-registry-entry-class "AGPMClient")))
 #endif
 
     (if (equal? (param "ENABLE_SANDBOX_MESSAGE_FILTER") "YES")
-        (allow iokit-open
+        (allow IOKIT_OPEN_USER_CLIENT
             (require-all
                 (extension "com.apple.webkit.extension.iokit")
                 (iokit-registry-entry-class "AppleGraphicsControlClient")
             )
             (apply-message-filter
-                (deny (with telemetry) (with message "AppleGraphicsControlClient")
+                (deny (with message "AppleGraphicsControlClient")
                     iokit-async-external-method
                     iokit-external-method
                 )
@@ -495,13 +496,13 @@
                     )
 #endif
                 )
-                (deny (with telemetry)
+                (deny
                     iokit-external-trap
                 )
             )
         )
         ; else
-        (allow iokit-open
+        (allow IOKIT_OPEN_USER_CLIENT
             (require-all
                 (extension "com.apple.webkit.extension.iokit")
                 (iokit-registry-entry-class "AppleGraphicsControlClient")
@@ -509,13 +510,13 @@
         )
     )
     (if (equal? (param "ENABLE_SANDBOX_MESSAGE_FILTER") "YES")
-        (allow iokit-open
+        (allow IOKIT_OPEN_USER_CLIENT
             (require-all
                 (extension "com.apple.webkit.extension.iokit")
                 (iokit-registry-entry-class "AppleGraphicsPolicyClient")
             )
             (apply-message-filter
-                (deny (with telemetry)
+                (deny
                     iokit-async-external-method
                     iokit-external-trap
                     iokit-external-method
@@ -523,7 +524,7 @@
             )
         )
         ; else
-        (allow iokit-open
+        (allow IOKIT_OPEN_USER_CLIENT
             (require-all
                 (extension "com.apple.webkit.extension.iokit")
                 (iokit-registry-entry-class "AppleGraphicsPolicyClient")
@@ -532,13 +533,13 @@
     )
     ;; OpenGL
     (if (equal? (param "ENABLE_SANDBOX_MESSAGE_FILTER") "YES")
-        (allow iokit-open
+        (allow IOKIT_OPEN_USER_CLIENT
             (require-all
                 (extension "com.apple.webkit.extension.iokit")
                 (iokit-registry-entry-class "AppleMGPUPowerControlClient")
             )
             (apply-message-filter
-                (deny (with telemetry) (with message "AppleMGPUPowerControlClient")
+                (deny (with message "AppleMGPUPowerControlClient")
                     iokit-external-method
                 )
                 (allow iokit-external-method
@@ -550,14 +551,14 @@
                     )
 #endif
                 )
-                (deny (with telemetry)
+                (deny
                     iokit-async-external-method
                     iokit-external-trap
                 )
             )
         )
         ; else
-        (allow iokit-open
+        (allow IOKIT_OPEN_USER_CLIENT
             (require-all
                 (extension "com.apple.webkit.extension.iokit")
                 (iokit-registry-entry-class "AppleMGPUPowerControlClient")
@@ -645,6 +646,9 @@
     (sysctl-name-prefix "hw.optional.") ;; <rdar://problem/71462790>
     (sysctl-name-prefix "hw.perflevel") ;; <rdar://problem/76783596>
 )
+
+(deny sysctl-read (with no-report)
+    (sysctl-name "vm.task_no_footprint_for_debug"))
 
 (allow sysctl-write
     (sysctl-name
@@ -920,6 +924,35 @@
 #endif
 )
 
+;; <rdar://97677559>
+(deny iokit-get-properties
+    (iokit-property "AppleDiagnosticDataSysCfg")
+    (iokit-property "als-colorCfg")
+    (iokit-property "ean-storage-present")
+    (iokit-property "noMultiColorSupport")
+    (iokit-property "syscfg-v2-data")
+    (with no-report))
+
+(with-filter (iokit-registry-entry-class "IOPlatformDevice")
+    (deny iokit-get-properties (with no-report)
+        (iokit-property
+            "artwork-display-gamut"
+            "product-id")))
+
+(with-filter (iokit-registry-entry-class "AppleMobileADBE0")
+    (deny iokit-get-properties (with no-report)
+        (iokit-property "APTDevice")))
+
+(if (equal? (param "CPU") "arm64")
+    (with-filter (iokit-registry-entry-class "AppleARMIODevice")
+        (deny iokit-get-properties (with no-report)
+            (iokit-property "supports-apt"))))
+
+(if (equal? (param "CPU") "arm64")
+    (with-filter (iokit-registry-entry-class "AppleJPEGDriver")
+        (deny iokit-get-properties (with no-report)
+            (iokit-property "AppleJPEGNumCores"))))
+
 ;; <rdar://problem/60088861>
 (if (equal? (param "CPU") "arm64")
     (allow iokit-get-properties
@@ -965,7 +998,7 @@
 (allow mach-lookup
     (xpc-service-name "com.apple.audio.SandboxHelper"))
 #else
-(deny mach-lookup (with no-log)
+(deny mach-lookup (with no-report)
     (xpc-service-name "com.apple.audio.SandboxHelper"))
 #endif
 
@@ -982,16 +1015,8 @@
 )
 #endif
 
-
-;; Utility functions for home directory relative path filters
-(define (home-regex home-relative-regex)
-  (regex (string-append "^" (regex-quote (param "HOME_DIR")) home-relative-regex)))
-
-(define (home-subpath home-relative-subpath)
-  (subpath (string-append (param "HOME_DIR") home-relative-subpath)))
-
-(define (home-literal home-relative-literal)
-  (literal (string-append (param "HOME_DIR") home-relative-literal)))
+(deny mach-lookup (with no-report)
+    (global-name "com.apple.windowmanager.server"))
 
 (define (allow-read-directory-and-issue-read-extensions path)
     (if path
@@ -1104,18 +1129,6 @@
     read-directory-and-issue-read-extension-secondary-paths)
 #endif
 
-;; Sandbox extensions
-(define (apply-read-and-issue-extension op path-filter)
-    (op file-read* path-filter)
-    (op file-issue-extension (require-all (extension-class "com.apple.app-sandbox.read") path-filter)))
-(define (apply-write-and-issue-extension op path-filter)
-    (op file-write* path-filter)
-    (op file-issue-extension (require-all (extension-class "com.apple.app-sandbox.read-write") path-filter)))
-(define (read-only-and-issue-extensions path-filter)
-    (apply-read-and-issue-extension allow path-filter))
-(define (read-write-and-issue-extensions path-filter)
-    (apply-read-and-issue-extension allow path-filter)
-    (apply-write-and-issue-extension allow path-filter))
 (read-only-and-issue-extensions (extension "com.apple.app-sandbox.read"))
 (read-write-and-issue-extensions (extension "com.apple.app-sandbox.read-write"))
 
@@ -1138,30 +1151,17 @@
     (allow-read-write-directory-and-issue-read-write-extensions (param "DARWIN_USER_TEMP_DIR")))
 
 ;; IOKit user clients
-#if __MAC_OS_X_VERSION_MIN_REQUIRED < 110000
-(allow iokit-open
-    (iokit-user-client-class "AppleMultitouchDeviceUserClient")
-    (iokit-user-client-class "IOHIDParamUserClient")
-)
-#endif
-
-#if __MAC_OS_X_VERSION_MIN_REQUIRED >= 110000
-(deny iokit-open
-    (with send-signal SIGKILL)
-    (iokit-user-client-class "AppleMultitouchDeviceUserClient")
-    (iokit-user-client-class "IOHIDParamUserClient")
-    (iokit-registry-entry-class "IOFramebufferSharedUserClient")
-)
-#endif
+(deny IOKIT_OPEN_USER_CLIENT (with no-report)
+    (iokit-user-client-class "AppleJPEGDriverUserClient"))
 
 (if (equal? (param "ENABLE_SANDBOX_MESSAGE_FILTER") "YES")
-    (allow iokit-open
+    (allow IOKIT_OPEN_USER_CLIENT
         (require-all
             (extension "com.apple.webkit.extension.iokit")
             (iokit-user-client-class "AppleUpstreamUserClient")
         )
         (apply-message-filter
-            (deny (with telemetry) (with message "AppleUpstreamUserClient")
+            (deny (with message "AppleUpstreamUserClient")
                 iokit-external-method
             )
             (allow iokit-external-method
@@ -1175,14 +1175,14 @@
                 )
 #endif
             )
-            (deny (with telemetry)
+            (deny
                 iokit-async-external-method
                 iokit-external-trap
             )
         )
     )
     ; else
-    (allow iokit-open
+    (allow IOKIT_OPEN_USER_CLIENT
         (require-all
             (extension "com.apple.webkit.extension.iokit")
             (iokit-user-client-class "AppleUpstreamUserClient")
@@ -1192,13 +1192,13 @@
 
 ;; <rdar://problem/10427451> && <rdar://problem/10808817>
 (if (equal? (param "ENABLE_SANDBOX_MESSAGE_FILTER") "YES")
-    (allow iokit-open
+    (allow IOKIT_OPEN_USER_CLIENT
         (require-all
             (extension "com.apple.webkit.extension.iokit")
             (iokit-user-client-class "AudioAUUC")
         )
         (apply-message-filter
-            (deny (with telemetry) (with message "AudioAUUC")
+            (deny (with message "AudioAUUC")
                 iokit-external-method
             )
             (allow iokit-external-method
@@ -1212,14 +1212,14 @@
                 )
 #endif
             )
-            (deny (with telemetry)
+            (deny
                 iokit-async-external-method
                 iokit-external-trap
             )
         )
     )
     ; else
-    (allow iokit-open
+    (allow IOKIT_OPEN_USER_CLIENT
         (require-all
             (extension "com.apple.webkit.extension.iokit")
             (iokit-user-client-class "AudioAUUC")
@@ -1228,13 +1228,13 @@
 )
 
 (if (equal? (param "ENABLE_SANDBOX_MESSAGE_FILTER") "YES")
-    (allow iokit-open
+    (allow IOKIT_OPEN_USER_CLIENT
         (require-all
             (extension "com.apple.webkit.extension.iokit")
             (iokit-user-client-class "IOAudioControlUserClient")
         )
         (apply-message-filter
-            (deny (with telemetry)
+            (deny
                 iokit-async-external-method
                 iokit-external-trap
                 iokit-external-method
@@ -1242,7 +1242,7 @@
         )
     )
     ; else
-    (allow iokit-open
+    (allow IOKIT_OPEN_USER_CLIENT
         (require-all
             (extension "com.apple.webkit.extension.iokit")
             (iokit-user-client-class "IOAudioControlUserClient")
@@ -1251,13 +1251,13 @@
 )
 
 (if (equal? (param "ENABLE_SANDBOX_MESSAGE_FILTER") "YES")
-    (allow iokit-open
+    (allow IOKIT_OPEN_USER_CLIENT
         (require-all
             (extension "com.apple.webkit.extension.iokit")
             (iokit-user-client-class "IOAudioEngineUserClient")
         )
         (apply-message-filter
-            (deny (with telemetry)
+            (deny
                 iokit-async-external-method
                 iokit-external-trap
                 iokit-external-method
@@ -1265,7 +1265,7 @@
         )
     )
     ; else
-    (allow iokit-open
+    (allow IOKIT_OPEN_USER_CLIENT
         (require-all
             (extension "com.apple.webkit.extension.iokit")
             (iokit-user-client-class "IOAudioEngineUserClient")
@@ -1276,7 +1276,7 @@
 ;; <rdar://problem/60088861>
 (when (equal? (param "CPU") "arm64")
     (if (equal? (param "ENABLE_SANDBOX_MESSAGE_FILTER") "YES")
-        (allow iokit-open
+        (allow IOKIT_OPEN_USER_CLIENT
             (require-all
                 (extension "com.apple.webkit.extension.iokit")
                 (iokit-user-client-class
@@ -1288,7 +1288,7 @@
 #endif
         )
         ; else
-        (allow iokit-open
+        (allow IOKIT_OPEN_USER_CLIENT
             (require-all
                 (extension "com.apple.webkit.extension.iokit")
                 (iokit-user-client-class
@@ -1298,7 +1298,7 @@
         )
     )
     (if (equal? (param "ENABLE_SANDBOX_MESSAGE_FILTER") "YES")
-        (allow iokit-open
+        (allow IOKIT_OPEN_USER_CLIENT
             (require-all
                 (extension "com.apple.webkit.extension.iokit")
                 (iokit-user-client-class
@@ -1310,7 +1310,7 @@
 #endif
         )
         ; else
-        (allow iokit-open
+        (allow IOKIT_OPEN_USER_CLIENT
             (require-all
                 (extension "com.apple.webkit.extension.iokit")
                 (iokit-user-client-class
@@ -1320,7 +1320,7 @@
         )
     )
     (if (equal? (param "ENABLE_SANDBOX_MESSAGE_FILTER") "YES")
-        (allow iokit-open
+        (allow IOKIT_OPEN_USER_CLIENT
             (require-all
                 (extension "com.apple.webkit.extension.iokit")
                 (iokit-user-client-class
@@ -1332,7 +1332,7 @@
 #endif
         )
         ; else
-        (allow iokit-open
+        (allow IOKIT_OPEN_USER_CLIENT
             (require-all
                 (extension "com.apple.webkit.extension.iokit")
                 (iokit-user-client-class
@@ -1343,20 +1343,8 @@
     )
 )
 
-#if __MAC_OS_X_VERSION_MIN_REQUIRED < 110000
-;; cookied.
-;; FIXME: Update for <rdar://problem/13642852>.
-(allow ipc-posix-shm-read-data
-    (ipc-posix-name "FNetwork.defaultStorageSession")
-    (ipc-posix-name-regex #"\.PrivateBrowsing-")
-    (ipc-posix-name-prefix "WebKit Test-"))
-#endif
-
 ;; Audio
 (allow ipc-posix-shm-read* ipc-posix-shm-write-data
-#if __MAC_OS_X_VERSION_MIN_REQUIRED >= 110000
-    (with telemetry)
-#endif
     (ipc-posix-name-prefix "AudioIO"))
 
 #if !ENABLE(SET_WEBCONTENT_PROCESS_INFORMATION_IN_NETWORK_PROCESS)
@@ -1369,7 +1357,7 @@
 (allow mach-lookup
     (global-name "com.apple.tccd.system"))
 #else
-(deny mach-lookup (with no-log)
+(deny mach-lookup (with no-report)
     (global-name "com.apple.tccd.system"))
 #endif
 
@@ -1405,8 +1393,10 @@
 (allow mach-lookup
     (global-name "com.apple.PowerManagement.control")
     (global-name "com.apple.SystemConfiguration.configd")
-    (global-name "com.apple.assertiond.processassertionconnection")
-)
+    (global-name "com.apple.assertiond.processassertionconnection"))
+#else
+(deny mach-lookup (with no-report)
+    (global-name "com.apple.PowerManagement.control"))
 #endif
 
 #if HAVE(STATIC_FONT_REGISTRY)
@@ -1423,7 +1413,7 @@
 #endif
 
 #if __MAC_OS_X_VERSION_MIN_REQUIRED >= 110000
-(deny mach-lookup
+(deny mach-lookup (with no-report)
 #else
 (allow mach-lookup
 #endif
@@ -1445,14 +1435,14 @@
     )
 )
 
-(deny mach-lookup (with no-log)
+(deny mach-lookup (with no-report)
     (global-name "com.apple.CoreServices.coreservicesd")
     (global-name "com.apple.DiskArbitration.diskarbitrationd")
     (global-name "com.apple.ViewBridgeAuxiliary")
     (global-name "com.apple.windowserver.active"))
 
 #if __MAC_OS_X_VERSION_MIN_REQUIRED >= 110000
-(deny mach-lookup (with no-log)
+(deny mach-lookup (with no-report)
     (global-name "com.apple.CoreDisplay.Notification"))
 #endif
 
@@ -1493,7 +1483,7 @@
 #endif
 
 #if __MAC_OS_X_VERSION_MIN_REQUIRED >= 120000
-(deny mach-lookup (with no-log)
+(deny mach-lookup (with no-report)
     (global-name-prefix "com.apple.distributed_notifications"))
 #else
 (allow mach-lookup
@@ -1502,7 +1492,7 @@
 
 (allow file-read-data
     (literal "/dev/autofs_nowait")) ; Used by CF to circumvent automount triggers
-#if __MAC_OS_X_VERSION_MIN_REQUIRED <= 110000
+#if PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED <= 110000
 (allow ipc-posix-shm
     (ipc-posix-name-prefix "CFPBS:")) ; <rdar://problem/13757475>
 #endif
@@ -1540,7 +1530,7 @@
     (allow mach-lookup
         (global-name "com.apple.system.notification_center")
         (apply-message-filter
-            (deny mach-message-send (with telemetry))
+            (deny mach-message-send)
             (deny mach-message-send (with no-report) (message-number 1023))
             (allow mach-message-send (message-number
                 1002
@@ -1579,19 +1569,19 @@
 ;; Reserve a namespace for additional protected extended attributes.
 (deny file-read-xattr file-write-xattr (xattr-prefix "com.apple.security.private."))
 
-(deny file-read* file-write* (with no-log)
+(deny file-read* file-write* (with no-report)
        ;; FIXME: Should be removed after <rdar://problem/10463881> is fixed.
        (home-literal "/Library/Preferences/com.apple.LaunchServices.QuarantineEventsV2")
        (home-literal "/Library/Preferences/com.apple.LaunchServices.QuarantineEventsV2-journal"))
 
 ;; Deny access needed for unnecessary NSApplication initialization.
 ;; FIXME: This can be removed once <rdar://problem/13011633> is fixed.
-(deny file-read* (with no-log)
+(deny file-read* (with no-report)
        (subpath "/Library/InputManagers")
        (home-subpath "/Library/InputManagers"))
-(deny user-preference-read (with no-log)
+(deny user-preference-read (with no-report)
     (preference-domain "com.apple.speech.recognition.AppleSpeechRecognition.prefs"))
-(deny mach-lookup (with no-log)
+(deny mach-lookup (with no-report)
        (global-name "com.apple.coreservices.appleevents")
        (global-name "com.apple.pasteboard.1")
        (global-name "com.apple.speech.recognitionserver"))
@@ -1672,23 +1662,23 @@
         ))
     ;; QuickTimeUSBVDCDigitizer
     (if (equal? (param "ENABLE_SANDBOX_MESSAGE_FILTER") "YES")
-        (allow iokit-open
+        (allow IOKIT_OPEN_USER_CLIENT
             (require-all
                 (iokit-usb-interface-class kUSBVideoInterfaceClass)
                 (iokit-user-client-class "IOUSBDeviceUserClientV2")
             )
             (apply-message-filter
-                (allow (with telemetry)
+                (allow
                     iokit-external-method
                 )
-                (deny (with telemetry)
+                (deny
                     iokit-async-external-method
                     iokit-external-trap
                 )
             )
         )
         ; else
-        (allow iokit-open
+        (allow IOKIT_OPEN_USER_CLIENT
             (require-all
                 (iokit-usb-interface-class kUSBVideoInterfaceClass)
                 (iokit-user-client-class "IOUSBDeviceUserClientV2")
@@ -1697,23 +1687,23 @@
     )
 
     (if (equal? (param "ENABLE_SANDBOX_MESSAGE_FILTER") "YES")
-        (allow iokit-open
+        (allow IOKIT_OPEN_USER_CLIENT
             (require-all
                 (iokit-usb-interface-class kUSBVideoInterfaceClass)
                 (iokit-user-client-class "IOUSBInterfaceUserClientV2")
             )
             (apply-message-filter
-                (allow (with telemetry)
+                (allow
                     iokit-external-method
                 )
-                (deny (with telemetry)
+                (deny
                     iokit-async-external-method
                     iokit-external-trap
                 )
             )
         )
         ; else
-        (allow iokit-open
+        (allow IOKIT_OPEN_USER_CLIENT
             (require-all
                 (iokit-usb-interface-class kUSBVideoInterfaceClass)
                 (iokit-user-client-class "IOUSBInterfaceUserClientV2")
@@ -1727,9 +1717,9 @@
 ;; <rdar://problem/60983812>
 (deny file-write*
     (home-subpath "/Library/Preferences/")
-    (with no-log))
+    (with no-report))
 
-(deny mach-lookup (with no-log)
+(deny mach-lookup (with no-report)
     (xpc-service-name "com.apple.audio.toolbox.reporting.service")
 )
 
@@ -1770,7 +1760,7 @@
         (require-not (extension "com.apple.webkit.extension.mach"))
         (global-name "com.apple.audio.AudioComponentRegistrar")))
 #else
-(deny mach-lookup (with no-log)
+(deny mach-lookup (with no-report)
     (global-name "com.apple.audio.AudioComponentRegistrar"))
 #endif
 
@@ -1779,12 +1769,12 @@
     (fsctl-command (_IO "h" 47))) ;; See <rdar://74387453>
 
 #if __MAC_OS_X_VERSION_MIN_REQUIRED >= 110000
-(deny file-ioctl (with telemetry))
+(deny file-ioctl)
 (allow file-ioctl (literal "/dev/dtracehelper"))
-(deny socket-ioctl (with telemetry))
+(deny socket-ioctl)
 
 (when (defined? 'system-fcntl)
-    (deny system-fcntl (with telemetry))
+    (deny system-fcntl)
     (allow system-fcntl
        (fcntl-command
             F_ADDFILESIGS_RETURN ;; ImageLoaderMachO::loadCodeSignature
@@ -1816,9 +1806,9 @@
         (allow system-fcntl (appcache-fcntl-commands)))
     (with-filter (state-flag "AppCacheDisabled")
         (deny system-fcntl
-            (with telemetry)
+            
 #if __MAC_OS_X_VERSION_MIN_REQUIRED >= 120000
-            (with telemetry-backtrace)
+            
 #endif
             (appcache-fcntl-commands)))
 #else
@@ -1832,11 +1822,11 @@
 
 (when (defined? 'process-codesigning*)
     ;; csops/csops_audittoken
-    (deny process-codesigning-text-offset-get (with telemetry))
-    (deny process-codesigning-cdhash-get (with telemetry))
-    (deny process-codesigning-blob-get (with telemetry))
-    (deny process-codesigning-teamid-get (with telemetry))
-    (allow process-codesigning-identity-get (with telemetry)) ;; codeSigningIdentifierForCurrentProcess
+    (deny process-codesigning-text-offset-get)
+    (deny process-codesigning-cdhash-get)
+    (deny process-codesigning-blob-get)
+    (deny process-codesigning-teamid-get)
+    (allow process-codesigning-identity-get) ;; codeSigningIdentifierForCurrentProcess
     (allow process-codesigning-entitlements-blob-get) ;; WK reading entitlments via SecTaskCopyValueForEntitlement and _getSelfParsedEntitlements (accessibility)
     (allow process-codesigning-status-get) ;; _xpc_get_entitlements
     (allow process-codesigning-status-set (target self))
@@ -1845,12 +1835,12 @@
 
 (when (defined? 'socket-option-get)
     ;; getsockopt
-    (deny socket-option-get (with telemetry))
+    (deny socket-option-get)
 )
 
 (when (defined? 'socket-option-set)
     ;; setsockopt
-    (deny socket-option-set (with telemetry))
+    (deny socket-option-set)
 )
 #endif
 
@@ -1858,75 +1848,52 @@
 (disable-syscall-inference)
 #endif
 
-#if HAVE(SANDBOX_STATE_FLAGS)
-(deny user-preference-read (with enable-state-flag "WebContentProcessLaunched")
-    (preference-domain "com.apple.WebKit.WebContent.Launch"))
-#endif
-
-(define (syscall-unix-only-in-use-during-launch)
-    (syscall-number
-        SYS_csops
-        SYS_csrctl
-        SYS_fsgetpath
-        SYS_getaudit_addr
-        SYS_getfsstat64
-        SYS_getrlimit
-        SYS_kdebug_trace
-        SYS_pathconf
-        SYS_statfs64))
-
-(define (syscall-unix-in-use-after-launch)
+(define (syscall-unix-common)
     (syscall-number
         SYS___disable_threadsignal
         SYS___mac_syscall
-        SYS___pthread_sigmask
-        SYS___semwait_signal
         SYS_access
         SYS_bsdthread_create
         SYS_bsdthread_ctl
         SYS_bsdthread_terminate
         SYS_close
         SYS_close_nocancel
+        SYS_csops
         SYS_csops_audittoken
+        SYS_csrctl
+        SYS_dup ;; Remove when <rdar://88210738> is fixed
         SYS_exit
-        SYS_faccessat ;; <rdar://problem/56690456>
         SYS_fcntl
-        SYS_fcntl_nocancel
-        SYS_fgetxattr
-        SYS_fileport_makefd
         SYS_flock
         SYS_fsetxattr ;; <rdar://problem/56332491>
+        SYS_fsgetpath
         SYS_fstat64
-        SYS_fstatat64
         SYS_fstatfs64
         SYS_ftruncate
         SYS_getattrlist
-        SYS_getattrlistbulk
+        SYS_getaudit_addr
         SYS_getdirentries64
         SYS_getentropy
         SYS_geteuid
-        SYS_getgid
-        SYS_gethostuuid
+        SYS_getfsstat64
+        SYS_getrlimit
         SYS_getrusage
         SYS_gettimeofday
         SYS_getuid
         SYS_getxattr
         SYS_ioctl
         SYS_issetugid
+        SYS_kdebug_trace
         SYS_kdebug_trace64
         SYS_kdebug_trace_string ;; Needed for performance sampling, see <rdar://problem/48829655>.
         SYS_kevent_id
         SYS_kevent_qos
-        SYS_kqueue ;; See <rdar://problem/88241768>. Remove after <rdar://56634240> is resolved.
-        SYS_kqueue_workloop_ctl ;; <rdar://problem/50999499>
-        SYS_listxattr
         SYS_lseek
         SYS_lstat64
         SYS_madvise
 #if !PLATFORM(MAC)
         SYS_memorystatus_control
 #endif
-        SYS_mincore
         SYS_mkdir
         SYS_mmap
         SYS_mprotect
@@ -1935,33 +1902,28 @@
         SYS_open
         SYS_open_nocancel
         SYS_openat
+        SYS_pathconf
         SYS_pread
         SYS_proc_info
         SYS_psynch_cvbroad
-        SYS_psynch_cvclrprepost
         SYS_psynch_cvsignal
         SYS_psynch_cvwait
         SYS_psynch_mutexdrop
         SYS_psynch_mutexwait
-        SYS_psynch_rw_unlock
-        SYS_psynch_rw_wrlock
         SYS_read
         SYS_read_nocancel
         SYS_readlink
         SYS_rename
-        SYS_sendto
-        SYS_sigaltstack
-        SYS_sigprocmask
         SYS_stat64
-        SYS_sysctlbyname
+        SYS_statfs64
+        SYS_sysctl
         SYS_thread_selfid
 #if !PLATFORM(MAC)
         SYS_thread_selfusage
 #endif
         SYS_ulock_wait
+        SYS_ulock_wait2
         SYS_ulock_wake
-        SYS_umask
-        SYS_work_interval_ctl
         SYS_workq_kernreturn
         SYS_write_nocancel
         SYS_writev))
@@ -1977,7 +1939,6 @@
         SYS___semwait_signal_nocancel
         SYS_change_fdguard_np
         SYS_chmod
-        SYS_dup ;; Remove when <rdar://88210738> is fixed
         SYS_fchmod
         SYS_fsync
         SYS_getegid
@@ -2003,7 +1964,6 @@
         SYS_setsockopt ;; <rdar://90249455>
         SYS_shm_open
         SYS_sigaction
-        SYS_sysctl
         SYS_unlink
         SYS_write
 #if !PLATFORM(MAC)
@@ -2015,57 +1975,70 @@
         SYS_open_dprotected_np
         SYS_setrlimit
         SYS_shared_region_map_and_slide_2_np
-        SYS_ulock_wait2
 #endif
 ))
 
-(when (defined? 'syscall-unix)
-    (deny syscall-unix (with telemetry) (with send-signal SIGKILL))
-    (allow syscall-unix
-        (syscall-unix-in-use-after-launch)
-        (syscall-unix-only-in-use-during-launch))
+(define (syscall-unix-blocked-in-lockdown-mode) (syscall-number
+    SYS___pthread_sigmask
+    SYS___semwait_signal
+    SYS_faccessat
+    SYS_fcntl_nocancel
+    SYS_fgetxattr
+    SYS_fileport_makefd
+    SYS_fstatat64
+    SYS_getattrlistbulk
+    SYS_getgid
+    SYS_gethostuuid
+    SYS_kqueue ;; See <rdar://problem/88241768>. Remove after <rdar://56634240> is resolved.
+    SYS_kqueue_workloop_ctl ;; <rdar://problem/50999499>
+    SYS_listxattr
+    SYS_mincore
+    SYS_psynch_cvclrprepost
+    SYS_psynch_rw_unlock
+    SYS_psynch_rw_wrlock
+    SYS_sendto
+    SYS_sigaltstack
+    SYS_sigprocmask
+    SYS_sysctlbyname
+    SYS_umask
+    SYS_work_interval_ctl))
 
-#if HAVE(SANDBOX_STATE_FLAGS)
-    (with-filter (state-flag "WebContentProcessLaunched")
-        (deny syscall-unix
-            (syscall-unix-only-in-use-during-launch))
-        (allow syscall-unix
-            (with report)
-            (with telemetry)
-            (with message "Unix syscall used after launch")
-            (syscall-unix-only-in-use-during-launch)))
+(deny syscall-unix)
+
+(allow syscall-unix (syscall-unix-common))
+
+#if ENABLE(LOCKDOWN_MODE_TELEMETRY)
+(with-filter (require-entitlement "com.apple.security.cs.allow-jit")
+    (allow syscall-unix (syscall-unix-blocked-in-lockdown-mode))
+    (when (equal? (param "CPU") "arm64")
+        (allow syscall-unix (syscall-unix-apple-silicon)))
+    (allow syscall-unix (syscalls-rarely-used)))
+#else
+(allow syscall-unix (syscall-unix-blocked-in-lockdown-mode))
+(when (equal? (param "CPU") "arm64")
+    (allow syscall-unix (syscall-unix-apple-silicon)))
+(allow syscall-unix (syscalls-rarely-used))
 #endif
 
-    (if (equal? (param "CPU") "arm64")
-        (begin
-            (allow syscall-unix
-                (syscall-unix-apple-silicon))))
-
-    (allow syscall-unix
-#if __MAC_OS_X_VERSION_MIN_REQUIRED >= 120000
-        (with telemetry-backtrace)
-#endif
-        (syscalls-rarely-used))
-
-#if __MAC_OS_X_VERSION_MIN_REQUIRED > 101500
-    (if (defined? 'SYS_objc_bp_assist_cfg_np)
-        (allow syscall-unix (syscall-number SYS_objc_bp_assist_cfg_np)))
-#endif
-    (when (defined? 'SYS_map_with_linking_np)
-        (allow syscall-unix (syscall-number SYS_map_with_linking_np)))
-)
-
-(deny syscall-unix (syscall-number
-    SYS_connect
-    SYS_socket))
+(when (defined? 'SYS_objc_bp_assist_cfg_np)
+    (allow syscall-unix (syscall-number SYS_objc_bp_assist_cfg_np)))
+(when (defined? 'SYS_map_with_linking_np)
+    (allow syscall-unix (syscall-number SYS_map_with_linking_np)))
 
 (with-filter (uid 0)
     (allow syscall-unix (syscall-number SYS_gettid))) ;; Needed for base system, see <rdar://problem/48651255>
 
 #if HAVE(SANDBOX_STATE_FLAGS)
 (with-filter (require-not (state-flag "WebContentProcessLaunched"))
-    (allow syscall-unix
-        (syscall-number SYS_quotactl)))
+    (allow syscall-unix (syscall-number SYS_quotactl)))
+#endif
+
+#if ENABLE(LOCKDOWN_MODE_TELEMETRY)
+(with-filter (require-not (require-entitlement "com.apple.security.cs.allow-jit"))
+    (allow syscall-unix (with report) (with telemetry) (syscall-unix-blocked-in-lockdown-mode))
+    (allow syscall-unix (with report) (with telemetry) (syscalls-rarely-used))
+    (when (equal? (param "CPU") "arm64")
+        (allow syscall-unix (with report) (with telemetry) (syscall-unix-apple-silicon))))
 #endif
 
 #if HAVE(ADDITIONAL_APPLE_CAMERA_SERVICE)
@@ -2088,180 +2061,174 @@
 (define (allow-mach-bootstrap-with-filter)
     (allow mach-bootstrap
         (apply-message-filter
-            (deny mach-message-send (with telemetry))
+            (deny mach-message-send)
             (allow mach-message-send
                 (mach-bootstrap-message-numbers)))))
 
 (if (and (equal? (param "ENABLE_SANDBOX_MESSAGE_FILTER") "YES") (defined? 'mach-bootstrap))
 #if __MAC_OS_X_VERSION_MIN_REQUIRED >= 120000
 #if HAVE(SANDBOX_STATE_FLAGS)
-    (begin
-        (if (require-ancestor-with-entitlement "com.apple.private.security.enable-state-flags")
-            (allow mach-bootstrap
-                (apply-message-filter
-                    (deny mach-message-send (with telemetry-backtrace))
-                    (allow mach-message-send (with telemetry-backtrace)
-                        (mach-bootstrap-message-numbers-post-launch))))
-        ;; else
-            (allow-mach-bootstrap-with-filter))
-
-        (with-filter
-            (require-any
-                (require-not (state-flag "WebContentProcessLaunched"))
-                (state-flag "EnableMachBootstrap"))
-            (allow-mach-bootstrap-with-filter))))
+(allow mach-bootstrap
+    (apply-message-filter
+        (deny mach-message-send)
+#if HAVE(MACH_BOOTSTRAP_EXTENSION)
+        (with-filter (extension "com.apple.webkit.mach-bootstrap")
+            (allow mach-message-send (mach-bootstrap-message-numbers-post-launch)))
+#else
+        (allow mach-message-send (mach-bootstrap-message-numbers-post-launch))
+#endif
+        (with-filter (require-not (state-flag "WebContentProcessLaunched"))
+            (allow mach-message-send (mach-bootstrap-message-numbers))))))
 #else
     (allow-mach-bootstrap-with-filter))
 #endif // HAVE(SANDBOX_STATE_FLAGS)
 #else
     (allow mach-bootstrap
         (apply-message-filter
-            (deny xpc-message-send (with telemetry))
+            (deny xpc-message-send)
             (allow xpc-message-send
                 (mach-bootstrap-message-numbers)))))
 #endif
 
+(define (kernel-mig-routines-common) (kernel-mig-routine
+    _mach_make_memory_entry
+    host_get_io_master
+    host_info
+    io_connect_async_method
+    io_connect_method
+    io_connect_method_var_output
+    io_connect_set_notification_port_64
+    io_iterator_is_valid
+    io_iterator_next
+    io_object_conforms_to
+    io_registry_entry_create_iterator
+    io_registry_entry_from_path
+    io_registry_entry_get_parent_iterator
+    io_registry_entry_get_property_bin_buf
+    io_registry_entry_get_property_bytes
+    io_registry_entry_get_registry_entry_id
+    io_server_version
+    io_service_add_interest_notification_64
+    io_service_add_notification_bin_64
+    io_service_get_matching_service_bin
+    io_service_open_extended
+    mach_exception_raise
+    mach_memory_entry_ownership
+    mach_port_extract_right
+    mach_port_get_refs
+    mach_port_request_notification
+    mach_port_set_attributes
+    mach_vm_copy
+    mach_vm_map_external
+    mach_vm_region
+    mach_vm_remap_external
+    semaphore_create
+    semaphore_destroy
+    task_create_identity_token
+    task_get_special_port_from_user
+    task_info_from_user
+    task_policy_set
+    task_restartable_ranges_synchronize
+    thread_resume
+    thread_set_exception_ports
+    thread_suspend))
+
+(define (kernel-mig-routines-blocked-in-lockdown-mode) (kernel-mig-routine
+    clock_get_time
+    host_request_notification
+    io_connect_add_client
+    io_connect_map_memory_into_task
+    io_registry_create_iterator
+    io_registry_entry_get_child_iterator
+    io_registry_entry_get_name
+    io_registry_entry_get_name_in_plane
+    io_registry_entry_get_properties_bin_buf
+    io_registry_get_root_entry
+    io_service_close
+    io_service_get_matching_services_bin
+    mach_port_get_context_from_user
+    mach_vm_region_recurse
+    task_threads_from_user
+    thread_get_state_to_user
+    thread_info
+    thread_policy
+    thread_policy_set))
+
 (if (and (equal? (param "ENABLE_SANDBOX_MESSAGE_FILTER") "YES") (defined? 'mach-kernel-endpoint))
     (allow mach-kernel-endpoint
         (apply-message-filter
-            (deny mach-message-send (with telemetry))
-            (allow mach-message-send
-#if __MAC_OS_X_VERSION_MIN_REQUIRED >= 120000
-                (with telemetry-backtrace)
+            (deny mach-message-send)
+#if ENABLE(LOCKDOWN_MODE_TELEMETRY)
+            (with-filter (require-entitlement "com.apple.security.cs.allow-jit")
+                (allow mach-message-send (kernel-mig-routines-blocked-in-lockdown-mode)))
+            (with-filter (require-not (require-entitlement "com.apple.security.cs.allow-jit"))
+                (allow mach-message-send (with report) (with telemetry) (kernel-mig-routines-blocked-in-lockdown-mode)))
+#else
+            (allow mach-message-send (kernel-mig-routines-blocked-in-lockdown-mode))
 #endif
-                (kernel-mig-routine
-                    _mach_make_memory_entry
-                    clock_get_time
-                    host_get_io_master
-                    host_info
-                    host_request_notification
-                    io_connect_add_client
-                    io_connect_async_method
-                    io_connect_map_memory_into_task
-                    io_connect_method
-                    io_connect_method_var_output
-                    io_connect_set_notification_port_64
-                    io_iterator_is_valid
-                    io_iterator_next
-                    io_object_conforms_to
-                    io_registry_create_iterator
-                    io_registry_entry_create_iterator
-                    io_registry_entry_from_path
-                    io_registry_entry_get_child_iterator
-                    io_registry_entry_get_name
-                    io_registry_entry_get_name_in_plane
-                    io_registry_entry_get_parent_iterator
-                    io_registry_entry_get_properties_bin_buf
-                    io_registry_entry_get_property_bin_buf
-                    io_registry_entry_get_property_bytes
-                    io_registry_entry_get_registry_entry_id
-                    io_registry_get_root_entry
-                    io_server_version
-                    io_service_add_interest_notification_64
-                    io_service_add_notification_bin_64
-                    io_service_close
-                    io_service_get_matching_service_bin
-                    io_service_get_matching_services_bin
-                    io_service_open_extended
-                    mach_exception_raise
-                    mach_memory_entry_ownership
-                    mach_port_extract_right
-                    mach_port_get_context_from_user
-                    mach_port_get_refs
-                    mach_port_request_notification
-                    mach_port_set_attributes
-                    mach_vm_copy
-                    mach_vm_map_external
-                    mach_vm_region
-                    mach_vm_region_recurse
-                    mach_vm_remap_external
-                    semaphore_create
-                    semaphore_destroy
-                    task_create_identity_token
-                    task_get_special_port_from_user
-                    task_info_from_user
-                    task_policy_set
-                    task_restartable_ranges_synchronize
-                    task_threads_from_user
-                    thread_get_state_to_user
-                    thread_info
-                    thread_policy
-                    thread_policy_set
-                    thread_resume
-                    thread_set_exception_ports
-                    thread_suspend
-                )
-            )
-        )
-    )
-)
+            (allow mach-message-send (kernel-mig-routines-common)))))
 
-(when (and (equal? (param "ENABLE_SANDBOX_MESSAGE_FILTER") "YES") (defined? 'syscall-mach))
-    (deny syscall-mach
-        (machtrap-number
-            MSC_mach_wait_until
-        )
-    )
-    (deny syscall-mach (with telemetry))
-)
-
-(define (syscall-mach-common)
-    (machtrap-number
-        MSC__kernelrpc_mach_port_allocate_trap
-        MSC__kernelrpc_mach_port_construct_trap
-        MSC__kernelrpc_mach_port_deallocate_trap
-        MSC__kernelrpc_mach_port_destruct_trap
-        MSC__kernelrpc_mach_port_extract_member_trap
-        MSC__kernelrpc_mach_port_get_attributes_trap
-        MSC__kernelrpc_mach_port_guard_trap
-        MSC__kernelrpc_mach_port_insert_member_trap
-        MSC__kernelrpc_mach_port_insert_right_trap
-        MSC__kernelrpc_mach_port_mod_refs_trap
-        MSC__kernelrpc_mach_port_request_notification_trap
-        MSC__kernelrpc_mach_port_type_trap
-        MSC__kernelrpc_mach_port_unguard_trap
-        MSC__kernelrpc_mach_vm_allocate_trap
-        MSC__kernelrpc_mach_vm_deallocate_trap
-        MSC__kernelrpc_mach_vm_map_trap
-        MSC__kernelrpc_mach_vm_protect_trap
-        MSC__kernelrpc_mach_vm_purgable_control_trap
-        MSC_host_create_mach_voucher_trap
-        MSC_host_self_trap
+(define (syscall-mach-common) (machtrap-number
+    MSC__kernelrpc_mach_port_allocate_trap
+    MSC__kernelrpc_mach_port_construct_trap
+    MSC__kernelrpc_mach_port_deallocate_trap
+    MSC__kernelrpc_mach_port_destruct_trap
+    MSC__kernelrpc_mach_port_extract_member_trap
+    MSC__kernelrpc_mach_port_get_attributes_trap
+    MSC__kernelrpc_mach_port_guard_trap
+    MSC__kernelrpc_mach_port_insert_member_trap
+    MSC__kernelrpc_mach_port_insert_right_trap
+    MSC__kernelrpc_mach_port_mod_refs_trap
+    MSC__kernelrpc_mach_port_request_notification_trap
+    MSC__kernelrpc_mach_port_type_trap
+    MSC__kernelrpc_mach_port_unguard_trap
+    MSC__kernelrpc_mach_vm_allocate_trap
+    MSC__kernelrpc_mach_vm_deallocate_trap
+    MSC__kernelrpc_mach_vm_map_trap
+    MSC__kernelrpc_mach_vm_protect_trap
+    MSC__kernelrpc_mach_vm_purgable_control_trap
+    MSC_host_self_trap
 #if PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED >= 130000
-        MSC_iokit_user_client_trap
+    MSC_iokit_user_client_trap
 #endif
-        MSC_mach_generate_activity_id
-        MSC_mach_msg_trap
-        MSC_mach_reply_port
-        MSC_mach_voucher_extract_attr_recipe_trap
-        MSC_mk_timer_arm
-        MSC_mk_timer_cancel
-        MSC_mk_timer_create
-        MSC_mk_timer_destroy
-        MSC_pid_for_task
-        MSC_semaphore_signal_trap
-        MSC_semaphore_timedwait_trap
-        MSC_semaphore_wait_trap
-        MSC_swtch_pri
-        MSC_syscall_thread_switch
-        MSC_task_name_for_pid
-        MSC_thread_get_special_reply_port
-        MSC_thread_self_trap))
+    MSC_mach_generate_activity_id
+    MSC_mk_timer_arm
+    MSC_mk_timer_cancel
+    MSC_mk_timer_create
+    MSC_mk_timer_destroy
+    MSC_pid_for_task
+    MSC_semaphore_signal_trap
+    MSC_semaphore_wait_trap
+    MSC_syscall_thread_switch
+    MSC_task_name_for_pid
+    MSC_thread_get_special_reply_port))
+
+(define (syscall-mach-blocked-in-lockdown-mode) (machtrap-number
+    MSC_host_create_mach_voucher_trap
+    MSC_mach_msg_trap
+    MSC_mach_reply_port
+    MSC_mach_voucher_extract_attr_recipe_trap
+    MSC_semaphore_timedwait_trap
+    MSC_swtch_pri
+    MSC_thread_self_trap))
 
 (when (and (equal? (param "ENABLE_SANDBOX_MESSAGE_FILTER") "YES") (defined? 'syscall-mach))
-    (allow syscall-mach
-        (syscall-mach-common))
-
+    (deny syscall-mach)
+    (allow syscall-mach (syscall-mach-common))
+#if ENABLE(LOCKDOWN_MODE_TELEMETRY)
+    (with-filter (require-entitlement "com.apple.security.cs.allow-jit")
+        (allow syscall-mach (syscall-mach-blocked-in-lockdown-mode)))
+    (with-filter (require-not (require-entitlement "com.apple.security.cs.allow-jit"))
+        (allow syscall-mach (with report) (with telemetry) (syscall-mach-blocked-in-lockdown-mode)))
+#else
+    (allow syscall-mach (syscall-mach-blocked-in-lockdown-mode))
+#endif
     (when (defined? 'MSC_mach_msg2_trap)
-        (allow syscall-mach
-            (machtrap-number MSC_mach_msg2_trap)
-        )
-    )
-)
+        (allow syscall-mach (machtrap-number MSC_mach_msg2_trap))))
 #endif // HAVE(SANDBOX_MESSAGE_FILTERING)
 
 (if (equal? (param "ENABLE_SANDBOX_MESSAGE_FILTER") "YES")
-    (allow iokit-open
+    (allow IOKIT_OPEN_USER_CLIENT
         (require-all
             (require-not (extension "com.apple.webkit.extension.iokit"))
             (iokit-registry-entry-class
@@ -2271,7 +2238,7 @@
         (IOSurfaceRootUserClientMessageFilter)
     )
     ; else
-    (allow iokit-open
+    (allow IOKIT_OPEN_USER_CLIENT
         (require-all
             (require-not (extension "com.apple.webkit.extension.iokit"))
             (iokit-registry-entry-class
@@ -2283,7 +2250,7 @@
 
 (when (equal? (param "CPU") "arm64")
     (if (equal? (param "ENABLE_SANDBOX_MESSAGE_FILTER") "YES")
-        (allow iokit-open (with report)
+        (allow IOKIT_OPEN_USER_CLIENT
             (require-all
                 (require-not (extension "com.apple.webkit.extension.iokit"))
                 (iokit-user-client-class
@@ -2295,7 +2262,7 @@
 #endif
         )
         ; else
-        (allow iokit-open (with report)
+        (allow IOKIT_OPEN_USER_CLIENT
             (require-all
                 (require-not (extension "com.apple.webkit.extension.iokit"))
                 (iokit-user-client-class
@@ -2305,7 +2272,7 @@
         )
     )
     (if (equal? (param "ENABLE_SANDBOX_MESSAGE_FILTER") "YES")
-        (allow iokit-open (with report)
+        (allow IOKIT_OPEN_USER_CLIENT
             (require-all
                 (require-not (extension "com.apple.webkit.extension.iokit"))
                 (iokit-user-client-class
@@ -2317,7 +2284,7 @@
 #endif
         )
         ; else
-        (allow iokit-open (with report)
+        (allow IOKIT_OPEN_USER_CLIENT
             (require-all
                 (require-not (extension "com.apple.webkit.extension.iokit"))
                 (iokit-user-client-class
@@ -2329,7 +2296,7 @@
 )
 
 (if (equal? (param "ENABLE_SANDBOX_MESSAGE_FILTER") "YES")
-    (allow iokit-open
+    (allow IOKIT_OPEN_USER_CLIENT
         (require-all
             (require-not (extension "com.apple.webkit.extension.iokit"))
             (iokit-connection
@@ -2339,7 +2306,7 @@
         (IOAcceleratorMessageFilter)
     )
     ; else
-    (allow iokit-open
+    (allow IOKIT_OPEN_USER_CLIENT
         (require-all
             (require-not (extension "com.apple.webkit.extension.iokit"))
             (iokit-connection
@@ -2349,7 +2316,7 @@
     )
 )
 
-(deny iokit-open
+(deny IOKIT_OPEN_USER_CLIENT
     (require-all
         (require-not (extension "com.apple.webkit.extension.iokit"))
         (iokit-user-client-class
@@ -2360,7 +2327,7 @@
     )
 )
 
-(deny iokit-open
+(deny IOKIT_OPEN_USER_CLIENT
     (require-all
         (require-not (extension "com.apple.webkit.extension.iokit"))
         (iokit-registry-entry-class
@@ -2375,7 +2342,7 @@
     )
 )
 
-(deny iokit-open
+(deny IOKIT_OPEN_USER_CLIENT
     (require-all
         (require-not (extension "com.apple.webkit.extension.iokit"))
         (iokit-user-client-class
@@ -2384,8 +2351,18 @@
     )
 )
 
+#if HAVE(SANDBOX_STATE_FLAGS)
+(with-filter (state-flag "BlockIOKitInWebContentSandbox")
+    (deny iokit-open-service (with telemetry-backtrace))
+    (deny iokit-open-user-client (with telemetry-backtrace))
+    (deny mach-lookup (with telemetry-backtrace)
+        (require-all
+            (require-not (extension "com.apple.webkit.extension.mach"))
+            (xpc-service-name "com.apple.MTLCompilerService"))))
+#endif
+
 #if __MAC_OS_X_VERSION_MIN_REQUIRED > 110000
-(deny darwin-notification-post (with telemetry))
+(deny darwin-notification-post)
 (allow darwin-notification-post
     (notification-name
         "com.apple.accessibility.AirPodsSpatialAudioLockToDeviceChanged"
@@ -2394,8 +2371,10 @@
 
 #if __MAC_OS_X_VERSION_MIN_REQUIRED > 110000
 (deny file-read* (with no-report)
-    (home-literal
-        "/Library/Preferences/com.apple.CFNetwork.plist"
-    )
+    (home-literal "/Library/Preferences/com.apple.CFNetwork.plist")
+#if __MAC_OS_X_VERSION_MIN_REQUIRED >= 130000
+    (home-literal "/Library/Preferences/com.apple.networkd.plist")
+    (literal "/Library/Preferences/com.apple.networkd.plist")
+#endif
 )
 #endif

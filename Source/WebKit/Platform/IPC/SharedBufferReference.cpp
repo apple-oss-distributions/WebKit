@@ -51,9 +51,10 @@ void SharedBufferReference::encode(Encoder& encoder) const
     SharedMemory::Handle handle;
     {
         auto sharedMemoryBuffer = m_memory ? m_memory : SharedMemory::copyBuffer(*m_buffer);
-        sharedMemoryBuffer->createHandle(handle, SharedMemory::Protection::ReadOnly);
+        if (auto memoryHandle = sharedMemoryBuffer->createHandle(SharedMemory::Protection::ReadOnly))
+            handle = WTFMove(*memoryHandle);
     }
-    encoder << SharedMemory::IPCHandle { WTFMove(handle), m_size };
+    encoder << handle;
 #endif
 }
 
@@ -82,11 +83,11 @@ std::optional<SharedBufferReference> SharedBufferReference::decode(Decoder& deco
         return { IPC::SharedBufferReference(WTFMove(buffer)) };
     }
 
-    SharedMemory::IPCHandle ipcHandle;
-    if (!decoder.decode(ipcHandle))
+    SharedMemory::Handle handle;
+    if (!decoder.decode(handle))
         return std::nullopt;
 
-    auto sharedMemoryBuffer = SharedMemory::map(ipcHandle.handle, SharedMemory::Protection::ReadOnly);
+    auto sharedMemoryBuffer = SharedMemory::map(handle, SharedMemory::Protection::ReadOnly);
     if (!sharedMemoryBuffer)
         return std::nullopt;
 

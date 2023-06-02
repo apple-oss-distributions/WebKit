@@ -81,11 +81,10 @@ bool isValidHTTPToken(StringView);
 std::optional<WallTime> parseHTTPDate(const String&);
 StringView filenameFromHTTPContentDisposition(StringView);
 WEBCORE_EXPORT String extractMIMETypeFromMediaType(const String&);
-StringView extractCharsetFromMediaType(StringView);
+WEBCORE_EXPORT StringView extractCharsetFromMediaType(StringView);
 XSSProtectionDisposition parseXSSProtectionHeader(const String& header, String& failureReason, unsigned& failurePosition, String& reportURL);
 AtomString extractReasonPhraseFromHTTPStatusLine(const String&);
 WEBCORE_EXPORT XFrameOptionsDisposition parseXFrameOptionsHeader(StringView);
-std::optional<std::pair<StringView, HashMap<String, String>>> parseStructuredFieldValue(StringView header);
 
 // -1 could be set to one of the return parameters to indicate the value is not specified.
 WEBCORE_EXPORT bool parseRange(StringView, long long& rangeOffset, long long& rangeEnd, long long& rangeSuffixLength);
@@ -97,11 +96,12 @@ size_t parseHTTPHeader(const uint8_t* data, size_t length, String& failureReason
 size_t parseHTTPRequestBody(const uint8_t* data, size_t length, Vector<uint8_t>& body);
 
 // HTTP Header routine as per https://fetch.spec.whatwg.org/#terminology-headers
+bool isForbiddenHeader(const String& name, StringView value);
 bool isForbiddenHeaderName(const String&);
 bool isNoCORSSafelistedRequestHeaderName(const String&);
 bool isPriviledgedNoCORSRequestHeaderName(const String&);
 bool isForbiddenResponseHeaderName(const String&);
-bool isForbiddenMethod(const String&);
+bool isForbiddenMethod(StringView);
 bool isSimpleHeader(const String& name, const String& value);
 bool isCrossOriginSafeHeader(HTTPHeaderName, const HTTPHeaderSet&);
 bool isCrossOriginSafeHeader(const String&, const HTTPHeaderSet&);

@@ -62,13 +62,14 @@
 #include <limits>
 #include <wtf/CheckedArithmetic.h>
 #include <wtf/IsoMallocInlines.h>
+#include <wtf/StringPrintStream.h>
 #include <wtf/WeakPtr.h>
 
 namespace WebCore {
 
 WTF_MAKE_ISO_ALLOCATED_IMPL(SourceBuffer);
 
-static const double ExponentialMovingAverageCoefficient = 0.1;
+static const double ExponentialMovingAverageCoefficient = 0.2;
 
 Ref<SourceBuffer> SourceBuffer::create(Ref<SourceBufferPrivate>&& sourceBufferPrivate, MediaSource* source)
 {
@@ -282,7 +283,9 @@ ExceptionOr<void> SourceBuffer::abort()
 
 ExceptionOr<void> SourceBuffer::remove(double start, double end)
 {
-    return remove(MediaTime::createWithDouble(start), MediaTime::createWithDouble(end));
+    // Limit timescale to 1/1000 of microsecond so samples won't accidentally overlap with removal range by precision lost (e.g. by 0.000000000000X [sec]).
+    static const uint32_t timescale = 1000000000;
+    return remove(MediaTime::createWithDouble(start, timescale), MediaTime::createWithDouble(end, timescale));
 }
 
 ExceptionOr<void> SourceBuffer::remove(const MediaTime& start, const MediaTime& end)
@@ -490,13 +493,15 @@ ExceptionOr<void> SourceBuffer::appendBufferInternal(const unsigned char* data, 
     if (isRemoved() || m_updating)
         return Exception { InvalidStateError };
 
+    DEBUG_LOG(LOGIDENTIFIER, "size = ", size, ", buffered = ", m_private->buffered()->ranges());
+
     // 3. If the readyState attribute of the parent media source is in the "ended" state then run the following steps:
     // 3.1. Set the readyState attribute of the parent media source to "open"
     // 3.2. Queue a task to fire a simple event named sourceopen at the parent media source .
     m_source->openIfInEndedState();
 
     // 4. Run the coded frame eviction algorithm.
-    m_private->evictCodedFrames(size, maximumBufferSize(), m_source->currentTime(), m_source->duration(), m_source->isEnded());
+    m_private->evictCodedFrames(size, maximumBufferSize(), m_source->currentTime(), m_source->isEnded());
 
     // 5. If the buffer full flag equals true, then throw a QuotaExceededError exception and abort these step.
     if (m_private->isBufferFullFor(size, maximumBufferSize())) {
@@ -585,7 +590,7 @@ void SourceBuffer::sourceBufferPrivateAppendComplete(AppendResult result)
     m_source->monitorSourceBuffers();
     m_private->reenqueueMediaIfNeeded(m_source->currentTime());
 
-    DEBUG_LOG(LOGIDENTIFIER);
+    DEBUG_LOG(LOGIDENTIFIER, "buffered = ", m_private->buffered()->ranges());
 }
 
 void SourceBuffer::sourceBufferPrivateDidReceiveRenderingError(int64_t error)
@@ -682,10 +687,10 @@ void SourceBuffer::setActive(bool active)
         m_source->sourceBufferDidChangeActiveState(*this, active);
 }
 
-void SourceBuffer::sourceBufferPrivateDidReceiveInitializationSegment(InitializationSegment&& segment, CompletionHandler<void()>&& completionHandler)
+void SourceBuffer::sourceBufferPrivateDidReceiveInitializationSegment(InitializationSegment&& segment, CompletionHandler<void(ReceiveResult)>&& completionHandler)
 {
     if (isRemoved()) {
-        completionHandler();
+        completionHandler(ReceiveResult::BufferRemoved);
         return;
     }
 
@@ -710,7 +715,7 @@ void SourceBuffer::sourceBufferPrivateDidReceiveInitializationSegment(Initializa
     // with the decode error parameter set to true and abort these steps.
     if (segment.audioTracks.isEmpty() && segment.videoTracks.isEmpty() && segment.textTracks.isEmpty()) {
         appendError(true);
-        completionHandler();
+        completionHandler(ReceiveResult::AppendError);
         return;
     }
 
@@ -720,7 +725,7 @@ void SourceBuffer::sourceBufferPrivateDidReceiveInitializationSegment(Initializa
         // with the decode error parameter set to true and abort these steps.
         if (!validateInitializationSegment(segment)) {
             appendError(true);
-            completionHandler();
+            completionHandler(ReceiveResult::AppendError);
             return;
         }
 
@@ -798,7 +803,7 @@ void SourceBuffer::sourceBufferPrivateDidReceiveInitializationSegment(Initializa
                 if (audioTrackInfo.description && allowedMediaAudioCodecIDs->contains(FourCC::fromString(audioTrackInfo.description->codec())))
                     continue;
                 appendError(true);
-                completionHandler();
+                completionHandler(ReceiveResult::AppendError);
                 return;
             }
         }
@@ -808,7 +813,7 @@ void SourceBuffer::sourceBufferPrivateDidReceiveInitializationSegment(Initializa
                 if (videoTrackInfo.description && allowedMediaVideoCodecIDs->contains(FourCC::fromString(videoTrackInfo.description->codec())))
                     continue;
                 appendError(true);
-                completionHandler();
+                completionHandler(ReceiveResult::AppendError);
                 return;
             }
         }
@@ -932,7 +937,7 @@ void SourceBuffer::sourceBufferPrivateDidReceiveInitializationSegment(Initializa
     // (Note: Issue #155 adds this step after step 5:)
     // 6. Set  pending initialization segment for changeType flag  to false.
     m_pendingInitializationSegmentForChangeType = false;
-    completionHandler();
+    completionHandler(ReceiveResult::RecieveSucceeded);
 
     // 6. If the HTMLMediaElement.readyState attribute is HAVE_NOTHING, then run the following steps:
     if (m_private->readyState() == MediaPlayer::ReadyState::HaveNothing) {

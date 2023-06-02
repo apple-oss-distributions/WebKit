@@ -34,7 +34,7 @@
 #include <wtf/Noncopyable.h>
 
 namespace WebCore {
-enum class AuthenticatorAttachment;
+enum class AuthenticatorAttachment : uint8_t;
 struct ExceptionData;
 struct PublicKeyCredentialCreationOptions;
 struct AuthenticatorResponseData;
@@ -73,15 +73,15 @@ private:
     // Receivers.
     void makeCredential(WebCore::FrameIdentifier, FrameInfoData&&, Vector<uint8_t>&& hash, WebCore::PublicKeyCredentialCreationOptions&&, bool processingUserGesture, RequestCompletionHandler&&);
     void getAssertion(WebCore::FrameIdentifier, FrameInfoData&&, Vector<uint8_t>&& hash, WebCore::PublicKeyCredentialRequestOptions&&, WebCore::CredentialRequestOptions::MediationRequirement, std::optional<WebCore::SecurityOriginData>, bool processingUserGesture, RequestCompletionHandler&&);
-    void isUserVerifyingPlatformAuthenticatorAvailable(QueryCompletionHandler&&);
-    void isConditionalMediationAvailable(QueryCompletionHandler&&);
+    void isUserVerifyingPlatformAuthenticatorAvailable(const WebCore::SecurityOriginData&, QueryCompletionHandler&&);
+    void isConditionalMediationAvailable(const WebCore::SecurityOriginData&, QueryCompletionHandler&&);
+    void cancel();
 
     void handleRequest(WebAuthenticationRequestData&&, RequestCompletionHandler&&);
 
     WebPageProxy& m_webPageProxy;
 
 #if HAVE(UNIFIED_ASC_AUTH_UI)
-    void cancel();
     RetainPtr<ASCCredentialRequestContext> contextForRequest(WebAuthenticationRequestData&&);
     void performRequest(RetainPtr<ASCCredentialRequestContext>, RequestCompletionHandler&&);
     RetainPtr<ASCAuthorizationRemotePresenter> m_presenter;

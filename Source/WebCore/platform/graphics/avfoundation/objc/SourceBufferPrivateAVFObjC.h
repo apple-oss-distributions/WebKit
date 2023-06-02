@@ -110,6 +110,8 @@ public:
     FloatSize naturalSize();
 
     uint64_t protectedTrackID() const { return m_protectedTrackID; }
+    bool needsVideoLayer() const;
+
     AVStreamDataParser* streamDataParser() const;
     void setCDMSession(CDMSessionMediaSourceAVFObjC*);
     void setCDMInstance(CDMInstance*);
@@ -198,8 +200,8 @@ private:
     void keyStatusesChanged();
 #endif
 
-    Vector<RefPtr<VideoTrackPrivate>> m_videoTracks;
-    Vector<RefPtr<AudioTrackPrivate>> m_audioTracks;
+    HashMap<AtomString, RefPtr<VideoTrackPrivate>> m_videoTracks;
+    HashMap<AtomString, RefPtr<AudioTrackPrivate>> m_audioTracks;
     Vector<SourceBufferPrivateAVFObjCErrorClient*> m_errorClients;
 
     WeakPtrFactory<SourceBufferPrivateAVFObjC> m_appendWeakFactory;

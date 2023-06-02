@@ -110,8 +110,8 @@ template<> void JSTestStringifierOperationNamedToStringDOMConstructor::initializ
 
 static const HashTableValue JSTestStringifierOperationNamedToStringPrototypeTableValues[] =
 {
-    { "constructor"_s, static_cast<unsigned>(JSC::PropertyAttribute::DontEnum), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestStringifierOperationNamedToStringConstructor), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(0) } },
-    { "toString"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestStringifierOperationNamedToStringPrototypeFunction_toString), (intptr_t) (0) } },
+    { "constructor"_s, static_cast<unsigned>(JSC::PropertyAttribute::DontEnum), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestStringifierOperationNamedToStringConstructor, 0 } },
+    { "toString"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestStringifierOperationNamedToStringPrototypeFunction_toString, 0 } },
 };
 
 const ClassInfo JSTestStringifierOperationNamedToStringPrototype::s_info = { "TestStringifierOperationNamedToString"_s, &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(JSTestStringifierOperationNamedToStringPrototype) };
@@ -189,9 +189,9 @@ JSC::GCClient::IsoSubspace* JSTestStringifierOperationNamedToString::subspaceFor
 {
     return WebCore::subspaceForImpl<JSTestStringifierOperationNamedToString, UseCustomHeapCellType::No>(vm,
         [] (auto& spaces) { return spaces.m_clientSubspaceForTestStringifierOperationNamedToString.get(); },
-        [] (auto& spaces, auto&& space) { spaces.m_clientSubspaceForTestStringifierOperationNamedToString = WTFMove(space); },
+        [] (auto& spaces, auto&& space) { spaces.m_clientSubspaceForTestStringifierOperationNamedToString = std::forward<decltype(space)>(space); },
         [] (auto& spaces) { return spaces.m_subspaceForTestStringifierOperationNamedToString.get(); },
-        [] (auto& spaces, auto&& space) { spaces.m_subspaceForTestStringifierOperationNamedToString = WTFMove(space); }
+        [] (auto& spaces, auto&& space) { spaces.m_subspaceForTestStringifierOperationNamedToString = std::forward<decltype(space)>(space); }
     );
 }
 

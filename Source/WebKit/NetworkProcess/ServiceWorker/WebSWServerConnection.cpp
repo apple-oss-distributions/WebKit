@@ -134,11 +134,6 @@ void WebSWServerConnection::startScriptFetchInClient(ServiceWorkerJobIdentifier 
     send(Messages::WebSWClientConnection::StartScriptFetchForServer(jobIdentifier, registrationKey, cachePolicy));
 }
 
-void WebSWServerConnection::refreshImportedScripts(ServiceWorkerJobIdentifier jobIdentifier, FetchOptions::Cache cachePolicy, const Vector<URL>& urls, ServiceWorkerJob::RefreshImportedScriptsCallback&& callback)
-{
-    sendWithAsyncReply(Messages::WebSWClientConnection::RefreshImportedScripts(jobIdentifier, cachePolicy, urls), WTFMove(callback));
-}
-
 void WebSWServerConnection::updateRegistrationStateInClient(ServiceWorkerRegistrationIdentifier identifier, ServiceWorkerRegistrationState state, const std::optional<ServiceWorkerData>& serviceWorkerData)
 {
     send(Messages::WebSWClientConnection::UpdateRegistrationState(identifier, state, serviceWorkerData));
@@ -179,7 +174,7 @@ void WebSWServerConnection::controlClient(const NetworkResourceLoadParameters& p
     else
         clientType = ServiceWorkerClientType::Window;
 
-    auto clientIdentifier = *parameters.options.clientIdentifier;
+    auto clientIdentifier = *parameters.options.resultingClientIdentifier;
     // As per step 12 of https://w3c.github.io/ServiceWorker/#on-fetch-request-algorithm, the active service worker should be controlling the document.
     // We register the service worker client using the identifier provided by DocumentLoader and notify DocumentLoader about it.
     // If notification is successful, DocumentLoader is responsible to unregister the service worker client as needed.
@@ -190,14 +185,14 @@ void WebSWServerConnection::controlClient(const NetworkResourceLoadParameters& p
     });
 
     auto ancestorOrigins = map(parameters.frameAncestorOrigins, [](auto& origin) { return origin->toString(); });
-    ServiceWorkerClientData data { clientIdentifier, clientType, ServiceWorkerClientFrameType::None, request.url(), parameters.webPageID, parameters.webFrameID, request.isAppInitiated() ? WebCore::LastNavigationWasAppInitiated::Yes : WebCore::LastNavigationWasAppInitiated::No, false, false, 0, WTFMove(ancestorOrigins) };
+    ServiceWorkerClientData data { clientIdentifier, clientType, ServiceWorkerClientFrameType::None, request.url(), URL(), parameters.webPageID, parameters.webFrameID, request.isAppInitiated() ? WebCore::LastNavigationWasAppInitiated::Yes : WebCore::LastNavigationWasAppInitiated::No, false, false, 0, WTFMove(ancestorOrigins) };
     registerServiceWorkerClient(ClientOrigin { registration.key().topOrigin(), SecurityOriginData::fromURL(request.url()) }, WTFMove(data), registration.identifier(), request.httpUserAgent());
 }
 
 std::unique_ptr<ServiceWorkerFetchTask> WebSWServerConnection::createFetchTask(NetworkResourceLoader& loader, const ResourceRequest& request)
 {
     if (loader.parameters().serviceWorkersMode == ServiceWorkersMode::None) {
-        if (loader.parameters().request.requester() == ResourceRequest::Requester::Fetch && isNavigationRequest(loader.parameters().options.destination)) {
+        if (loader.parameters().request.requester() == ResourceRequestRequester::Fetch && isNavigationRequest(loader.parameters().options.destination)) {
             if (auto task = ServiceWorkerFetchTask::fromNavigationPreloader(*this, loader, request, session()))
                 return task;
         }
@@ -216,7 +211,8 @@ std::unique_ptr<ServiceWorkerFetchTask> WebSWServerConnection::createFetchTask(N
 
         serviceWorkerRegistrationIdentifier = registration->identifier();
         controlClient(loader.parameters(), *registration, request);
-        loader.setResultingClientIdentifier(loader.parameters().options.clientIdentifier->toString());
+        if (auto resultingClientIdentifier = loader.parameters().options.resultingClientIdentifier)
+            loader.setResultingClientIdentifier(resultingClientIdentifier->toString());
         loader.setServiceWorkerRegistration(*registration);
     } else {
         if (!loader.parameters().serviceWorkerRegistrationIdentifier)
@@ -281,6 +277,9 @@ void WebSWServerConnection::startFetch(ServiceWorkerFetchTask& task, SWServerWor
 
         auto identifier = task->serviceWorkerIdentifier();
         server().runServiceWorkerIfNecessary(identifier, [weakThis = WTFMove(weakThis), this, task = WTFMove(task)](auto* contextConnection) mutable {
+#if RELEASE_LOG_DISABLED
+            UNUSED_PARAM(this);
+#endif
             if (!task)
                 return;
             
@@ -405,7 +404,7 @@ void WebSWServerConnection::getRegistrations(const SecurityOriginData& topOrigin
 void WebSWServerConnection::registerServiceWorkerClient(WebCore::ClientOrigin&& clientOrigin, ServiceWorkerClientData&& data, const std::optional<ServiceWorkerRegistrationIdentifier>& controllingServiceWorkerRegistrationIdentifier, String&& userAgent)
 {
     CONNECTION_MESSAGE_CHECK(data.identifier.processIdentifier() == identifier());
-    CONNECTION_MESSAGE_CHECK(!clientOrigin.topOrigin.isEmpty());
+    CONNECTION_MESSAGE_CHECK(!clientOrigin.topOrigin.isNull());
 
     auto& contextOrigin = clientOrigin.clientOrigin;
     if (data.url.protocolIsInHTTPFamily()) {
@@ -414,7 +413,7 @@ void WebSWServerConnection::registerServiceWorkerClient(WebCore::ClientOrigin&& 
             return;
     }
 
-    CONNECTION_MESSAGE_CHECK(!contextOrigin.isEmpty());
+    CONNECTION_MESSAGE_CHECK(!contextOrigin.isNull());
 
     bool isNewOrigin = WTF::allOf(m_clientOrigins.values(), [&contextOrigin](auto& origin) {
         return contextOrigin != origin.clientOrigin;
@@ -519,7 +518,14 @@ void WebSWServerConnection::subscribeToPushService(WebCore::ServiceWorkerRegistr
         return;
     }
 
-    session()->notificationManager().subscribeToPushService(registration->scopeURLWithoutFragment(), WTFMove(applicationServerKey), WTFMove(completionHandler));
+    session()->notificationManager().subscribeToPushService(registration->scopeURLWithoutFragment(), WTFMove(applicationServerKey), [weakThis = WeakPtr { *this }, completionHandler = WTFMove(completionHandler), registrableDomain = RegistrableDomain(registration->data().scopeURL)] (Expected<PushSubscriptionData, ExceptionData>&& result) mutable {
+        if (auto resourceLoadStatistics = weakThis && weakThis->session() ? weakThis->session()->resourceLoadStatistics() : nullptr; result && resourceLoadStatistics) {
+            return resourceLoadStatistics->setMostRecentWebPushInteractionTime(WTFMove(registrableDomain), [result = WTFMove(result), completionHandler = WTFMove(completionHandler)] () mutable {
+                completionHandler(WTFMove(result));
+            });
+        }
+        completionHandler(WTFMove(result));
+    });
 #endif
 }
 

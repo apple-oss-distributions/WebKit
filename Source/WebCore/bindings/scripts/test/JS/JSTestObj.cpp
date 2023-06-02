@@ -140,7 +140,7 @@ String convertEnumerationToString(TestObj::EnumType enumerationValue)
     static_assert(static_cast<size_t>(TestObj::EnumType::EnumValue1) == 1, "TestObj::EnumType::EnumValue1 is not 1 as expected");
     static_assert(static_cast<size_t>(TestObj::EnumType::EnumValue2) == 2, "TestObj::EnumType::EnumValue2 is not 2 as expected");
     static_assert(static_cast<size_t>(TestObj::EnumType::EnumValue3) == 3, "TestObj::EnumType::EnumValue3 is not 3 as expected");
-    ASSERT(static_cast<size_t>(enumerationValue) < WTF_ARRAY_LENGTH(values));
+    ASSERT(static_cast<size_t>(enumerationValue) < std::size(values));
     return values[static_cast<size_t>(enumerationValue)];
 }
 
@@ -149,9 +149,8 @@ template<> JSString* convertEnumerationToJS(JSGlobalObject& lexicalGlobalObject,
     return jsStringWithCache(lexicalGlobalObject.vm(), convertEnumerationToString(enumerationValue));
 }
 
-template<> std::optional<TestObj::EnumType> parseEnumeration<TestObj::EnumType>(JSGlobalObject& lexicalGlobalObject, JSValue value)
+template<> std::optional<TestObj::EnumType> parseEnumerationFromString<TestObj::EnumType>(const String& stringValue)
 {
-    auto stringValue = value.toWTFString(&lexicalGlobalObject);
     if (stringValue.isEmpty())
         return TestObj::EnumType::EmptyString;
     static constexpr std::pair<ComparableASCIILiteral, TestObj::EnumType> mappings[] = {
@@ -163,6 +162,11 @@ template<> std::optional<TestObj::EnumType> parseEnumeration<TestObj::EnumType>(
     if (auto* enumerationValue = enumerationMapping.tryGet(stringValue); LIKELY(enumerationValue))
         return *enumerationValue;
     return std::nullopt;
+}
+
+template<> std::optional<TestObj::EnumType> parseEnumeration<TestObj::EnumType>(JSGlobalObject& lexicalGlobalObject, JSValue value)
+{
+    return parseEnumerationFromString<TestObj::EnumType>(value.toWTFString(&lexicalGlobalObject));
 }
 
 template<> const char* expectedEnumerationValues<TestObj::EnumType>()
@@ -178,7 +182,7 @@ String convertEnumerationToString(TestObj::EnumTrailingComma enumerationValue)
     };
     static_assert(static_cast<size_t>(TestObj::EnumTrailingComma::EnumValue1) == 0, "TestObj::EnumTrailingComma::EnumValue1 is not 0 as expected");
     static_assert(static_cast<size_t>(TestObj::EnumTrailingComma::EnumValue2) == 1, "TestObj::EnumTrailingComma::EnumValue2 is not 1 as expected");
-    ASSERT(static_cast<size_t>(enumerationValue) < WTF_ARRAY_LENGTH(values));
+    ASSERT(static_cast<size_t>(enumerationValue) < std::size(values));
     return values[static_cast<size_t>(enumerationValue)];
 }
 
@@ -187,9 +191,8 @@ template<> JSString* convertEnumerationToJS(JSGlobalObject& lexicalGlobalObject,
     return jsStringWithCache(lexicalGlobalObject.vm(), convertEnumerationToString(enumerationValue));
 }
 
-template<> std::optional<TestObj::EnumTrailingComma> parseEnumeration<TestObj::EnumTrailingComma>(JSGlobalObject& lexicalGlobalObject, JSValue value)
+template<> std::optional<TestObj::EnumTrailingComma> parseEnumerationFromString<TestObj::EnumTrailingComma>(const String& stringValue)
 {
-    auto stringValue = value.toWTFString(&lexicalGlobalObject);
     static constexpr std::pair<ComparableASCIILiteral, TestObj::EnumTrailingComma> mappings[] = {
         { "enumValue1", TestObj::EnumTrailingComma::EnumValue1 },
         { "enumValue2", TestObj::EnumTrailingComma::EnumValue2 },
@@ -198,6 +201,11 @@ template<> std::optional<TestObj::EnumTrailingComma> parseEnumeration<TestObj::E
     if (auto* enumerationValue = enumerationMapping.tryGet(stringValue); LIKELY(enumerationValue))
         return *enumerationValue;
     return std::nullopt;
+}
+
+template<> std::optional<TestObj::EnumTrailingComma> parseEnumeration<TestObj::EnumTrailingComma>(JSGlobalObject& lexicalGlobalObject, JSValue value)
+{
+    return parseEnumerationFromString<TestObj::EnumTrailingComma>(value.toWTFString(&lexicalGlobalObject));
 }
 
 template<> const char* expectedEnumerationValues<TestObj::EnumTrailingComma>()
@@ -217,7 +225,7 @@ String convertEnumerationToString(TestObj::Optional enumerationValue)
     static_assert(static_cast<size_t>(TestObj::Optional::OptionalValue1) == 1, "TestObj::Optional::OptionalValue1 is not 1 as expected");
     static_assert(static_cast<size_t>(TestObj::Optional::OptionalValue2) == 2, "TestObj::Optional::OptionalValue2 is not 2 as expected");
     static_assert(static_cast<size_t>(TestObj::Optional::OptionalValue3) == 3, "TestObj::Optional::OptionalValue3 is not 3 as expected");
-    ASSERT(static_cast<size_t>(enumerationValue) < WTF_ARRAY_LENGTH(values));
+    ASSERT(static_cast<size_t>(enumerationValue) < std::size(values));
     return values[static_cast<size_t>(enumerationValue)];
 }
 
@@ -226,9 +234,8 @@ template<> JSString* convertEnumerationToJS(JSGlobalObject& lexicalGlobalObject,
     return jsStringWithCache(lexicalGlobalObject.vm(), convertEnumerationToString(enumerationValue));
 }
 
-template<> std::optional<TestObj::Optional> parseEnumeration<TestObj::Optional>(JSGlobalObject& lexicalGlobalObject, JSValue value)
+template<> std::optional<TestObj::Optional> parseEnumerationFromString<TestObj::Optional>(const String& stringValue)
 {
-    auto stringValue = value.toWTFString(&lexicalGlobalObject);
     if (stringValue.isEmpty())
         return TestObj::Optional::EmptyString;
     static constexpr std::pair<ComparableASCIILiteral, TestObj::Optional> mappings[] = {
@@ -240,6 +247,11 @@ template<> std::optional<TestObj::Optional> parseEnumeration<TestObj::Optional>(
     if (auto* enumerationValue = enumerationMapping.tryGet(stringValue); LIKELY(enumerationValue))
         return *enumerationValue;
     return std::nullopt;
+}
+
+template<> std::optional<TestObj::Optional> parseEnumeration<TestObj::Optional>(JSGlobalObject& lexicalGlobalObject, JSValue value)
+{
+    return parseEnumerationFromString<TestObj::Optional>(value.toWTFString(&lexicalGlobalObject));
 }
 
 template<> const char* expectedEnumerationValues<TestObj::Optional>()
@@ -255,7 +267,7 @@ String convertEnumerationToString(AlternateEnumName enumerationValue)
     };
     static_assert(static_cast<size_t>(AlternateEnumName::EnumValue1) == 0, "AlternateEnumName::EnumValue1 is not 0 as expected");
     static_assert(static_cast<size_t>(AlternateEnumName::EnumValue2) == 1, "AlternateEnumName::EnumValue2 is not 1 as expected");
-    ASSERT(static_cast<size_t>(enumerationValue) < WTF_ARRAY_LENGTH(values));
+    ASSERT(static_cast<size_t>(enumerationValue) < std::size(values));
     return values[static_cast<size_t>(enumerationValue)];
 }
 
@@ -264,9 +276,8 @@ template<> JSString* convertEnumerationToJS(JSGlobalObject& lexicalGlobalObject,
     return jsStringWithCache(lexicalGlobalObject.vm(), convertEnumerationToString(enumerationValue));
 }
 
-template<> std::optional<AlternateEnumName> parseEnumeration<AlternateEnumName>(JSGlobalObject& lexicalGlobalObject, JSValue value)
+template<> std::optional<AlternateEnumName> parseEnumerationFromString<AlternateEnumName>(const String& stringValue)
 {
-    auto stringValue = value.toWTFString(&lexicalGlobalObject);
     static constexpr std::pair<ComparableASCIILiteral, AlternateEnumName> mappings[] = {
         { "EnumValue2", AlternateEnumName::EnumValue2 },
         { "enumValue1", AlternateEnumName::EnumValue1 },
@@ -275,6 +286,11 @@ template<> std::optional<AlternateEnumName> parseEnumeration<AlternateEnumName>(
     if (auto* enumerationValue = enumerationMapping.tryGet(stringValue); LIKELY(enumerationValue))
         return *enumerationValue;
     return std::nullopt;
+}
+
+template<> std::optional<AlternateEnumName> parseEnumeration<AlternateEnumName>(JSGlobalObject& lexicalGlobalObject, JSValue value)
+{
+    return parseEnumerationFromString<AlternateEnumName>(value.toWTFString(&lexicalGlobalObject));
 }
 
 template<> const char* expectedEnumerationValues<AlternateEnumName>()
@@ -290,7 +306,7 @@ String convertEnumerationToString(TestObj::EnumA enumerationValue)
         MAKE_STATIC_STRING_IMPL("A"),
     };
     static_assert(static_cast<size_t>(TestObj::EnumA::A) == 0, "TestObj::EnumA::A is not 0 as expected");
-    ASSERT(static_cast<size_t>(enumerationValue) < WTF_ARRAY_LENGTH(values));
+    ASSERT(static_cast<size_t>(enumerationValue) < std::size(values));
     return values[static_cast<size_t>(enumerationValue)];
 }
 
@@ -299,9 +315,8 @@ template<> JSString* convertEnumerationToJS(JSGlobalObject& lexicalGlobalObject,
     return jsStringWithCache(lexicalGlobalObject.vm(), convertEnumerationToString(enumerationValue));
 }
 
-template<> std::optional<TestObj::EnumA> parseEnumeration<TestObj::EnumA>(JSGlobalObject& lexicalGlobalObject, JSValue value)
+template<> std::optional<TestObj::EnumA> parseEnumerationFromString<TestObj::EnumA>(const String& stringValue)
 {
-    auto stringValue = value.toWTFString(&lexicalGlobalObject);
     static constexpr std::pair<ComparableASCIILiteral, TestObj::EnumA> mappings[] = {
         { "A", TestObj::EnumA::A },
     };
@@ -309,6 +324,11 @@ template<> std::optional<TestObj::EnumA> parseEnumeration<TestObj::EnumA>(JSGlob
     if (auto* enumerationValue = enumerationMapping.tryGet(stringValue); LIKELY(enumerationValue))
         return *enumerationValue;
     return std::nullopt;
+}
+
+template<> std::optional<TestObj::EnumA> parseEnumeration<TestObj::EnumA>(JSGlobalObject& lexicalGlobalObject, JSValue value)
+{
+    return parseEnumerationFromString<TestObj::EnumA>(value.toWTFString(&lexicalGlobalObject));
 }
 
 template<> const char* expectedEnumerationValues<TestObj::EnumA>()
@@ -326,7 +346,7 @@ String convertEnumerationToString(TestObj::EnumB enumerationValue)
         MAKE_STATIC_STRING_IMPL("B"),
     };
     static_assert(static_cast<size_t>(TestObj::EnumB::B) == 0, "TestObj::EnumB::B is not 0 as expected");
-    ASSERT(static_cast<size_t>(enumerationValue) < WTF_ARRAY_LENGTH(values));
+    ASSERT(static_cast<size_t>(enumerationValue) < std::size(values));
     return values[static_cast<size_t>(enumerationValue)];
 }
 
@@ -335,9 +355,8 @@ template<> JSString* convertEnumerationToJS(JSGlobalObject& lexicalGlobalObject,
     return jsStringWithCache(lexicalGlobalObject.vm(), convertEnumerationToString(enumerationValue));
 }
 
-template<> std::optional<TestObj::EnumB> parseEnumeration<TestObj::EnumB>(JSGlobalObject& lexicalGlobalObject, JSValue value)
+template<> std::optional<TestObj::EnumB> parseEnumerationFromString<TestObj::EnumB>(const String& stringValue)
 {
-    auto stringValue = value.toWTFString(&lexicalGlobalObject);
     static constexpr std::pair<ComparableASCIILiteral, TestObj::EnumB> mappings[] = {
         { "B", TestObj::EnumB::B },
     };
@@ -345,6 +364,11 @@ template<> std::optional<TestObj::EnumB> parseEnumeration<TestObj::EnumB>(JSGlob
     if (auto* enumerationValue = enumerationMapping.tryGet(stringValue); LIKELY(enumerationValue))
         return *enumerationValue;
     return std::nullopt;
+}
+
+template<> std::optional<TestObj::EnumB> parseEnumeration<TestObj::EnumB>(JSGlobalObject& lexicalGlobalObject, JSValue value)
+{
+    return parseEnumerationFromString<TestObj::EnumB>(value.toWTFString(&lexicalGlobalObject));
 }
 
 template<> const char* expectedEnumerationValues<TestObj::EnumB>()
@@ -362,7 +386,7 @@ String convertEnumerationToString(TestObj::EnumC enumerationValue)
         MAKE_STATIC_STRING_IMPL("C"),
     };
     static_assert(static_cast<size_t>(TestObj::EnumC::C) == 0, "TestObj::EnumC::C is not 0 as expected");
-    ASSERT(static_cast<size_t>(enumerationValue) < WTF_ARRAY_LENGTH(values));
+    ASSERT(static_cast<size_t>(enumerationValue) < std::size(values));
     return values[static_cast<size_t>(enumerationValue)];
 }
 
@@ -371,9 +395,8 @@ template<> JSString* convertEnumerationToJS(JSGlobalObject& lexicalGlobalObject,
     return jsStringWithCache(lexicalGlobalObject.vm(), convertEnumerationToString(enumerationValue));
 }
 
-template<> std::optional<TestObj::EnumC> parseEnumeration<TestObj::EnumC>(JSGlobalObject& lexicalGlobalObject, JSValue value)
+template<> std::optional<TestObj::EnumC> parseEnumerationFromString<TestObj::EnumC>(const String& stringValue)
 {
-    auto stringValue = value.toWTFString(&lexicalGlobalObject);
     static constexpr std::pair<ComparableASCIILiteral, TestObj::EnumC> mappings[] = {
         { "C", TestObj::EnumC::C },
     };
@@ -381,6 +404,11 @@ template<> std::optional<TestObj::EnumC> parseEnumeration<TestObj::EnumC>(JSGlob
     if (auto* enumerationValue = enumerationMapping.tryGet(stringValue); LIKELY(enumerationValue))
         return *enumerationValue;
     return std::nullopt;
+}
+
+template<> std::optional<TestObj::EnumC> parseEnumeration<TestObj::EnumC>(JSGlobalObject& lexicalGlobalObject, JSValue value)
+{
+    return parseEnumerationFromString<TestObj::EnumC>(value.toWTFString(&lexicalGlobalObject));
 }
 
 template<> const char* expectedEnumerationValues<TestObj::EnumC>()
@@ -398,7 +426,7 @@ String convertEnumerationToString(TestObj::Kind enumerationValue)
     };
     static_assert(static_cast<size_t>(TestObj::Kind::Quick) == 0, "TestObj::Kind::Quick is not 0 as expected");
     static_assert(static_cast<size_t>(TestObj::Kind::Dead) == 1, "TestObj::Kind::Dead is not 1 as expected");
-    ASSERT(static_cast<size_t>(enumerationValue) < WTF_ARRAY_LENGTH(values));
+    ASSERT(static_cast<size_t>(enumerationValue) < std::size(values));
     return values[static_cast<size_t>(enumerationValue)];
 }
 
@@ -407,9 +435,8 @@ template<> JSString* convertEnumerationToJS(JSGlobalObject& lexicalGlobalObject,
     return jsStringWithCache(lexicalGlobalObject.vm(), convertEnumerationToString(enumerationValue));
 }
 
-template<> std::optional<TestObj::Kind> parseEnumeration<TestObj::Kind>(JSGlobalObject& lexicalGlobalObject, JSValue value)
+template<> std::optional<TestObj::Kind> parseEnumerationFromString<TestObj::Kind>(const String& stringValue)
 {
-    auto stringValue = value.toWTFString(&lexicalGlobalObject);
     static constexpr std::pair<ComparableASCIILiteral, TestObj::Kind> mappings[] = {
         { "dead", TestObj::Kind::Dead },
         { "quick", TestObj::Kind::Quick },
@@ -418,6 +445,11 @@ template<> std::optional<TestObj::Kind> parseEnumeration<TestObj::Kind>(JSGlobal
     if (auto* enumerationValue = enumerationMapping.tryGet(stringValue); LIKELY(enumerationValue))
         return *enumerationValue;
     return std::nullopt;
+}
+
+template<> std::optional<TestObj::Kind> parseEnumeration<TestObj::Kind>(JSGlobalObject& lexicalGlobalObject, JSValue value)
+{
+    return parseEnumerationFromString<TestObj::Kind>(value.toWTFString(&lexicalGlobalObject));
 }
 
 template<> const char* expectedEnumerationValues<TestObj::Kind>()
@@ -433,7 +465,7 @@ String convertEnumerationToString(TestObj::Size enumerationValue)
     };
     static_assert(static_cast<size_t>(TestObj::Size::Small) == 0, "TestObj::Size::Small is not 0 as expected");
     static_assert(static_cast<size_t>(TestObj::Size::MuchMuchLarger) == 1, "TestObj::Size::MuchMuchLarger is not 1 as expected");
-    ASSERT(static_cast<size_t>(enumerationValue) < WTF_ARRAY_LENGTH(values));
+    ASSERT(static_cast<size_t>(enumerationValue) < std::size(values));
     return values[static_cast<size_t>(enumerationValue)];
 }
 
@@ -442,9 +474,8 @@ template<> JSString* convertEnumerationToJS(JSGlobalObject& lexicalGlobalObject,
     return jsStringWithCache(lexicalGlobalObject.vm(), convertEnumerationToString(enumerationValue));
 }
 
-template<> std::optional<TestObj::Size> parseEnumeration<TestObj::Size>(JSGlobalObject& lexicalGlobalObject, JSValue value)
+template<> std::optional<TestObj::Size> parseEnumerationFromString<TestObj::Size>(const String& stringValue)
 {
-    auto stringValue = value.toWTFString(&lexicalGlobalObject);
     static constexpr std::pair<ComparableASCIILiteral, TestObj::Size> mappings[] = {
         { "much-much-larger", TestObj::Size::MuchMuchLarger },
         { "small", TestObj::Size::Small },
@@ -453,6 +484,11 @@ template<> std::optional<TestObj::Size> parseEnumeration<TestObj::Size>(JSGlobal
     if (auto* enumerationValue = enumerationMapping.tryGet(stringValue); LIKELY(enumerationValue))
         return *enumerationValue;
     return std::nullopt;
+}
+
+template<> std::optional<TestObj::Size> parseEnumeration<TestObj::Size>(JSGlobalObject& lexicalGlobalObject, JSValue value)
+{
+    return parseEnumerationFromString<TestObj::Size>(value.toWTFString(&lexicalGlobalObject));
 }
 
 template<> const char* expectedEnumerationValues<TestObj::Size>()
@@ -468,7 +504,7 @@ String convertEnumerationToString(TestObj::Confidence enumerationValue)
     };
     static_assert(static_cast<size_t>(TestObj::Confidence::High) == 0, "TestObj::Confidence::High is not 0 as expected");
     static_assert(static_cast<size_t>(TestObj::Confidence::KindaLow) == 1, "TestObj::Confidence::KindaLow is not 1 as expected");
-    ASSERT(static_cast<size_t>(enumerationValue) < WTF_ARRAY_LENGTH(values));
+    ASSERT(static_cast<size_t>(enumerationValue) < std::size(values));
     return values[static_cast<size_t>(enumerationValue)];
 }
 
@@ -477,9 +513,8 @@ template<> JSString* convertEnumerationToJS(JSGlobalObject& lexicalGlobalObject,
     return jsStringWithCache(lexicalGlobalObject.vm(), convertEnumerationToString(enumerationValue));
 }
 
-template<> std::optional<TestObj::Confidence> parseEnumeration<TestObj::Confidence>(JSGlobalObject& lexicalGlobalObject, JSValue value)
+template<> std::optional<TestObj::Confidence> parseEnumerationFromString<TestObj::Confidence>(const String& stringValue)
 {
-    auto stringValue = value.toWTFString(&lexicalGlobalObject);
     static constexpr std::pair<ComparableASCIILiteral, TestObj::Confidence> mappings[] = {
         { "high", TestObj::Confidence::High },
         { "kinda-low", TestObj::Confidence::KindaLow },
@@ -488,6 +523,11 @@ template<> std::optional<TestObj::Confidence> parseEnumeration<TestObj::Confiden
     if (auto* enumerationValue = enumerationMapping.tryGet(stringValue); LIKELY(enumerationValue))
         return *enumerationValue;
     return std::nullopt;
+}
+
+template<> std::optional<TestObj::Confidence> parseEnumeration<TestObj::Confidence>(JSGlobalObject& lexicalGlobalObject, JSValue value)
+{
+    return parseEnumerationFromString<TestObj::Confidence>(value.toWTFString(&lexicalGlobalObject));
 }
 
 template<> const char* expectedEnumerationValues<TestObj::Confidence>()
@@ -607,6 +647,17 @@ template<> TestObj::Dictionary convertDictionary<TestObj::Dictionary>(JSGlobalOb
     }
     if (!dictionaryMemberValue.isUndefined()) {
         result.dictionaryMember = convert<IDLDictionary<TestObj::DictionaryThatShouldTolerateNull>>(lexicalGlobalObject, dictionaryMemberValue);
+        RETURN_IF_EXCEPTION(throwScope, { });
+    }
+    JSValue dictionaryMemberWithDefaultValue;
+    if (isNullOrUndefined)
+        dictionaryMemberWithDefaultValue = jsUndefined();
+    else {
+        dictionaryMemberWithDefaultValue = object->get(&lexicalGlobalObject, Identifier::fromString(vm, "dictionaryMemberWithDefault"_s));
+        RETURN_IF_EXCEPTION(throwScope, { });
+    }
+    if (!dictionaryMemberWithDefaultValue.isUndefined()) {
+        result.dictionaryMemberWithDefault = convert<IDLDictionary<TestObj::ParentDictionary>>(lexicalGlobalObject, dictionaryMemberWithDefaultValue);
         RETURN_IF_EXCEPTION(throwScope, { });
     }
     JSValue enumerationValueWithDefaultValue;
@@ -1073,6 +1124,11 @@ JSC::JSObject* convertDictionaryToJS(JSC::JSGlobalObject& lexicalGlobalObject, J
         auto dictionaryMemberValue = toJS<IDLDictionary<TestObj::DictionaryThatShouldTolerateNull>>(lexicalGlobalObject, globalObject, throwScope, IDLDictionary<TestObj::DictionaryThatShouldTolerateNull>::extractValueFromNullable(dictionary.dictionaryMember));
         RETURN_IF_EXCEPTION(throwScope, { });
         result->putDirect(vm, JSC::Identifier::fromString(vm, "dictionaryMember"_s), dictionaryMemberValue);
+    }
+    if (!IDLDictionary<TestObj::ParentDictionary>::isNullValue(dictionary.dictionaryMemberWithDefault)) {
+        auto dictionaryMemberWithDefaultValue = toJS<IDLDictionary<TestObj::ParentDictionary>>(lexicalGlobalObject, globalObject, throwScope, IDLDictionary<TestObj::ParentDictionary>::extractValueFromNullable(dictionary.dictionaryMemberWithDefault));
+        RETURN_IF_EXCEPTION(throwScope, { });
+        result->putDirect(vm, JSC::Identifier::fromString(vm, "dictionaryMemberWithDefault"_s), dictionaryMemberWithDefaultValue);
     }
     auto enumerationValueWithDefaultValue = toJS<IDLEnumeration<TestObj::EnumType>>(lexicalGlobalObject, throwScope, dictionary.enumerationValueWithDefault);
     RETURN_IF_EXCEPTION(throwScope, { });
@@ -1630,6 +1686,7 @@ static JSC_DECLARE_HOST_FUNCTION(jsTestObjPrototypeFunction_methodWithOptionalNu
 static JSC_DECLARE_HOST_FUNCTION(jsTestObjPrototypeFunction_methodWithOptionalXPathNSResolver);
 static JSC_DECLARE_HOST_FUNCTION(jsTestObjPrototypeFunction_methodWithOptionalRecord);
 static JSC_DECLARE_HOST_FUNCTION(jsTestObjPrototypeFunction_methodWithOptionalPromise);
+static JSC_DECLARE_HOST_FUNCTION(jsTestObjPrototypeFunction_methodWithOptionalDictIsDefault);
 static JSC_DECLARE_HOST_FUNCTION(jsTestObjPrototypeFunction_methodWithCallbackInterfaceArg);
 static JSC_DECLARE_HOST_FUNCTION(jsTestObjPrototypeFunction_methodWithNullableCallbackInterfaceArg);
 static JSC_DECLARE_HOST_FUNCTION(jsTestObjPrototypeFunction_methodWithNonCallbackInterfaceArgAndCallbackInterfaceArg);
@@ -1759,6 +1816,8 @@ static JSC_DECLARE_CUSTOM_GETTER(jsTestObj_testObjAttr);
 static JSC_DECLARE_CUSTOM_SETTER(setJSTestObj_testObjAttr);
 static JSC_DECLARE_CUSTOM_GETTER(jsTestObj_testNullableObjAttr);
 static JSC_DECLARE_CUSTOM_SETTER(setJSTestObj_testNullableObjAttr);
+static JSC_DECLARE_CUSTOM_GETTER(jsTestObj_legacyLenientSetterTestAttr);
+static JSC_DECLARE_CUSTOM_SETTER(setJSTestObj_legacyLenientSetterTestAttr);
 static JSC_DECLARE_CUSTOM_GETTER(jsTestObj_lenientTestObjAttr);
 static JSC_DECLARE_CUSTOM_SETTER(setJSTestObj_lenientTestObjAttr);
 static JSC_DECLARE_CUSTOM_GETTER(jsTestObj_unforgeableAttr);
@@ -1984,23 +2043,23 @@ static const struct CompactHashIndex JSTestObjTableIndex[16] = {
 
 static const HashTableValue JSTestObjTableValues[] =
 {
-    { "unforgeableAttr"_s, static_cast<unsigned>(JSC::PropertyAttribute::DontDelete | JSC::PropertyAttribute::ReadOnly | JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestObj_unforgeableAttr), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(0) } },
+    { "unforgeableAttr"_s, static_cast<unsigned>(JSC::PropertyAttribute::DontDelete | JSC::PropertyAttribute::ReadOnly | JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestObj_unforgeableAttr, 0 } },
 #if ENABLE(Condition1)
-    { "conditionalAttr4"_s, static_cast<unsigned>(JSC::PropertyAttribute::DontEnum), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestObj_conditionalAttr4Constructor), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(0) } },
+    { "conditionalAttr4"_s, static_cast<unsigned>(JSC::PropertyAttribute::DontEnum), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestObj_conditionalAttr4Constructor, 0 } },
 #else
-    { { }, 0, NoIntrinsic, { 0, 0 } },
+    { { }, 0, NoIntrinsic, { HashTableValue::End } },
 #endif
 #if ENABLE(Condition1) && ENABLE(Condition2)
-    { "conditionalAttr5"_s, static_cast<unsigned>(JSC::PropertyAttribute::DontEnum), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestObj_conditionalAttr5Constructor), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(0) } },
+    { "conditionalAttr5"_s, static_cast<unsigned>(JSC::PropertyAttribute::DontEnum), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestObj_conditionalAttr5Constructor, 0 } },
 #else
-    { { }, 0, NoIntrinsic, { 0, 0 } },
+    { { }, 0, NoIntrinsic, { HashTableValue::End } },
 #endif
 #if ENABLE(Condition1) || ENABLE(Condition2)
-    { "conditionalAttr6"_s, static_cast<unsigned>(JSC::PropertyAttribute::DontEnum), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestObj_conditionalAttr6Constructor), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(0) } },
+    { "conditionalAttr6"_s, static_cast<unsigned>(JSC::PropertyAttribute::DontEnum), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestObj_conditionalAttr6Constructor, 0 } },
 #else
-    { { }, 0, NoIntrinsic, { 0, 0 } },
+    { { }, 0, NoIntrinsic, { HashTableValue::End } },
 #endif
-    { "unforgeableMethod"_s, static_cast<unsigned>(JSC::PropertyAttribute::DontDelete | JSC::PropertyAttribute::ReadOnly | JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjInstanceFunction_unforgeableMethod), (intptr_t) (0) } },
+    { "unforgeableMethod"_s, static_cast<unsigned>(JSC::PropertyAttribute::DontDelete | JSC::PropertyAttribute::ReadOnly | JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjInstanceFunction_unforgeableMethod, 0 } },
 };
 
 static const HashTable JSTestObjTable = { 5, 15, true, JSTestObj::info(), JSTestObjTableValues, JSTestObjTableIndex };
@@ -2009,49 +2068,49 @@ static const HashTable JSTestObjTable = { 5, 15, true, JSTestObj::info(), JSTest
 static const HashTableValue JSTestObjConstructorTableValues[] =
 {
 #if ENABLE(Condition1)
-    { "CONDITIONAL_CONST"_s, JSC::PropertyAttribute::DontDelete | JSC::PropertyAttribute::ReadOnly | JSC::PropertyAttribute::ConstantInteger, NoIntrinsic, { (long long)(0) } },
+    { "CONDITIONAL_CONST"_s, JSC::PropertyAttribute::DontDelete | JSC::PropertyAttribute::ReadOnly | JSC::PropertyAttribute::ConstantInteger, NoIntrinsic, { HashTableValue::ConstantType, 0 } },
 #else
-    { { }, 0, NoIntrinsic, { 0, 0 } },
+    { { }, 0, NoIntrinsic, { HashTableValue::End } },
 #endif
-    { "CONST_VALUE_0"_s, JSC::PropertyAttribute::DontDelete | JSC::PropertyAttribute::ReadOnly | JSC::PropertyAttribute::ConstantInteger, NoIntrinsic, { (long long)(0) } },
-    { "CONST_VALUE_1"_s, JSC::PropertyAttribute::DontDelete | JSC::PropertyAttribute::ReadOnly | JSC::PropertyAttribute::ConstantInteger, NoIntrinsic, { (long long)(1) } },
-    { "CONST_VALUE_2"_s, JSC::PropertyAttribute::DontDelete | JSC::PropertyAttribute::ReadOnly | JSC::PropertyAttribute::ConstantInteger, NoIntrinsic, { (long long)(2) } },
-    { "CONST_VALUE_4"_s, JSC::PropertyAttribute::DontDelete | JSC::PropertyAttribute::ReadOnly | JSC::PropertyAttribute::ConstantInteger, NoIntrinsic, { (long long)(4) } },
-    { "CONST_VALUE_8"_s, JSC::PropertyAttribute::DontDelete | JSC::PropertyAttribute::ReadOnly | JSC::PropertyAttribute::ConstantInteger, NoIntrinsic, { (long long)(8) } },
-    { "CONST_VALUE_9"_s, JSC::PropertyAttribute::DontDelete | JSC::PropertyAttribute::ReadOnly | JSC::PropertyAttribute::ConstantInteger, NoIntrinsic, { (long long)(-1) } },
-    { "CONST_VALUE_11"_s, JSC::PropertyAttribute::DontDelete | JSC::PropertyAttribute::ReadOnly | JSC::PropertyAttribute::ConstantInteger, NoIntrinsic, { (long long)(0xffffffff) } },
-    { "CONST_VALUE_12"_s, JSC::PropertyAttribute::DontDelete | JSC::PropertyAttribute::ReadOnly | JSC::PropertyAttribute::ConstantInteger, NoIntrinsic, { (long long)(0x01) } },
-    { "CONST_VALUE_13"_s, JSC::PropertyAttribute::DontDelete | JSC::PropertyAttribute::ReadOnly | JSC::PropertyAttribute::ConstantInteger, NoIntrinsic, { (long long)(0X20) } },
-    { "CONST_VALUE_14"_s, JSC::PropertyAttribute::DontDelete | JSC::PropertyAttribute::ReadOnly | JSC::PropertyAttribute::ConstantInteger, NoIntrinsic, { (long long)(0x1abc) } },
-    { "CONST_JAVASCRIPT"_s, JSC::PropertyAttribute::DontDelete | JSC::PropertyAttribute::ReadOnly | JSC::PropertyAttribute::ConstantInteger, NoIntrinsic, { (long long)(15) } },
-    { "readonly"_s, JSC::PropertyAttribute::DontDelete | JSC::PropertyAttribute::ReadOnly | JSC::PropertyAttribute::ConstantInteger, NoIntrinsic, { (long long)(0) } },
-    { "staticReadOnlyLongAttr"_s, static_cast<unsigned>(JSC::PropertyAttribute::ReadOnly), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestObjConstructor_staticReadOnlyLongAttr), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(0) } },
-    { "staticStringAttr"_s, static_cast<unsigned>(0), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestObjConstructor_staticStringAttr), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(setJSTestObjConstructor_staticStringAttr) } },
-    { "TestSubObj"_s, static_cast<unsigned>(JSC::PropertyAttribute::ReadOnly), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestObjConstructor_TestSubObj), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(0) } },
-    { "testStaticReadonlyObj"_s, static_cast<unsigned>(JSC::PropertyAttribute::ReadOnly), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestObjConstructor_testStaticReadonlyObj), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(0) } },
+    { "CONST_VALUE_0"_s, JSC::PropertyAttribute::DontDelete | JSC::PropertyAttribute::ReadOnly | JSC::PropertyAttribute::ConstantInteger, NoIntrinsic, { HashTableValue::ConstantType, 0 } },
+    { "CONST_VALUE_1"_s, JSC::PropertyAttribute::DontDelete | JSC::PropertyAttribute::ReadOnly | JSC::PropertyAttribute::ConstantInteger, NoIntrinsic, { HashTableValue::ConstantType, 1 } },
+    { "CONST_VALUE_2"_s, JSC::PropertyAttribute::DontDelete | JSC::PropertyAttribute::ReadOnly | JSC::PropertyAttribute::ConstantInteger, NoIntrinsic, { HashTableValue::ConstantType, 2 } },
+    { "CONST_VALUE_4"_s, JSC::PropertyAttribute::DontDelete | JSC::PropertyAttribute::ReadOnly | JSC::PropertyAttribute::ConstantInteger, NoIntrinsic, { HashTableValue::ConstantType, 4 } },
+    { "CONST_VALUE_8"_s, JSC::PropertyAttribute::DontDelete | JSC::PropertyAttribute::ReadOnly | JSC::PropertyAttribute::ConstantInteger, NoIntrinsic, { HashTableValue::ConstantType, 8 } },
+    { "CONST_VALUE_9"_s, JSC::PropertyAttribute::DontDelete | JSC::PropertyAttribute::ReadOnly | JSC::PropertyAttribute::ConstantInteger, NoIntrinsic, { HashTableValue::ConstantType, -1 } },
+    { "CONST_VALUE_11"_s, JSC::PropertyAttribute::DontDelete | JSC::PropertyAttribute::ReadOnly | JSC::PropertyAttribute::ConstantInteger, NoIntrinsic, { HashTableValue::ConstantType, 0xffffffff } },
+    { "CONST_VALUE_12"_s, JSC::PropertyAttribute::DontDelete | JSC::PropertyAttribute::ReadOnly | JSC::PropertyAttribute::ConstantInteger, NoIntrinsic, { HashTableValue::ConstantType, 0x01 } },
+    { "CONST_VALUE_13"_s, JSC::PropertyAttribute::DontDelete | JSC::PropertyAttribute::ReadOnly | JSC::PropertyAttribute::ConstantInteger, NoIntrinsic, { HashTableValue::ConstantType, 0X20 } },
+    { "CONST_VALUE_14"_s, JSC::PropertyAttribute::DontDelete | JSC::PropertyAttribute::ReadOnly | JSC::PropertyAttribute::ConstantInteger, NoIntrinsic, { HashTableValue::ConstantType, 0x1abc } },
+    { "CONST_JAVASCRIPT"_s, JSC::PropertyAttribute::DontDelete | JSC::PropertyAttribute::ReadOnly | JSC::PropertyAttribute::ConstantInteger, NoIntrinsic, { HashTableValue::ConstantType, 15 } },
+    { "readonly"_s, JSC::PropertyAttribute::DontDelete | JSC::PropertyAttribute::ReadOnly | JSC::PropertyAttribute::ConstantInteger, NoIntrinsic, { HashTableValue::ConstantType, 0 } },
+    { "staticReadOnlyLongAttr"_s, static_cast<unsigned>(JSC::PropertyAttribute::ReadOnly), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestObjConstructor_staticReadOnlyLongAttr, 0 } },
+    { "staticStringAttr"_s, static_cast<unsigned>(0), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestObjConstructor_staticStringAttr, setJSTestObjConstructor_staticStringAttr } },
+    { "TestSubObj"_s, static_cast<unsigned>(JSC::PropertyAttribute::ReadOnly), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestObjConstructor_TestSubObj, 0 } },
+    { "testStaticReadonlyObj"_s, static_cast<unsigned>(JSC::PropertyAttribute::ReadOnly), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestObjConstructor_testStaticReadonlyObj, 0 } },
 #if ENABLE(TEST_FEATURE)
-    { "enabledAtRuntimeAttributeStatic"_s, static_cast<unsigned>(0), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestObjConstructor_enabledAtRuntimeAttributeStatic), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(setJSTestObjConstructor_enabledAtRuntimeAttributeStatic) } },
+    { "enabledAtRuntimeAttributeStatic"_s, static_cast<unsigned>(0), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestObjConstructor_enabledAtRuntimeAttributeStatic, setJSTestObjConstructor_enabledAtRuntimeAttributeStatic } },
 #else
-    { { }, 0, NoIntrinsic, { 0, 0 } },
+    { { }, 0, NoIntrinsic, { HashTableValue::End } },
 #endif
 #if ENABLE(TEST_FEATURE)
-    { "enabledAtRuntimeOperationStatic"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjConstructorFunction_enabledAtRuntimeOperationStatic), (intptr_t) (1) } },
+    { "enabledAtRuntimeOperationStatic"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjConstructorFunction_enabledAtRuntimeOperationStatic, 1 } },
 #else
-    { { }, 0, NoIntrinsic, { 0, 0 } },
+    { { }, 0, NoIntrinsic, { HashTableValue::End } },
 #endif
-    { "nullableStringStaticMethod"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjConstructorFunction_nullableStringStaticMethod), (intptr_t) (0) } },
-    { "staticMethodWithCallbackAndOptionalArg"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjConstructorFunction_staticMethodWithCallbackAndOptionalArg), (intptr_t) (0) } },
-    { "staticMethodWithCallbackArg"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjConstructorFunction_staticMethodWithCallbackArg), (intptr_t) (1) } },
-    { "classMethod"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjConstructorFunction_classMethod), (intptr_t) (0) } },
-    { "classMethodWithOptional"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjConstructorFunction_classMethodWithOptional), (intptr_t) (0) } },
-    { "classMethod2"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjConstructorFunction_classMethod2), (intptr_t) (1) } },
+    { "nullableStringStaticMethod"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjConstructorFunction_nullableStringStaticMethod, 0 } },
+    { "staticMethodWithCallbackAndOptionalArg"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjConstructorFunction_staticMethodWithCallbackAndOptionalArg, 0 } },
+    { "staticMethodWithCallbackArg"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjConstructorFunction_staticMethodWithCallbackArg, 1 } },
+    { "classMethod"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjConstructorFunction_classMethod, 0 } },
+    { "classMethodWithOptional"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjConstructorFunction_classMethodWithOptional, 0 } },
+    { "classMethod2"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjConstructorFunction_classMethod2, 1 } },
 #if ENABLE(Condition1)
-    { "overloadedMethod1"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjConstructorFunction_overloadedMethod1), (intptr_t) (1) } },
+    { "overloadedMethod1"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjConstructorFunction_overloadedMethod1, 1 } },
 #else
-    { { }, 0, NoIntrinsic, { 0, 0 } },
+    { { }, 0, NoIntrinsic, { HashTableValue::End } },
 #endif
-    { "testStaticPromiseFunction"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjConstructorFunction_testStaticPromiseFunction), (intptr_t) (0) } },
-    { "testStaticCustomPromiseFunction"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjConstructorFunction_testStaticCustomPromiseFunction), (intptr_t) (0) } },
+    { "testStaticPromiseFunction"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjConstructorFunction_testStaticPromiseFunction, 0 } },
+    { "testStaticCustomPromiseFunction"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjConstructorFunction_testStaticCustomPromiseFunction, 0 } },
 };
 
 #if ENABLE(Condition1)
@@ -2140,335 +2199,337 @@ template<> void JSTestObjDOMConstructor::initializeProperties(VM& vm, JSDOMGloba
 
 static const HashTableValue JSTestObjPrototypeTableValues[] =
 {
-    { "constructor"_s, static_cast<unsigned>(JSC::PropertyAttribute::DontEnum), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestObjConstructor), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(0) } },
-    { "readOnlyLongAttr"_s, static_cast<unsigned>(JSC::PropertyAttribute::ReadOnly | JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestObj_readOnlyLongAttr), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(0) } },
-    { "readOnlyStringAttr"_s, static_cast<unsigned>(JSC::PropertyAttribute::ReadOnly | JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestObj_readOnlyStringAttr), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(0) } },
-    { "readOnlyTestObjAttr"_s, static_cast<unsigned>(JSC::PropertyAttribute::ReadOnly | JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestObj_readOnlyTestObjAttr), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(0) } },
-    { "enumAttr"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestObj_enumAttr), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(setJSTestObj_enumAttr) } },
-    { "byteAttr"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestObj_byteAttr), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(setJSTestObj_byteAttr) } },
-    { "octetAttr"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestObj_octetAttr), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(setJSTestObj_octetAttr) } },
-    { "shortAttr"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestObj_shortAttr), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(setJSTestObj_shortAttr) } },
-    { "clampedShortAttr"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestObj_clampedShortAttr), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(setJSTestObj_clampedShortAttr) } },
-    { "enforceRangeShortAttr"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestObj_enforceRangeShortAttr), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(setJSTestObj_enforceRangeShortAttr) } },
-    { "unsignedShortAttr"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestObj_unsignedShortAttr), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(setJSTestObj_unsignedShortAttr) } },
-    { "longAttr"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestObj_longAttr), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(setJSTestObj_longAttr) } },
-    { "longLongAttr"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestObj_longLongAttr), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(setJSTestObj_longLongAttr) } },
-    { "unsignedLongLongAttr"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestObj_unsignedLongLongAttr), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(setJSTestObj_unsignedLongLongAttr) } },
-    { "stringAttr"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestObj_stringAttr), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(setJSTestObj_stringAttr) } },
-    { "usvstringAttr"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestObj_usvstringAttr), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(setJSTestObj_usvstringAttr) } },
-    { "testObjAttr"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestObj_testObjAttr), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(setJSTestObj_testObjAttr) } },
-    { "testNullableObjAttr"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestObj_testNullableObjAttr), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(setJSTestObj_testNullableObjAttr) } },
-    { "lenientTestObjAttr"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestObj_lenientTestObjAttr), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(setJSTestObj_lenientTestObjAttr) } },
-    { "stringAttrTreatingNullAsEmptyString"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestObj_stringAttrTreatingNullAsEmptyString), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(setJSTestObj_stringAttrTreatingNullAsEmptyString) } },
-    { "usvstringAttrTreatingNullAsEmptyString"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestObj_usvstringAttrTreatingNullAsEmptyString), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(setJSTestObj_usvstringAttrTreatingNullAsEmptyString) } },
-    { "byteStringAttrTreatingNullAsEmptyString"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestObj_byteStringAttrTreatingNullAsEmptyString), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(setJSTestObj_byteStringAttrTreatingNullAsEmptyString) } },
-    { "stringLongRecordAttr"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestObj_stringLongRecordAttr), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(setJSTestObj_stringLongRecordAttr) } },
-    { "usvstringLongRecordAttr"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestObj_usvstringLongRecordAttr), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(setJSTestObj_usvstringLongRecordAttr) } },
-    { "usvstringLongRecordAttr"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestObj_usvstringLongRecordAttr), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(setJSTestObj_usvstringLongRecordAttr) } },
-    { "stringObjRecordAttr"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestObj_stringObjRecordAttr), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(setJSTestObj_stringObjRecordAttr) } },
-    { "stringNullableObjRecordAttr"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestObj_stringNullableObjRecordAttr), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(setJSTestObj_stringNullableObjRecordAttr) } },
-    { "stringVoidCallbackRecordAttr"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestObj_stringVoidCallbackRecordAttr), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(setJSTestObj_stringVoidCallbackRecordAttr) } },
-    { "dictionaryAttr"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestObj_dictionaryAttr), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(setJSTestObj_dictionaryAttr) } },
-    { "nullableDictionaryAttr"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestObj_nullableDictionaryAttr), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(setJSTestObj_nullableDictionaryAttr) } },
-    { "annotatedTypeInUnionAttr"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestObj_annotatedTypeInUnionAttr), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(setJSTestObj_annotatedTypeInUnionAttr) } },
-    { "annotatedTypeInSequenceAttr"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestObj_annotatedTypeInSequenceAttr), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(setJSTestObj_annotatedTypeInSequenceAttr) } },
-    { "implementationEnumAttr"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestObj_implementationEnumAttr), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(setJSTestObj_implementationEnumAttr) } },
-    { "mediaDevices"_s, static_cast<unsigned>(JSC::PropertyAttribute::ReadOnly | JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestObj_mediaDevices), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(0) } },
-    { "XMLObjAttr"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestObj_XMLObjAttr), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(setJSTestObj_XMLObjAttr) } },
-    { "create"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestObj_create), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(setJSTestObj_create) } },
-    { "reflectedStringAttr"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestObj_reflectedStringAttr), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(setJSTestObj_reflectedStringAttr) } },
-    { "reflectedUSVStringAttr"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestObj_reflectedUSVStringAttr), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(setJSTestObj_reflectedUSVStringAttr) } },
-    { "reflectedIntegralAttr"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestObj_reflectedIntegralAttr), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(setJSTestObj_reflectedIntegralAttr) } },
-    { "reflectedUnsignedIntegralAttr"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestObj_reflectedUnsignedIntegralAttr), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(setJSTestObj_reflectedUnsignedIntegralAttr) } },
-    { "reflectedBooleanAttr"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestObj_reflectedBooleanAttr), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(setJSTestObj_reflectedBooleanAttr) } },
-    { "reflectedElementAttr"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestObj_reflectedElementAttr), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(setJSTestObj_reflectedElementAttr) } },
-    { "reflectedElementsArrayAttr"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestObj_reflectedElementsArrayAttr), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(setJSTestObj_reflectedElementsArrayAttr) } },
-    { "reflectedURLAttr"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestObj_reflectedURLAttr), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(setJSTestObj_reflectedURLAttr) } },
-    { "reflectedUSVURLAttr"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestObj_reflectedUSVURLAttr), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(setJSTestObj_reflectedUSVURLAttr) } },
-    { "reflectedStringAttr"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestObj_reflectedStringAttr), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(setJSTestObj_reflectedStringAttr) } },
-    { "reflectedCustomIntegralAttr"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestObj_reflectedCustomIntegralAttr), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(setJSTestObj_reflectedCustomIntegralAttr) } },
-    { "reflectedCustomBooleanAttr"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestObj_reflectedCustomBooleanAttr), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(setJSTestObj_reflectedCustomBooleanAttr) } },
-    { "reflectedCustomURLAttr"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestObj_reflectedCustomURLAttr), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(setJSTestObj_reflectedCustomURLAttr) } },
+    { "constructor"_s, static_cast<unsigned>(JSC::PropertyAttribute::DontEnum), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestObjConstructor, 0 } },
+    { "readOnlyLongAttr"_s, static_cast<unsigned>(JSC::PropertyAttribute::ReadOnly | JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestObj_readOnlyLongAttr, 0 } },
+    { "readOnlyStringAttr"_s, static_cast<unsigned>(JSC::PropertyAttribute::ReadOnly | JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestObj_readOnlyStringAttr, 0 } },
+    { "readOnlyTestObjAttr"_s, static_cast<unsigned>(JSC::PropertyAttribute::ReadOnly | JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestObj_readOnlyTestObjAttr, 0 } },
+    { "enumAttr"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestObj_enumAttr, setJSTestObj_enumAttr } },
+    { "byteAttr"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestObj_byteAttr, setJSTestObj_byteAttr } },
+    { "octetAttr"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestObj_octetAttr, setJSTestObj_octetAttr } },
+    { "shortAttr"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestObj_shortAttr, setJSTestObj_shortAttr } },
+    { "clampedShortAttr"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestObj_clampedShortAttr, setJSTestObj_clampedShortAttr } },
+    { "enforceRangeShortAttr"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestObj_enforceRangeShortAttr, setJSTestObj_enforceRangeShortAttr } },
+    { "unsignedShortAttr"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestObj_unsignedShortAttr, setJSTestObj_unsignedShortAttr } },
+    { "longAttr"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestObj_longAttr, setJSTestObj_longAttr } },
+    { "longLongAttr"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestObj_longLongAttr, setJSTestObj_longLongAttr } },
+    { "unsignedLongLongAttr"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestObj_unsignedLongLongAttr, setJSTestObj_unsignedLongLongAttr } },
+    { "stringAttr"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestObj_stringAttr, setJSTestObj_stringAttr } },
+    { "usvstringAttr"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestObj_usvstringAttr, setJSTestObj_usvstringAttr } },
+    { "testObjAttr"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestObj_testObjAttr, setJSTestObj_testObjAttr } },
+    { "testNullableObjAttr"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestObj_testNullableObjAttr, setJSTestObj_testNullableObjAttr } },
+    { "legacyLenientSetterTestAttr"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestObj_legacyLenientSetterTestAttr, setJSTestObj_legacyLenientSetterTestAttr } },
+    { "lenientTestObjAttr"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestObj_lenientTestObjAttr, setJSTestObj_lenientTestObjAttr } },
+    { "stringAttrTreatingNullAsEmptyString"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestObj_stringAttrTreatingNullAsEmptyString, setJSTestObj_stringAttrTreatingNullAsEmptyString } },
+    { "usvstringAttrTreatingNullAsEmptyString"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestObj_usvstringAttrTreatingNullAsEmptyString, setJSTestObj_usvstringAttrTreatingNullAsEmptyString } },
+    { "byteStringAttrTreatingNullAsEmptyString"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestObj_byteStringAttrTreatingNullAsEmptyString, setJSTestObj_byteStringAttrTreatingNullAsEmptyString } },
+    { "stringLongRecordAttr"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestObj_stringLongRecordAttr, setJSTestObj_stringLongRecordAttr } },
+    { "usvstringLongRecordAttr"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestObj_usvstringLongRecordAttr, setJSTestObj_usvstringLongRecordAttr } },
+    { "usvstringLongRecordAttr"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestObj_usvstringLongRecordAttr, setJSTestObj_usvstringLongRecordAttr } },
+    { "stringObjRecordAttr"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestObj_stringObjRecordAttr, setJSTestObj_stringObjRecordAttr } },
+    { "stringNullableObjRecordAttr"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestObj_stringNullableObjRecordAttr, setJSTestObj_stringNullableObjRecordAttr } },
+    { "stringVoidCallbackRecordAttr"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestObj_stringVoidCallbackRecordAttr, setJSTestObj_stringVoidCallbackRecordAttr } },
+    { "dictionaryAttr"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestObj_dictionaryAttr, setJSTestObj_dictionaryAttr } },
+    { "nullableDictionaryAttr"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestObj_nullableDictionaryAttr, setJSTestObj_nullableDictionaryAttr } },
+    { "annotatedTypeInUnionAttr"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestObj_annotatedTypeInUnionAttr, setJSTestObj_annotatedTypeInUnionAttr } },
+    { "annotatedTypeInSequenceAttr"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestObj_annotatedTypeInSequenceAttr, setJSTestObj_annotatedTypeInSequenceAttr } },
+    { "implementationEnumAttr"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestObj_implementationEnumAttr, setJSTestObj_implementationEnumAttr } },
+    { "mediaDevices"_s, static_cast<unsigned>(JSC::PropertyAttribute::ReadOnly | JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestObj_mediaDevices, 0 } },
+    { "XMLObjAttr"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestObj_XMLObjAttr, setJSTestObj_XMLObjAttr } },
+    { "create"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestObj_create, setJSTestObj_create } },
+    { "reflectedStringAttr"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestObj_reflectedStringAttr, setJSTestObj_reflectedStringAttr } },
+    { "reflectedUSVStringAttr"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestObj_reflectedUSVStringAttr, setJSTestObj_reflectedUSVStringAttr } },
+    { "reflectedIntegralAttr"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestObj_reflectedIntegralAttr, setJSTestObj_reflectedIntegralAttr } },
+    { "reflectedUnsignedIntegralAttr"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestObj_reflectedUnsignedIntegralAttr, setJSTestObj_reflectedUnsignedIntegralAttr } },
+    { "reflectedBooleanAttr"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestObj_reflectedBooleanAttr, setJSTestObj_reflectedBooleanAttr } },
+    { "reflectedElementAttr"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestObj_reflectedElementAttr, setJSTestObj_reflectedElementAttr } },
+    { "reflectedElementsArrayAttr"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestObj_reflectedElementsArrayAttr, setJSTestObj_reflectedElementsArrayAttr } },
+    { "reflectedURLAttr"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestObj_reflectedURLAttr, setJSTestObj_reflectedURLAttr } },
+    { "reflectedUSVURLAttr"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestObj_reflectedUSVURLAttr, setJSTestObj_reflectedUSVURLAttr } },
+    { "reflectedStringAttr"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestObj_reflectedStringAttr, setJSTestObj_reflectedStringAttr } },
+    { "reflectedCustomIntegralAttr"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestObj_reflectedCustomIntegralAttr, setJSTestObj_reflectedCustomIntegralAttr } },
+    { "reflectedCustomBooleanAttr"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestObj_reflectedCustomBooleanAttr, setJSTestObj_reflectedCustomBooleanAttr } },
+    { "reflectedCustomURLAttr"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestObj_reflectedCustomURLAttr, setJSTestObj_reflectedCustomURLAttr } },
 #if ENABLE(TEST_FEATURE)
-    { "enabledAtRuntimeAttribute"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestObj_enabledAtRuntimeAttribute), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(setJSTestObj_enabledAtRuntimeAttribute) } },
+    { "enabledAtRuntimeAttribute"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestObj_enabledAtRuntimeAttribute, setJSTestObj_enabledAtRuntimeAttribute } },
 #else
-    { { }, 0, NoIntrinsic, { 0, 0 } },
+    { { }, 0, NoIntrinsic, { HashTableValue::End } },
 #endif
-    { "typedArrayAttr"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestObj_typedArrayAttr), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(setJSTestObj_typedArrayAttr) } },
-    { "customAttr"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestObj_customAttr), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(setJSTestObj_customAttr) } },
+    { "typedArrayAttr"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestObj_typedArrayAttr, setJSTestObj_typedArrayAttr } },
+    { "customAttr"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestObj_customAttr, setJSTestObj_customAttr } },
 #if ENABLE(Condition4)
-    { "jsBuiltinAttribute"_s, static_cast<unsigned>(JSC::PropertyAttribute::Accessor | JSC::PropertyAttribute::Builtin), NoIntrinsic, { (intptr_t)static_cast<BuiltinGenerator>(testObjJsBuiltinAttributeCodeGenerator), (intptr_t) (setTestObjJsBuiltinAttributeCodeGenerator) } },
+    { "jsBuiltinAttribute"_s, static_cast<unsigned>(JSC::PropertyAttribute::Accessor | JSC::PropertyAttribute::Builtin), NoIntrinsic, { HashTableValue::BuiltinAccessorType, testObjJsBuiltinAttributeCodeGenerator, setTestObjJsBuiltinAttributeCodeGenerator } },
 #else
-    { { }, 0, NoIntrinsic, { 0, 0 } },
+    { { }, 0, NoIntrinsic, { HashTableValue::End } },
 #endif
 #if ENABLE(Condition4)
-    { "jsBuiltinReadOnlyAttribute"_s, static_cast<unsigned>(JSC::PropertyAttribute::ReadOnly | JSC::PropertyAttribute::Accessor | JSC::PropertyAttribute::Builtin), NoIntrinsic, { (intptr_t)static_cast<BuiltinGenerator>(testObjJsBuiltinReadOnlyAttributeCodeGenerator), (intptr_t) (0) } },
+    { "jsBuiltinReadOnlyAttribute"_s, static_cast<unsigned>(JSC::PropertyAttribute::ReadOnly | JSC::PropertyAttribute::Accessor | JSC::PropertyAttribute::Builtin), NoIntrinsic, { HashTableValue::BuiltinAccessorType, testObjJsBuiltinReadOnlyAttributeCodeGenerator, 0 } },
 #else
-    { { }, 0, NoIntrinsic, { 0, 0 } },
+    { { }, 0, NoIntrinsic, { HashTableValue::End } },
 #endif
-    { "onfoo"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestObj_onfoo), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(setJSTestObj_onfoo) } },
-    { "onwebkitfoo"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestObj_onwebkitfoo), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(setJSTestObj_onwebkitfoo) } },
-    { "withCurrentGlobalObjectAttribute"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestObj_withCurrentGlobalObjectAttribute), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(setJSTestObj_withCurrentGlobalObjectAttribute) } },
-    { "withCallWithAndSetterCallWithAttribute"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestObj_withCallWithAndSetterCallWithAttribute), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(setJSTestObj_withCallWithAndSetterCallWithAttribute) } },
-    { "withSetterCallWithAttribute"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestObj_withSetterCallWithAttribute), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(setJSTestObj_withSetterCallWithAttribute) } },
+    { "onfoo"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestObj_onfoo, setJSTestObj_onfoo } },
+    { "onwebkitfoo"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestObj_onwebkitfoo, setJSTestObj_onwebkitfoo } },
+    { "withCurrentGlobalObjectAttribute"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestObj_withCurrentGlobalObjectAttribute, setJSTestObj_withCurrentGlobalObjectAttribute } },
+    { "withCallWithAndSetterCallWithAttribute"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestObj_withCallWithAndSetterCallWithAttribute, setJSTestObj_withCallWithAndSetterCallWithAttribute } },
+    { "withSetterCallWithAttribute"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestObj_withSetterCallWithAttribute, setJSTestObj_withSetterCallWithAttribute } },
 #if ENABLE(Condition1)
-    { "conditionalAttr1"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestObj_conditionalAttr1), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(setJSTestObj_conditionalAttr1) } },
+    { "conditionalAttr1"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestObj_conditionalAttr1, setJSTestObj_conditionalAttr1 } },
 #else
-    { { }, 0, NoIntrinsic, { 0, 0 } },
+    { { }, 0, NoIntrinsic, { HashTableValue::End } },
 #endif
 #if ENABLE(Condition1) && ENABLE(Condition2)
-    { "conditionalAttr2"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestObj_conditionalAttr2), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(setJSTestObj_conditionalAttr2) } },
+    { "conditionalAttr2"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestObj_conditionalAttr2, setJSTestObj_conditionalAttr2 } },
 #else
-    { { }, 0, NoIntrinsic, { 0, 0 } },
+    { { }, 0, NoIntrinsic, { HashTableValue::End } },
 #endif
 #if ENABLE(Condition1) || ENABLE(Condition2)
-    { "conditionalAttr3"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestObj_conditionalAttr3), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(setJSTestObj_conditionalAttr3) } },
+    { "conditionalAttr3"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestObj_conditionalAttr3, setJSTestObj_conditionalAttr3 } },
 #else
-    { { }, 0, NoIntrinsic, { 0, 0 } },
+    { { }, 0, NoIntrinsic, { HashTableValue::End } },
 #endif
-    { "cachedAttribute1"_s, static_cast<unsigned>(JSC::PropertyAttribute::ReadOnly | JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestObj_cachedAttribute1), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(0) } },
-    { "cachedAttribute2"_s, static_cast<unsigned>(JSC::PropertyAttribute::ReadOnly | JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestObj_cachedAttribute2), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(0) } },
+    { "cachedAttribute1"_s, static_cast<unsigned>(JSC::PropertyAttribute::ReadOnly | JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestObj_cachedAttribute1, 0 } },
+    { "cachedAttribute2"_s, static_cast<unsigned>(JSC::PropertyAttribute::ReadOnly | JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestObj_cachedAttribute2, 0 } },
 #if ENABLE(CONDITION)
-    { "cachedAttribute3"_s, static_cast<unsigned>(JSC::PropertyAttribute::ReadOnly | JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestObj_cachedAttribute3), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(0) } },
+    { "cachedAttribute3"_s, static_cast<unsigned>(JSC::PropertyAttribute::ReadOnly | JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestObj_cachedAttribute3, 0 } },
 #else
-    { { }, 0, NoIntrinsic, { 0, 0 } },
+    { { }, 0, NoIntrinsic, { HashTableValue::End } },
 #endif
-    { "anyAttribute"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestObj_anyAttribute), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(setJSTestObj_anyAttribute) } },
-    { "objectAttribute"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestObj_objectAttribute), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(setJSTestObj_objectAttribute) } },
-    { "contentDocument"_s, static_cast<unsigned>(JSC::PropertyAttribute::ReadOnly | JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestObj_contentDocument), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(0) } },
-    { "mutablePoint"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestObj_mutablePoint), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(setJSTestObj_mutablePoint) } },
-    { "strawberry"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestObj_strawberry), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(setJSTestObj_strawberry) } },
-    { "description"_s, static_cast<unsigned>(JSC::PropertyAttribute::ReadOnly | JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestObj_description), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(0) } },
-    { "id"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestObj_id), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(setJSTestObj_id) } },
-    { "hash"_s, static_cast<unsigned>(JSC::PropertyAttribute::ReadOnly | JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestObj_hash), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(0) } },
-    { "replaceableAttribute"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestObj_replaceableAttribute), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(setJSTestObj_replaceableAttribute) } },
-    { "nullableDoubleAttribute"_s, static_cast<unsigned>(JSC::PropertyAttribute::ReadOnly | JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestObj_nullableDoubleAttribute), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(0) } },
-    { "nullableLongAttribute"_s, static_cast<unsigned>(JSC::PropertyAttribute::ReadOnly | JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestObj_nullableLongAttribute), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(0) } },
-    { "nullableBooleanAttribute"_s, static_cast<unsigned>(JSC::PropertyAttribute::ReadOnly | JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestObj_nullableBooleanAttribute), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(0) } },
-    { "nullableStringAttribute"_s, static_cast<unsigned>(JSC::PropertyAttribute::ReadOnly | JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestObj_nullableStringAttribute), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(0) } },
-    { "nullableLongSettableAttribute"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestObj_nullableLongSettableAttribute), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(setJSTestObj_nullableLongSettableAttribute) } },
-    { "nullableStringSettableAttribute"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestObj_nullableStringSettableAttribute), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(setJSTestObj_nullableStringSettableAttribute) } },
-    { "nullableUSVStringSettableAttribute"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestObj_nullableUSVStringSettableAttribute), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(setJSTestObj_nullableUSVStringSettableAttribute) } },
-    { "nullableByteStringSettableAttribute"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestObj_nullableByteStringSettableAttribute), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(setJSTestObj_nullableByteStringSettableAttribute) } },
-    { "attribute"_s, static_cast<unsigned>(JSC::PropertyAttribute::ReadOnly | JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestObj_attribute), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(0) } },
-    { "attributeWithReservedEnumType"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestObj_attributeWithReservedEnumType), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(setJSTestObj_attributeWithReservedEnumType) } },
-    { "testReadOnlyVoidPromiseAttribute"_s, static_cast<unsigned>(JSC::PropertyAttribute::ReadOnly | JSC::PropertyAttribute::CustomAccessor), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestObj_testReadOnlyVoidPromiseAttribute), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(0) } },
-    { "testReadOnlyPromiseAttribute"_s, static_cast<unsigned>(JSC::PropertyAttribute::ReadOnly | JSC::PropertyAttribute::CustomAccessor), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestObj_testReadOnlyPromiseAttribute), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(0) } },
-    { "putForwardsAttribute"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestObj_putForwardsAttribute), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(setJSTestObj_putForwardsAttribute) } },
-    { "putForwardsNullableAttribute"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestObj_putForwardsNullableAttribute), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(setJSTestObj_putForwardsNullableAttribute) } },
-    { "stringifierAttribute"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestObj_stringifierAttribute), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(setJSTestObj_stringifierAttribute) } },
-    { "conditionallyExposedToWindowAttribute"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestObj_conditionallyExposedToWindowAttribute), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(setJSTestObj_conditionallyExposedToWindowAttribute) } },
-    { "conditionallyExposedToWorkerAttribute"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestObj_conditionallyExposedToWorkerAttribute), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(setJSTestObj_conditionallyExposedToWorkerAttribute) } },
-    { "conditionallyExposedToWindowAndWorkerAttribute"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestObj_conditionallyExposedToWindowAndWorkerAttribute), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(setJSTestObj_conditionallyExposedToWindowAndWorkerAttribute) } },
-    { "-leading-hyphen-attribute"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestObj_dash_leading_dash_hyphen_dash_attribute), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(setJSTestObj_dash_leading_dash_hyphen_dash_attribute) } },
-    { "trailing-hyphen-attribute-"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestObj_trailing_dash_hyphen_dash_attribute_dash_), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(setJSTestObj_trailing_dash_hyphen_dash_attribute_dash_) } },
-    { "leading_underscore_attribute"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestObj_leading_underscore_attribute), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(setJSTestObj_leading_underscore_attribute) } },
-    { "_double_leading_underscore_attribute"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestObj_double_leading_underscore_attribute), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(setJSTestObj_double_leading_underscore_attribute) } },
-    { "trailing_underscore_attribute_"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestObj_trailing_underscore_attribute_), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(setJSTestObj_trailing_underscore_attribute_) } },
-    { "search"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestObj_search), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(setJSTestObj_search) } },
+    { "anyAttribute"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestObj_anyAttribute, setJSTestObj_anyAttribute } },
+    { "objectAttribute"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestObj_objectAttribute, setJSTestObj_objectAttribute } },
+    { "contentDocument"_s, static_cast<unsigned>(JSC::PropertyAttribute::ReadOnly | JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestObj_contentDocument, 0 } },
+    { "mutablePoint"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestObj_mutablePoint, setJSTestObj_mutablePoint } },
+    { "strawberry"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestObj_strawberry, setJSTestObj_strawberry } },
+    { "description"_s, static_cast<unsigned>(JSC::PropertyAttribute::ReadOnly | JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestObj_description, 0 } },
+    { "id"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestObj_id, setJSTestObj_id } },
+    { "hash"_s, static_cast<unsigned>(JSC::PropertyAttribute::ReadOnly | JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestObj_hash, 0 } },
+    { "replaceableAttribute"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestObj_replaceableAttribute, setJSTestObj_replaceableAttribute } },
+    { "nullableDoubleAttribute"_s, static_cast<unsigned>(JSC::PropertyAttribute::ReadOnly | JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestObj_nullableDoubleAttribute, 0 } },
+    { "nullableLongAttribute"_s, static_cast<unsigned>(JSC::PropertyAttribute::ReadOnly | JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestObj_nullableLongAttribute, 0 } },
+    { "nullableBooleanAttribute"_s, static_cast<unsigned>(JSC::PropertyAttribute::ReadOnly | JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestObj_nullableBooleanAttribute, 0 } },
+    { "nullableStringAttribute"_s, static_cast<unsigned>(JSC::PropertyAttribute::ReadOnly | JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestObj_nullableStringAttribute, 0 } },
+    { "nullableLongSettableAttribute"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestObj_nullableLongSettableAttribute, setJSTestObj_nullableLongSettableAttribute } },
+    { "nullableStringSettableAttribute"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestObj_nullableStringSettableAttribute, setJSTestObj_nullableStringSettableAttribute } },
+    { "nullableUSVStringSettableAttribute"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestObj_nullableUSVStringSettableAttribute, setJSTestObj_nullableUSVStringSettableAttribute } },
+    { "nullableByteStringSettableAttribute"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestObj_nullableByteStringSettableAttribute, setJSTestObj_nullableByteStringSettableAttribute } },
+    { "attribute"_s, static_cast<unsigned>(JSC::PropertyAttribute::ReadOnly | JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestObj_attribute, 0 } },
+    { "attributeWithReservedEnumType"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestObj_attributeWithReservedEnumType, setJSTestObj_attributeWithReservedEnumType } },
+    { "testReadOnlyVoidPromiseAttribute"_s, static_cast<unsigned>(JSC::PropertyAttribute::ReadOnly | JSC::PropertyAttribute::CustomAccessor), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestObj_testReadOnlyVoidPromiseAttribute, 0 } },
+    { "testReadOnlyPromiseAttribute"_s, static_cast<unsigned>(JSC::PropertyAttribute::ReadOnly | JSC::PropertyAttribute::CustomAccessor), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestObj_testReadOnlyPromiseAttribute, 0 } },
+    { "putForwardsAttribute"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestObj_putForwardsAttribute, setJSTestObj_putForwardsAttribute } },
+    { "putForwardsNullableAttribute"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestObj_putForwardsNullableAttribute, setJSTestObj_putForwardsNullableAttribute } },
+    { "stringifierAttribute"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestObj_stringifierAttribute, setJSTestObj_stringifierAttribute } },
+    { "conditionallyExposedToWindowAttribute"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestObj_conditionallyExposedToWindowAttribute, setJSTestObj_conditionallyExposedToWindowAttribute } },
+    { "conditionallyExposedToWorkerAttribute"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestObj_conditionallyExposedToWorkerAttribute, setJSTestObj_conditionallyExposedToWorkerAttribute } },
+    { "conditionallyExposedToWindowAndWorkerAttribute"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestObj_conditionallyExposedToWindowAndWorkerAttribute, setJSTestObj_conditionallyExposedToWindowAndWorkerAttribute } },
+    { "-leading-hyphen-attribute"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestObj_dash_leading_dash_hyphen_dash_attribute, setJSTestObj_dash_leading_dash_hyphen_dash_attribute } },
+    { "trailing-hyphen-attribute-"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestObj_trailing_dash_hyphen_dash_attribute_dash_, setJSTestObj_trailing_dash_hyphen_dash_attribute_dash_ } },
+    { "leading_underscore_attribute"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestObj_leading_underscore_attribute, setJSTestObj_leading_underscore_attribute } },
+    { "_double_leading_underscore_attribute"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestObj_double_leading_underscore_attribute, setJSTestObj_double_leading_underscore_attribute } },
+    { "trailing_underscore_attribute_"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestObj_trailing_underscore_attribute_, setJSTestObj_trailing_underscore_attribute_ } },
+    { "search"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestObj_search, setJSTestObj_search } },
 #if ENABLE(TEST_FEATURE)
-    { "enabledAtRuntimeOperation"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjPrototypeFunction_enabledAtRuntimeOperation), (intptr_t) (1) } },
+    { "enabledAtRuntimeOperation"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjPrototypeFunction_enabledAtRuntimeOperation, 1 } },
 #else
-    { { }, 0, NoIntrinsic, { 0, 0 } },
+    { { }, 0, NoIntrinsic, { HashTableValue::End } },
 #endif
-    { "enabledInSpecificWorldWhenRuntimeFeatureEnabled"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjPrototypeFunction_enabledInSpecificWorldWhenRuntimeFeatureEnabled), (intptr_t) (1) } },
-    { "worldSpecificMethod"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjPrototypeFunction_worldSpecificMethod), (intptr_t) (1) } },
-    { "calculateSecretResult"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjPrototypeFunction_calculateSecretResult), (intptr_t) (0) } },
-    { "getSecretBoolean"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjPrototypeFunction_getSecretBoolean), (intptr_t) (0) } },
+    { "enabledInSpecificWorldWhenRuntimeFeatureEnabled"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjPrototypeFunction_enabledInSpecificWorldWhenRuntimeFeatureEnabled, 1 } },
+    { "worldSpecificMethod"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjPrototypeFunction_worldSpecificMethod, 1 } },
+    { "calculateSecretResult"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjPrototypeFunction_calculateSecretResult, 0 } },
+    { "getSecretBoolean"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjPrototypeFunction_getSecretBoolean, 0 } },
 #if ENABLE(TEST_FEATURE)
-    { "testFeatureGetSecretBoolean"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjPrototypeFunction_testFeatureGetSecretBoolean), (intptr_t) (0) } },
+    { "testFeatureGetSecretBoolean"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjPrototypeFunction_testFeatureGetSecretBoolean, 0 } },
 #else
-    { { }, 0, NoIntrinsic, { 0, 0 } },
+    { { }, 0, NoIntrinsic, { HashTableValue::End } },
 #endif
-    { "undefinedMethod"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjPrototypeFunction_undefinedMethod), (intptr_t) (0) } },
-    { "undefinedMethodWithArgs"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjPrototypeFunction_undefinedMethodWithArgs), (intptr_t) (3) } },
-    { "byteMethod"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjPrototypeFunction_byteMethod), (intptr_t) (0) } },
-    { "byteMethodWithArgs"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjPrototypeFunction_byteMethodWithArgs), (intptr_t) (3) } },
-    { "octetMethod"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjPrototypeFunction_octetMethod), (intptr_t) (0) } },
-    { "octetMethodWithArgs"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjPrototypeFunction_octetMethodWithArgs), (intptr_t) (3) } },
-    { "longMethod"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjPrototypeFunction_longMethod), (intptr_t) (0) } },
-    { "longMethodWithArgs"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjPrototypeFunction_longMethodWithArgs), (intptr_t) (3) } },
-    { "objMethod"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjPrototypeFunction_objMethod), (intptr_t) (0) } },
-    { "objMethodWithArgs"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjPrototypeFunction_objMethodWithArgs), (intptr_t) (3) } },
-    { "methodWithArgTreatingNullAsEmptyString"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjPrototypeFunction_methodWithArgTreatingNullAsEmptyString), (intptr_t) (1) } },
-    { "methodWithXPathNSResolverParameter"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjPrototypeFunction_methodWithXPathNSResolverParameter), (intptr_t) (1) } },
-    { "nullableStringMethod"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjPrototypeFunction_nullableStringMethod), (intptr_t) (0) } },
-    { "nullableStringSpecialMethod"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjPrototypeFunction_nullableStringSpecialMethod), (intptr_t) (1) } },
-    { "methodWithEnumArg"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjPrototypeFunction_methodWithEnumArg), (intptr_t) (1) } },
-    { "methodWithStandaloneEnumArg"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjPrototypeFunction_methodWithStandaloneEnumArg), (intptr_t) (1) } },
-    { "methodWithOptionalEnumArg"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjPrototypeFunction_methodWithOptionalEnumArg), (intptr_t) (0) } },
-    { "methodWithOptionalEnumArgAndDefaultValue"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjPrototypeFunction_methodWithOptionalEnumArgAndDefaultValue), (intptr_t) (0) } },
-    { "methodWithUSVStringArg"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjPrototypeFunction_methodWithUSVStringArg), (intptr_t) (1) } },
-    { "methodWithNullableUSVStringArg"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjPrototypeFunction_methodWithNullableUSVStringArg), (intptr_t) (1) } },
-    { "methodWithUSVStringArgTreatingNullAsEmptyString"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjPrototypeFunction_methodWithUSVStringArgTreatingNullAsEmptyString), (intptr_t) (1) } },
-    { "methodWithByteStringArg"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjPrototypeFunction_methodWithByteStringArg), (intptr_t) (1) } },
-    { "methodWithNullableByteStringArg"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjPrototypeFunction_methodWithNullableByteStringArg), (intptr_t) (1) } },
-    { "methodWithByteStringArgTreatingNullAsEmptyString"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjPrototypeFunction_methodWithByteStringArgTreatingNullAsEmptyString), (intptr_t) (1) } },
-    { "serializedValue"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjPrototypeFunction_serializedValue), (intptr_t) (1) } },
-    { "methodWithRecord"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjPrototypeFunction_methodWithRecord), (intptr_t) (1) } },
-    { "customMethod"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjPrototypeFunction_customMethod), (intptr_t) (0) } },
-    { "customMethodWithArgs"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjPrototypeFunction_customMethodWithArgs), (intptr_t) (3) } },
+    { "undefinedMethod"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjPrototypeFunction_undefinedMethod, 0 } },
+    { "undefinedMethodWithArgs"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjPrototypeFunction_undefinedMethodWithArgs, 3 } },
+    { "byteMethod"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjPrototypeFunction_byteMethod, 0 } },
+    { "byteMethodWithArgs"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjPrototypeFunction_byteMethodWithArgs, 3 } },
+    { "octetMethod"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjPrototypeFunction_octetMethod, 0 } },
+    { "octetMethodWithArgs"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjPrototypeFunction_octetMethodWithArgs, 3 } },
+    { "longMethod"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjPrototypeFunction_longMethod, 0 } },
+    { "longMethodWithArgs"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjPrototypeFunction_longMethodWithArgs, 3 } },
+    { "objMethod"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjPrototypeFunction_objMethod, 0 } },
+    { "objMethodWithArgs"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjPrototypeFunction_objMethodWithArgs, 3 } },
+    { "methodWithArgTreatingNullAsEmptyString"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjPrototypeFunction_methodWithArgTreatingNullAsEmptyString, 1 } },
+    { "methodWithXPathNSResolverParameter"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjPrototypeFunction_methodWithXPathNSResolverParameter, 1 } },
+    { "nullableStringMethod"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjPrototypeFunction_nullableStringMethod, 0 } },
+    { "nullableStringSpecialMethod"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjPrototypeFunction_nullableStringSpecialMethod, 1 } },
+    { "methodWithEnumArg"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjPrototypeFunction_methodWithEnumArg, 1 } },
+    { "methodWithStandaloneEnumArg"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjPrototypeFunction_methodWithStandaloneEnumArg, 1 } },
+    { "methodWithOptionalEnumArg"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjPrototypeFunction_methodWithOptionalEnumArg, 0 } },
+    { "methodWithOptionalEnumArgAndDefaultValue"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjPrototypeFunction_methodWithOptionalEnumArgAndDefaultValue, 0 } },
+    { "methodWithUSVStringArg"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjPrototypeFunction_methodWithUSVStringArg, 1 } },
+    { "methodWithNullableUSVStringArg"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjPrototypeFunction_methodWithNullableUSVStringArg, 1 } },
+    { "methodWithUSVStringArgTreatingNullAsEmptyString"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjPrototypeFunction_methodWithUSVStringArgTreatingNullAsEmptyString, 1 } },
+    { "methodWithByteStringArg"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjPrototypeFunction_methodWithByteStringArg, 1 } },
+    { "methodWithNullableByteStringArg"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjPrototypeFunction_methodWithNullableByteStringArg, 1 } },
+    { "methodWithByteStringArgTreatingNullAsEmptyString"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjPrototypeFunction_methodWithByteStringArgTreatingNullAsEmptyString, 1 } },
+    { "serializedValue"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjPrototypeFunction_serializedValue, 1 } },
+    { "methodWithRecord"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjPrototypeFunction_methodWithRecord, 1 } },
+    { "customMethod"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjPrototypeFunction_customMethod, 0 } },
+    { "customMethodWithArgs"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjPrototypeFunction_customMethodWithArgs, 3 } },
 #if ENABLE(Condition3)
-    { "jsBuiltinMethod"_s, static_cast<unsigned>(JSC::PropertyAttribute::Builtin), NoIntrinsic, { (intptr_t)static_cast<BuiltinGenerator>(testObjJsBuiltinMethodCodeGenerator), (intptr_t) (0) } },
+    { "jsBuiltinMethod"_s, static_cast<unsigned>(JSC::PropertyAttribute::Builtin), NoIntrinsic, { HashTableValue::BuiltinGeneratorType, testObjJsBuiltinMethodCodeGenerator, 0 } },
 #else
-    { { }, 0, NoIntrinsic, { 0, 0 } },
+    { { }, 0, NoIntrinsic, { HashTableValue::End } },
 #endif
 #if ENABLE(Condition3)
-    { "jsBuiltinMethodWithArgs"_s, static_cast<unsigned>(JSC::PropertyAttribute::Builtin), NoIntrinsic, { (intptr_t)static_cast<BuiltinGenerator>(testObjJsBuiltinMethodWithArgsCodeGenerator), (intptr_t) (3) } },
+    { "jsBuiltinMethodWithArgs"_s, static_cast<unsigned>(JSC::PropertyAttribute::Builtin), NoIntrinsic, { HashTableValue::BuiltinGeneratorType, testObjJsBuiltinMethodWithArgsCodeGenerator, 3 } },
 #else
-    { { }, 0, NoIntrinsic, { 0, 0 } },
+    { { }, 0, NoIntrinsic, { HashTableValue::End } },
 #endif
-    { "publicAndPrivateMethod"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjPrototypeFunction_publicAndPrivateMethod), (intptr_t) (1) } },
-    { "addEventListener"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjPrototypeFunction_addEventListener), (intptr_t) (2) } },
-    { "removeEventListener"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjPrototypeFunction_removeEventListener), (intptr_t) (2) } },
-    { "withCurrentGlobalObjectVoid"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjPrototypeFunction_withCurrentGlobalObjectVoid), (intptr_t) (0) } },
-    { "withRelevantGlobalObjectVoid"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjPrototypeFunction_withRelevantGlobalObjectVoid), (intptr_t) (0) } },
-    { "withCurrentGlobalObjectObj"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjPrototypeFunction_withCurrentGlobalObjectObj), (intptr_t) (0) } },
-    { "withCurrentScriptExecutionContext"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjPrototypeFunction_withCurrentScriptExecutionContext), (intptr_t) (0) } },
-    { "withRelevantScriptExecutionContext"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjPrototypeFunction_withRelevantScriptExecutionContext), (intptr_t) (0) } },
-    { "withCurrentScriptExecutionContextAndGlobalObject"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjPrototypeFunction_withCurrentScriptExecutionContextAndGlobalObject), (intptr_t) (0) } },
-    { "withCurrentScriptExecutionContextAndGlobalObjectWithSpaces"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjPrototypeFunction_withCurrentScriptExecutionContextAndGlobalObjectWithSpaces), (intptr_t) (0) } },
-    { "withCurrentDocumentArgument"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjPrototypeFunction_withCurrentDocumentArgument), (intptr_t) (0) } },
-    { "withRelevantDocumentArgument"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjPrototypeFunction_withRelevantDocumentArgument), (intptr_t) (0) } },
-    { "withCallerDocumentArgument"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjPrototypeFunction_withCallerDocumentArgument), (intptr_t) (0) } },
-    { "withCallerWindowArgument"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjPrototypeFunction_withCallerWindowArgument), (intptr_t) (0) } },
-    { "methodWithOptionalArg"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjPrototypeFunction_methodWithOptionalArg), (intptr_t) (0) } },
-    { "methodWithOptionalArgAndDefaultValue"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjPrototypeFunction_methodWithOptionalArgAndDefaultValue), (intptr_t) (0) } },
-    { "methodWithNonOptionalArgAndOptionalArg"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjPrototypeFunction_methodWithNonOptionalArgAndOptionalArg), (intptr_t) (1) } },
-    { "methodWithNonOptionalArgAndTwoOptionalArgs"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjPrototypeFunction_methodWithNonOptionalArgAndTwoOptionalArgs), (intptr_t) (1) } },
-    { "methodWithOptionalString"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjPrototypeFunction_methodWithOptionalString), (intptr_t) (0) } },
-    { "methodWithOptionalUSVString"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjPrototypeFunction_methodWithOptionalUSVString), (intptr_t) (0) } },
-    { "methodWithOptionalAtomString"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjPrototypeFunction_methodWithOptionalAtomString), (intptr_t) (0) } },
-    { "methodWithOptionalStringAndDefaultValue"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjPrototypeFunction_methodWithOptionalStringAndDefaultValue), (intptr_t) (0) } },
-    { "methodWithOptionalAtomStringAndDefaultValue"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjPrototypeFunction_methodWithOptionalAtomStringAndDefaultValue), (intptr_t) (0) } },
-    { "methodWithOptionalStringIsNull"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjPrototypeFunction_methodWithOptionalStringIsNull), (intptr_t) (0) } },
-    { "methodWithOptionalStringIsUndefined"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjPrototypeFunction_methodWithOptionalStringIsUndefined), (intptr_t) (0) } },
-    { "methodWithOptionalAtomStringIsNull"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjPrototypeFunction_methodWithOptionalAtomStringIsNull), (intptr_t) (0) } },
-    { "methodWithOptionalStringIsEmptyString"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjPrototypeFunction_methodWithOptionalStringIsEmptyString), (intptr_t) (0) } },
-    { "methodWithOptionalUSVStringIsEmptyString"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjPrototypeFunction_methodWithOptionalUSVStringIsEmptyString), (intptr_t) (0) } },
-    { "methodWithOptionalAtomStringIsEmptyString"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjPrototypeFunction_methodWithOptionalAtomStringIsEmptyString), (intptr_t) (0) } },
-    { "methodWithOptionalDoubleIsNaN"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjPrototypeFunction_methodWithOptionalDoubleIsNaN), (intptr_t) (0) } },
-    { "methodWithOptionalFloatIsNaN"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjPrototypeFunction_methodWithOptionalFloatIsNaN), (intptr_t) (0) } },
-    { "methodWithOptionalLongLong"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjPrototypeFunction_methodWithOptionalLongLong), (intptr_t) (0) } },
-    { "methodWithOptionalLongLongIsZero"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjPrototypeFunction_methodWithOptionalLongLongIsZero), (intptr_t) (0) } },
-    { "methodWithOptionalUnsignedLongLong"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjPrototypeFunction_methodWithOptionalUnsignedLongLong), (intptr_t) (0) } },
-    { "methodWithOptionalUnsignedLongLongIsZero"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjPrototypeFunction_methodWithOptionalUnsignedLongLongIsZero), (intptr_t) (0) } },
-    { "methodWithOptionalSequence"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjPrototypeFunction_methodWithOptionalSequence), (intptr_t) (0) } },
-    { "methodWithOptionalSequenceIsEmpty"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjPrototypeFunction_methodWithOptionalSequenceIsEmpty), (intptr_t) (0) } },
-    { "methodWithOptionalBoolean"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjPrototypeFunction_methodWithOptionalBoolean), (intptr_t) (0) } },
-    { "methodWithOptionalBooleanIsFalse"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjPrototypeFunction_methodWithOptionalBooleanIsFalse), (intptr_t) (0) } },
-    { "methodWithOptionalAny"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjPrototypeFunction_methodWithOptionalAny), (intptr_t) (0) } },
-    { "methodWithOptionalObject"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjPrototypeFunction_methodWithOptionalObject), (intptr_t) (0) } },
-    { "methodWithOptionalWrapper"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjPrototypeFunction_methodWithOptionalWrapper), (intptr_t) (0) } },
-    { "methodWithOptionalNullableWrapper"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjPrototypeFunction_methodWithOptionalNullableWrapper), (intptr_t) (0) } },
-    { "methodWithOptionalNullableWrapperIsNull"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjPrototypeFunction_methodWithOptionalNullableWrapperIsNull), (intptr_t) (0) } },
-    { "methodWithOptionalXPathNSResolver"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjPrototypeFunction_methodWithOptionalXPathNSResolver), (intptr_t) (0) } },
-    { "methodWithOptionalRecord"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjPrototypeFunction_methodWithOptionalRecord), (intptr_t) (0) } },
-    { "methodWithOptionalPromise"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjPrototypeFunction_methodWithOptionalPromise), (intptr_t) (0) } },
-    { "methodWithCallbackInterfaceArg"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjPrototypeFunction_methodWithCallbackInterfaceArg), (intptr_t) (1) } },
-    { "methodWithNullableCallbackInterfaceArg"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjPrototypeFunction_methodWithNullableCallbackInterfaceArg), (intptr_t) (1) } },
-    { "methodWithNonCallbackInterfaceArgAndCallbackInterfaceArg"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjPrototypeFunction_methodWithNonCallbackInterfaceArgAndCallbackInterfaceArg), (intptr_t) (2) } },
-    { "methodWithOptionalCallbackInterfaceArg"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjPrototypeFunction_methodWithOptionalCallbackInterfaceArg), (intptr_t) (0) } },
-    { "methodWithOptionalNullableCallbackInterfaceArg"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjPrototypeFunction_methodWithOptionalNullableCallbackInterfaceArg), (intptr_t) (0) } },
-    { "methodWithCallbackFunctionArg"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjPrototypeFunction_methodWithCallbackFunctionArg), (intptr_t) (1) } },
-    { "methodWithNullableCallbackFunctionArg"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjPrototypeFunction_methodWithNullableCallbackFunctionArg), (intptr_t) (1) } },
-    { "methodWithNonCallbackArgAndCallbackFunctionArg"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjPrototypeFunction_methodWithNonCallbackArgAndCallbackFunctionArg), (intptr_t) (2) } },
-    { "methodWithOptionalCallbackFunctionArg"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjPrototypeFunction_methodWithOptionalCallbackFunctionArg), (intptr_t) (0) } },
-    { "methodWithOptionalNullableCallbackFunctionArg"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjPrototypeFunction_methodWithOptionalNullableCallbackFunctionArg), (intptr_t) (0) } },
+    { "publicAndPrivateMethod"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjPrototypeFunction_publicAndPrivateMethod, 1 } },
+    { "addEventListener"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjPrototypeFunction_addEventListener, 2 } },
+    { "removeEventListener"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjPrototypeFunction_removeEventListener, 2 } },
+    { "withCurrentGlobalObjectVoid"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjPrototypeFunction_withCurrentGlobalObjectVoid, 0 } },
+    { "withRelevantGlobalObjectVoid"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjPrototypeFunction_withRelevantGlobalObjectVoid, 0 } },
+    { "withCurrentGlobalObjectObj"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjPrototypeFunction_withCurrentGlobalObjectObj, 0 } },
+    { "withCurrentScriptExecutionContext"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjPrototypeFunction_withCurrentScriptExecutionContext, 0 } },
+    { "withRelevantScriptExecutionContext"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjPrototypeFunction_withRelevantScriptExecutionContext, 0 } },
+    { "withCurrentScriptExecutionContextAndGlobalObject"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjPrototypeFunction_withCurrentScriptExecutionContextAndGlobalObject, 0 } },
+    { "withCurrentScriptExecutionContextAndGlobalObjectWithSpaces"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjPrototypeFunction_withCurrentScriptExecutionContextAndGlobalObjectWithSpaces, 0 } },
+    { "withCurrentDocumentArgument"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjPrototypeFunction_withCurrentDocumentArgument, 0 } },
+    { "withRelevantDocumentArgument"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjPrototypeFunction_withRelevantDocumentArgument, 0 } },
+    { "withCallerDocumentArgument"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjPrototypeFunction_withCallerDocumentArgument, 0 } },
+    { "withCallerWindowArgument"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjPrototypeFunction_withCallerWindowArgument, 0 } },
+    { "methodWithOptionalArg"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjPrototypeFunction_methodWithOptionalArg, 0 } },
+    { "methodWithOptionalArgAndDefaultValue"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjPrototypeFunction_methodWithOptionalArgAndDefaultValue, 0 } },
+    { "methodWithNonOptionalArgAndOptionalArg"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjPrototypeFunction_methodWithNonOptionalArgAndOptionalArg, 1 } },
+    { "methodWithNonOptionalArgAndTwoOptionalArgs"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjPrototypeFunction_methodWithNonOptionalArgAndTwoOptionalArgs, 1 } },
+    { "methodWithOptionalString"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjPrototypeFunction_methodWithOptionalString, 0 } },
+    { "methodWithOptionalUSVString"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjPrototypeFunction_methodWithOptionalUSVString, 0 } },
+    { "methodWithOptionalAtomString"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjPrototypeFunction_methodWithOptionalAtomString, 0 } },
+    { "methodWithOptionalStringAndDefaultValue"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjPrototypeFunction_methodWithOptionalStringAndDefaultValue, 0 } },
+    { "methodWithOptionalAtomStringAndDefaultValue"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjPrototypeFunction_methodWithOptionalAtomStringAndDefaultValue, 0 } },
+    { "methodWithOptionalStringIsNull"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjPrototypeFunction_methodWithOptionalStringIsNull, 0 } },
+    { "methodWithOptionalStringIsUndefined"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjPrototypeFunction_methodWithOptionalStringIsUndefined, 0 } },
+    { "methodWithOptionalAtomStringIsNull"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjPrototypeFunction_methodWithOptionalAtomStringIsNull, 0 } },
+    { "methodWithOptionalStringIsEmptyString"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjPrototypeFunction_methodWithOptionalStringIsEmptyString, 0 } },
+    { "methodWithOptionalUSVStringIsEmptyString"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjPrototypeFunction_methodWithOptionalUSVStringIsEmptyString, 0 } },
+    { "methodWithOptionalAtomStringIsEmptyString"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjPrototypeFunction_methodWithOptionalAtomStringIsEmptyString, 0 } },
+    { "methodWithOptionalDoubleIsNaN"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjPrototypeFunction_methodWithOptionalDoubleIsNaN, 0 } },
+    { "methodWithOptionalFloatIsNaN"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjPrototypeFunction_methodWithOptionalFloatIsNaN, 0 } },
+    { "methodWithOptionalLongLong"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjPrototypeFunction_methodWithOptionalLongLong, 0 } },
+    { "methodWithOptionalLongLongIsZero"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjPrototypeFunction_methodWithOptionalLongLongIsZero, 0 } },
+    { "methodWithOptionalUnsignedLongLong"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjPrototypeFunction_methodWithOptionalUnsignedLongLong, 0 } },
+    { "methodWithOptionalUnsignedLongLongIsZero"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjPrototypeFunction_methodWithOptionalUnsignedLongLongIsZero, 0 } },
+    { "methodWithOptionalSequence"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjPrototypeFunction_methodWithOptionalSequence, 0 } },
+    { "methodWithOptionalSequenceIsEmpty"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjPrototypeFunction_methodWithOptionalSequenceIsEmpty, 0 } },
+    { "methodWithOptionalBoolean"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjPrototypeFunction_methodWithOptionalBoolean, 0 } },
+    { "methodWithOptionalBooleanIsFalse"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjPrototypeFunction_methodWithOptionalBooleanIsFalse, 0 } },
+    { "methodWithOptionalAny"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjPrototypeFunction_methodWithOptionalAny, 0 } },
+    { "methodWithOptionalObject"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjPrototypeFunction_methodWithOptionalObject, 0 } },
+    { "methodWithOptionalWrapper"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjPrototypeFunction_methodWithOptionalWrapper, 0 } },
+    { "methodWithOptionalNullableWrapper"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjPrototypeFunction_methodWithOptionalNullableWrapper, 0 } },
+    { "methodWithOptionalNullableWrapperIsNull"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjPrototypeFunction_methodWithOptionalNullableWrapperIsNull, 0 } },
+    { "methodWithOptionalXPathNSResolver"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjPrototypeFunction_methodWithOptionalXPathNSResolver, 0 } },
+    { "methodWithOptionalRecord"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjPrototypeFunction_methodWithOptionalRecord, 0 } },
+    { "methodWithOptionalPromise"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjPrototypeFunction_methodWithOptionalPromise, 0 } },
+    { "methodWithOptionalDictIsDefault"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjPrototypeFunction_methodWithOptionalDictIsDefault, 0 } },
+    { "methodWithCallbackInterfaceArg"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjPrototypeFunction_methodWithCallbackInterfaceArg, 1 } },
+    { "methodWithNullableCallbackInterfaceArg"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjPrototypeFunction_methodWithNullableCallbackInterfaceArg, 1 } },
+    { "methodWithNonCallbackInterfaceArgAndCallbackInterfaceArg"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjPrototypeFunction_methodWithNonCallbackInterfaceArgAndCallbackInterfaceArg, 2 } },
+    { "methodWithOptionalCallbackInterfaceArg"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjPrototypeFunction_methodWithOptionalCallbackInterfaceArg, 0 } },
+    { "methodWithOptionalNullableCallbackInterfaceArg"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjPrototypeFunction_methodWithOptionalNullableCallbackInterfaceArg, 0 } },
+    { "methodWithCallbackFunctionArg"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjPrototypeFunction_methodWithCallbackFunctionArg, 1 } },
+    { "methodWithNullableCallbackFunctionArg"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjPrototypeFunction_methodWithNullableCallbackFunctionArg, 1 } },
+    { "methodWithNonCallbackArgAndCallbackFunctionArg"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjPrototypeFunction_methodWithNonCallbackArgAndCallbackFunctionArg, 2 } },
+    { "methodWithOptionalCallbackFunctionArg"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjPrototypeFunction_methodWithOptionalCallbackFunctionArg, 0 } },
+    { "methodWithOptionalNullableCallbackFunctionArg"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjPrototypeFunction_methodWithOptionalNullableCallbackFunctionArg, 0 } },
 #if ENABLE(Condition1)
-    { "conditionalMethod1"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjPrototypeFunction_conditionalMethod1), (intptr_t) (0) } },
+    { "conditionalMethod1"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjPrototypeFunction_conditionalMethod1, 0 } },
 #else
-    { { }, 0, NoIntrinsic, { 0, 0 } },
+    { { }, 0, NoIntrinsic, { HashTableValue::End } },
 #endif
 #if ENABLE(Condition1) && ENABLE(Condition2)
-    { "conditionalMethod2"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjPrototypeFunction_conditionalMethod2), (intptr_t) (0) } },
+    { "conditionalMethod2"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjPrototypeFunction_conditionalMethod2, 0 } },
 #else
-    { { }, 0, NoIntrinsic, { 0, 0 } },
+    { { }, 0, NoIntrinsic, { HashTableValue::End } },
 #endif
 #if ENABLE(Condition1) || ENABLE(Condition2)
-    { "conditionalMethod3"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjPrototypeFunction_conditionalMethod3), (intptr_t) (0) } },
+    { "conditionalMethod3"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjPrototypeFunction_conditionalMethod3, 0 } },
 #else
-    { { }, 0, NoIntrinsic, { 0, 0 } },
+    { { }, 0, NoIntrinsic, { HashTableValue::End } },
 #endif
-    { "overloadedMethod"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjPrototypeFunction_overloadedMethod), (intptr_t) (0) } },
-    { "overloadedMethodWithOptionalParameter"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjPrototypeFunction_overloadedMethodWithOptionalParameter), (intptr_t) (1) } },
-    { "overloadedMethodWithDistinguishingUnion"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjPrototypeFunction_overloadedMethodWithDistinguishingUnion), (intptr_t) (1) } },
-    { "overloadedMethodWith2DistinguishingUnions"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjPrototypeFunction_overloadedMethodWith2DistinguishingUnions), (intptr_t) (1) } },
-    { "overloadedMethodWithNonDistinguishingUnion"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjPrototypeFunction_overloadedMethodWithNonDistinguishingUnion), (intptr_t) (2) } },
-    { "overloadWithNullableUnion"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjPrototypeFunction_overloadWithNullableUnion), (intptr_t) (1) } },
-    { "overloadWithOptionalUnion"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjPrototypeFunction_overloadWithOptionalUnion), (intptr_t) (0) } },
-    { "overloadWithNullableNonDistinguishingParameter"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjPrototypeFunction_overloadWithNullableNonDistinguishingParameter), (intptr_t) (2) } },
-    { "classMethodWithClamp"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjPrototypeFunction_classMethodWithClamp), (intptr_t) (2) } },
-    { "classMethodWithClampOnOptional"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjPrototypeFunction_classMethodWithClampOnOptional), (intptr_t) (0) } },
-    { "classMethodWithEnforceRange"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjPrototypeFunction_classMethodWithEnforceRange), (intptr_t) (2) } },
-    { "classMethodWithEnforceRangeOnOptional"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjPrototypeFunction_classMethodWithEnforceRangeOnOptional), (intptr_t) (0) } },
-    { "methodWithUnsignedLongSequence"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjPrototypeFunction_methodWithUnsignedLongSequence), (intptr_t) (1) } },
-    { "stringArrayFunction"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjPrototypeFunction_stringArrayFunction), (intptr_t) (1) } },
-    { "domStringListFunction"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjPrototypeFunction_domStringListFunction), (intptr_t) (1) } },
-    { "operationWithOptionalUnionParameter"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjPrototypeFunction_operationWithOptionalUnionParameter), (intptr_t) (0) } },
-    { "methodWithAndWithoutNullableSequence"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjPrototypeFunction_methodWithAndWithoutNullableSequence), (intptr_t) (2) } },
-    { "getElementById"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjPrototypeFunction_getElementById), (intptr_t) (1) } },
-    { "getSVGDocument"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjPrototypeFunction_getSVGDocument), (intptr_t) (0) } },
-    { "convert1"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjPrototypeFunction_convert1), (intptr_t) (1) } },
-    { "convert2"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjPrototypeFunction_convert2), (intptr_t) (1) } },
-    { "convert3"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjPrototypeFunction_convert3), (intptr_t) (1) } },
-    { "convert4"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjPrototypeFunction_convert4), (intptr_t) (1) } },
-    { "mutablePointFunction"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjPrototypeFunction_mutablePointFunction), (intptr_t) (0) } },
-    { "orange"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjPrototypeFunction_orange), (intptr_t) (0) } },
-    { "variadicStringMethod"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjPrototypeFunction_variadicStringMethod), (intptr_t) (1) } },
-    { "variadicDoubleMethod"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjPrototypeFunction_variadicDoubleMethod), (intptr_t) (1) } },
-    { "variadicNodeMethod"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjPrototypeFunction_variadicNodeMethod), (intptr_t) (1) } },
-    { "variadicUnionMethod"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjPrototypeFunction_variadicUnionMethod), (intptr_t) (1) } },
-    { "variadicUnionElementOrTextMethod"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjPrototypeFunction_variadicUnionElementOrTextMethod), (intptr_t) (0) } },
-    { "any"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjPrototypeFunction_any), (intptr_t) (2) } },
-    { "testPromiseFunction"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjPrototypeFunction_testPromiseFunction), (intptr_t) (0) } },
-    { "testPromiseFunctionWithFloatArgument"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjPrototypeFunction_testPromiseFunctionWithFloatArgument), (intptr_t) (1) } },
-    { "testPromiseFunctionWithOptionalIntArgument"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjPrototypeFunction_testPromiseFunctionWithOptionalIntArgument), (intptr_t) (0) } },
-    { "testPromiseOverloadedFunction"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjPrototypeFunction_testPromiseOverloadedFunction), (intptr_t) (1) } },
-    { "testCustomPromiseFunction"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjPrototypeFunction_testCustomPromiseFunction), (intptr_t) (0) } },
-    { "testCustomReturnsOwnPromiseFunction"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjPrototypeFunction_testCustomReturnsOwnPromiseFunction), (intptr_t) (0) } },
-    { "testReturnsOwnPromiseAndPromiseProxyFunction"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjPrototypeFunction_testReturnsOwnPromiseAndPromiseProxyFunction), (intptr_t) (0) } },
+    { "overloadedMethod"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjPrototypeFunction_overloadedMethod, 0 } },
+    { "overloadedMethodWithOptionalParameter"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjPrototypeFunction_overloadedMethodWithOptionalParameter, 1 } },
+    { "overloadedMethodWithDistinguishingUnion"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjPrototypeFunction_overloadedMethodWithDistinguishingUnion, 1 } },
+    { "overloadedMethodWith2DistinguishingUnions"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjPrototypeFunction_overloadedMethodWith2DistinguishingUnions, 1 } },
+    { "overloadedMethodWithNonDistinguishingUnion"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjPrototypeFunction_overloadedMethodWithNonDistinguishingUnion, 2 } },
+    { "overloadWithNullableUnion"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjPrototypeFunction_overloadWithNullableUnion, 1 } },
+    { "overloadWithOptionalUnion"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjPrototypeFunction_overloadWithOptionalUnion, 0 } },
+    { "overloadWithNullableNonDistinguishingParameter"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjPrototypeFunction_overloadWithNullableNonDistinguishingParameter, 2 } },
+    { "classMethodWithClamp"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjPrototypeFunction_classMethodWithClamp, 2 } },
+    { "classMethodWithClampOnOptional"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjPrototypeFunction_classMethodWithClampOnOptional, 0 } },
+    { "classMethodWithEnforceRange"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjPrototypeFunction_classMethodWithEnforceRange, 2 } },
+    { "classMethodWithEnforceRangeOnOptional"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjPrototypeFunction_classMethodWithEnforceRangeOnOptional, 0 } },
+    { "methodWithUnsignedLongSequence"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjPrototypeFunction_methodWithUnsignedLongSequence, 1 } },
+    { "stringArrayFunction"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjPrototypeFunction_stringArrayFunction, 1 } },
+    { "domStringListFunction"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjPrototypeFunction_domStringListFunction, 1 } },
+    { "operationWithOptionalUnionParameter"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjPrototypeFunction_operationWithOptionalUnionParameter, 0 } },
+    { "methodWithAndWithoutNullableSequence"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjPrototypeFunction_methodWithAndWithoutNullableSequence, 2 } },
+    { "getElementById"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjPrototypeFunction_getElementById, 1 } },
+    { "getSVGDocument"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjPrototypeFunction_getSVGDocument, 0 } },
+    { "convert1"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjPrototypeFunction_convert1, 1 } },
+    { "convert2"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjPrototypeFunction_convert2, 1 } },
+    { "convert3"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjPrototypeFunction_convert3, 1 } },
+    { "convert4"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjPrototypeFunction_convert4, 1 } },
+    { "mutablePointFunction"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjPrototypeFunction_mutablePointFunction, 0 } },
+    { "orange"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjPrototypeFunction_orange, 0 } },
+    { "variadicStringMethod"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjPrototypeFunction_variadicStringMethod, 1 } },
+    { "variadicDoubleMethod"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjPrototypeFunction_variadicDoubleMethod, 1 } },
+    { "variadicNodeMethod"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjPrototypeFunction_variadicNodeMethod, 1 } },
+    { "variadicUnionMethod"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjPrototypeFunction_variadicUnionMethod, 1 } },
+    { "variadicUnionElementOrTextMethod"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjPrototypeFunction_variadicUnionElementOrTextMethod, 0 } },
+    { "any"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjPrototypeFunction_any, 2 } },
+    { "testPromiseFunction"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjPrototypeFunction_testPromiseFunction, 0 } },
+    { "testPromiseFunctionWithFloatArgument"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjPrototypeFunction_testPromiseFunctionWithFloatArgument, 1 } },
+    { "testPromiseFunctionWithOptionalIntArgument"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjPrototypeFunction_testPromiseFunctionWithOptionalIntArgument, 0 } },
+    { "testPromiseOverloadedFunction"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjPrototypeFunction_testPromiseOverloadedFunction, 1 } },
+    { "testCustomPromiseFunction"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjPrototypeFunction_testCustomPromiseFunction, 0 } },
+    { "testCustomReturnsOwnPromiseFunction"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjPrototypeFunction_testCustomReturnsOwnPromiseFunction, 0 } },
+    { "testReturnsOwnPromiseAndPromiseProxyFunction"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjPrototypeFunction_testReturnsOwnPromiseAndPromiseProxyFunction, 0 } },
 #if ENABLE(CONDITION1) || ENABLE(CONDITION2)
-    { "conditionalOverload"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjPrototypeFunction_conditionalOverload), (intptr_t) (1) } },
+    { "conditionalOverload"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjPrototypeFunction_conditionalOverload, 1 } },
 #else
-    { { }, 0, NoIntrinsic, { 0, 0 } },
+    { { }, 0, NoIntrinsic, { HashTableValue::End } },
 #endif
-    { "singleConditionalOverload"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjPrototypeFunction_singleConditionalOverload), (intptr_t) (1) } },
-    { "attachShadowRoot"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjPrototypeFunction_attachShadowRoot), (intptr_t) (1) } },
-    { "operationWithExternalDictionaryParameter"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjPrototypeFunction_operationWithExternalDictionaryParameter), (intptr_t) (1) } },
-    { "bufferSourceParameter"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjPrototypeFunction_bufferSourceParameter), (intptr_t) (1) } },
-    { "testReturnValueOptimization"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjPrototypeFunction_testReturnValueOptimization), (intptr_t) (2) } },
-    { "conditionallyExposedToWindowFunction"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjPrototypeFunction_conditionallyExposedToWindowFunction), (intptr_t) (0) } },
-    { "conditionallyExposedToWorkerFunction"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjPrototypeFunction_conditionallyExposedToWorkerFunction), (intptr_t) (0) } },
-    { "conditionallyExposedToWindowAndWorkerFunction"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjPrototypeFunction_conditionallyExposedToWindowAndWorkerFunction), (intptr_t) (0) } },
-    { "-leading-hyphen-function"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjPrototypeFunction_dash_leading_dash_hyphen_dash_function), (intptr_t) (0) } },
-    { "trailing-hyphen-function-"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjPrototypeFunction_trailing_dash_hyphen_dash_function_dash_), (intptr_t) (0) } },
-    { "leading_underscore_function"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjPrototypeFunction_leading_underscore_function), (intptr_t) (0) } },
-    { "_double_leading_underscore_function"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjPrototypeFunction_double_leading_underscore_function), (intptr_t) (0) } },
-    { "trailing_underscore_function_"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjPrototypeFunction_trailing_underscore_function_), (intptr_t) (0) } },
-    { "encodeInto"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjPrototypeFunction_encodeInto), (intptr_t) (1) } },
-    { "bigInt64"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjPrototypeFunction_bigInt64), (intptr_t) (1) } },
-    { "bigUint64"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjPrototypeFunction_bigUint64), (intptr_t) (1) } },
-    { "bigInt64AllowShared"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjPrototypeFunction_bigInt64AllowShared), (intptr_t) (1) } },
-    { "bigUint64AllowShared"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjPrototypeFunction_bigUint64AllowShared), (intptr_t) (1) } },
-    { "toString"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestObjPrototypeFunction_toString), (intptr_t) (0) } },
+    { "singleConditionalOverload"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjPrototypeFunction_singleConditionalOverload, 1 } },
+    { "attachShadowRoot"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjPrototypeFunction_attachShadowRoot, 1 } },
+    { "operationWithExternalDictionaryParameter"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjPrototypeFunction_operationWithExternalDictionaryParameter, 1 } },
+    { "bufferSourceParameter"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjPrototypeFunction_bufferSourceParameter, 1 } },
+    { "testReturnValueOptimization"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjPrototypeFunction_testReturnValueOptimization, 2 } },
+    { "conditionallyExposedToWindowFunction"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjPrototypeFunction_conditionallyExposedToWindowFunction, 0 } },
+    { "conditionallyExposedToWorkerFunction"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjPrototypeFunction_conditionallyExposedToWorkerFunction, 0 } },
+    { "conditionallyExposedToWindowAndWorkerFunction"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjPrototypeFunction_conditionallyExposedToWindowAndWorkerFunction, 0 } },
+    { "-leading-hyphen-function"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjPrototypeFunction_dash_leading_dash_hyphen_dash_function, 0 } },
+    { "trailing-hyphen-function-"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjPrototypeFunction_trailing_dash_hyphen_dash_function_dash_, 0 } },
+    { "leading_underscore_function"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjPrototypeFunction_leading_underscore_function, 0 } },
+    { "_double_leading_underscore_function"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjPrototypeFunction_double_leading_underscore_function, 0 } },
+    { "trailing_underscore_function_"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjPrototypeFunction_trailing_underscore_function_, 0 } },
+    { "encodeInto"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjPrototypeFunction_encodeInto, 1 } },
+    { "bigInt64"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjPrototypeFunction_bigInt64, 1 } },
+    { "bigUint64"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjPrototypeFunction_bigUint64, 1 } },
+    { "bigInt64AllowShared"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjPrototypeFunction_bigInt64AllowShared, 1 } },
+    { "bigUint64AllowShared"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjPrototypeFunction_bigUint64AllowShared, 1 } },
+    { "toString"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestObjPrototypeFunction_toString, 0 } },
 #if ENABLE(Condition1)
-    { "CONDITIONAL_CONST"_s, JSC::PropertyAttribute::DontDelete | JSC::PropertyAttribute::ReadOnly | JSC::PropertyAttribute::ConstantInteger, NoIntrinsic, { (long long)(0) } },
+    { "CONDITIONAL_CONST"_s, JSC::PropertyAttribute::DontDelete | JSC::PropertyAttribute::ReadOnly | JSC::PropertyAttribute::ConstantInteger, NoIntrinsic, { HashTableValue::ConstantType, 0 } },
 #else
-    { { }, 0, NoIntrinsic, { 0, 0 } },
+    { { }, 0, NoIntrinsic, { HashTableValue::End } },
 #endif
-    { "CONST_VALUE_0"_s, JSC::PropertyAttribute::DontDelete | JSC::PropertyAttribute::ReadOnly | JSC::PropertyAttribute::ConstantInteger, NoIntrinsic, { (long long)(0) } },
-    { "CONST_VALUE_1"_s, JSC::PropertyAttribute::DontDelete | JSC::PropertyAttribute::ReadOnly | JSC::PropertyAttribute::ConstantInteger, NoIntrinsic, { (long long)(1) } },
-    { "CONST_VALUE_2"_s, JSC::PropertyAttribute::DontDelete | JSC::PropertyAttribute::ReadOnly | JSC::PropertyAttribute::ConstantInteger, NoIntrinsic, { (long long)(2) } },
-    { "CONST_VALUE_4"_s, JSC::PropertyAttribute::DontDelete | JSC::PropertyAttribute::ReadOnly | JSC::PropertyAttribute::ConstantInteger, NoIntrinsic, { (long long)(4) } },
-    { "CONST_VALUE_8"_s, JSC::PropertyAttribute::DontDelete | JSC::PropertyAttribute::ReadOnly | JSC::PropertyAttribute::ConstantInteger, NoIntrinsic, { (long long)(8) } },
-    { "CONST_VALUE_9"_s, JSC::PropertyAttribute::DontDelete | JSC::PropertyAttribute::ReadOnly | JSC::PropertyAttribute::ConstantInteger, NoIntrinsic, { (long long)(-1) } },
-    { "CONST_VALUE_11"_s, JSC::PropertyAttribute::DontDelete | JSC::PropertyAttribute::ReadOnly | JSC::PropertyAttribute::ConstantInteger, NoIntrinsic, { (long long)(0xffffffff) } },
-    { "CONST_VALUE_12"_s, JSC::PropertyAttribute::DontDelete | JSC::PropertyAttribute::ReadOnly | JSC::PropertyAttribute::ConstantInteger, NoIntrinsic, { (long long)(0x01) } },
-    { "CONST_VALUE_13"_s, JSC::PropertyAttribute::DontDelete | JSC::PropertyAttribute::ReadOnly | JSC::PropertyAttribute::ConstantInteger, NoIntrinsic, { (long long)(0X20) } },
-    { "CONST_VALUE_14"_s, JSC::PropertyAttribute::DontDelete | JSC::PropertyAttribute::ReadOnly | JSC::PropertyAttribute::ConstantInteger, NoIntrinsic, { (long long)(0x1abc) } },
-    { "CONST_JAVASCRIPT"_s, JSC::PropertyAttribute::DontDelete | JSC::PropertyAttribute::ReadOnly | JSC::PropertyAttribute::ConstantInteger, NoIntrinsic, { (long long)(15) } },
-    { "readonly"_s, JSC::PropertyAttribute::DontDelete | JSC::PropertyAttribute::ReadOnly | JSC::PropertyAttribute::ConstantInteger, NoIntrinsic, { (long long)(0) } },
+    { "CONST_VALUE_0"_s, JSC::PropertyAttribute::DontDelete | JSC::PropertyAttribute::ReadOnly | JSC::PropertyAttribute::ConstantInteger, NoIntrinsic, { HashTableValue::ConstantType, 0 } },
+    { "CONST_VALUE_1"_s, JSC::PropertyAttribute::DontDelete | JSC::PropertyAttribute::ReadOnly | JSC::PropertyAttribute::ConstantInteger, NoIntrinsic, { HashTableValue::ConstantType, 1 } },
+    { "CONST_VALUE_2"_s, JSC::PropertyAttribute::DontDelete | JSC::PropertyAttribute::ReadOnly | JSC::PropertyAttribute::ConstantInteger, NoIntrinsic, { HashTableValue::ConstantType, 2 } },
+    { "CONST_VALUE_4"_s, JSC::PropertyAttribute::DontDelete | JSC::PropertyAttribute::ReadOnly | JSC::PropertyAttribute::ConstantInteger, NoIntrinsic, { HashTableValue::ConstantType, 4 } },
+    { "CONST_VALUE_8"_s, JSC::PropertyAttribute::DontDelete | JSC::PropertyAttribute::ReadOnly | JSC::PropertyAttribute::ConstantInteger, NoIntrinsic, { HashTableValue::ConstantType, 8 } },
+    { "CONST_VALUE_9"_s, JSC::PropertyAttribute::DontDelete | JSC::PropertyAttribute::ReadOnly | JSC::PropertyAttribute::ConstantInteger, NoIntrinsic, { HashTableValue::ConstantType, -1 } },
+    { "CONST_VALUE_11"_s, JSC::PropertyAttribute::DontDelete | JSC::PropertyAttribute::ReadOnly | JSC::PropertyAttribute::ConstantInteger, NoIntrinsic, { HashTableValue::ConstantType, 0xffffffff } },
+    { "CONST_VALUE_12"_s, JSC::PropertyAttribute::DontDelete | JSC::PropertyAttribute::ReadOnly | JSC::PropertyAttribute::ConstantInteger, NoIntrinsic, { HashTableValue::ConstantType, 0x01 } },
+    { "CONST_VALUE_13"_s, JSC::PropertyAttribute::DontDelete | JSC::PropertyAttribute::ReadOnly | JSC::PropertyAttribute::ConstantInteger, NoIntrinsic, { HashTableValue::ConstantType, 0X20 } },
+    { "CONST_VALUE_14"_s, JSC::PropertyAttribute::DontDelete | JSC::PropertyAttribute::ReadOnly | JSC::PropertyAttribute::ConstantInteger, NoIntrinsic, { HashTableValue::ConstantType, 0x1abc } },
+    { "CONST_JAVASCRIPT"_s, JSC::PropertyAttribute::DontDelete | JSC::PropertyAttribute::ReadOnly | JSC::PropertyAttribute::ConstantInteger, NoIntrinsic, { HashTableValue::ConstantType, 15 } },
+    { "readonly"_s, JSC::PropertyAttribute::DontDelete | JSC::PropertyAttribute::ReadOnly | JSC::PropertyAttribute::ConstantInteger, NoIntrinsic, { HashTableValue::ConstantType, 0 } },
 };
 
 const ClassInfo JSTestObjPrototype::s_info = { "TestObject"_s, &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(JSTestObjPrototype) };
@@ -2570,8 +2631,8 @@ void JSTestObjPrototype::finishCreation(VM& vm)
     }
     if (hasDisabledRuntimeProperties && structure()->isDictionary())
         flattenDictionaryObject(vm);
-    putDirect(vm, builtinNames(vm).privateMethodPrivateName(), JSFunction::create(vm, globalObject(), 0, String(), jsTestObjPrototypeFunction_privateMethod), JSC::PropertyAttribute::ReadOnly | JSC::PropertyAttribute::DontEnum);
-    putDirect(vm, builtinNames(vm).publicAndPrivateMethodPrivateName(), JSFunction::create(vm, globalObject(), 0, String(), jsTestObjPrototypeFunction_publicAndPrivateMethod), JSC::PropertyAttribute::ReadOnly | JSC::PropertyAttribute::DontEnum);
+    putDirect(vm, builtinNames(vm).privateMethodPrivateName(), JSFunction::create(vm, globalObject(), 0, String(), jsTestObjPrototypeFunction_privateMethod, ImplementationVisibility::Public), JSC::PropertyAttribute::ReadOnly | JSC::PropertyAttribute::DontEnum);
+    putDirect(vm, builtinNames(vm).publicAndPrivateMethodPrivateName(), JSFunction::create(vm, globalObject(), 0, String(), jsTestObjPrototypeFunction_publicAndPrivateMethod, ImplementationVisibility::Public), JSC::PropertyAttribute::ReadOnly | JSC::PropertyAttribute::DontEnum);
     putDirect(vm, vm.propertyNames->iteratorSymbol, globalObject()->arrayPrototype()->getDirect(vm, vm.propertyNames->builtinNames().valuesPrivateName()), static_cast<unsigned>(JSC::PropertyAttribute::DontEnum));
     addValueIterableMethods(*globalObject(), *this);
     JSObject& unscopables = *constructEmptyObject(globalObject()->vm(), globalObject()->nullPrototypeObjectStructure());
@@ -2737,6 +2798,7 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestObjConstructor_staticStringAttr, (JSGlobalObject*
 static inline bool setJSTestObjConstructor_staticStringAttrSetter(JSGlobalObject& lexicalGlobalObject, JSValue value)
 {
     auto& vm = JSC::getVM(&lexicalGlobalObject);
+    UNUSED_PARAM(vm);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     auto nativeValue = convert<IDLDOMString>(lexicalGlobalObject, value);
     RETURN_IF_EXCEPTION(throwScope, false);
@@ -2795,6 +2857,7 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestObj_enumAttr, (JSGlobalObject* lexicalGlobalObjec
 static inline bool setJSTestObj_enumAttrSetter(JSGlobalObject& lexicalGlobalObject, JSTestObj& thisObject, JSValue value)
 {
     auto& vm = JSC::getVM(&lexicalGlobalObject);
+    UNUSED_PARAM(vm);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     auto& impl = thisObject.wrapped();
     auto optionalNativeValue = parseEnumeration<TestObj::EnumType>(lexicalGlobalObject, value);
@@ -2829,6 +2892,7 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestObj_byteAttr, (JSGlobalObject* lexicalGlobalObjec
 static inline bool setJSTestObj_byteAttrSetter(JSGlobalObject& lexicalGlobalObject, JSTestObj& thisObject, JSValue value)
 {
     auto& vm = JSC::getVM(&lexicalGlobalObject);
+    UNUSED_PARAM(vm);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     auto& impl = thisObject.wrapped();
     auto nativeValue = convert<IDLByte>(lexicalGlobalObject, value);
@@ -2860,6 +2924,7 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestObj_octetAttr, (JSGlobalObject* lexicalGlobalObje
 static inline bool setJSTestObj_octetAttrSetter(JSGlobalObject& lexicalGlobalObject, JSTestObj& thisObject, JSValue value)
 {
     auto& vm = JSC::getVM(&lexicalGlobalObject);
+    UNUSED_PARAM(vm);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     auto& impl = thisObject.wrapped();
     auto nativeValue = convert<IDLOctet>(lexicalGlobalObject, value);
@@ -2891,6 +2956,7 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestObj_shortAttr, (JSGlobalObject* lexicalGlobalObje
 static inline bool setJSTestObj_shortAttrSetter(JSGlobalObject& lexicalGlobalObject, JSTestObj& thisObject, JSValue value)
 {
     auto& vm = JSC::getVM(&lexicalGlobalObject);
+    UNUSED_PARAM(vm);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     auto& impl = thisObject.wrapped();
     auto nativeValue = convert<IDLShort>(lexicalGlobalObject, value);
@@ -2922,6 +2988,7 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestObj_clampedShortAttr, (JSGlobalObject* lexicalGlo
 static inline bool setJSTestObj_clampedShortAttrSetter(JSGlobalObject& lexicalGlobalObject, JSTestObj& thisObject, JSValue value)
 {
     auto& vm = JSC::getVM(&lexicalGlobalObject);
+    UNUSED_PARAM(vm);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     auto& impl = thisObject.wrapped();
     auto nativeValue = convert<IDLClampAdaptor<IDLShort>>(lexicalGlobalObject, value);
@@ -2953,6 +3020,7 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestObj_enforceRangeShortAttr, (JSGlobalObject* lexic
 static inline bool setJSTestObj_enforceRangeShortAttrSetter(JSGlobalObject& lexicalGlobalObject, JSTestObj& thisObject, JSValue value)
 {
     auto& vm = JSC::getVM(&lexicalGlobalObject);
+    UNUSED_PARAM(vm);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     auto& impl = thisObject.wrapped();
     auto nativeValue = convert<IDLEnforceRangeAdaptor<IDLShort>>(lexicalGlobalObject, value);
@@ -2984,6 +3052,7 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestObj_unsignedShortAttr, (JSGlobalObject* lexicalGl
 static inline bool setJSTestObj_unsignedShortAttrSetter(JSGlobalObject& lexicalGlobalObject, JSTestObj& thisObject, JSValue value)
 {
     auto& vm = JSC::getVM(&lexicalGlobalObject);
+    UNUSED_PARAM(vm);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     auto& impl = thisObject.wrapped();
     auto nativeValue = convert<IDLUnsignedShort>(lexicalGlobalObject, value);
@@ -3015,6 +3084,7 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestObj_longAttr, (JSGlobalObject* lexicalGlobalObjec
 static inline bool setJSTestObj_longAttrSetter(JSGlobalObject& lexicalGlobalObject, JSTestObj& thisObject, JSValue value)
 {
     auto& vm = JSC::getVM(&lexicalGlobalObject);
+    UNUSED_PARAM(vm);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     auto& impl = thisObject.wrapped();
     auto nativeValue = convert<IDLLong>(lexicalGlobalObject, value);
@@ -3046,6 +3116,7 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestObj_longLongAttr, (JSGlobalObject* lexicalGlobalO
 static inline bool setJSTestObj_longLongAttrSetter(JSGlobalObject& lexicalGlobalObject, JSTestObj& thisObject, JSValue value)
 {
     auto& vm = JSC::getVM(&lexicalGlobalObject);
+    UNUSED_PARAM(vm);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     auto& impl = thisObject.wrapped();
     auto nativeValue = convert<IDLLongLong>(lexicalGlobalObject, value);
@@ -3077,6 +3148,7 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestObj_unsignedLongLongAttr, (JSGlobalObject* lexica
 static inline bool setJSTestObj_unsignedLongLongAttrSetter(JSGlobalObject& lexicalGlobalObject, JSTestObj& thisObject, JSValue value)
 {
     auto& vm = JSC::getVM(&lexicalGlobalObject);
+    UNUSED_PARAM(vm);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     auto& impl = thisObject.wrapped();
     auto nativeValue = convert<IDLUnsignedLongLong>(lexicalGlobalObject, value);
@@ -3108,6 +3180,7 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestObj_stringAttr, (JSGlobalObject* lexicalGlobalObj
 static inline bool setJSTestObj_stringAttrSetter(JSGlobalObject& lexicalGlobalObject, JSTestObj& thisObject, JSValue value)
 {
     auto& vm = JSC::getVM(&lexicalGlobalObject);
+    UNUSED_PARAM(vm);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     auto& impl = thisObject.wrapped();
     auto nativeValue = convert<IDLDOMString>(lexicalGlobalObject, value);
@@ -3139,6 +3212,7 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestObj_usvstringAttr, (JSGlobalObject* lexicalGlobal
 static inline bool setJSTestObj_usvstringAttrSetter(JSGlobalObject& lexicalGlobalObject, JSTestObj& thisObject, JSValue value)
 {
     auto& vm = JSC::getVM(&lexicalGlobalObject);
+    UNUSED_PARAM(vm);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     auto& impl = thisObject.wrapped();
     auto nativeValue = convert<IDLUSVString>(lexicalGlobalObject, value);
@@ -3170,6 +3244,7 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestObj_testObjAttr, (JSGlobalObject* lexicalGlobalOb
 static inline bool setJSTestObj_testObjAttrSetter(JSGlobalObject& lexicalGlobalObject, JSTestObj& thisObject, JSValue value)
 {
     auto& vm = JSC::getVM(&lexicalGlobalObject);
+    UNUSED_PARAM(vm);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     auto& impl = thisObject.wrapped();
     auto nativeValue = convert<IDLInterface<TestObj>>(lexicalGlobalObject, value, [](JSC::JSGlobalObject& lexicalGlobalObject, JSC::ThrowScope& scope) { throwAttributeTypeError(lexicalGlobalObject, scope, "TestObject", "testObjAttr", "TestObj"); });
@@ -3201,6 +3276,7 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestObj_testNullableObjAttr, (JSGlobalObject* lexical
 static inline bool setJSTestObj_testNullableObjAttrSetter(JSGlobalObject& lexicalGlobalObject, JSTestObj& thisObject, JSValue value)
 {
     auto& vm = JSC::getVM(&lexicalGlobalObject);
+    UNUSED_PARAM(vm);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     auto& impl = thisObject.wrapped();
     auto nativeValue = convert<IDLNullable<IDLInterface<TestObj>>>(lexicalGlobalObject, value, [](JSC::JSGlobalObject& lexicalGlobalObject, JSC::ThrowScope& scope) { throwAttributeTypeError(lexicalGlobalObject, scope, "TestObject", "testNullableObjAttr", "TestObj"); });
@@ -3214,6 +3290,34 @@ static inline bool setJSTestObj_testNullableObjAttrSetter(JSGlobalObject& lexica
 JSC_DEFINE_CUSTOM_SETTER(setJSTestObj_testNullableObjAttr, (JSGlobalObject* lexicalGlobalObject, EncodedJSValue thisValue, EncodedJSValue encodedValue, PropertyName attributeName))
 {
     return IDLAttribute<JSTestObj>::set<setJSTestObj_testNullableObjAttrSetter>(*lexicalGlobalObject, thisValue, encodedValue, attributeName);
+}
+
+static inline JSValue jsTestObj_legacyLenientSetterTestAttrGetter(JSGlobalObject& lexicalGlobalObject, JSTestObj& thisObject)
+{
+    auto& vm = JSC::getVM(&lexicalGlobalObject);
+    auto throwScope = DECLARE_THROW_SCOPE(vm);
+    auto& impl = thisObject.wrapped();
+    RELEASE_AND_RETURN(throwScope, (toJS<IDLDOMString>(lexicalGlobalObject, throwScope, impl.legacyLenientSetterTestAttr())));
+}
+
+JSC_DEFINE_CUSTOM_GETTER(jsTestObj_legacyLenientSetterTestAttr, (JSGlobalObject* lexicalGlobalObject, EncodedJSValue thisValue, PropertyName attributeName))
+{
+    return IDLAttribute<JSTestObj>::get<jsTestObj_legacyLenientSetterTestAttrGetter, CastedThisErrorBehavior::Assert>(*lexicalGlobalObject, thisValue, attributeName);
+}
+
+static inline bool setJSTestObj_legacyLenientSetterTestAttrSetter(JSGlobalObject& lexicalGlobalObject, JSTestObj& thisObject, JSValue value)
+{
+    auto& vm = JSC::getVM(&lexicalGlobalObject);
+    UNUSED_PARAM(vm);
+    UNUSED_PARAM(lexicalGlobalObject);
+    UNUSED_PARAM(thisObject);
+    UNUSED_PARAM(value);
+    return true;
+}
+
+JSC_DEFINE_CUSTOM_SETTER(setJSTestObj_legacyLenientSetterTestAttr, (JSGlobalObject* lexicalGlobalObject, EncodedJSValue thisValue, EncodedJSValue encodedValue, PropertyName attributeName))
+{
+    return IDLAttribute<JSTestObj>::set<setJSTestObj_legacyLenientSetterTestAttrSetter>(*lexicalGlobalObject, thisValue, encodedValue, attributeName);
 }
 
 static inline JSValue jsTestObj_lenientTestObjAttrGetter(JSGlobalObject& lexicalGlobalObject, JSTestObj& thisObject)
@@ -3232,6 +3336,7 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestObj_lenientTestObjAttr, (JSGlobalObject* lexicalG
 static inline bool setJSTestObj_lenientTestObjAttrSetter(JSGlobalObject& lexicalGlobalObject, JSTestObj& thisObject, JSValue value)
 {
     auto& vm = JSC::getVM(&lexicalGlobalObject);
+    UNUSED_PARAM(vm);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     auto& impl = thisObject.wrapped();
     auto nativeValue = convert<IDLInterface<TestObj>>(lexicalGlobalObject, value, [](JSC::JSGlobalObject& lexicalGlobalObject, JSC::ThrowScope& scope) { throwAttributeTypeError(lexicalGlobalObject, scope, "TestObject", "lenientTestObjAttr", "TestObj"); });
@@ -3276,6 +3381,7 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestObj_stringAttrTreatingNullAsEmptyString, (JSGloba
 static inline bool setJSTestObj_stringAttrTreatingNullAsEmptyStringSetter(JSGlobalObject& lexicalGlobalObject, JSTestObj& thisObject, JSValue value)
 {
     auto& vm = JSC::getVM(&lexicalGlobalObject);
+    UNUSED_PARAM(vm);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     auto& impl = thisObject.wrapped();
     auto nativeValue = convert<IDLLegacyNullToEmptyStringAdaptor<IDLDOMString>>(lexicalGlobalObject, value);
@@ -3307,6 +3413,7 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestObj_usvstringAttrTreatingNullAsEmptyString, (JSGl
 static inline bool setJSTestObj_usvstringAttrTreatingNullAsEmptyStringSetter(JSGlobalObject& lexicalGlobalObject, JSTestObj& thisObject, JSValue value)
 {
     auto& vm = JSC::getVM(&lexicalGlobalObject);
+    UNUSED_PARAM(vm);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     auto& impl = thisObject.wrapped();
     auto nativeValue = convert<IDLLegacyNullToEmptyStringAdaptor<IDLUSVString>>(lexicalGlobalObject, value);
@@ -3338,6 +3445,7 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestObj_byteStringAttrTreatingNullAsEmptyString, (JSG
 static inline bool setJSTestObj_byteStringAttrTreatingNullAsEmptyStringSetter(JSGlobalObject& lexicalGlobalObject, JSTestObj& thisObject, JSValue value)
 {
     auto& vm = JSC::getVM(&lexicalGlobalObject);
+    UNUSED_PARAM(vm);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     auto& impl = thisObject.wrapped();
     auto nativeValue = convert<IDLLegacyNullToEmptyStringAdaptor<IDLByteString>>(lexicalGlobalObject, value);
@@ -3369,6 +3477,7 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestObj_stringLongRecordAttr, (JSGlobalObject* lexica
 static inline bool setJSTestObj_stringLongRecordAttrSetter(JSGlobalObject& lexicalGlobalObject, JSTestObj& thisObject, JSValue value)
 {
     auto& vm = JSC::getVM(&lexicalGlobalObject);
+    UNUSED_PARAM(vm);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     auto& impl = thisObject.wrapped();
     auto nativeValue = convert<IDLRecord<IDLDOMString, IDLLong>>(lexicalGlobalObject, value);
@@ -3400,6 +3509,7 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestObj_usvstringLongRecordAttr, (JSGlobalObject* lex
 static inline bool setJSTestObj_usvstringLongRecordAttrSetter(JSGlobalObject& lexicalGlobalObject, JSTestObj& thisObject, JSValue value)
 {
     auto& vm = JSC::getVM(&lexicalGlobalObject);
+    UNUSED_PARAM(vm);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     auto& impl = thisObject.wrapped();
     auto nativeValue = convert<IDLRecord<IDLUSVString, IDLLong>>(lexicalGlobalObject, value);
@@ -3431,6 +3541,7 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestObj_usvstringLongRecordAttr, (JSGlobalObject* lex
 static inline bool setJSTestObj_usvstringLongRecordAttrSetter(JSGlobalObject& lexicalGlobalObject, JSTestObj& thisObject, JSValue value)
 {
     auto& vm = JSC::getVM(&lexicalGlobalObject);
+    UNUSED_PARAM(vm);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     auto& impl = thisObject.wrapped();
     auto nativeValue = convert<IDLRecord<IDLByteString, IDLLong>>(lexicalGlobalObject, value);
@@ -3462,6 +3573,7 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestObj_stringObjRecordAttr, (JSGlobalObject* lexical
 static inline bool setJSTestObj_stringObjRecordAttrSetter(JSGlobalObject& lexicalGlobalObject, JSTestObj& thisObject, JSValue value)
 {
     auto& vm = JSC::getVM(&lexicalGlobalObject);
+    UNUSED_PARAM(vm);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     auto& impl = thisObject.wrapped();
     auto nativeValue = convert<IDLRecord<IDLDOMString, IDLInterface<TestObj>>>(lexicalGlobalObject, value);
@@ -3493,6 +3605,7 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestObj_stringNullableObjRecordAttr, (JSGlobalObject*
 static inline bool setJSTestObj_stringNullableObjRecordAttrSetter(JSGlobalObject& lexicalGlobalObject, JSTestObj& thisObject, JSValue value)
 {
     auto& vm = JSC::getVM(&lexicalGlobalObject);
+    UNUSED_PARAM(vm);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     auto& impl = thisObject.wrapped();
     auto nativeValue = convert<IDLRecord<IDLDOMString, IDLNullable<IDLInterface<TestObj>>>>(lexicalGlobalObject, value);
@@ -3524,6 +3637,7 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestObj_stringVoidCallbackRecordAttr, (JSGlobalObject
 static inline bool setJSTestObj_stringVoidCallbackRecordAttrSetter(JSGlobalObject& lexicalGlobalObject, JSTestObj& thisObject, JSValue value)
 {
     auto& vm = JSC::getVM(&lexicalGlobalObject);
+    UNUSED_PARAM(vm);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     auto& impl = thisObject.wrapped();
     auto nativeValue = convert<IDLRecord<IDLDOMString, IDLCallbackFunction<JSVoidCallback>>>(lexicalGlobalObject, value, *thisObject.globalObject());
@@ -3555,6 +3669,7 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestObj_dictionaryAttr, (JSGlobalObject* lexicalGloba
 static inline bool setJSTestObj_dictionaryAttrSetter(JSGlobalObject& lexicalGlobalObject, JSTestObj& thisObject, JSValue value)
 {
     auto& vm = JSC::getVM(&lexicalGlobalObject);
+    UNUSED_PARAM(vm);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     auto& impl = thisObject.wrapped();
     auto nativeValue = convert<IDLDictionary<TestObj::Dictionary>>(lexicalGlobalObject, value);
@@ -3586,6 +3701,7 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestObj_nullableDictionaryAttr, (JSGlobalObject* lexi
 static inline bool setJSTestObj_nullableDictionaryAttrSetter(JSGlobalObject& lexicalGlobalObject, JSTestObj& thisObject, JSValue value)
 {
     auto& vm = JSC::getVM(&lexicalGlobalObject);
+    UNUSED_PARAM(vm);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     auto& impl = thisObject.wrapped();
     auto nativeValue = convert<IDLNullable<IDLDictionary<TestObj::Dictionary>>>(lexicalGlobalObject, value);
@@ -3617,6 +3733,7 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestObj_annotatedTypeInUnionAttr, (JSGlobalObject* le
 static inline bool setJSTestObj_annotatedTypeInUnionAttrSetter(JSGlobalObject& lexicalGlobalObject, JSTestObj& thisObject, JSValue value)
 {
     auto& vm = JSC::getVM(&lexicalGlobalObject);
+    UNUSED_PARAM(vm);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     auto& impl = thisObject.wrapped();
     auto nativeValue = convert<IDLUnion<IDLDOMString, IDLClampAdaptor<IDLLong>>>(lexicalGlobalObject, value);
@@ -3648,6 +3765,7 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestObj_annotatedTypeInSequenceAttr, (JSGlobalObject*
 static inline bool setJSTestObj_annotatedTypeInSequenceAttrSetter(JSGlobalObject& lexicalGlobalObject, JSTestObj& thisObject, JSValue value)
 {
     auto& vm = JSC::getVM(&lexicalGlobalObject);
+    UNUSED_PARAM(vm);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     auto& impl = thisObject.wrapped();
     auto nativeValue = convert<IDLSequence<IDLClampAdaptor<IDLLong>>>(lexicalGlobalObject, value);
@@ -3679,6 +3797,7 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestObj_implementationEnumAttr, (JSGlobalObject* lexi
 static inline bool setJSTestObj_implementationEnumAttrSetter(JSGlobalObject& lexicalGlobalObject, JSTestObj& thisObject, JSValue value)
 {
     auto& vm = JSC::getVM(&lexicalGlobalObject);
+    UNUSED_PARAM(vm);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     auto& impl = thisObject.wrapped();
     auto optionalNativeValue = parseEnumeration<AlternateEnumName>(lexicalGlobalObject, value);
@@ -3726,6 +3845,7 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestObj_XMLObjAttr, (JSGlobalObject* lexicalGlobalObj
 static inline bool setJSTestObj_XMLObjAttrSetter(JSGlobalObject& lexicalGlobalObject, JSTestObj& thisObject, JSValue value)
 {
     auto& vm = JSC::getVM(&lexicalGlobalObject);
+    UNUSED_PARAM(vm);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     auto& impl = thisObject.wrapped();
     auto nativeValue = convert<IDLInterface<TestObj>>(lexicalGlobalObject, value, [](JSC::JSGlobalObject& lexicalGlobalObject, JSC::ThrowScope& scope) { throwAttributeTypeError(lexicalGlobalObject, scope, "TestObject", "XMLObjAttr", "TestObj"); });
@@ -3757,6 +3877,7 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestObj_create, (JSGlobalObject* lexicalGlobalObject,
 static inline bool setJSTestObj_createSetter(JSGlobalObject& lexicalGlobalObject, JSTestObj& thisObject, JSValue value)
 {
     auto& vm = JSC::getVM(&lexicalGlobalObject);
+    UNUSED_PARAM(vm);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     auto& impl = thisObject.wrapped();
     auto nativeValue = convert<IDLBoolean>(lexicalGlobalObject, value);
@@ -3788,6 +3909,7 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestObj_reflectedStringAttr, (JSGlobalObject* lexical
 static inline bool setJSTestObj_reflectedStringAttrSetter(JSGlobalObject& lexicalGlobalObject, JSTestObj& thisObject, JSValue value)
 {
     auto& vm = JSC::getVM(&lexicalGlobalObject);
+    UNUSED_PARAM(vm);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     auto& impl = thisObject.wrapped();
     auto nativeValue = convert<IDLAtomStringAdaptor<IDLDOMString>>(lexicalGlobalObject, value);
@@ -3819,6 +3941,7 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestObj_reflectedUSVStringAttr, (JSGlobalObject* lexi
 static inline bool setJSTestObj_reflectedUSVStringAttrSetter(JSGlobalObject& lexicalGlobalObject, JSTestObj& thisObject, JSValue value)
 {
     auto& vm = JSC::getVM(&lexicalGlobalObject);
+    UNUSED_PARAM(vm);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     auto& impl = thisObject.wrapped();
     auto nativeValue = convert<IDLAtomStringAdaptor<IDLUSVString>>(lexicalGlobalObject, value);
@@ -3850,6 +3973,7 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestObj_reflectedIntegralAttr, (JSGlobalObject* lexic
 static inline bool setJSTestObj_reflectedIntegralAttrSetter(JSGlobalObject& lexicalGlobalObject, JSTestObj& thisObject, JSValue value)
 {
     auto& vm = JSC::getVM(&lexicalGlobalObject);
+    UNUSED_PARAM(vm);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     auto& impl = thisObject.wrapped();
     auto nativeValue = convert<IDLLong>(lexicalGlobalObject, value);
@@ -3881,6 +4005,7 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestObj_reflectedUnsignedIntegralAttr, (JSGlobalObjec
 static inline bool setJSTestObj_reflectedUnsignedIntegralAttrSetter(JSGlobalObject& lexicalGlobalObject, JSTestObj& thisObject, JSValue value)
 {
     auto& vm = JSC::getVM(&lexicalGlobalObject);
+    UNUSED_PARAM(vm);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     auto& impl = thisObject.wrapped();
     auto nativeValue = convert<IDLUnsignedLong>(lexicalGlobalObject, value);
@@ -3912,6 +4037,7 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestObj_reflectedBooleanAttr, (JSGlobalObject* lexica
 static inline bool setJSTestObj_reflectedBooleanAttrSetter(JSGlobalObject& lexicalGlobalObject, JSTestObj& thisObject, JSValue value)
 {
     auto& vm = JSC::getVM(&lexicalGlobalObject);
+    UNUSED_PARAM(vm);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     auto& impl = thisObject.wrapped();
     auto nativeValue = convert<IDLBoolean>(lexicalGlobalObject, value);
@@ -3943,6 +4069,7 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestObj_reflectedElementAttr, (JSGlobalObject* lexica
 static inline bool setJSTestObj_reflectedElementAttrSetter(JSGlobalObject& lexicalGlobalObject, JSTestObj& thisObject, JSValue value)
 {
     auto& vm = JSC::getVM(&lexicalGlobalObject);
+    UNUSED_PARAM(vm);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     auto& impl = thisObject.wrapped();
     auto nativeValue = convert<IDLInterface<Element>>(lexicalGlobalObject, value, [](JSC::JSGlobalObject& lexicalGlobalObject, JSC::ThrowScope& scope) { throwAttributeTypeError(lexicalGlobalObject, scope, "TestObject", "reflectedElementAttr", "Element"); });
@@ -3974,6 +4101,7 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestObj_reflectedElementsArrayAttr, (JSGlobalObject* 
 static inline bool setJSTestObj_reflectedElementsArrayAttrSetter(JSGlobalObject& lexicalGlobalObject, JSTestObj& thisObject, JSValue value)
 {
     auto& vm = JSC::getVM(&lexicalGlobalObject);
+    UNUSED_PARAM(vm);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     auto& impl = thisObject.wrapped();
     auto nativeValue = convert<IDLFrozenArray<IDLInterface<Element>>>(lexicalGlobalObject, value);
@@ -4005,6 +4133,7 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestObj_reflectedURLAttr, (JSGlobalObject* lexicalGlo
 static inline bool setJSTestObj_reflectedURLAttrSetter(JSGlobalObject& lexicalGlobalObject, JSTestObj& thisObject, JSValue value)
 {
     auto& vm = JSC::getVM(&lexicalGlobalObject);
+    UNUSED_PARAM(vm);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     auto& impl = thisObject.wrapped();
     auto nativeValue = convert<IDLAtomStringAdaptor<IDLDOMString>>(lexicalGlobalObject, value);
@@ -4036,6 +4165,7 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestObj_reflectedUSVURLAttr, (JSGlobalObject* lexical
 static inline bool setJSTestObj_reflectedUSVURLAttrSetter(JSGlobalObject& lexicalGlobalObject, JSTestObj& thisObject, JSValue value)
 {
     auto& vm = JSC::getVM(&lexicalGlobalObject);
+    UNUSED_PARAM(vm);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     auto& impl = thisObject.wrapped();
     auto nativeValue = convert<IDLAtomStringAdaptor<IDLUSVString>>(lexicalGlobalObject, value);
@@ -4067,6 +4197,7 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestObj_reflectedStringAttr, (JSGlobalObject* lexical
 static inline bool setJSTestObj_reflectedStringAttrSetter(JSGlobalObject& lexicalGlobalObject, JSTestObj& thisObject, JSValue value)
 {
     auto& vm = JSC::getVM(&lexicalGlobalObject);
+    UNUSED_PARAM(vm);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     auto& impl = thisObject.wrapped();
     auto nativeValue = convert<IDLAtomStringAdaptor<IDLDOMString>>(lexicalGlobalObject, value);
@@ -4098,6 +4229,7 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestObj_reflectedCustomIntegralAttr, (JSGlobalObject*
 static inline bool setJSTestObj_reflectedCustomIntegralAttrSetter(JSGlobalObject& lexicalGlobalObject, JSTestObj& thisObject, JSValue value)
 {
     auto& vm = JSC::getVM(&lexicalGlobalObject);
+    UNUSED_PARAM(vm);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     auto& impl = thisObject.wrapped();
     auto nativeValue = convert<IDLLong>(lexicalGlobalObject, value);
@@ -4129,6 +4261,7 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestObj_reflectedCustomBooleanAttr, (JSGlobalObject* 
 static inline bool setJSTestObj_reflectedCustomBooleanAttrSetter(JSGlobalObject& lexicalGlobalObject, JSTestObj& thisObject, JSValue value)
 {
     auto& vm = JSC::getVM(&lexicalGlobalObject);
+    UNUSED_PARAM(vm);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     auto& impl = thisObject.wrapped();
     auto nativeValue = convert<IDLBoolean>(lexicalGlobalObject, value);
@@ -4160,6 +4293,7 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestObj_reflectedCustomURLAttr, (JSGlobalObject* lexi
 static inline bool setJSTestObj_reflectedCustomURLAttrSetter(JSGlobalObject& lexicalGlobalObject, JSTestObj& thisObject, JSValue value)
 {
     auto& vm = JSC::getVM(&lexicalGlobalObject);
+    UNUSED_PARAM(vm);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     auto& impl = thisObject.wrapped();
     auto nativeValue = convert<IDLAtomStringAdaptor<IDLDOMString>>(lexicalGlobalObject, value);
@@ -4195,6 +4329,7 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestObj_enabledAtRuntimeAttribute, (JSGlobalObject* l
 static inline bool setJSTestObj_enabledAtRuntimeAttributeSetter(JSGlobalObject& lexicalGlobalObject, JSTestObj& thisObject, JSValue value)
 {
     auto& vm = JSC::getVM(&lexicalGlobalObject);
+    UNUSED_PARAM(vm);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     auto& impl = thisObject.wrapped();
     auto nativeValue = convert<IDLDOMString>(lexicalGlobalObject, value);
@@ -4231,6 +4366,7 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestObjConstructor_enabledAtRuntimeAttributeStatic, (
 static inline bool setJSTestObjConstructor_enabledAtRuntimeAttributeStaticSetter(JSGlobalObject& lexicalGlobalObject, JSValue value)
 {
     auto& vm = JSC::getVM(&lexicalGlobalObject);
+    UNUSED_PARAM(vm);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     auto nativeValue = convert<IDLDOMString>(lexicalGlobalObject, value);
     RETURN_IF_EXCEPTION(throwScope, false);
@@ -4263,6 +4399,7 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestObj_typedArrayAttr, (JSGlobalObject* lexicalGloba
 static inline bool setJSTestObj_typedArrayAttrSetter(JSGlobalObject& lexicalGlobalObject, JSTestObj& thisObject, JSValue value)
 {
     auto& vm = JSC::getVM(&lexicalGlobalObject);
+    UNUSED_PARAM(vm);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     auto& impl = thisObject.wrapped();
     auto nativeValue = convert<IDLFloat32Array>(lexicalGlobalObject, value, [](JSC::JSGlobalObject& lexicalGlobalObject, JSC::ThrowScope& scope) { throwAttributeTypeError(lexicalGlobalObject, scope, "TestObject", "typedArrayAttr", "Float32Array"); });
@@ -4292,6 +4429,7 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestObj_customAttr, (JSGlobalObject* lexicalGlobalObj
 static inline bool setJSTestObj_customAttrSetter(JSGlobalObject& lexicalGlobalObject, JSTestObj& thisObject, JSValue value)
 {
     auto& vm = JSC::getVM(&lexicalGlobalObject);
+    UNUSED_PARAM(vm);
     thisObject.setCustomAttr(lexicalGlobalObject, value);
     return true;
 }
@@ -4315,6 +4453,7 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestObj_onfoo, (JSGlobalObject* lexicalGlobalObject, 
 static inline bool setJSTestObj_onfooSetter(JSGlobalObject& lexicalGlobalObject, JSTestObj& thisObject, JSValue value)
 {
     auto& vm = JSC::getVM(&lexicalGlobalObject);
+    UNUSED_PARAM(vm);
     setEventHandlerAttribute<JSEventListener>(thisObject.wrapped(), eventNames().fooEvent, value, thisObject);
     vm.writeBarrier(&thisObject, value);
     ensureStillAliveHere(value);
@@ -4341,6 +4480,7 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestObj_onwebkitfoo, (JSGlobalObject* lexicalGlobalOb
 static inline bool setJSTestObj_onwebkitfooSetter(JSGlobalObject& lexicalGlobalObject, JSTestObj& thisObject, JSValue value)
 {
     auto& vm = JSC::getVM(&lexicalGlobalObject);
+    UNUSED_PARAM(vm);
     setEventHandlerAttribute<JSEventListener>(thisObject.wrapped(), eventNames().fooEvent, value, thisObject);
     vm.writeBarrier(&thisObject, value);
     ensureStillAliveHere(value);
@@ -4369,6 +4509,7 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestObj_withCurrentGlobalObjectAttribute, (JSGlobalOb
 static inline bool setJSTestObj_withCurrentGlobalObjectAttributeSetter(JSGlobalObject& lexicalGlobalObject, JSTestObj& thisObject, JSValue value)
 {
     auto& vm = JSC::getVM(&lexicalGlobalObject);
+    UNUSED_PARAM(vm);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     auto& impl = thisObject.wrapped();
     auto nativeValue = convert<IDLLong>(lexicalGlobalObject, value);
@@ -4400,6 +4541,7 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestObj_withCallWithAndSetterCallWithAttribute, (JSGl
 static inline bool setJSTestObj_withCallWithAndSetterCallWithAttributeSetter(JSGlobalObject& lexicalGlobalObject, JSTestObj& thisObject, JSValue value)
 {
     auto& vm = JSC::getVM(&lexicalGlobalObject);
+    UNUSED_PARAM(vm);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     auto& impl = thisObject.wrapped();
     auto nativeValue = convert<IDLLong>(lexicalGlobalObject, value);
@@ -4431,6 +4573,7 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestObj_withSetterCallWithAttribute, (JSGlobalObject*
 static inline bool setJSTestObj_withSetterCallWithAttributeSetter(JSGlobalObject& lexicalGlobalObject, JSTestObj& thisObject, JSValue value)
 {
     auto& vm = JSC::getVM(&lexicalGlobalObject);
+    UNUSED_PARAM(vm);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     auto& impl = thisObject.wrapped();
     auto nativeValue = convert<IDLDOMString>(lexicalGlobalObject, value);
@@ -4466,6 +4609,7 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestObj_conditionalAttr1, (JSGlobalObject* lexicalGlo
 static inline bool setJSTestObj_conditionalAttr1Setter(JSGlobalObject& lexicalGlobalObject, JSTestObj& thisObject, JSValue value)
 {
     auto& vm = JSC::getVM(&lexicalGlobalObject);
+    UNUSED_PARAM(vm);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     auto& impl = thisObject.wrapped();
     auto nativeValue = convert<IDLLong>(lexicalGlobalObject, value);
@@ -4503,6 +4647,7 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestObj_conditionalAttr2, (JSGlobalObject* lexicalGlo
 static inline bool setJSTestObj_conditionalAttr2Setter(JSGlobalObject& lexicalGlobalObject, JSTestObj& thisObject, JSValue value)
 {
     auto& vm = JSC::getVM(&lexicalGlobalObject);
+    UNUSED_PARAM(vm);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     auto& impl = thisObject.wrapped();
     auto nativeValue = convert<IDLLong>(lexicalGlobalObject, value);
@@ -4540,6 +4685,7 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestObj_conditionalAttr3, (JSGlobalObject* lexicalGlo
 static inline bool setJSTestObj_conditionalAttr3Setter(JSGlobalObject& lexicalGlobalObject, JSTestObj& thisObject, JSValue value)
 {
     auto& vm = JSC::getVM(&lexicalGlobalObject);
+    UNUSED_PARAM(vm);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     auto& impl = thisObject.wrapped();
     auto nativeValue = convert<IDLLong>(lexicalGlobalObject, value);
@@ -4672,6 +4818,7 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestObj_anyAttribute, (JSGlobalObject* lexicalGlobalO
 static inline bool setJSTestObj_anyAttributeSetter(JSGlobalObject& lexicalGlobalObject, JSTestObj& thisObject, JSValue value)
 {
     auto& vm = JSC::getVM(&lexicalGlobalObject);
+    UNUSED_PARAM(vm);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     auto& impl = thisObject.wrapped();
     auto nativeValue = convert<IDLAny>(lexicalGlobalObject, value);
@@ -4703,6 +4850,7 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestObj_objectAttribute, (JSGlobalObject* lexicalGlob
 static inline bool setJSTestObj_objectAttributeSetter(JSGlobalObject& lexicalGlobalObject, JSTestObj& thisObject, JSValue value)
 {
     auto& vm = JSC::getVM(&lexicalGlobalObject);
+    UNUSED_PARAM(vm);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     auto& impl = thisObject.wrapped();
     auto nativeValue = convert<IDLObject>(lexicalGlobalObject, value);
@@ -4747,6 +4895,7 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestObj_mutablePoint, (JSGlobalObject* lexicalGlobalO
 static inline bool setJSTestObj_mutablePointSetter(JSGlobalObject& lexicalGlobalObject, JSTestObj& thisObject, JSValue value)
 {
     auto& vm = JSC::getVM(&lexicalGlobalObject);
+    UNUSED_PARAM(vm);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     auto& impl = thisObject.wrapped();
     auto nativeValue = convert<IDLInterface<SVGPoint>>(lexicalGlobalObject, value, [](JSC::JSGlobalObject& lexicalGlobalObject, JSC::ThrowScope& scope) { throwAttributeTypeError(lexicalGlobalObject, scope, "TestObject", "mutablePoint", "SVGPoint"); });
@@ -4778,6 +4927,7 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestObj_strawberry, (JSGlobalObject* lexicalGlobalObj
 static inline bool setJSTestObj_strawberrySetter(JSGlobalObject& lexicalGlobalObject, JSTestObj& thisObject, JSValue value)
 {
     auto& vm = JSC::getVM(&lexicalGlobalObject);
+    UNUSED_PARAM(vm);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     auto& impl = thisObject.wrapped();
     auto nativeValue = convert<IDLLong>(lexicalGlobalObject, value);
@@ -4822,6 +4972,7 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestObj_id, (JSGlobalObject* lexicalGlobalObject, Enc
 static inline bool setJSTestObj_idSetter(JSGlobalObject& lexicalGlobalObject, JSTestObj& thisObject, JSValue value)
 {
     auto& vm = JSC::getVM(&lexicalGlobalObject);
+    UNUSED_PARAM(vm);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     auto& impl = thisObject.wrapped();
     auto nativeValue = convert<IDLLong>(lexicalGlobalObject, value);
@@ -4945,6 +5096,7 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestObj_nullableLongSettableAttribute, (JSGlobalObjec
 static inline bool setJSTestObj_nullableLongSettableAttributeSetter(JSGlobalObject& lexicalGlobalObject, JSTestObj& thisObject, JSValue value)
 {
     auto& vm = JSC::getVM(&lexicalGlobalObject);
+    UNUSED_PARAM(vm);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     auto& impl = thisObject.wrapped();
     auto nativeValue = convert<IDLNullable<IDLLong>>(lexicalGlobalObject, value);
@@ -4976,6 +5128,7 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestObj_nullableStringSettableAttribute, (JSGlobalObj
 static inline bool setJSTestObj_nullableStringSettableAttributeSetter(JSGlobalObject& lexicalGlobalObject, JSTestObj& thisObject, JSValue value)
 {
     auto& vm = JSC::getVM(&lexicalGlobalObject);
+    UNUSED_PARAM(vm);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     auto& impl = thisObject.wrapped();
     auto nativeValue = convert<IDLNullable<IDLDOMString>>(lexicalGlobalObject, value);
@@ -5007,6 +5160,7 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestObj_nullableUSVStringSettableAttribute, (JSGlobal
 static inline bool setJSTestObj_nullableUSVStringSettableAttributeSetter(JSGlobalObject& lexicalGlobalObject, JSTestObj& thisObject, JSValue value)
 {
     auto& vm = JSC::getVM(&lexicalGlobalObject);
+    UNUSED_PARAM(vm);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     auto& impl = thisObject.wrapped();
     auto nativeValue = convert<IDLNullable<IDLUSVString>>(lexicalGlobalObject, value);
@@ -5038,6 +5192,7 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestObj_nullableByteStringSettableAttribute, (JSGloba
 static inline bool setJSTestObj_nullableByteStringSettableAttributeSetter(JSGlobalObject& lexicalGlobalObject, JSTestObj& thisObject, JSValue value)
 {
     auto& vm = JSC::getVM(&lexicalGlobalObject);
+    UNUSED_PARAM(vm);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     auto& impl = thisObject.wrapped();
     auto nativeValue = convert<IDLNullable<IDLByteString>>(lexicalGlobalObject, value);
@@ -5082,6 +5237,7 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestObj_attributeWithReservedEnumType, (JSGlobalObjec
 static inline bool setJSTestObj_attributeWithReservedEnumTypeSetter(JSGlobalObject& lexicalGlobalObject, JSTestObj& thisObject, JSValue value)
 {
     auto& vm = JSC::getVM(&lexicalGlobalObject);
+    UNUSED_PARAM(vm);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     auto& impl = thisObject.wrapped();
     auto optionalNativeValue = parseEnumeration<TestObj::Optional>(lexicalGlobalObject, value);
@@ -5142,6 +5298,7 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestObj_putForwardsAttribute, (JSGlobalObject* lexica
 static inline bool setJSTestObj_putForwardsAttributeSetter(JSGlobalObject& lexicalGlobalObject, JSTestObj& thisObject, JSValue value)
 {
     auto& vm = JSC::getVM(&lexicalGlobalObject);
+    UNUSED_PARAM(vm);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     auto id = Identifier::fromString(vm, "putForwardsAttribute"_s);
     auto valueToForwardTo = thisObject.get(&lexicalGlobalObject, id);
@@ -5178,6 +5335,7 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestObj_putForwardsNullableAttribute, (JSGlobalObject
 static inline bool setJSTestObj_putForwardsNullableAttributeSetter(JSGlobalObject& lexicalGlobalObject, JSTestObj& thisObject, JSValue value)
 {
     auto& vm = JSC::getVM(&lexicalGlobalObject);
+    UNUSED_PARAM(vm);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     auto id = Identifier::fromString(vm, "putForwardsNullableAttribute"_s);
     auto valueToForwardTo = thisObject.get(&lexicalGlobalObject, id);
@@ -5214,6 +5372,7 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestObj_stringifierAttribute, (JSGlobalObject* lexica
 static inline bool setJSTestObj_stringifierAttributeSetter(JSGlobalObject& lexicalGlobalObject, JSTestObj& thisObject, JSValue value)
 {
     auto& vm = JSC::getVM(&lexicalGlobalObject);
+    UNUSED_PARAM(vm);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     auto& impl = thisObject.wrapped();
     auto nativeValue = convert<IDLUSVString>(lexicalGlobalObject, value);
@@ -5245,6 +5404,7 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestObj_conditionallyExposedToWindowAttribute, (JSGlo
 static inline bool setJSTestObj_conditionallyExposedToWindowAttributeSetter(JSGlobalObject& lexicalGlobalObject, JSTestObj& thisObject, JSValue value)
 {
     auto& vm = JSC::getVM(&lexicalGlobalObject);
+    UNUSED_PARAM(vm);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     auto& impl = thisObject.wrapped();
     auto nativeValue = convert<IDLLong>(lexicalGlobalObject, value);
@@ -5276,6 +5436,7 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestObj_conditionallyExposedToWorkerAttribute, (JSGlo
 static inline bool setJSTestObj_conditionallyExposedToWorkerAttributeSetter(JSGlobalObject& lexicalGlobalObject, JSTestObj& thisObject, JSValue value)
 {
     auto& vm = JSC::getVM(&lexicalGlobalObject);
+    UNUSED_PARAM(vm);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     auto& impl = thisObject.wrapped();
     auto nativeValue = convert<IDLLong>(lexicalGlobalObject, value);
@@ -5307,6 +5468,7 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestObj_conditionallyExposedToWindowAndWorkerAttribut
 static inline bool setJSTestObj_conditionallyExposedToWindowAndWorkerAttributeSetter(JSGlobalObject& lexicalGlobalObject, JSTestObj& thisObject, JSValue value)
 {
     auto& vm = JSC::getVM(&lexicalGlobalObject);
+    UNUSED_PARAM(vm);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     auto& impl = thisObject.wrapped();
     auto nativeValue = convert<IDLLong>(lexicalGlobalObject, value);
@@ -5338,6 +5500,7 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestObj_dash_leading_dash_hyphen_dash_attribute, (JSG
 static inline bool setJSTestObj_dash_leading_dash_hyphen_dash_attributeSetter(JSGlobalObject& lexicalGlobalObject, JSTestObj& thisObject, JSValue value)
 {
     auto& vm = JSC::getVM(&lexicalGlobalObject);
+    UNUSED_PARAM(vm);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     auto& impl = thisObject.wrapped();
     auto nativeValue = convert<IDLDOMString>(lexicalGlobalObject, value);
@@ -5369,6 +5532,7 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestObj_trailing_dash_hyphen_dash_attribute_dash_, (J
 static inline bool setJSTestObj_trailing_dash_hyphen_dash_attribute_dash_Setter(JSGlobalObject& lexicalGlobalObject, JSTestObj& thisObject, JSValue value)
 {
     auto& vm = JSC::getVM(&lexicalGlobalObject);
+    UNUSED_PARAM(vm);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     auto& impl = thisObject.wrapped();
     auto nativeValue = convert<IDLDOMString>(lexicalGlobalObject, value);
@@ -5400,6 +5564,7 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestObj_leading_underscore_attribute, (JSGlobalObject
 static inline bool setJSTestObj_leading_underscore_attributeSetter(JSGlobalObject& lexicalGlobalObject, JSTestObj& thisObject, JSValue value)
 {
     auto& vm = JSC::getVM(&lexicalGlobalObject);
+    UNUSED_PARAM(vm);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     auto& impl = thisObject.wrapped();
     auto nativeValue = convert<IDLDOMString>(lexicalGlobalObject, value);
@@ -5431,6 +5596,7 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestObj_double_leading_underscore_attribute, (JSGloba
 static inline bool setJSTestObj_double_leading_underscore_attributeSetter(JSGlobalObject& lexicalGlobalObject, JSTestObj& thisObject, JSValue value)
 {
     auto& vm = JSC::getVM(&lexicalGlobalObject);
+    UNUSED_PARAM(vm);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     auto& impl = thisObject.wrapped();
     auto nativeValue = convert<IDLDOMString>(lexicalGlobalObject, value);
@@ -5462,6 +5628,7 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestObj_trailing_underscore_attribute_, (JSGlobalObje
 static inline bool setJSTestObj_trailing_underscore_attribute_Setter(JSGlobalObject& lexicalGlobalObject, JSTestObj& thisObject, JSValue value)
 {
     auto& vm = JSC::getVM(&lexicalGlobalObject);
+    UNUSED_PARAM(vm);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     auto& impl = thisObject.wrapped();
     auto nativeValue = convert<IDLDOMString>(lexicalGlobalObject, value);
@@ -5493,6 +5660,7 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestObj_search, (JSGlobalObject* lexicalGlobalObject,
 static inline bool setJSTestObj_searchSetter(JSGlobalObject& lexicalGlobalObject, JSTestObj& thisObject, JSValue value)
 {
     auto& vm = JSC::getVM(&lexicalGlobalObject);
+    UNUSED_PARAM(vm);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     auto& impl = thisObject.wrapped();
     auto nativeValue = convert<IDLUSVString>(lexicalGlobalObject, value);
@@ -7145,6 +7313,24 @@ static inline JSC::EncodedJSValue jsTestObjPrototypeFunction_methodWithOptionalP
 JSC_DEFINE_HOST_FUNCTION(jsTestObjPrototypeFunction_methodWithOptionalPromise, (JSGlobalObject* lexicalGlobalObject, CallFrame* callFrame))
 {
     return IDLOperation<JSTestObj>::call<jsTestObjPrototypeFunction_methodWithOptionalPromiseBody>(*lexicalGlobalObject, *callFrame, "methodWithOptionalPromise");
+}
+
+static inline JSC::EncodedJSValue jsTestObjPrototypeFunction_methodWithOptionalDictIsDefaultBody(JSC::JSGlobalObject* lexicalGlobalObject, JSC::CallFrame* callFrame, typename IDLOperation<JSTestObj>::ClassParameter castedThis)
+{
+    auto& vm = JSC::getVM(lexicalGlobalObject);
+    auto throwScope = DECLARE_THROW_SCOPE(vm);
+    UNUSED_PARAM(throwScope);
+    UNUSED_PARAM(callFrame);
+    auto& impl = castedThis->wrapped();
+    EnsureStillAliveScope argument0 = callFrame->argument(0);
+    auto dict = convert<IDLDictionary<TestObj::Dictionary>>(*lexicalGlobalObject, argument0.value());
+    RETURN_IF_EXCEPTION(throwScope, encodedJSValue());
+    RELEASE_AND_RETURN(throwScope, JSValue::encode(toJS<IDLUndefined>(*lexicalGlobalObject, throwScope, [&]() -> decltype(auto) { return impl.methodWithOptionalDictIsDefault(WTFMove(dict)); })));
+}
+
+JSC_DEFINE_HOST_FUNCTION(jsTestObjPrototypeFunction_methodWithOptionalDictIsDefault, (JSGlobalObject* lexicalGlobalObject, CallFrame* callFrame))
+{
+    return IDLOperation<JSTestObj>::call<jsTestObjPrototypeFunction_methodWithOptionalDictIsDefaultBody>(*lexicalGlobalObject, *callFrame, "methodWithOptionalDictIsDefault");
 }
 
 static inline JSC::EncodedJSValue jsTestObjPrototypeFunction_methodWithCallbackInterfaceArgBody(JSC::JSGlobalObject* lexicalGlobalObject, JSC::CallFrame* callFrame, typename IDLOperation<JSTestObj>::ClassParameter castedThis)
@@ -9217,9 +9403,9 @@ JSC::GCClient::IsoSubspace* JSTestObj::subspaceForImpl(JSC::VM& vm)
 {
     return WebCore::subspaceForImpl<JSTestObj, UseCustomHeapCellType::No>(vm,
         [] (auto& spaces) { return spaces.m_clientSubspaceForTestObj.get(); },
-        [] (auto& spaces, auto&& space) { spaces.m_clientSubspaceForTestObj = WTFMove(space); },
+        [] (auto& spaces, auto&& space) { spaces.m_clientSubspaceForTestObj = std::forward<decltype(space)>(space); },
         [] (auto& spaces) { return spaces.m_subspaceForTestObj.get(); },
-        [] (auto& spaces, auto&& space) { spaces.m_subspaceForTestObj = WTFMove(space); }
+        [] (auto& spaces, auto&& space) { spaces.m_subspaceForTestObj = std::forward<decltype(space)>(space); }
     );
 }
 

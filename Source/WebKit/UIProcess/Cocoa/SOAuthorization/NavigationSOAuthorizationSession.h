@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2019-2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -42,15 +42,12 @@ namespace WebKit {
 //      Idle => !isInWindow => Waiting => become isInWindow => Active => Completed
 class NavigationSOAuthorizationSession : public SOAuthorizationSession, private WebViewDidMoveToWindowObserver {
 public:
-    using SOAuthorizationSession::weakPtrFactory;
-    using WeakValueType = SOAuthorizationSession::WeakValueType;
-
     ~NavigationSOAuthorizationSession();
 
 protected:
     using Callback = CompletionHandler<void(bool)>;
 
-    NavigationSOAuthorizationSession(SOAuthorization *, Ref<API::NavigationAction>&&, WebPageProxy&, InitiatingAction, Callback&&);
+    NavigationSOAuthorizationSession(RetainPtr<WKSOAuthorizationDelegate>, Ref<API::NavigationAction>&&, WebPageProxy&, InitiatingAction, Callback&&);
 
     void invokeCallback(bool intercepted) { m_callback(intercepted); }
 

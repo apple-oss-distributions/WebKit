@@ -44,17 +44,18 @@ class UserMediaPermissionRequestManager : public WebCore::MediaCanStartListener
     WTF_MAKE_FAST_ALLOCATED;
 public:
     using WebCore::MediaCanStartListener::weakPtrFactory;
-    using WeakValueType = WebCore::MediaCanStartListener::WeakValueType;
+    using WebCore::MediaCanStartListener::WeakValueType;
+    using WebCore::MediaCanStartListener::WeakPtrImplType;
 
     explicit UserMediaPermissionRequestManager(WebPage&);
     ~UserMediaPermissionRequestManager() = default;
 
     void startUserMediaRequest(WebCore::UserMediaRequest&);
     void cancelUserMediaRequest(WebCore::UserMediaRequest&);
-    void userMediaAccessWasGranted(WebCore::UserMediaRequestIdentifier, WebCore::CaptureDevice&& audioDevice, WebCore::CaptureDevice&& videoDevice, String&& deviceIdentifierHashSalt, CompletionHandler<void()>&&);
+    void userMediaAccessWasGranted(WebCore::UserMediaRequestIdentifier, WebCore::CaptureDevice&& audioDevice, WebCore::CaptureDevice&& videoDevice, WebCore::MediaDeviceHashSalts&&, CompletionHandler<void()>&&);
     void userMediaAccessWasDenied(WebCore::UserMediaRequestIdentifier, WebCore::UserMediaRequest::MediaAccessDenialReason, String&&);
 
-    void enumerateMediaDevices(WebCore::Document&, CompletionHandler<void(const Vector<WebCore::CaptureDevice>&, const String&)>&&);
+    void enumerateMediaDevices(WebCore::Document&, CompletionHandler<void(const Vector<WebCore::CaptureDevice>&, WebCore::MediaDeviceHashSalts&&)>&&);
 
     WebCore::UserMediaClient::DeviceChangeObserverToken addDeviceChangeObserver(WTF::Function<void()>&&);
     void removeDeviceChangeObserver(WebCore::UserMediaClient::DeviceChangeObserverToken);

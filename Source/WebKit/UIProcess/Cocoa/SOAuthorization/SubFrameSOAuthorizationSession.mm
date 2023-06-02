@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019-2021 Apple Inc. All rights reserved.
+ * Copyright (C) 2019-2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -47,25 +47,22 @@ const char* soAuthorizationPostDidCancelMessageToParent = "<script>parent.postMe
 
 } // namespace
 
-Ref<SOAuthorizationSession> SubFrameSOAuthorizationSession::create(SOAuthorization *soAuthorization, Ref<API::NavigationAction>&& navigationAction, WebPageProxy& page, Callback&& completionHandler, FrameIdentifier frameID)
+Ref<SOAuthorizationSession> SubFrameSOAuthorizationSession::create(RetainPtr<WKSOAuthorizationDelegate> delegate, Ref<API::NavigationAction>&& navigationAction, WebPageProxy& page, Callback&& completionHandler, FrameIdentifier frameID)
 {
-    return adoptRef(*new SubFrameSOAuthorizationSession(soAuthorization, WTFMove(navigationAction), page, WTFMove(completionHandler), frameID));
+    return adoptRef(*new SubFrameSOAuthorizationSession(delegate, WTFMove(navigationAction), page, WTFMove(completionHandler), frameID));
 }
 
-SubFrameSOAuthorizationSession::SubFrameSOAuthorizationSession(SOAuthorization *soAuthorization, Ref<API::NavigationAction>&& navigationAction, WebPageProxy& page, Callback&& completionHandler, FrameIdentifier frameID)
-    : NavigationSOAuthorizationSession(soAuthorization, WTFMove(navigationAction), page, InitiatingAction::SubFrame, WTFMove(completionHandler))
+SubFrameSOAuthorizationSession::SubFrameSOAuthorizationSession(RetainPtr<WKSOAuthorizationDelegate> delegate, Ref<API::NavigationAction>&& navigationAction, WebPageProxy& page, Callback&& completionHandler, FrameIdentifier frameID)
+    : NavigationSOAuthorizationSession(delegate, WTFMove(navigationAction), page, InitiatingAction::SubFrame, WTFMove(completionHandler))
     , m_frameID(frameID)
 {
-    if (auto* frame = page.process().webFrame(m_frameID))
+    if (auto* frame = WebFrameProxy::webFrame(m_frameID))
         frame->frameLoadState().addObserver(*this);
 }
 
 SubFrameSOAuthorizationSession::~SubFrameSOAuthorizationSession()
 {
-    auto* page = this->page();
-    if (!page)
-        return;
-    if (auto* frame = page->process().webFrame(m_frameID))
+    if (auto* frame = WebFrameProxy::webFrame(m_frameID))
         frame->frameLoadState().removeObserver(*this);
 }
 
@@ -105,10 +102,7 @@ void SubFrameSOAuthorizationSession::beforeStart()
 void SubFrameSOAuthorizationSession::didFinishLoad()
 {
     AUTHORIZATIONSESSION_RELEASE_LOG("didFinishLoad");
-    auto* page = this->page();
-    if (!page)
-        return;
-    auto* frame = page->process().webFrame(m_frameID);
+    auto* frame = WebFrameProxy::webFrame(m_frameID);
     ASSERT(frame);
     if (m_requestsToLoad.isEmpty() || m_requestsToLoad.first().first != frame->url())
         return;
@@ -130,7 +124,7 @@ void SubFrameSOAuthorizationSession::loadRequestToFrame()
     if (!page || m_requestsToLoad.isEmpty())
         return;
 
-    if (auto* frame = page->process().webFrame(m_frameID)) {
+    if (auto* frame = WebFrameProxy::webFrame(m_frameID)) {
         page->setShouldSuppressSOAuthorizationInNextNavigationPolicyDecision();
         auto& url = m_requestsToLoad.first().first;
         WTF::switchOn(m_requestsToLoad.first().second, [&](const Vector<uint8_t>& data) {

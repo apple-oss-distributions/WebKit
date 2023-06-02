@@ -64,7 +64,7 @@ static const struct CompactHashIndex JSWorkletGlobalScopeTableIndex[2] = {
 
 static const HashTableValue JSWorkletGlobalScopeTableValues[] =
 {
-    { "WorkletGlobalScope"_s, static_cast<unsigned>(JSC::PropertyAttribute::DontEnum), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsWorkletGlobalScope_WorkletGlobalScopeConstructor), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(0) } },
+    { "WorkletGlobalScope"_s, static_cast<unsigned>(JSC::PropertyAttribute::DontEnum), NoIntrinsic, { HashTableValue::GetterSetterType, jsWorkletGlobalScope_WorkletGlobalScopeConstructor, 0 } },
 };
 
 static const HashTable JSWorkletGlobalScopeTable = { 1, 1, true, JSWorkletGlobalScope::info(), JSWorkletGlobalScopeTableValues, JSWorkletGlobalScopeTableIndex };
@@ -94,7 +94,7 @@ static const struct CompactHashIndex JSWorkletGlobalScopePrototypeTableIndex[2] 
 
 static const HashTableValue JSWorkletGlobalScopePrototypeTableValues[] =
 {
-    { "constructor"_s, static_cast<unsigned>(JSC::PropertyAttribute::DontEnum), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsWorkletGlobalScopeConstructor), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(0) } },
+    { "constructor"_s, static_cast<unsigned>(JSC::PropertyAttribute::DontEnum), NoIntrinsic, { HashTableValue::GetterSetterType, jsWorkletGlobalScopeConstructor, 0 } },
 };
 
 static const HashTable JSWorkletGlobalScopePrototypeTable = { 1, 1, true, JSWorkletGlobalScope::info(), JSWorkletGlobalScopePrototypeTableValues, JSWorkletGlobalScopePrototypeTableIndex };
@@ -162,9 +162,9 @@ JSC::GCClient::IsoSubspace* JSWorkletGlobalScope::subspaceForImpl(JSC::VM& vm)
 {
     return WebCore::subspaceForImpl<JSWorkletGlobalScope, UseCustomHeapCellType::Yes>(vm,
         [] (auto& spaces) { return spaces.m_clientSubspaceForWorkletGlobalScope.get(); },
-        [] (auto& spaces, auto&& space) { spaces.m_clientSubspaceForWorkletGlobalScope = WTFMove(space); },
+        [] (auto& spaces, auto&& space) { spaces.m_clientSubspaceForWorkletGlobalScope = std::forward<decltype(space)>(space); },
         [] (auto& spaces) { return spaces.m_subspaceForWorkletGlobalScope.get(); },
-        [] (auto& spaces, auto&& space) { spaces.m_subspaceForWorkletGlobalScope = WTFMove(space); },
+        [] (auto& spaces, auto&& space) { spaces.m_subspaceForWorkletGlobalScope = std::forward<decltype(space)>(space); },
         [] (auto& server) -> JSC::HeapCellType& { return server.m_heapCellTypeForJSWorkletGlobalScope; }
     );
 }

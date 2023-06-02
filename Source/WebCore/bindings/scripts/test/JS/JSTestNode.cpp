@@ -154,21 +154,21 @@ template<> void JSTestNodeDOMConstructor::initializeProperties(VM& vm, JSDOMGlob
 
 static const HashTableValue JSTestNodePrototypeTableValues[] =
 {
-    { "constructor"_s, static_cast<unsigned>(JSC::PropertyAttribute::DontEnum), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestNodeConstructor), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(0) } },
-    { "name"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestNode_name), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(setJSTestNode_name) } },
-    { "testWorkerPromise"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestNodePrototypeFunction_testWorkerPromise), (intptr_t) (0) } },
-    { "calculateSecretResult"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestNodePrototypeFunction_calculateSecretResult), (intptr_t) (0) } },
-    { "getSecretBoolean"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestNodePrototypeFunction_getSecretBoolean), (intptr_t) (0) } },
+    { "constructor"_s, static_cast<unsigned>(JSC::PropertyAttribute::DontEnum), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestNodeConstructor, 0 } },
+    { "name"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestNode_name, setJSTestNode_name } },
+    { "testWorkerPromise"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestNodePrototypeFunction_testWorkerPromise, 0 } },
+    { "calculateSecretResult"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestNodePrototypeFunction_calculateSecretResult, 0 } },
+    { "getSecretBoolean"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestNodePrototypeFunction_getSecretBoolean, 0 } },
 #if ENABLE(TEST_FEATURE)
-    { "testFeatureGetSecretBoolean"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestNodePrototypeFunction_testFeatureGetSecretBoolean), (intptr_t) (0) } },
+    { "testFeatureGetSecretBoolean"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestNodePrototypeFunction_testFeatureGetSecretBoolean, 0 } },
 #else
-    { { }, 0, NoIntrinsic, { 0, 0 } },
+    { { }, 0, NoIntrinsic, { HashTableValue::End } },
 #endif
-    { "toJSON"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestNodePrototypeFunction_toJSON), (intptr_t) (0) } },
-    { "entries"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestNodePrototypeFunction_entries), (intptr_t) (0) } },
-    { "keys"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestNodePrototypeFunction_keys), (intptr_t) (0) } },
-    { "values"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestNodePrototypeFunction_values), (intptr_t) (0) } },
-    { "forEach"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestNodePrototypeFunction_forEach), (intptr_t) (1) } },
+    { "toJSON"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestNodePrototypeFunction_toJSON, 0 } },
+    { "entries"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestNodePrototypeFunction_entries, 0 } },
+    { "keys"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestNodePrototypeFunction_keys, 0 } },
+    { "values"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestNodePrototypeFunction_values, 0 } },
+    { "forEach"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestNodePrototypeFunction_forEach, 1 } },
 };
 
 const ClassInfo JSTestNodePrototype::s_info = { "TestNode"_s, &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(JSTestNodePrototype) };
@@ -290,6 +290,7 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestNode_name, (JSGlobalObject* lexicalGlobalObject, 
 static inline bool setJSTestNode_nameSetter(JSGlobalObject& lexicalGlobalObject, JSTestNode& thisObject, JSValue value)
 {
     auto& vm = JSC::getVM(&lexicalGlobalObject);
+    UNUSED_PARAM(vm);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     auto& impl = thisObject.wrapped();
     auto nativeValue = convert<IDLDOMString>(lexicalGlobalObject, value);
@@ -374,7 +375,7 @@ static inline EncodedJSValue jsTestNodePrototypeFunction_toJSONBody(JSGlobalObje
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     UNUSED_PARAM(throwScope);
     auto& impl = castedThis->wrapped();
-    auto* result = constructEmptyObject(lexicalGlobalObject, castedThis->globalObject()->objectPrototype());
+    auto* result = constructEmptyObject(lexicalGlobalObject);
     auto nameValue = toJS<IDLDOMString>(*lexicalGlobalObject, throwScope, impl.name());
     RETURN_IF_EXCEPTION(throwScope, { });
     result->putDirect(vm, Identifier::fromString(vm, "name"_s), nameValue);
@@ -404,9 +405,9 @@ public:
             return nullptr;
         return WebCore::subspaceForImpl<TestNodeIterator, UseCustomHeapCellType::No>(vm,
             [] (auto& spaces) { return spaces.m_clientSubspaceForTestNodeIterator.get(); },
-            [] (auto& spaces, auto&& space) { spaces.m_clientSubspaceForTestNodeIterator = WTFMove(space); },
+            [] (auto& spaces, auto&& space) { spaces.m_clientSubspaceForTestNodeIterator = std::forward<decltype(space)>(space); },
             [] (auto& spaces) { return spaces.m_subspaceForTestNodeIterator.get(); },
-            [] (auto& spaces, auto&& space) { spaces.m_subspaceForTestNodeIterator = WTFMove(space); }
+            [] (auto& spaces, auto&& space) { spaces.m_subspaceForTestNodeIterator = std::forward<decltype(space)>(space); }
         );
     }
 
@@ -421,7 +422,6 @@ public:
         instance->finishCreation(vm);
         return instance;
     }
-
 private:
     TestNodeIterator(JSC::Structure* structure, JSTestNode& iteratedObject, IterationKind kind)
         : Base(structure, iteratedObject, kind)
@@ -433,7 +433,7 @@ using TestNodeIteratorPrototype = JSDOMIteratorPrototype<JSTestNode, TestNodeIte
 JSC_ANNOTATE_HOST_FUNCTION(TestNodeIteratorPrototypeNext, TestNodeIteratorPrototype::next);
 
 template<>
-const JSC::ClassInfo TestNodeIteratorBase::s_info = { "TestNode Iterator"_s, &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(TestNodeIteratorBase) };
+const JSC::ClassInfo TestNodeIteratorBase::s_info = { "TestNodeBase Iterator"_s, &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(TestNodeIteratorBase) };
 const JSC::ClassInfo TestNodeIterator::s_info = { "TestNode Iterator"_s, &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(TestNodeIterator) };
 
 template<>
@@ -483,9 +483,9 @@ JSC::GCClient::IsoSubspace* JSTestNode::subspaceForImpl(JSC::VM& vm)
 {
     return WebCore::subspaceForImpl<JSTestNode, UseCustomHeapCellType::No>(vm,
         [] (auto& spaces) { return spaces.m_clientSubspaceForTestNode.get(); },
-        [] (auto& spaces, auto&& space) { spaces.m_clientSubspaceForTestNode = WTFMove(space); },
+        [] (auto& spaces, auto&& space) { spaces.m_clientSubspaceForTestNode = std::forward<decltype(space)>(space); },
         [] (auto& spaces) { return spaces.m_subspaceForTestNode.get(); },
-        [] (auto& spaces, auto&& space) { spaces.m_subspaceForTestNode = WTFMove(space); }
+        [] (auto& spaces, auto&& space) { spaces.m_subspaceForTestNode = std::forward<decltype(space)>(space); }
     );
 }
 

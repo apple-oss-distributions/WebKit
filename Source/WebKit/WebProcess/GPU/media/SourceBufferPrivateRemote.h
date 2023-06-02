@@ -91,7 +91,7 @@ private:
     void setShouldGenerateTimestamps(bool) final;
     void updateBufferedFromTrackBuffers(bool sourceIsEnded) final;
     void removeCodedFrames(const MediaTime& start, const MediaTime& end, const MediaTime& currentMediaTime, bool isEnded, CompletionHandler<void()>&&) final;
-    void evictCodedFrames(uint64_t newDataSize, uint64_t maximumBufferSize, const MediaTime& currentTime, const MediaTime& duration, bool isEnded) final;
+    void evictCodedFrames(uint64_t newDataSize, uint64_t maximumBufferSize, const MediaTime& currentTime, bool isEnded) final;
     void resetTimestampOffsetInTrackBuffers() final;
     void startChangingType() final;
     void setTimestampOffset(const MediaTime&) final;
@@ -108,7 +108,7 @@ private:
     void enqueuedSamplesForTrackID(const AtomString&, CompletionHandler<void(Vector<String>&&)>&&) final;
 
     void didReceiveMessage(IPC::Connection&, IPC::Decoder&) final;
-    void sourceBufferPrivateDidReceiveInitializationSegment(InitializationSegmentInfo&&, CompletionHandler<void()>&&);
+    void sourceBufferPrivateDidReceiveInitializationSegment(InitializationSegmentInfo&&, CompletionHandler<void(WebCore::SourceBufferPrivateClient::ReceiveResult)>&&);
     void sourceBufferPrivateStreamEndedWithDecodeError();
     void sourceBufferPrivateAppendError(bool decodeError);
     void sourceBufferPrivateAppendComplete(WebCore::SourceBufferPrivateClient::AppendResult, const WebCore::PlatformTimeRanges& buffered, uint64_t totalTrackBufferSizeInBytes, const MediaTime& timestampOffset);

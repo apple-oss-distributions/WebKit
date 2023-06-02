@@ -25,6 +25,7 @@
 
 #pragma once
 
+#include "BPlatform.h"
 #include "DeferredDecommitInlines.h"
 #include "DeferredTriggerInlines.h"
 #include "EligibilityResultInlines.h"
@@ -138,9 +139,15 @@ public: \
     \
     void* operator new[](size_t size) = delete; \
     void operator delete[](void* p) = delete; \
-using webkitFastMalloced = int; \
+    \
+    static void freeAfterDestruction(void* p) \
+    { \
+        bisoHeap().deallocate(p); \
+    } \
+    \
+    using webkitFastMalloced = int; \
 private: \
-using __makeBisoMallocedInlineMacroSemicolonifier BUNUSED_TYPE_ALIAS = int
+    using __makeBisoMallocedInlineMacroSemicolonifier BUNUSED_TYPE_ALIAS = int
 
 #define MAKE_BISO_MALLOCED_IMPL(isoType) \
 ::bmalloc::api::IsoHeap<isoType>& isoType::bisoHeap() \
@@ -156,6 +163,11 @@ void* isoType::operator new(size_t size) \
 } \
 \
 void isoType::operator delete(void* p) \
+{ \
+    bisoHeap().deallocate(p); \
+} \
+\
+void isoType::freeAfterDestruction(void* p) \
 { \
     bisoHeap().deallocate(p); \
 } \
@@ -179,6 +191,12 @@ void* isoType::operator new(size_t size) \
 \
 template<> \
 void isoType::operator delete(void* p) \
+{ \
+    bisoHeap().deallocate(p); \
+} \
+\
+template<> \
+void isoType::freeAfterDestruction(void* p) \
 { \
     bisoHeap().deallocate(p); \
 } \

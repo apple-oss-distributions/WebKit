@@ -116,11 +116,11 @@ template<> void JSTestIterableDOMConstructor::initializeProperties(VM& vm, JSDOM
 
 static const HashTableValue JSTestIterablePrototypeTableValues[] =
 {
-    { "constructor"_s, static_cast<unsigned>(JSC::PropertyAttribute::DontEnum), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestIterableConstructor), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(0) } },
-    { "entries"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestIterablePrototypeFunction_entries), (intptr_t) (0) } },
-    { "keys"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestIterablePrototypeFunction_keys), (intptr_t) (0) } },
-    { "values"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestIterablePrototypeFunction_values), (intptr_t) (0) } },
-    { "forEach"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestIterablePrototypeFunction_forEach), (intptr_t) (1) } },
+    { "constructor"_s, static_cast<unsigned>(JSC::PropertyAttribute::DontEnum), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestIterableConstructor, 0 } },
+    { "entries"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestIterablePrototypeFunction_entries, 0 } },
+    { "keys"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestIterablePrototypeFunction_keys, 0 } },
+    { "values"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestIterablePrototypeFunction_values, 0 } },
+    { "forEach"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestIterablePrototypeFunction_forEach, 1 } },
 };
 
 const ClassInfo JSTestIterablePrototype::s_info = { "TestIterable"_s, &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(JSTestIterablePrototype) };
@@ -198,9 +198,9 @@ public:
             return nullptr;
         return WebCore::subspaceForImpl<TestIterableIterator, UseCustomHeapCellType::No>(vm,
             [] (auto& spaces) { return spaces.m_clientSubspaceForTestIterableIterator.get(); },
-            [] (auto& spaces, auto&& space) { spaces.m_clientSubspaceForTestIterableIterator = WTFMove(space); },
+            [] (auto& spaces, auto&& space) { spaces.m_clientSubspaceForTestIterableIterator = std::forward<decltype(space)>(space); },
             [] (auto& spaces) { return spaces.m_subspaceForTestIterableIterator.get(); },
-            [] (auto& spaces, auto&& space) { spaces.m_subspaceForTestIterableIterator = WTFMove(space); }
+            [] (auto& spaces, auto&& space) { spaces.m_subspaceForTestIterableIterator = std::forward<decltype(space)>(space); }
         );
     }
 
@@ -215,7 +215,6 @@ public:
         instance->finishCreation(vm);
         return instance;
     }
-
 private:
     TestIterableIterator(JSC::Structure* structure, JSTestIterable& iteratedObject, IterationKind kind)
         : Base(structure, iteratedObject, kind)
@@ -227,7 +226,7 @@ using TestIterableIteratorPrototype = JSDOMIteratorPrototype<JSTestIterable, Tes
 JSC_ANNOTATE_HOST_FUNCTION(TestIterableIteratorPrototypeNext, TestIterableIteratorPrototype::next);
 
 template<>
-const JSC::ClassInfo TestIterableIteratorBase::s_info = { "TestIterable Iterator"_s, &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(TestIterableIteratorBase) };
+const JSC::ClassInfo TestIterableIteratorBase::s_info = { "TestIterableBase Iterator"_s, &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(TestIterableIteratorBase) };
 const JSC::ClassInfo TestIterableIterator::s_info = { "TestIterable Iterator"_s, &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(TestIterableIterator) };
 
 template<>
@@ -277,9 +276,9 @@ JSC::GCClient::IsoSubspace* JSTestIterable::subspaceForImpl(JSC::VM& vm)
 {
     return WebCore::subspaceForImpl<JSTestIterable, UseCustomHeapCellType::No>(vm,
         [] (auto& spaces) { return spaces.m_clientSubspaceForTestIterable.get(); },
-        [] (auto& spaces, auto&& space) { spaces.m_clientSubspaceForTestIterable = WTFMove(space); },
+        [] (auto& spaces, auto&& space) { spaces.m_clientSubspaceForTestIterable = std::forward<decltype(space)>(space); },
         [] (auto& spaces) { return spaces.m_subspaceForTestIterable.get(); },
-        [] (auto& spaces, auto&& space) { spaces.m_subspaceForTestIterable = WTFMove(space); }
+        [] (auto& spaces, auto&& space) { spaces.m_subspaceForTestIterable = std::forward<decltype(space)>(space); }
     );
 }
 

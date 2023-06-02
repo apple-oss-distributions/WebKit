@@ -303,7 +303,8 @@ CodeBlock::CodeBlock(VM& vm, Structure* structure, CopyParsedBlockTag, CodeBlock
     ASSERT(m_scopeRegister.isLocal());
 
     ASSERT(source().provider());
-    setNumParameters(other.numParameters());
+    constexpr bool allocateArgumentValueProfiles = false;
+    setNumParameters(other.numParameters(), allocateArgumentValueProfiles);
 
     vm.heap.codeBlockSet().add(this);
 }
@@ -348,7 +349,8 @@ CodeBlock::CodeBlock(VM& vm, Structure* structure, ScriptExecutable* ownerExecut
     ASSERT(m_scopeRegister.isLocal());
 
     ASSERT(source().provider());
-    setNumParameters(unlinkedCodeBlock->numParameters());
+    constexpr bool allocateArgumentValueProfiles = true;
+    setNumParameters(unlinkedCodeBlock->numParameters(), allocateArgumentValueProfiles);
 
     vm.heap.codeBlockSet().add(this);
 }
@@ -528,7 +530,7 @@ bool CodeBlock::finishCreation(VM& vm, ScriptExecutable* ownerExecutable, Unlink
 
         LINK(OpCall, callLinkInfo, profile)
         LINK(OpTailCall, callLinkInfo, profile)
-        LINK(OpCallEval, callLinkInfo, profile)
+        LINK(OpCallDirectEval, callLinkInfo, profile)
         LINK(OpConstruct, callLinkInfo, profile)
         LINK(OpIteratorOpen, callLinkInfo)
         LINK(OpIteratorNext, callLinkInfo)
@@ -536,6 +538,12 @@ bool CodeBlock::finishCreation(VM& vm, ScriptExecutable* ownerExecutable, Unlink
         LINK(OpTailCallVarargs, callLinkInfo, profile)
         LINK(OpTailCallForwardArguments, callLinkInfo, profile)
         LINK(OpConstructVarargs, callLinkInfo, profile)
+
+        case op_new_array_with_species: {
+            INITIALIZE_METADATA(OpNewArrayWithSpecies)
+            link_profile(instruction, bytecode, metadata);
+            break;
+        }
 
         case op_resolve_scope: {
             INITIALIZE_METADATA(OpResolveScope)
@@ -808,7 +816,7 @@ void CodeBlock::setupWithUnlinkedBaselineCode(Ref<BaselineJITCode> jitCode)
             }
             }
         }
-        m_jitData = baselineJITData.release();
+        setBaselineJITData(WTFMove(baselineJITData));
     }
 
     switch (codeType()) {
@@ -1001,11 +1009,10 @@ void CodeBlock::setAlternative(VM& vm, CodeBlock* alternative)
     m_alternative.set(vm, this, alternative);
 }
 
-void CodeBlock::setNumParameters(unsigned newValue)
+void CodeBlock::setNumParameters(unsigned newValue, bool allocateArgumentValueProfiles)
 {
     m_numParameters = newValue;
-
-    m_argumentValueProfiles = FixedVector<ValueProfile>(Options::useJIT() ? newValue : 0);
+    m_argumentValueProfiles = FixedVector<ValueProfile>((Options::useJIT() && allocateArgumentValueProfiles) ? newValue : 0);
 }
 
 CodeBlock* CodeBlock::specialOSREntryBlockOrNull()
@@ -1595,6 +1602,10 @@ void CodeBlock::finalizeJITInlineCaches()
     if (JITCode::isOptimizingJIT(jitType())) {
         for (auto* callLinkInfo : m_jitCode->dfgCommon()->m_callLinkInfos)
             callLinkInfo->visitWeak(vm());
+        if (auto* jitData = dfgJITData()) {
+            for (auto& callLinkInfo : jitData->callLinkInfos())
+                callLinkInfo.visitWeak(vm());
+        }
     }
 #endif
 
@@ -1610,7 +1621,10 @@ void CodeBlock::finalizeUnconditionally(VM& vm)
 {
     UNUSED_PARAM(vm);
 
-    updateAllPredictions();
+    // CodeBlock::finalizeUnconditionally is called for all live CodeBlocks.
+    // We do not need to call updateAllPredictions for DFG / FTL since the same thing happens in LLInt / Baseline CodeBlock for them.
+    if (JITCode::isBaselineCode(jitType()))
+        updateAllPredictions();
 
     if (JITCode::couldBeInterpreted(jitType())) {
         finalizeLLIntInlineCaches();
@@ -1698,6 +1712,10 @@ void CodeBlock::getICStatusMap(const ConcurrentJSLocker&, ICStatusMap& result)
             DFG::CommonData* dfgCommon = m_jitCode->dfgCommon();
             for (auto* callLinkInfo : dfgCommon->m_callLinkInfos)
                 result.add(callLinkInfo->codeOrigin(), ICStatus()).iterator->value.callLinkInfo = callLinkInfo;
+            if (auto* jitData = dfgJITData()) {
+                for (auto& callLinkInfo : jitData->callLinkInfos())
+                    result.add(callLinkInfo.codeOrigin(), ICStatus()).iterator->value.callLinkInfo = &callLinkInfo;
+            }
             for (auto& pair : dfgCommon->recordedStatuses.calls)
                 result.add(pair.first, ICStatus()).iterator->value.callStatus = pair.second.get();
             for (auto& pair : dfgCommon->recordedStatuses.gets)
@@ -1761,6 +1779,12 @@ CallLinkInfo* CodeBlock::getCallLinkInfoForBytecodeIndex(const ConcurrentJSLocke
         for (auto* callLinkInfo : dfgCommon->m_callLinkInfos) {
             if (callLinkInfo->codeOrigin() == CodeOrigin(index))
                 return callLinkInfo;
+        }
+        if (auto* jitData = dfgJITData()) {
+            for (auto& callLinkInfo : jitData->callLinkInfos()) {
+                if (callLinkInfo.codeOrigin() == CodeOrigin(index))
+                    return &callLinkInfo;
+            }
         }
     }
 #endif
@@ -2320,7 +2344,7 @@ public:
             m_foundStartCallFrame = true;
 
         if (m_foundStartCallFrame) {
-            if (visitor->callFrame()->codeBlock() == m_codeBlock) {
+            if (visitor->codeBlock() == m_codeBlock) {
                 m_didRecurse = true;
                 return IterationStatus::Done;
             }
@@ -2346,7 +2370,7 @@ void CodeBlock::noticeIncomingCall(CallFrame* callerFrame)
 {
     RELEASE_ASSERT(!m_isJettisoned);
 
-    CodeBlock* callerCodeBlock = callerFrame->codeBlock();
+    CodeBlock* callerCodeBlock = callerFrame->isWasmFrame() ? nullptr : callerFrame->codeBlock();
     
     dataLogLnIf(Options::verboseCallLink(), "Noticing call link from ", pointerDump(callerCodeBlock), " to ", *this);
     
@@ -2401,8 +2425,9 @@ void CodeBlock::noticeIncomingCall(CallFrame* callerFrame)
     }
 
     // Recursive calls won't be inlined.
+    VM& vm = this->vm();
     RecursionCheckFunctor functor(callerFrame, this, Options::maximumInliningDepth());
-    vm().topCallFrame->iterate(vm(), functor);
+    StackVisitor::visit(vm.topCallFrame, vm, functor);
 
     if (functor.didRecurse()) {
         dataLogLnIf(Options::verboseCallLink(), "    Clearing SABI because recursion was detected.");
@@ -2742,12 +2767,6 @@ ArrayProfile* CodeBlock::getArrayProfile(const ConcurrentJSLocker&, BytecodeInde
     return nullptr;
 }
 
-ArrayProfile* CodeBlock::getArrayProfile(BytecodeIndex bytecodeIndex)
-{
-    ConcurrentJSLocker locker(m_lock);
-    return getArrayProfile(locker, bytecodeIndex);
-}
-
 #if ENABLE(DFG_JIT)
 DFG::CodeOriginPool& CodeBlock::codeOrigins()
 {
@@ -2829,10 +2848,8 @@ bool CodeBlock::hasIdentifier(UniquedStringImpl* uid)
 }
 #endif
 
-void CodeBlock::updateAllValueProfilePredictionsAndCountLiveness(unsigned& numberOfLiveNonArgumentValueProfiles, unsigned& numberOfSamplesInProfiles)
+void CodeBlock::updateAllNonLazyValueProfilePredictionsAndCountLiveness(const ConcurrentJSLocker& locker, unsigned& numberOfLiveNonArgumentValueProfiles, unsigned& numberOfSamplesInProfiles)
 {
-    ConcurrentJSLocker locker(m_lock);
-
     numberOfLiveNonArgumentValueProfiles = 0;
     numberOfSamplesInProfiles = 0; // If this divided by ValueProfile::numberOfBuckets equals numberOfValueProfiles() then value profiles are full.
 
@@ -2863,20 +2880,27 @@ void CodeBlock::updateAllValueProfilePredictionsAndCountLiveness(unsigned& numbe
             }
         });
     }
-
-#if ENABLE(DFG_JIT)
-    lazyOperandValueProfiles(locker).computeUpdatedPredictions(locker);
-#endif
 }
 
-void CodeBlock::updateAllValueProfilePredictions()
+void CodeBlock::updateAllNonLazyValueProfilePredictions(const ConcurrentJSLocker& locker)
 {
     unsigned ignoredValue1, ignoredValue2;
-    updateAllValueProfilePredictionsAndCountLiveness(ignoredValue1, ignoredValue2);
+    updateAllNonLazyValueProfilePredictionsAndCountLiveness(locker, ignoredValue1, ignoredValue2);
+}
+
+void CodeBlock::updateAllLazyValueProfilePredictions(const ConcurrentJSLocker& locker)
+{
+    ASSERT(m_lock.isLocked());
+#if ENABLE(DFG_JIT)
+    lazyOperandValueProfiles(locker).computeUpdatedPredictions(locker);
+#else
+    UNUSED_PARAM(locker);
+#endif
 }
 
 void CodeBlock::updateAllArrayProfilePredictions(const ConcurrentJSLocker& locker)
 {
+    ASSERT(m_lock.isLocked());
     if (!m_metadata)
         return;
 
@@ -2908,12 +2932,8 @@ void CodeBlock::updateAllArrayProfilePredictions(const ConcurrentJSLocker& locke
     });
 }
 
-void CodeBlock::updateAllArrayPredictions()
+void CodeBlock::updateAllArrayAllocationProfilePredictions()
 {
-    ConcurrentJSLocker locker(m_lock);
-
-    updateAllArrayProfilePredictions(locker);
-    
     forEachArrayAllocationProfile([&](ArrayAllocationProfile& profile) {
         profile.updateProfile();
     });
@@ -2921,8 +2941,13 @@ void CodeBlock::updateAllArrayPredictions()
 
 void CodeBlock::updateAllPredictions()
 {
-    updateAllValueProfilePredictions();
-    updateAllArrayPredictions();
+    updateAllNonLazyValueProfilePredictions(ConcurrentJSLocker(valueProfileLock()));
+    updateAllArrayAllocationProfilePredictions();
+    {
+        ConcurrentJSLocker locker(m_lock);
+        updateAllLazyValueProfilePredictions(locker);
+        updateAllArrayProfilePredictions(locker);
+    }
 }
 
 bool CodeBlock::shouldOptimizeNow()
@@ -2932,11 +2957,17 @@ bool CodeBlock::shouldOptimizeNow()
     if (m_optimizationDelayCounter >= Options::maximumOptimizationDelay())
         return true;
     
-    updateAllArrayPredictions();
-    
     unsigned numberOfLiveNonArgumentValueProfiles;
     unsigned numberOfSamplesInProfiles;
-    updateAllValueProfilePredictionsAndCountLiveness(numberOfLiveNonArgumentValueProfiles, numberOfSamplesInProfiles);
+    {
+        updateAllNonLazyValueProfilePredictionsAndCountLiveness(ConcurrentJSLocker(valueProfileLock()), numberOfLiveNonArgumentValueProfiles, numberOfSamplesInProfiles);
+        updateAllArrayAllocationProfilePredictions();
+        {
+            ConcurrentJSLocker locker(m_lock);
+            updateAllArrayProfilePredictions(locker);
+            updateAllLazyValueProfilePredictions(locker);
+        }
+    }
 
     if (Options::verboseOSR()) {
         dataLogF(
@@ -3126,12 +3157,9 @@ String CodeBlock::nameForRegister(VirtualRegister virtualRegister)
             }
         }
     }
-    if (virtualRegister == thisRegister())
-        return "this"_s;
-    if (virtualRegister.isArgument())
-        return makeString("arguments[", pad(' ', 3, virtualRegister.toArgument()), ']');
-
-    return emptyString();
+    StringPrintStream out;
+    out.print(virtualRegister);
+    return out.toString();
 }
 
 ValueProfile* CodeBlock::tryGetValueProfileForBytecodeIndex(BytecodeIndex bytecodeIndex)

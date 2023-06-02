@@ -473,9 +473,6 @@ static const float GroupOptionTextColorAlpha = 0.5;
 
 #pragma mark - Form Control Refresh
 
-// FIXME: Remove once <rdar://problem/76430376> is in an SDK.
-#define UIMenuOptionsPrivateRemoveLineLimitForChildren (1 << 6)
-
 @implementation WKSelectPicker {
     __weak WKContentView *_view;
     CGPoint _interactionPoint;
@@ -567,12 +564,6 @@ static const float GroupOptionTextColorAlpha = 0.5;
             NSString *groupText = optionItem.text;
             NSMutableArray *groupedItems = [NSMutableArray array];
 
-            if (groupText.length) {
-                UIAction *action = [UIAction actionWithTitle:groupText image:nil identifier:nil handler:^(UIAction *action) { }];
-                action.attributes = UIMenuElementAttributesDisabled;
-                [groupedItems addObject:action];
-            }
-
             currentIndex++;
             while (currentIndex < _view.focusedSelectElementOptions.size()) {
                 auto& childOptionItem = _view.focusedSelectElementOptions[currentIndex];
@@ -585,7 +576,7 @@ static const float GroupOptionTextColorAlpha = 0.5;
                 currentIndex++;
             }
 
-            UIMenu *groupMenu = [UIMenu menuWithTitle:groupText image:nil identifier:nil options:(UIMenuOptionsDisplayInline | UIMenuOptionsPrivateRemoveLineLimitForChildren) children:groupedItems];
+            UIMenu *groupMenu = [UIMenu menuWithTitle:groupText image:nil identifier:nil options:(UIMenuOptionsDisplayInline | (UIMenuOptions)UIMenuOptionsPrivateRemoveLineLimitForChildren) children:groupedItems];
             [items addObject:groupMenu];
             continue;
         }
@@ -596,12 +587,7 @@ static const float GroupOptionTextColorAlpha = 0.5;
         currentIndex++;
     }
 
-    UIMenuOptions options = UIMenuOptionsPrivateRemoveLineLimitForChildren;
-#if HAVE(UIMENUOPTIONS_SINGLE_SELECTION)
-    options |= UIMenuOptionsSingleSelection;
-#endif
-
-    return [UIMenu menuWithTitle:@"" image:nil identifier:nil options:options children:items];
+    return [UIMenu menuWithTitle:@"" image:nil identifier:nil options:(UIMenuOptionsSingleSelection | (UIMenuOptions)UIMenuOptionsPrivateRemoveLineLimitForChildren) children:items];
 }
 
 - (UIAction *)actionForOptionItem:(const OptionItem&)option withIndex:(NSInteger)optionIndex
@@ -635,10 +621,6 @@ static const float GroupOptionTextColorAlpha = 0.5;
 
         UIMenu *groupedMenu = (UIMenu *)menuElement;
         NSUInteger numGroupedOptions = groupedMenu.children.count;
-
-        // The first child of a grouped menu with a title represents the title, and is not a selectable option.
-        if (groupedMenu.title.length)
-            numGroupedOptions--;
 
         if (currentIndex + numGroupedOptions <= (NSUInteger)optionIndex)
             currentIndex += numGroupedOptions;
@@ -733,7 +715,7 @@ static const float GroupOptionTextColorAlpha = 0.5;
 #if USE(UICONTEXTMENU)
     UIAction *optionAction = [self actionForOptionIndex:rowIndex];
     if (optionAction) {
-        [optionAction _performActionWithSender:nil];
+        [optionAction performWithSender:nil target:nil];
         [_view accessoryDone];
     }
 #endif

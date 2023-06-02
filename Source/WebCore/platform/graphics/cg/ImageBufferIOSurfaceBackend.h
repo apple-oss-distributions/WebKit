@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020-2021 Apple Inc.  All rights reserved.
+ * Copyright (C) 2020-2023 Apple Inc.  All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -43,10 +43,8 @@ public:
     static unsigned calculateBytesPerRow(const IntSize& backendSize);
     static size_t calculateMemoryCost(const Parameters&);
     static size_t calculateExternalMemoryCost(const Parameters&);
-    
-    static std::unique_ptr<ImageBufferIOSurfaceBackend> create(const Parameters&, const ImageBuffer::CreationContext&);
-    // FIXME: Rename to createUsingColorSpaceOfGraphicsContext() (or something like that).
-    static std::unique_ptr<ImageBufferIOSurfaceBackend> create(const Parameters&, const GraphicsContext&);
+
+    static std::unique_ptr<ImageBufferIOSurfaceBackend> create(const Parameters&, const ImageBufferCreationContext&);
 
     ImageBufferIOSurfaceBackend(const Parameters&, std::unique_ptr<IOSurface>&&, IOSurfacePool*);
     ~ImageBufferIOSurfaceBackend();
@@ -61,6 +59,7 @@ protected:
     IntSize backendSize() const override;
     
     RefPtr<NativeImage> copyNativeImage(BackingStoreCopy = CopyBackingStore) const override;
+    RefPtr<NativeImage> copyNativeImageForDrawing(BackingStoreCopy = CopyBackingStore) const override;
     RefPtr<NativeImage> sinkIntoNativeImage() override;
 
     RefPtr<PixelBuffer> getPixelBuffer(const PixelBufferFormat& outputFormat, const IntRect&, const ImageBufferAllocator&) const override;
@@ -76,11 +75,13 @@ protected:
 
     void ensureNativeImagesHaveCopiedBackingStore() final;
 
-    static RetainPtr<CGColorSpaceRef> contextColorSpace(const GraphicsContext&);
+    void transferToNewContext(const ImageBufferCreationContext&) final;
+
     unsigned bytesPerRow() const override;
 
     void finalizeDrawIntoContext(GraphicsContext& destinationContext) override;
     void invalidateCachedNativeImage() const;
+    void invalidateCachedNativeImageIfNeeded() const;
 
     std::unique_ptr<IOSurface> m_surface;
     mutable bool m_mayHaveOutstandingBackingStoreReferences { false };

@@ -114,6 +114,9 @@ public:
     bool openedByDOMWithOpener() const { return m_openedByDOMWithOpener; }
     void setOpenedByDOMWithOpener() { m_openedByDOMWithOpener = true; }
 
+    NewFrameOpenerPolicy newFrameOpenerPolicy() const { return m_newFrameOpenerPolicy; }
+    void setNewFrameOpenerPolicy(NewFrameOpenerPolicy newFrameOpenerPolicy) { m_newFrameOpenerPolicy = newFrameOpenerPolicy; }
+
     void setTargetBackForwardItem(HistoryItem&);
     const std::optional<BackForwardItemIdentifier>& targetBackForwardItemIdentifier() const { return m_targetBackForwardItemIdentifier; }
 
@@ -134,6 +137,12 @@ public:
     ShouldReplaceDocumentIfJavaScriptURL shouldReplaceDocumentIfJavaScriptURL() const { return m_shouldReplaceDocumentIfJavaScriptURL; }
     void setShouldReplaceDocumentIfJavaScriptURL(ShouldReplaceDocumentIfJavaScriptURL shouldReplaceDocumentIfJavaScriptURL) { m_shouldReplaceDocumentIfJavaScriptURL = shouldReplaceDocumentIfJavaScriptURL; }
 
+    bool isRequestFromClientOrUserInput() const { return m_isRequestFromClientOrUserInput; }
+    void setIsRequestFromClientOrUserInput(bool isRequestFromClientOrUserInput) { m_isRequestFromClientOrUserInput = isRequestFromClientOrUserInput; }
+
+    bool isInitialFrameSrcLoad() const { return m_isInitialFrameSrcLoad; }
+    void setIsInitialFrameSrcLoad(bool isInitialFrameSrcLoad) { m_isInitialFrameSrcLoad = isInitialFrameSrcLoad; }
+
 private:
     // Do not add a strong reference to the originating document or a subobject that holds the
     // originating document. See comment above the class for more details.
@@ -149,12 +158,15 @@ private:
     bool m_treatAsSameOriginNavigation;
     bool m_hasOpenedFrames { false };
     bool m_openedByDOMWithOpener { false };
+    bool m_isRequestFromClientOrUserInput { false };
+    bool m_isInitialFrameSrcLoad { false };
     std::optional<BackForwardItemIdentifier> m_targetBackForwardItemIdentifier;
     std::optional<BackForwardItemIdentifier> m_sourceBackForwardItemIdentifier;
     LockHistory m_lockHistory { LockHistory::No };
     LockBackForwardList m_lockBackForwardList { LockBackForwardList::No };
     std::optional<PrivateClickMeasurement> m_privateClickMeasurement;
     ShouldReplaceDocumentIfJavaScriptURL m_shouldReplaceDocumentIfJavaScriptURL { ReplaceDocumentIfJavaScriptURL };
+    NewFrameOpenerPolicy m_newFrameOpenerPolicy { NewFrameOpenerPolicy::Allow };
 };
 
 } // namespace WebCore

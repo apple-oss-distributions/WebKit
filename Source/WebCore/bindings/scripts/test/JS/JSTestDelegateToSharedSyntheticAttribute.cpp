@@ -111,12 +111,12 @@ template<> void JSTestDelegateToSharedSyntheticAttributeDOMConstructor::initiali
 
 static const HashTableValue JSTestDelegateToSharedSyntheticAttributePrototypeTableValues[] =
 {
-    { "constructor"_s, static_cast<unsigned>(JSC::PropertyAttribute::DontEnum), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestDelegateToSharedSyntheticAttributeConstructor), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(0) } },
-    { "property1"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestDelegateToSharedSyntheticAttribute_sharedAttribute1), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(setJSTestDelegateToSharedSyntheticAttribute_sharedAttribute1) } },
-    { "property2"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestDelegateToSharedSyntheticAttribute_sharedAttribute1), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(setJSTestDelegateToSharedSyntheticAttribute_sharedAttribute1) } },
-    { "property3"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestDelegateToSharedSyntheticAttribute_sharedAttribute1), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(setJSTestDelegateToSharedSyntheticAttribute_sharedAttribute1) } },
-    { "property4"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestDelegateToSharedSyntheticAttribute_sharedAttribute2), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(setJSTestDelegateToSharedSyntheticAttribute_sharedAttribute2) } },
-    { "property5"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestDelegateToSharedSyntheticAttribute_sharedAttribute2), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(setJSTestDelegateToSharedSyntheticAttribute_sharedAttribute2) } },
+    { "constructor"_s, static_cast<unsigned>(JSC::PropertyAttribute::DontEnum), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestDelegateToSharedSyntheticAttributeConstructor, 0 } },
+    { "property1"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestDelegateToSharedSyntheticAttribute_sharedAttribute1, setJSTestDelegateToSharedSyntheticAttribute_sharedAttribute1 } },
+    { "property2"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestDelegateToSharedSyntheticAttribute_sharedAttribute1, setJSTestDelegateToSharedSyntheticAttribute_sharedAttribute1 } },
+    { "property3"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestDelegateToSharedSyntheticAttribute_sharedAttribute1, setJSTestDelegateToSharedSyntheticAttribute_sharedAttribute1 } },
+    { "property4"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestDelegateToSharedSyntheticAttribute_sharedAttribute2, setJSTestDelegateToSharedSyntheticAttribute_sharedAttribute2 } },
+    { "property5"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestDelegateToSharedSyntheticAttribute_sharedAttribute2, setJSTestDelegateToSharedSyntheticAttribute_sharedAttribute2 } },
 };
 
 const ClassInfo JSTestDelegateToSharedSyntheticAttributePrototype::s_info = { "TestDelegateToSharedSyntheticAttribute"_s, &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(JSTestDelegateToSharedSyntheticAttributePrototype) };
@@ -191,6 +191,7 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestDelegateToSharedSyntheticAttribute_sharedAttribut
 static inline bool setJSTestDelegateToSharedSyntheticAttribute_sharedAttribute1Setter(JSGlobalObject& lexicalGlobalObject, JSTestDelegateToSharedSyntheticAttribute& thisObject, JSValue value, PropertyName propertyName)
 {
     auto& vm = JSC::getVM(&lexicalGlobalObject);
+    UNUSED_PARAM(vm);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     CustomElementReactionStack customElementReactionStack(lexicalGlobalObject);
     auto& impl = thisObject.wrapped();
@@ -223,6 +224,7 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestDelegateToSharedSyntheticAttribute_sharedAttribut
 static inline bool setJSTestDelegateToSharedSyntheticAttribute_sharedAttribute2Setter(JSGlobalObject& lexicalGlobalObject, JSTestDelegateToSharedSyntheticAttribute& thisObject, JSValue value, PropertyName propertyName)
 {
     auto& vm = JSC::getVM(&lexicalGlobalObject);
+    UNUSED_PARAM(vm);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     CustomElementReactionStack customElementReactionStack(lexicalGlobalObject);
     auto& impl = thisObject.wrapped();
@@ -243,9 +245,9 @@ JSC::GCClient::IsoSubspace* JSTestDelegateToSharedSyntheticAttribute::subspaceFo
 {
     return WebCore::subspaceForImpl<JSTestDelegateToSharedSyntheticAttribute, UseCustomHeapCellType::No>(vm,
         [] (auto& spaces) { return spaces.m_clientSubspaceForTestDelegateToSharedSyntheticAttribute.get(); },
-        [] (auto& spaces, auto&& space) { spaces.m_clientSubspaceForTestDelegateToSharedSyntheticAttribute = WTFMove(space); },
+        [] (auto& spaces, auto&& space) { spaces.m_clientSubspaceForTestDelegateToSharedSyntheticAttribute = std::forward<decltype(space)>(space); },
         [] (auto& spaces) { return spaces.m_subspaceForTestDelegateToSharedSyntheticAttribute.get(); },
-        [] (auto& spaces, auto&& space) { spaces.m_subspaceForTestDelegateToSharedSyntheticAttribute = WTFMove(space); }
+        [] (auto& spaces, auto&& space) { spaces.m_subspaceForTestDelegateToSharedSyntheticAttribute = std::forward<decltype(space)>(space); }
     );
 }
 

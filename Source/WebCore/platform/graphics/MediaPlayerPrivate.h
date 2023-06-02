@@ -174,7 +174,7 @@ public:
     // override didLoadingProgressAsync to create a more proper async implementation.
     virtual void didLoadingProgressAsync(MediaPlayer::DidLoadingProgressCompletionHandler&& callback) const { callback(didLoadingProgress()); }
 
-    virtual void setSize(const IntSize&) { }
+    virtual void setPresentationSize(const IntSize&) { }
 
     virtual void paint(GraphicsContext&, const FloatRect&) = 0;
 
@@ -190,6 +190,8 @@ public:
     virtual RefPtr<NativeImage> nativeImageForCurrentTime() { return nullptr; }
     virtual DestinationColorSpace colorSpace() = 0;
     virtual bool shouldGetNativeImageForCanvasDrawing() const { return true; }
+
+    virtual void setShouldDisableHDR(bool) { }
 
     virtual void setPreload(MediaPlayer::Preload) { }
 
@@ -217,9 +219,8 @@ public:
 
     virtual void setShouldMaintainAspectRatio(bool) { }
 
-    virtual bool hasSingleSecurityOrigin() const { return false; }
     virtual bool didPassCORSAccessCheck() const { return false; }
-    virtual std::optional<bool> wouldTaintOrigin(const SecurityOrigin&) const { return std::nullopt; }
+    virtual std::optional<bool> isCrossOrigin(const SecurityOrigin&) const { return std::nullopt; }
 
     virtual MediaPlayer::MovieLoadType movieLoadType() const { return MediaPlayer::MovieLoadType::Unknown; }
 

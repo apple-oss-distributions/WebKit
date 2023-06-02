@@ -123,22 +123,27 @@ static bool shouldIgnoreGroup(const AccessibilityObject& axObject)
     if (axObject.node() && axObject.node()->hasEventListeners())
         return false;
 
+    if (!is<AccessibilityNodeObject>(axObject))
+        return false;
+    auto& axNodeObject = downcast<AccessibilityNodeObject>(axObject);
+
+    // Ignore groups whose accessibility text is the same as their child's static-text content.
     auto* first = axObject.firstChild();
-    if (first && first == axObject.lastChild() && first->roleValue() == AccessibilityRole::StaticText) {
-        auto childString = first->stringValue();
-        // stringValue() can be null if the underlying document needs style recalculation.
-        if (!childString.isNull() && is<AccessibilityNodeObject>(axObject)) {
-            Vector<AccessibilityText> axText;
-            auto& axNodeObject = downcast<AccessibilityNodeObject>(axObject);
-            axNodeObject.alternativeText(axText);
-            axNodeObject.helpText(axText);
-            // Ignore groups whose accessibility text is the same as their child's static-text content.
-            auto firstText = axText.size() ? axText[0].text : String();
-            if (firstText == childString)
-                return true;
-        }
-    }
-    return false;
+    if (!first || first->roleValue() != AccessibilityRole::StaticText || first != axObject.lastChild())
+        return false;
+
+    Vector<AccessibilityText> axText;
+    axNodeObject.alternativeText(axText);
+    if (!axText.size())
+        axNodeObject.helpText(axText);
+    if (!axText.size())
+        return false;
+
+    auto childString = first->stringValue();
+    // stringValue() can be null if the underlying document needs style recalculation.
+    if (childString.isNull())
+        return false;
+    return childString == axText[0].text;
 }
 
 AccessibilityObjectInclusion AccessibilityObject::accessibilityPlatformIncludesObject() const
@@ -316,6 +321,8 @@ String AccessibilityObject::subrolePlatformString() const
         return "AXDescription"_s;
     case AccessibilityRole::WebApplication:
         return "AXWebApplication"_s;
+    case AccessibilityRole::Suggestion:
+        return "AXSuggestion"_s;
         // Default doesn't return anything, so roles defined below can be chosen.
     default:
         break;
@@ -686,6 +693,7 @@ PlatformRoleMap createPlatformRoleMap()
         { AccessibilityRole::Subscript, NSAccessibilityGroupRole },
         { AccessibilityRole::Superscript, NSAccessibilityGroupRole },
         { AccessibilityRole::Model, NSAccessibilityGroupRole },
+        { AccessibilityRole::Suggestion, NSAccessibilityGroupRole },
     };
     PlatformRoleMap roleMap;
     for (auto& role : roles)

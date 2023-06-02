@@ -182,11 +182,16 @@ static _WKWebAuthenticationTransport wkWebAuthenticationTransport(WebCore::Authe
         return _WKWebAuthenticationTransportUSB;
     case WebCore::AuthenticatorTransport::Nfc:
         return _WKWebAuthenticationTransportNFC;
+    case WebCore::AuthenticatorTransport::Ble:
+        return _WKWebAuthenticationTransportBLE;
     case WebCore::AuthenticatorTransport::Internal:
         return _WKWebAuthenticationTransportInternal;
-    default:
-        ASSERT_NOT_REACHED();
-        return _WKWebAuthenticationTransportUSB;
+    case WebCore::AuthenticatorTransport::Cable:
+        return _WKWebAuthenticationTransportCaBLE;
+    case WebCore::AuthenticatorTransport::Hybrid:
+        return _WKWebAuthenticationTransportHybrid;
+    case WebCore::AuthenticatorTransport::SmartCard:
+        return _WKWebAuthenticationTransportSmartCard;
     }
 }
 
@@ -783,11 +788,16 @@ static WebCore::AuthenticatorTransport authenticatorTransport(_WKWebAuthenticati
         return WebCore::AuthenticatorTransport::Usb;
     case _WKWebAuthenticationTransportNFC:
         return WebCore::AuthenticatorTransport::Nfc;
+    case _WKWebAuthenticationTransportBLE:
+        return WebCore::AuthenticatorTransport::Ble;
     case _WKWebAuthenticationTransportInternal:
         return WebCore::AuthenticatorTransport::Internal;
-    default:
-        ASSERT_NOT_REACHED();
-        return WebCore::AuthenticatorTransport::Usb;
+    case _WKWebAuthenticationTransportCaBLE:
+        return WebCore::AuthenticatorTransport::Cable;
+    case _WKWebAuthenticationTransportHybrid:
+        return WebCore::AuthenticatorTransport::Hybrid;
+    case _WKWebAuthenticationTransportSmartCard:
+        return WebCore::AuthenticatorTransport::SmartCard;
     }
 }
 
@@ -1013,12 +1023,12 @@ static RetainPtr<_WKAuthenticatorAttestationResponse> wkAuthenticatorAttestation
         result.rpId = options.relyingPartyIdentifier;
     if (options.allowCredentials)
         result.allowCredentials = publicKeyCredentialDescriptors(options.allowCredentials);
-	result.userVerification = userVerification(options.userVerification);
-	result.authenticatorAttachment = authenticatorAttachment(options.authenticatorAttachment);
-	if (options.extensionsCBOR)
-		result.extensions = WebCore::AuthenticationExtensionsClientInputs::fromCBOR(asUInt8Span(options.extensionsCBOR));
-	else
-    	result.extensions = authenticationExtensionsClientInputs(options.extensions);
+    if (options.extensionsCBOR)
+        result.extensions = WebCore::AuthenticationExtensionsClientInputs::fromCBOR(asUInt8Span(options.extensionsCBOR));
+    else
+        result.extensions = authenticationExtensionsClientInputs(options.extensions);
+    result.userVerification = userVerification(options.userVerification);
+    result.authenticatorAttachment = authenticatorAttachment(options.authenticatorAttachment);
 #endif
 
     return result;
@@ -1044,7 +1054,7 @@ static RetainPtr<_WKAuthenticatorAssertionResponse> wkAuthenticatorAssertionResp
         WTF::switchOn(result, [&](const Ref<WebCore::AuthenticatorResponse>& response) {
             handler(wkAuthenticatorAssertionResponse(response->data(), clientDataJSON.get(), response->attachment()).get(), nil);
         }, [&](const WebCore::ExceptionData& exception) {
-            handler(nil, [NSError errorWithDomain:WKErrorDomain code:WKErrorUnknown userInfo:nil]);
+            handler(nil, [NSError errorWithDomain:WKErrorDomain code:exception.code userInfo:@{ NSLocalizedDescriptionKey: exception.message }]);
         });
     };
     _panel->handleRequest({ WTFMove(hash), [_WKWebAuthenticationPanel convertToCoreRequestOptionsWithOptions:options], nullptr, WebKit::WebAuthenticationPanelResult::Unavailable, nullptr, std::nullopt, { }, true, String(), nullptr, std::nullopt, std::nullopt }, WTFMove(callback));
@@ -1058,7 +1068,7 @@ static RetainPtr<_WKAuthenticatorAssertionResponse> wkAuthenticatorAssertionResp
         WTF::switchOn(result, [&](const Ref<WebCore::AuthenticatorResponse>& response) {
             handler(wkAuthenticatorAssertionResponse(response->data(), nullptr, response->attachment()).get(), nil);
         }, [&](const WebCore::ExceptionData& exception) {
-            handler(nil, [NSError errorWithDomain:WKErrorDomain code:WKErrorUnknown userInfo:nil]);
+            handler(nil, [NSError errorWithDomain:WKErrorDomain code:exception.code userInfo:@{ NSLocalizedDescriptionKey: exception.message }]);
         });
     };
     _panel->handleRequest({ vectorFromNSData(clientDataHash), [_WKWebAuthenticationPanel convertToCoreRequestOptionsWithOptions:options], nullptr, WebKit::WebAuthenticationPanelResult::Unavailable, nullptr, std::nullopt, { }, true, String(), nullptr, toWebCore(mediation), std::nullopt }, WTFMove(callback));

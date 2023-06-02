@@ -26,6 +26,10 @@
 #import "config.h"
 #import "WKStorageAccessAlert.h"
 
+#if PLATFORM(IOS)
+#import "UIKitSPI.h"
+#endif
+
 #if PLATFORM(COCOA) && !PLATFORM(WATCHOS) && !PLATFORM(APPLETV)
 
 #import "WKWebViewInternal.h"
@@ -76,7 +80,7 @@ void displayStorageAccessAlert(WKWebView *webView, NSString *alertTitle, NSStrin
     });
 
     NSString *allowButtonString = WEB_UI_STRING_KEY(@"Allow", "Allow (cross-site cookie and website data access)", @"Button title in Storage Access API prompt");
-    NSString *doNotAllowButtonString = WEB_UI_STRING_KEY(@"Don't Allow", "Don't Allow (cross-site cookie and website data access)", @"Button title in Storage Access API prompt");
+    NSString *doNotAllowButtonString = WEB_UI_STRING_KEY(@"Don’t Allow", "Don’t Allow (cross-site cookie and website data access)", @"Button title in Storage Access API prompt");
 
 #if PLATFORM(MAC)
     auto alert = adoptNS([NSAlert new]);

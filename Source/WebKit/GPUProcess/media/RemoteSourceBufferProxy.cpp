@@ -68,10 +68,10 @@ RemoteSourceBufferProxy::~RemoteSourceBufferProxy()
     m_connectionToWebProcess->messageReceiverMap().removeMessageReceiver(Messages::RemoteSourceBufferProxy::messageReceiverName(), m_identifier.toUInt64());
 }
 
-void RemoteSourceBufferProxy::sourceBufferPrivateDidReceiveInitializationSegment(InitializationSegment&& segment, CompletionHandler<void()>&& completionHandler)
+void RemoteSourceBufferProxy::sourceBufferPrivateDidReceiveInitializationSegment(InitializationSegment&& segment, CompletionHandler<void(ReceiveResult)>&& completionHandler)
 {
     if (!m_remoteMediaPlayerProxy) {
-        completionHandler();
+        completionHandler(ReceiveResult::ClientDisconnected);
         return;
     }
 
@@ -80,33 +80,33 @@ void RemoteSourceBufferProxy::sourceBufferPrivateDidReceiveInitializationSegment
 
     segmentInfo.audioTracks = segment.audioTracks.map([&](auto& audioTrackInfo) {
         auto identifier = m_remoteMediaPlayerProxy->addRemoteAudioTrackProxy(*audioTrackInfo.track);
-        ASSERT(!m_trackIds.contains(identifier));
-        ASSERT(!m_mediaDescriptions.contains(identifier));
-        m_trackIds.add(identifier, audioTrackInfo.track->id());
-        m_mediaDescriptions.add(identifier, *audioTrackInfo.description);
+        if (!m_trackIds.contains(identifier))
+            m_trackIds.add(identifier, audioTrackInfo.track->id());
+        if (!m_mediaDescriptions.contains(identifier))
+            m_mediaDescriptions.add(identifier, *audioTrackInfo.description);
         return InitializationSegmentInfo::TrackInformation { MediaDescriptionInfo(*audioTrackInfo.description), identifier };
     });
 
     segmentInfo.videoTracks = segment.videoTracks.map([&](auto& videoTrackInfo) {
         auto identifier = m_remoteMediaPlayerProxy->addRemoteVideoTrackProxy(*videoTrackInfo.track);
-        ASSERT(!m_trackIds.contains(identifier));
-        ASSERT(!m_mediaDescriptions.contains(identifier));
-        m_trackIds.add(identifier, videoTrackInfo.track->id());
-        m_mediaDescriptions.add(identifier, *videoTrackInfo.description);
+        if (!m_trackIds.contains(identifier))
+            m_trackIds.add(identifier, videoTrackInfo.track->id());
+        if (!m_mediaDescriptions.contains(identifier))
+            m_mediaDescriptions.add(identifier, *videoTrackInfo.description);
         return InitializationSegmentInfo::TrackInformation { MediaDescriptionInfo(*videoTrackInfo.description), identifier };
     });
 
     segmentInfo.textTracks = segment.textTracks.map([&](auto& textTrackInfo) {
         auto identifier = m_remoteMediaPlayerProxy->addRemoteTextTrackProxy(*textTrackInfo.track);
-        ASSERT(!m_trackIds.contains(identifier));
-        ASSERT(!m_mediaDescriptions.contains(identifier));
-        m_trackIds.add(identifier, textTrackInfo.track->id());
-        m_mediaDescriptions.add(identifier, *textTrackInfo.description);
+        if (!m_trackIds.contains(identifier))
+            m_trackIds.add(identifier, textTrackInfo.track->id());
+        if (!m_mediaDescriptions.contains(identifier))
+            m_mediaDescriptions.add(identifier, *textTrackInfo.description);
         return InitializationSegmentInfo::TrackInformation { MediaDescriptionInfo(*textTrackInfo.description), identifier };
     });
 
     if (!m_connectionToWebProcess) {
-        completionHandler();
+        completionHandler(ReceiveResult::IPCError);
         return;
     }
 
@@ -194,23 +194,15 @@ void RemoteSourceBufferProxy::sourceBufferPrivateBufferedDirtyChanged(bool flag)
     m_connectionToWebProcess->connection().send(Messages::SourceBufferPrivateRemote::SourceBufferPrivateBufferedDirtyChanged(flag), m_identifier);
 }
 
-void RemoteSourceBufferProxy::append(IPC::SharedBufferReference&& buffer, CompletionHandler<void(std::optional<SharedMemory::IPCHandle>&&)>&& completionHandler)
+void RemoteSourceBufferProxy::append(IPC::SharedBufferReference&& buffer, CompletionHandler<void(std::optional<SharedMemory::Handle>&&)>&& completionHandler)
 {
-    SharedMemory::Handle handle;
-
-    auto invokeCallbackAtScopeExit = makeScopeExit([&] {
-        std::optional<SharedMemory::IPCHandle> response;
-        if (!handle.isNull())
-            response = SharedMemory::IPCHandle { WTFMove(handle), buffer.size() };
-        completionHandler(WTFMove(response));
-    });
-
     auto sharedMemory = buffer.sharedCopy();
     if (!sharedMemory)
-        return;
+        return completionHandler(std::nullopt);
+
     m_sourceBufferPrivate->append(sharedMemory->createSharedBuffer(buffer.size()));
 
-    sharedMemory->createHandle(handle, SharedMemory::Protection::ReadOnly);
+    completionHandler(sharedMemory->createHandle(SharedMemory::Protection::ReadOnly));
 }
 
 void RemoteSourceBufferProxy::abort()
@@ -265,7 +257,7 @@ void RemoteSourceBufferProxy::updateBufferedFromTrackBuffers(bool sourceIsEnded,
     completionHandler(WTFMove(buffered));
 }
 
-void RemoteSourceBufferProxy::removeCodedFrames(const MediaTime& start, const MediaTime& end, const MediaTime& currentTime, bool isEnded, RemoveCodedFramesAsyncReply&& completionHandler)
+void RemoteSourceBufferProxy::removeCodedFrames(const MediaTime& start, const MediaTime& end, const MediaTime& currentTime, bool isEnded, CompletionHandler<void(WebCore::PlatformTimeRanges&&, uint64_t)>&& completionHandler)
 {
     m_sourceBufferPrivate->removeCodedFrames(start, end, currentTime, isEnded, [this, protectedThis = Ref { *this }, completionHandler = WTFMove(completionHandler)]() mutable {
         auto buffered = m_sourceBufferPrivate->buffered()->ranges();
@@ -273,9 +265,9 @@ void RemoteSourceBufferProxy::removeCodedFrames(const MediaTime& start, const Me
     });
 }
 
-void RemoteSourceBufferProxy::evictCodedFrames(uint64_t newDataSize, uint64_t maximumBufferSize, const MediaTime& currentTime, const MediaTime& duration, bool isEnded, EvictCodedFramesDelayedReply&& completionHandler)
+void RemoteSourceBufferProxy::evictCodedFrames(uint64_t newDataSize, uint64_t maximumBufferSize, const MediaTime& currentTime, bool isEnded, CompletionHandler<void(uint64_t)>&& completionHandler)
 {
-    m_sourceBufferPrivate->evictCodedFrames(newDataSize, maximumBufferSize, currentTime, duration, isEnded);
+    m_sourceBufferPrivate->evictCodedFrames(newDataSize, maximumBufferSize, currentTime, isEnded);
     completionHandler(m_sourceBufferPrivate->totalTrackBufferSizeInBytes());
 }
 

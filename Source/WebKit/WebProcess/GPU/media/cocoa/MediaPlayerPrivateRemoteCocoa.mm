@@ -30,8 +30,10 @@
 
 #import "RemoteAudioSourceProvider.h"
 #import "RemoteMediaPlayerProxyMessages.h"
+#import "VideoLayerRemote.h"
 #import "WebCoreArgumentCoders.h"
 #import <WebCore/ColorSpaceCG.h>
+#import <WebCore/VideoLayerManager.h>
 #import <pal/spi/cocoa/QuartzCoreSPI.h>
 #import <wtf/MachSendRight.h>
 
@@ -70,12 +72,30 @@ RefPtr<NativeImage> MediaPlayerPrivateRemote::nativeImageForCurrentTime()
 
 WebCore::DestinationColorSpace MediaPlayerPrivateRemote::colorSpace()
 {
-    auto colorSpace = DestinationColorSpace::SRGB();
     if (readyState() < MediaPlayer::ReadyState::HaveCurrentData)
-        return colorSpace;
+        return DestinationColorSpace::SRGB();
 
-    connection().sendSync(Messages::RemoteMediaPlayerProxy::ColorSpace(), Messages::RemoteMediaPlayerProxy::ColorSpace::Reply(colorSpace), m_id);
+    auto sendResult = connection().sendSync(Messages::RemoteMediaPlayerProxy::ColorSpace(), m_id);
+    auto [colorSpace] = sendResult.takeReplyOr(DestinationColorSpace::SRGB());
     return colorSpace;
+}
+
+void MediaPlayerPrivateRemote::layerHostingContextIdChanged(std::optional<WebKit::LayerHostingContextID>&& inlineLayerHostingContextId, const IntSize& presentationSize)
+{
+    RefPtr player = m_player.get();
+    if (!player)
+        return;
+
+    if (!inlineLayerHostingContextId) {
+        m_videoLayer = nullptr;
+        m_videoLayerManager->didDestroyVideoLayer();
+        return;
+    }
+
+    m_videoLayer = createVideoLayerRemote(this, inlineLayerHostingContextId.value(), m_videoFullscreenGravity, presentationSize);
+#if PLATFORM(COCOA)
+    m_videoLayerManager->setVideoLayer(m_videoLayer.get(), presentationSize);
+#endif
 }
 
 } // namespace WebKit

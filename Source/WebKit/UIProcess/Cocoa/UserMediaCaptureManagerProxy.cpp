@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2017-2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -31,7 +31,7 @@
 #include "Connection.h"
 #include "RemoteCaptureSampleManagerMessages.h"
 #include "RemoteVideoFrameObjectHeap.h"
-#include "SharedRingBufferStorage.h"
+#include "SharedCARingBuffer.h"
 #include "UserMediaCaptureManagerMessages.h"
 #include "UserMediaCaptureManagerProxyMessages.h"
 #include "WebCoreArgumentCoders.h"
@@ -87,14 +87,9 @@ public:
             break;
         }
         m_source->removeObserver(*this);
-
-        if (m_ringBuffer)
-            static_cast<SharedRingBufferStorage&>(m_ringBuffer->storage()).invalidate();
     }
 
     RealtimeMediaSource& source() { return m_source; }
-    CAAudioStreamDescription& description() { return m_description; }
-    int64_t numberOfFrames() { return m_numberOfFrames; }
 
     void audioUnitWillStart() final
     {
@@ -122,6 +117,7 @@ public:
     }
 
     void setShouldApplyRotation(bool shouldApplyRotation) { m_shouldApplyRotation = true; }
+    void setIsInBackground(bool value) { m_source->setIsInBackground(value); }
 
 private:
     void sourceStopped() final {
@@ -134,6 +130,11 @@ private:
 
     void sourceSettingsChanged() final {
         m_connection->send(Messages::UserMediaCaptureManager::SourceSettingsChanged(m_id, m_source->settings()), 0);
+    }
+
+    void sourceConfigurationChanged() final
+    {
+        m_connection->send(Messages::UserMediaCaptureManager::SourceConfigurationChanged(m_id, m_source->persistentID(), m_source->settings(), m_source->capabilities()), 0);
     }
 
     // May get called on a background thread.
@@ -152,10 +153,9 @@ private:
             m_frameChunkSize = std::max(WebCore::AudioUtilities::renderQuantumSize, AudioSession::sharedSession().preferredBufferSize());
 
             // Allocate a ring buffer large enough to contain 2 seconds of audio.
-            m_numberOfFrames = m_description.sampleRate() * 2;
-            m_ringBuffer.reset();
-            m_ringBuffer = makeUnique<CARingBuffer>(makeUniqueRef<SharedRingBufferStorage>(std::bind(&SourceProxy::storageChanged, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3)));
-            m_ringBuffer->allocate(m_description.streamDescription(), m_numberOfFrames);
+            auto [ringBuffer, handle] = ProducerSharedCARingBuffer::allocate(*m_description, m_description->sampleRate() * 2);
+            m_ringBuffer = WTFMove(ringBuffer);
+            m_connection->send(Messages::RemoteCaptureSampleManager::AudioStorageChanged(m_id, WTFMove(handle), *m_description, *m_captureSemaphore, m_startTime, m_frameChunkSize), 0);
         }
 
         ASSERT(is<WebAudioBufferList>(audioData));
@@ -217,21 +217,6 @@ private:
         return m_rotationSession->rotate(videoFrame, rotation, ImageRotationSessionVT::IsCGImageCompatible::No);
     }
 
-    void storageChanged(SharedMemory* storage, const WebCore::CAAudioStreamDescription& format, size_t frameCount)
-    {
-        SharedMemory::Handle handle;
-        if (storage)
-            storage->createHandle(handle, SharedMemory::Protection::ReadOnly);
-
-        // FIXME: Send the actual data size with IPCHandle.
-#if OS(DARWIN) || OS(WINDOWS)
-        uint64_t dataSize = handle.size();
-#else
-        uint64_t dataSize = 0;
-#endif
-        m_connection->send(Messages::RemoteCaptureSampleManager::AudioStorageChanged(m_id, SharedMemory::IPCHandle { WTFMove(handle),  dataSize }, format, frameCount, *m_captureSemaphore, m_startTime, m_frameChunkSize), 0);
-    }
-
     bool preventSourceFromStopping()
     {
         // Do not allow the source to stop if we are still using it.
@@ -243,9 +228,8 @@ private:
     Ref<IPC::Connection> m_connection;
     ProcessIdentity m_resourceOwner;
     Ref<RealtimeMediaSource> m_source;
-    std::unique_ptr<CARingBuffer> m_ringBuffer;
-    CAAudioStreamDescription m_description { };
-    int64_t m_numberOfFrames { 0 };
+    std::unique_ptr<ProducerSharedCARingBuffer> m_ringBuffer;
+    std::optional<CAAudioStreamDescription> m_description;
     bool m_isStopped { false };
     std::unique_ptr<ImageRotationSessionVT> m_rotationSession;
     bool m_shouldApplyRotation { false };
@@ -269,9 +253,9 @@ UserMediaCaptureManagerProxy::~UserMediaCaptureManagerProxy()
     m_connectionProxy->removeMessageReceiver(Messages::UserMediaCaptureManagerProxy::messageReceiverName());
 }
 
-CaptureSourceOrError UserMediaCaptureManagerProxy::createMicrophoneSource(const CaptureDevice& device, String&& hashSalt, const MediaConstraints* mediaConstraints, PageIdentifier pageIdentifier)
+CaptureSourceOrError UserMediaCaptureManagerProxy::createMicrophoneSource(const CaptureDevice& device, MediaDeviceHashSalts&& hashSalts, const MediaConstraints* mediaConstraints, PageIdentifier pageIdentifier)
 {
-    auto sourceOrError = RealtimeMediaSourceCenter::singleton().audioCaptureFactory().createAudioCaptureSource(device, WTFMove(hashSalt), mediaConstraints, pageIdentifier);
+    auto sourceOrError = RealtimeMediaSourceCenter::singleton().audioCaptureFactory().createAudioCaptureSource(device, WTFMove(hashSalts), mediaConstraints, pageIdentifier);
     if (!sourceOrError)
         return sourceOrError;
 
@@ -300,7 +284,7 @@ static bool canCaptureFromMultipleCameras()
 #endif
 }
 
-CaptureSourceOrError UserMediaCaptureManagerProxy::createCameraSource(const CaptureDevice& device, String&& hashSalt, const MediaConstraints* mediaConstraints, PageIdentifier pageIdentifier)
+CaptureSourceOrError UserMediaCaptureManagerProxy::createCameraSource(const CaptureDevice& device, MediaDeviceHashSalts&& hashSalts, const MediaConstraints* mediaConstraints, PageIdentifier pageIdentifier)
 {
     auto& perPageSources = m_pageSources.ensure(pageIdentifier, [] { return PageSources { }; }).iterator->value;
     for (auto& cameraSource : perPageSources.cameraSources) {
@@ -318,7 +302,7 @@ CaptureSourceOrError UserMediaCaptureManagerProxy::createCameraSource(const Capt
         }
     }
 
-    auto sourceOrError = RealtimeMediaSourceCenter::singleton().videoCaptureFactory().createVideoCaptureSource(device, WTFMove(hashSalt), mediaConstraints, pageIdentifier);
+    auto sourceOrError = RealtimeMediaSourceCenter::singleton().videoCaptureFactory().createVideoCaptureSource(device, WTFMove(hashSalts), mediaConstraints, pageIdentifier);
     if (!sourceOrError)
         return sourceOrError;
 
@@ -336,7 +320,7 @@ CaptureSourceOrError UserMediaCaptureManagerProxy::createCameraSource(const Capt
     return source;
 }
 
-void UserMediaCaptureManagerProxy::createMediaSourceForCaptureDeviceWithConstraints(RealtimeMediaSourceIdentifier id, const CaptureDevice& device, String&& hashSalt, const MediaConstraints& mediaConstraints, bool shouldUseGPUProcessRemoteFrames, PageIdentifier pageIdentifier, CreateSourceCallback&& completionHandler)
+void UserMediaCaptureManagerProxy::createMediaSourceForCaptureDeviceWithConstraints(RealtimeMediaSourceIdentifier id, const CaptureDevice& device, WebCore::MediaDeviceHashSalts&& hashSalts, const MediaConstraints& mediaConstraints, bool shouldUseGPUProcessRemoteFrames, PageIdentifier pageIdentifier, CreateSourceCallback&& completionHandler)
 {
     if (!m_connectionProxy->willStartCapture(device.type()))
         return completionHandler(false, "Request is not allowed"_s, RealtimeMediaSourceSettings { }, { }, { }, { }, 0);
@@ -346,14 +330,14 @@ void UserMediaCaptureManagerProxy::createMediaSourceForCaptureDeviceWithConstrai
     CaptureSourceOrError sourceOrError;
     switch (device.type()) {
     case WebCore::CaptureDevice::DeviceType::Microphone:
-        sourceOrError = createMicrophoneSource(device, WTFMove(hashSalt), constraints, pageIdentifier);
+        sourceOrError = createMicrophoneSource(device, WTFMove(hashSalts), constraints, pageIdentifier);
         break;
     case WebCore::CaptureDevice::DeviceType::Camera:
-        sourceOrError = createCameraSource(device, WTFMove(hashSalt), constraints, pageIdentifier);
+        sourceOrError = createCameraSource(device, WTFMove(hashSalts), constraints, pageIdentifier);
         break;
     case WebCore::CaptureDevice::DeviceType::Screen:
     case WebCore::CaptureDevice::DeviceType::Window:
-        sourceOrError = RealtimeMediaSourceCenter::singleton().displayCaptureFactory().createDisplayCaptureSource(device, WTFMove(hashSalt), constraints, pageIdentifier);
+        sourceOrError = RealtimeMediaSourceCenter::singleton().displayCaptureFactory().createDisplayCaptureSource(device, WTFMove(hashSalts), constraints, pageIdentifier);
         break;
     case WebCore::CaptureDevice::DeviceType::SystemAudio:
     case WebCore::CaptureDevice::DeviceType::Speaker:
@@ -469,6 +453,12 @@ void UserMediaCaptureManagerProxy::setShouldApplyRotation(RealtimeMediaSourceIde
 {
     if (auto* proxy = m_proxies.get(sourceID))
         proxy->setShouldApplyRotation(shouldApplyRotation);
+}
+
+void UserMediaCaptureManagerProxy::setIsInBackground(RealtimeMediaSourceIdentifier sourceID, bool isInBackground)
+{
+    if (auto* proxy = m_proxies.get(sourceID))
+        proxy->setIsInBackground(isInBackground);
 }
 
 void UserMediaCaptureManagerProxy::clear()

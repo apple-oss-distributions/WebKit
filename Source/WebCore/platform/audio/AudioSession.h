@@ -115,12 +115,16 @@ public:
     enum class MayResume { No, Yes };
     virtual void endInterruption(MayResume);
 
+    virtual void beginInterruptionForTesting() { beginInterruption(); }
+    virtual void endInterruptionForTesting() { endInterruption(MayResume::Yes); }
+
     class InterruptionObserver : public CanMakeWeakPtr<InterruptionObserver> {
     public:
         virtual ~InterruptionObserver() = default;
 
         virtual void beginAudioSessionInterruption() = 0;
         virtual void endAudioSessionInterruption(MayResume) = 0;
+        virtual void activeStateChanged() { }
     };
     virtual void addInterruptionObserver(InterruptionObserver&);
     virtual void removeInterruptionObserver(InterruptionObserver&);
@@ -135,11 +139,14 @@ public:
     virtual void setHostProcessAttribution(audit_token_t) { };
     virtual void setPresentingProcesses(Vector<audit_token_t>&&) { };
 
+    bool isInterrupted() const { return m_isInterrupted; }
+
 protected:
     friend class NeverDestroyed<AudioSession>;
     AudioSession();
 
     virtual bool tryToSetActiveInternal(bool);
+    void activeStateChanged();
 
     WeakHashSet<InterruptionObserver> m_interruptionObservers;
 

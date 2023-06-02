@@ -33,6 +33,9 @@
 
 namespace WebCore {
 
+#if ENABLE(WEB_CODECS)
+class WebCodecsVideoFrame;
+#endif
 class WebGLQuery;
 class WebGLSampler;
 class WebGLSync;
@@ -77,11 +80,14 @@ public:
     void texStorage2D(GCGLenum target, GCGLsizei levels, GCGLenum internalFormat, GCGLsizei width, GCGLsizei height);
     void texStorage3D(GCGLenum target, GCGLsizei levels, GCGLenum internalFormat, GCGLsizei width, GCGLsizei height, GCGLsizei depth);
 
+    using TexImageSource = std::variant<RefPtr<ImageBitmap>, RefPtr<ImageData>, RefPtr<HTMLImageElement>, RefPtr<HTMLCanvasElement>
 #if ENABLE(VIDEO)
-    using TexImageSource = std::variant<RefPtr<ImageBitmap>, RefPtr<ImageData>, RefPtr<HTMLImageElement>, RefPtr<HTMLCanvasElement>, RefPtr<HTMLVideoElement>>;
-#else
-    using TexImageSource = std::variant<RefPtr<ImageBitmap>, RefPtr<ImageData>, RefPtr<HTMLImageElement>, RefPtr<HTMLCanvasElement>>;
+        , RefPtr<HTMLVideoElement>
 #endif
+#if ENABLE(WEB_CODECS)
+        , RefPtr<WebCodecsVideoFrame>
+#endif
+    >;
 
     // Must override the WebGL 1.0 signatures to add extra validation.
     void texImage2D(GCGLenum target, GCGLint level, GCGLenum internalformat, GCGLsizei width, GCGLsizei height, GCGLint border, GCGLenum format, GCGLenum type, RefPtr<ArrayBufferView>&&) override;
@@ -251,7 +257,7 @@ public:
     WebGLAny getParameter(GCGLenum pname) final;
 
     // Must override the WebGL 1.0 signature in order to add extra validation.
-    void readPixels(GCGLint x, GCGLint y, GCGLsizei width, GCGLsizei height, GCGLenum format, GCGLenum type, ArrayBufferView& pixels) override;
+    void readPixels(GCGLint x, GCGLint y, GCGLsizei width, GCGLsizei height, GCGLenum format, GCGLenum type, RefPtr<ArrayBufferView>&& pixels) override;
     void readPixels(GCGLint x, GCGLint y, GCGLsizei width, GCGLsizei height, GCGLenum format, GCGLenum type, GCGLintptr offset);
     void readPixels(GCGLint x, GCGLint y, GCGLsizei width, GCGLsizei height, GCGLenum format, GCGLenum type, ArrayBufferView& dstData, GCGLuint dstOffset);
 
@@ -293,7 +299,6 @@ private:
     bool validateAndCacheBufferBinding(const AbstractLocker&, const char* functionName, GCGLenum target, WebGLBuffer*) final;
     GCGLint getMaxDrawBuffers() final;
     GCGLint getMaxColorAttachments() final;
-    bool validateIndexArrayConservative(GCGLenum type, unsigned& numElementsRequired) final;
     bool validateBlendEquation(const char* functionName, GCGLenum mode) final;
     bool validateCapability(const char* functionName, GCGLenum cap) final;
     template<typename T, typename TypedArrayType>
@@ -318,6 +323,11 @@ private:
     // Generate GL errors and return 0 if target is invalid or texture bound is
     // null. Otherwise, return the texture bound to the target.
     RefPtr<WebGLTexture> validateTexture3DBinding(const char* functionName, GCGLenum target);
+
+    // Helper function to check immutable texture 2D target and texture bound to the target.
+    // Generate GL errors and return 0 if target is invalid or texture bound is
+    // null. Otherwise, return the texture bound to the target.
+    RefPtr<WebGLTexture> validateTextureStorage2DBinding(const char* functionName, GCGLenum target);
 
     bool validateTexFuncLayer(const char*, GCGLenum texTarget, GCGLint layer);
     GCGLint maxTextureLevelForTarget(GCGLenum target) final;

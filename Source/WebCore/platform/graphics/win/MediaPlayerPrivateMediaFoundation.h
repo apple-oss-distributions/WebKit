@@ -26,6 +26,8 @@
 
 #pragma once
 
+#if ENABLE(VIDEO) && USE(MEDIA_FOUNDATION)
+
 #include "COMPtr.h"
 #include "MediaPlayerPrivate.h"
 
@@ -96,7 +98,7 @@ public:
 
     bool didLoadingProgress() const final;
 
-    void setSize(const IntSize&) final;
+    void setPresentationSize(const IntSize&) final;
 
     void paint(GraphicsContext&, const FloatRect&) final;
 
@@ -465,4 +467,6 @@ private:
     COMPtr<CustomVideoPresenter> m_presenter;
 };
 
-}
+} // namespace WebCore
+
+#endif // ENABLE(VIDEO) && USE(MEDIA_FOUNDATION)

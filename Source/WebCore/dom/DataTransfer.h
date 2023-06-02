@@ -71,8 +71,8 @@ public:
     String getData(Document&, const String& type) const;
     String getDataForItem(Document&, const String& type) const;
 
-    void setData(const String& type, const String& data);
-    void setDataFromItemList(const String& type, const String& data);
+    void setData(Document&, const String& type, const String& data);
+    void setDataFromItemList(Document&, const String& type, const String& data);
 
     void setDragImage(Element&, int x, int y);
 
@@ -118,6 +118,11 @@ public:
 private:
     enum class Type { CopyAndPaste, DragAndDropData, DragAndDropFiles, InputEvent };
     DataTransfer(StoreMode, std::unique_ptr<Pasteboard>, Type = Type::CopyAndPaste, String&& effectAllowed = "uninitialized"_s);
+
+    bool allowsFileAccess() const
+    {
+        return !forDrag() || forFileDrag();
+    }
 
 #if ENABLE(DRAG_SUPPORT)
     bool forDrag() const { return m_type == Type::DragAndDropData || m_type == Type::DragAndDropFiles; }

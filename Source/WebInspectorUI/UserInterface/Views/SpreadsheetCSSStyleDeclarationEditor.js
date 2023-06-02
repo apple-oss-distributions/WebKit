@@ -253,10 +253,10 @@ WI.SpreadsheetCSSStyleDeclarationEditor = class SpreadsheetCSSStyleDeclarationEd
             properties = this._style.properties;
 
         if (this._style.inherited)
-            properties = properties.filter((property) => property.inherited);
+            properties = properties.filter((property) => property.inherited || property.isNewProperty);
 
         if (this._sortPropertiesByName)
-            properties.sort((a, b) => a.name.extendedLocaleCompare(b.name));
+            properties.sort((a, b) => WI.CSSProperty.sortPreferringNonPrefixed(a.name, b.name));
 
         let hideVariables = this._propertyVisibilityMode === SpreadsheetCSSStyleDeclarationEditor.PropertyVisibilityMode.HideVariables;
         let hideNonVariables = this._propertyVisibilityMode === SpreadsheetCSSStyleDeclarationEditor.PropertyVisibilityMode.HideNonVariables;

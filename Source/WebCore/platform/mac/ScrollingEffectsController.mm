@@ -119,6 +119,11 @@ bool ScrollingEffectsController::handleWheelEvent(const PlatformWheelEvent& whee
     if (wheelEvent.phase() == PlatformWheelEventPhase::MayBegin || wheelEvent.phase() == PlatformWheelEventPhase::Cancelled)
         return false;
 
+    if (wheelEvent.isEndOfNonMomentumScroll() || wheelEvent.isEndOfMomentumScroll())
+        m_client.didStopWheelEventScroll();
+    else if (wheelEvent.isGestureStart() || wheelEvent.isTransitioningToMomentumScroll())
+        m_client.willStartWheelEventScroll();
+
     if (wheelEvent.phase() == PlatformWheelEventPhase::Began) {
         // FIXME: Trying to decide if a gesture is horizontal or vertical at the "began" phase is very error-prone.
         auto horizontalSide = ScrollableArea::targetSideForScrollDelta(-wheelEvent.delta(), ScrollEventAxis::Horizontal);
@@ -182,7 +187,7 @@ bool ScrollingEffectsController::handleWheelEvent(const PlatformWheelEvent& whee
     auto momentumPhase = wheelEvent.momentumPhase();
     
     if (momentumPhase == PlatformWheelEventPhase::Began)
-        WTFBeginAnimationSignpostIntervalAlways("Momentum scroll", "");
+        WTFBeginAnimationSignpostAlways(nullptr, "Momentum scroll", "");
     
     if (!m_momentumScrollInProgress && (momentumPhase == PlatformWheelEventPhase::Began || momentumPhase == PlatformWheelEventPhase::Changed))
         m_momentumScrollInProgress = true;
@@ -226,7 +231,7 @@ bool ScrollingEffectsController::handleWheelEvent(const PlatformWheelEvent& whee
     }
 
     if (m_momentumScrollInProgress && momentumPhase == PlatformWheelEventPhase::Ended) {
-        WTFEndSignpostIntervalAlways("Momentum scroll", "");
+        WTFEndSignpostAlways(nullptr, "Momentum scroll");
         m_momentumScrollInProgress = false;
         m_ignoreMomentumScrolls = false;
         m_lastMomentumScrollTimestamp = { };

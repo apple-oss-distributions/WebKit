@@ -107,8 +107,8 @@ template<> void JSTestInterfaceLeadingUnderscoreDOMConstructor::initializeProper
 
 static const HashTableValue JSTestInterfaceLeadingUnderscorePrototypeTableValues[] =
 {
-    { "constructor"_s, static_cast<unsigned>(JSC::PropertyAttribute::DontEnum), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestInterfaceLeadingUnderscoreConstructor), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(0) } },
-    { "readonly"_s, static_cast<unsigned>(JSC::PropertyAttribute::ReadOnly | JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestInterfaceLeadingUnderscore_readonly), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(0) } },
+    { "constructor"_s, static_cast<unsigned>(JSC::PropertyAttribute::DontEnum), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestInterfaceLeadingUnderscoreConstructor, 0 } },
+    { "readonly"_s, static_cast<unsigned>(JSC::PropertyAttribute::ReadOnly | JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestInterfaceLeadingUnderscore_readonly, 0 } },
 };
 
 const ClassInfo JSTestInterfaceLeadingUnderscorePrototype::s_info = { "TestInterfaceLeadingUnderscore"_s, &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(JSTestInterfaceLeadingUnderscorePrototype) };
@@ -184,9 +184,9 @@ JSC::GCClient::IsoSubspace* JSTestInterfaceLeadingUnderscore::subspaceForImpl(JS
 {
     return WebCore::subspaceForImpl<JSTestInterfaceLeadingUnderscore, UseCustomHeapCellType::No>(vm,
         [] (auto& spaces) { return spaces.m_clientSubspaceForTestInterfaceLeadingUnderscore.get(); },
-        [] (auto& spaces, auto&& space) { spaces.m_clientSubspaceForTestInterfaceLeadingUnderscore = WTFMove(space); },
+        [] (auto& spaces, auto&& space) { spaces.m_clientSubspaceForTestInterfaceLeadingUnderscore = std::forward<decltype(space)>(space); },
         [] (auto& spaces) { return spaces.m_subspaceForTestInterfaceLeadingUnderscore.get(); },
-        [] (auto& spaces, auto&& space) { spaces.m_subspaceForTestInterfaceLeadingUnderscore = WTFMove(space); }
+        [] (auto& spaces, auto&& space) { spaces.m_subspaceForTestInterfaceLeadingUnderscore = std::forward<decltype(space)>(space); }
     );
 }
 

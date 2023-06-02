@@ -25,8 +25,6 @@
 
 #pragma once
 
-#if ENABLE(CSS_TYPED_OM)
-
 #include "CSSImageValue.h"
 #include "CSSStyleValue.h"
 #include <wtf/RefCounted.h>
@@ -37,6 +35,7 @@
 namespace WebCore {
 
 class Document;
+class WeakPtrImplWithEventTargetData;
 
 class CSSStyleImageValue final : public CSSStyleValue {
     WTF_MAKE_ISO_ALLOCATED(CSSStyleImageValue);
@@ -53,11 +52,13 @@ public:
     
     CSSStyleValueType getType() const final { return CSSStyleValueType::CSSStyleImageValue; }
     
+    RefPtr<CSSValue> toCSSValue() const final;
+
 private:
     CSSStyleImageValue(Ref<CSSImageValue>&&, Document*);
 
     Ref<CSSImageValue> m_cssValue;
-    WeakPtr<Document> m_document;
+    WeakPtr<Document, WeakPtrImplWithEventTargetData> m_document;
 };
 
 } // namespace WebCore
@@ -65,5 +66,3 @@ private:
 SPECIALIZE_TYPE_TRAITS_BEGIN(WebCore::CSSStyleImageValue)
     static bool isType(const WebCore::CSSStyleValue& styleValue) { return styleValue.getType() == WebCore::CSSStyleValueType::CSSStyleImageValue; }
 SPECIALIZE_TYPE_TRAITS_END()
-
-#endif

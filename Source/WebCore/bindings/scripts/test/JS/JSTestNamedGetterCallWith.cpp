@@ -106,7 +106,7 @@ template<> void JSTestNamedGetterCallWithDOMConstructor::initializeProperties(VM
 
 static const HashTableValue JSTestNamedGetterCallWithPrototypeTableValues[] =
 {
-    { "constructor"_s, static_cast<unsigned>(JSC::PropertyAttribute::DontEnum), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestNamedGetterCallWithConstructor), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(0) } },
+    { "constructor"_s, static_cast<unsigned>(JSC::PropertyAttribute::DontEnum), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestNamedGetterCallWithConstructor, 0 } },
 };
 
 const ClassInfo JSTestNamedGetterCallWithPrototype::s_info = { "TestNamedGetterCallWith"_s, &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(JSTestNamedGetterCallWithPrototype) };
@@ -217,9 +217,9 @@ JSC::GCClient::IsoSubspace* JSTestNamedGetterCallWith::subspaceForImpl(JSC::VM& 
 {
     return WebCore::subspaceForImpl<JSTestNamedGetterCallWith, UseCustomHeapCellType::No>(vm,
         [] (auto& spaces) { return spaces.m_clientSubspaceForTestNamedGetterCallWith.get(); },
-        [] (auto& spaces, auto&& space) { spaces.m_clientSubspaceForTestNamedGetterCallWith = WTFMove(space); },
+        [] (auto& spaces, auto&& space) { spaces.m_clientSubspaceForTestNamedGetterCallWith = std::forward<decltype(space)>(space); },
         [] (auto& spaces) { return spaces.m_subspaceForTestNamedGetterCallWith.get(); },
-        [] (auto& spaces, auto&& space) { spaces.m_subspaceForTestNamedGetterCallWith = WTFMove(space); }
+        [] (auto& spaces, auto&& space) { spaces.m_subspaceForTestNamedGetterCallWith = std::forward<decltype(space)>(space); }
     );
 }
 

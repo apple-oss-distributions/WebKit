@@ -1,5 +1,6 @@
 /*
- * Copyright (C) 2006-2008, 2014, 2016 Apple Inc. All rights reserved.
+ * Copyright (C) 2006-2023 Apple Inc. All rights reserved.
+ * Copyright (C) 2017 Google Inc. All rights reserved.
  * Copyright (C) 2008 Nokia Corporation and/or its subsidiary(-ies)
  * Copyright (C) 2009 Igalia S.L.
  *
@@ -49,6 +50,7 @@
 #include "IndentOutdentCommand.h"
 #include "InsertListCommand.h"
 #include "InsertNestedListCommand.h"
+#include "MutableStyleProperties.h"
 #include "Page.h"
 #include "PagePasteboardContext.h"
 #include "Pasteboard.h"
@@ -57,7 +59,6 @@
 #include "ReplaceSelectionCommand.h"
 #include "Scrollbar.h"
 #include "Settings.h"
-#include "StyleProperties.h"
 #include "SystemSoundManager.h"
 #include "TypingCommand.h"
 #include "UnlinkCommand.h"
@@ -109,7 +110,7 @@ static bool applyCommandToFrame(Frame& frame, EditorCommandSource source, EditAc
         return true;
     case CommandFromDOM:
     case CommandFromDOMWithUserInterface:
-        frame.editor().applyStyle(WTFMove(style), EditAction::Unspecified, Editor::ColorFilterMode::UseOriginalColor);
+        frame.editor().applyStyle(WTFMove(style), action, Editor::ColorFilterMode::UseOriginalColor);
         return true;
     }
     ASSERT_NOT_REACHED();
@@ -1011,16 +1012,6 @@ static bool executeRemoveFormat(Frame& frame, Event*, EditorCommandSource, const
     return true;
 }
 
-static bool executeScrollPageBackward(Frame& frame, Event*, EditorCommandSource, const String&)
-{
-    return frame.eventHandler().logicalScrollRecursively(ScrollBlockDirectionBackward, ScrollGranularity::Page);
-}
-
-static bool executeScrollPageForward(Frame& frame, Event*, EditorCommandSource, const String&)
-{
-    return frame.eventHandler().logicalScrollRecursively(ScrollBlockDirectionForward, ScrollGranularity::Page);
-}
-
 static bool executeScrollLineUp(Frame& frame, Event*, EditorCommandSource, const String&)
 {
     return frame.eventHandler().scrollRecursively(ScrollUp, ScrollGranularity::Line);
@@ -1329,17 +1320,31 @@ static bool allowCopyCutFromDOM(Frame& frame)
     return false;
 }
 
-static bool enabledCopy(Frame& frame, Event*, EditorCommandSource source)
+static bool enabledCopy(Frame& frame, EditorCommandSource source, Function<bool(const Editor&)>&& canCopy)
 {
     switch (source) {
-    case CommandFromMenuOrKeyBinding:    
-        return frame.editor().canDHTMLCopy() || frame.editor().canCopy();
+    case CommandFromMenuOrKeyBinding:
+        return frame.editor().canDHTMLCopy() || canCopy(frame.editor());
     case CommandFromDOM:
     case CommandFromDOMWithUserInterface:
-        return allowCopyCutFromDOM(frame) && (frame.editor().canDHTMLCopy() || frame.editor().canCopy());
+        return allowCopyCutFromDOM(frame) && (frame.editor().canDHTMLCopy() || canCopy(frame.editor()));
     }
     ASSERT_NOT_REACHED();
     return false;
+}
+
+static bool enabledCopy(Frame& frame, Event*, EditorCommandSource source)
+{
+    return enabledCopy(frame, source, [](auto& editor) {
+        return editor.canCopy();
+    });
+}
+
+static bool enabledCopyFont(Frame& frame, Event*, EditorCommandSource source)
+{
+    return enabledCopy(frame, source, [](auto& editor) {
+        return editor.canCopyFont();
+    });
 }
 
 static bool enabledCut(Frame& frame, Event*, EditorCommandSource source)
@@ -1538,6 +1543,14 @@ static String valueNull(Frame&, Event*)
     return String();
 }
 
+// The command has no value.
+// https://w3c.github.io/editing/execCommand.html#querycommandvalue()
+// > ... or has no value, return the empty string.
+static String valueAsEmptyString(Frame&, Event*)
+{
+    return emptyString();
+}
+
 static String valueBackColor(Frame& frame, Event*)
 {
     return valueStyle(frame, CSSPropertyBackgroundColor);
@@ -1638,7 +1651,7 @@ static const CommandMap& createCommandMap()
         { "Bold"_s, { executeToggleBold, supported, enabledInRichlyEditableText, stateBold, valueNull, notTextInsertion, doNotAllowExecutionWhenDisabled } },
         { "ClearText"_s, { executeClearText, supported, enabledClearText, stateNone, valueNull, notTextInsertion, allowExecutionWhenDisabled } },
         { "Copy"_s, { executeCopy, supportedCopyCut, enabledCopy, stateNone, valueNull, notTextInsertion, allowExecutionWhenDisabledCopyCut } },
-        { "CopyFont"_s, { executeCopyFont, supportedCopyCut, enabledCopy, stateNone, valueNull, notTextInsertion, allowExecutionWhenDisabledCopyCut } },
+        { "CopyFont"_s, { executeCopyFont, supportedCopyCut, enabledCopyFont, stateNone, valueNull, notTextInsertion, allowExecutionWhenDisabledCopyCut } },
         { "CreateLink"_s, { executeCreateLink, supported, enabledInRichlyEditableText, stateNone, valueNull, notTextInsertion, doNotAllowExecutionWhenDisabled } },
         { "Cut"_s, { executeCut, supportedCopyCut, enabledCut, stateNone, valueNull, notTextInsertion, allowExecutionWhenDisabledCopyCut } },
         { "DefaultParagraphSeparator"_s, { executeDefaultParagraphSeparator, supported, enabled, stateNone, valueDefaultParagraphSeparator, notTextInsertion, doNotAllowExecutionWhenDisabled} },
@@ -1654,9 +1667,9 @@ static const CommandMap& createCommandMap()
         { "DeleteWordBackward"_s, { executeDeleteWordBackward, supportedFromMenuOrKeyBinding, enabledInEditableText, stateNone, valueNull, notTextInsertion, doNotAllowExecutionWhenDisabled } },
         { "DeleteWordForward"_s, { executeDeleteWordForward, supportedFromMenuOrKeyBinding, enabledInEditableText, stateNone, valueNull, notTextInsertion, doNotAllowExecutionWhenDisabled } },
         { "FindString"_s, { executeFindString, supported, enabled, stateNone, valueNull, notTextInsertion, doNotAllowExecutionWhenDisabled } },
-        { "FontName"_s, { executeFontName, supported, enabledInEditableText, stateNone, valueFontName, notTextInsertion, doNotAllowExecutionWhenDisabled } },
-        { "FontSize"_s, { executeFontSize, supported, enabledInEditableText, stateNone, valueFontSize, notTextInsertion, doNotAllowExecutionWhenDisabled } },
-        { "FontSizeDelta"_s, { executeFontSizeDelta, supported, enabledInEditableText, stateNone, valueFontSizeDelta, notTextInsertion, doNotAllowExecutionWhenDisabled } },
+        { "FontName"_s, { executeFontName, supported, enabledInRichlyEditableText, stateNone, valueFontName, notTextInsertion, doNotAllowExecutionWhenDisabled } },
+        { "FontSize"_s, { executeFontSize, supported, enabledInRichlyEditableText, stateNone, valueFontSize, notTextInsertion, doNotAllowExecutionWhenDisabled } },
+        { "FontSizeDelta"_s, { executeFontSizeDelta, supported, enabledInRichlyEditableText, stateNone, valueFontSizeDelta, notTextInsertion, doNotAllowExecutionWhenDisabled } },
         { "ForeColor"_s, { executeForeColor, supported, enabledInRichlyEditableText, stateNone, valueForeColor, notTextInsertion, doNotAllowExecutionWhenDisabled } },
         { "FormatBlock"_s, { executeFormatBlock, supported, enabledInRichlyEditableText, stateNone, valueFormatBlock, notTextInsertion, doNotAllowExecutionWhenDisabled } },
         { "ForwardDelete"_s, { executeForwardDelete, supported, enabledInEditableText, stateNone, valueNull, notTextInsertion, doNotAllowExecutionWhenDisabled } },
@@ -1742,8 +1755,6 @@ static const CommandMap& createCommandMap()
         { "Print"_s, { executePrint, supported, enabled, stateNone, valueNull, notTextInsertion, doNotAllowExecutionWhenDisabled } },
         { "Redo"_s, { executeRedo, supported, enabledRedo, stateNone, valueNull, notTextInsertion, doNotAllowExecutionWhenDisabled } },
         { "RemoveFormat"_s, { executeRemoveFormat, supported, enabledRangeInEditableText, stateNone, valueNull, notTextInsertion, doNotAllowExecutionWhenDisabled } },
-        { "ScrollPageBackward"_s, { executeScrollPageBackward, supportedFromMenuOrKeyBinding, enabled, stateNone, valueNull, notTextInsertion, doNotAllowExecutionWhenDisabled } },
-        { "ScrollPageForward"_s, { executeScrollPageForward, supportedFromMenuOrKeyBinding, enabled, stateNone, valueNull, notTextInsertion, doNotAllowExecutionWhenDisabled } },
         { "ScrollLineUp"_s, { executeScrollLineUp, supportedFromMenuOrKeyBinding, enabled, stateNone, valueNull, notTextInsertion, doNotAllowExecutionWhenDisabled } },
         { "ScrollLineDown"_s, { executeScrollLineDown, supportedFromMenuOrKeyBinding, enabled, stateNone, valueNull, notTextInsertion, doNotAllowExecutionWhenDisabled } },
         { "ScrollToBeginningOfDocument"_s, { executeScrollToBeginningOfDocument, supportedFromMenuOrKeyBinding, enabled, stateNone, valueNull, notTextInsertion, doNotAllowExecutionWhenDisabled } },
@@ -1756,7 +1767,7 @@ static const CommandMap& createCommandMap()
         { "SelectWord"_s, { executeSelectWord, supportedFromMenuOrKeyBinding, enabledVisibleSelection, stateNone, valueNull, notTextInsertion, doNotAllowExecutionWhenDisabled } },
         { "SetMark"_s, { executeSetMark, supportedFromMenuOrKeyBinding, enabledVisibleSelection, stateNone, valueNull, notTextInsertion, doNotAllowExecutionWhenDisabled } },
         { "Strikethrough"_s, { executeStrikethrough, supported, enabledInRichlyEditableText, stateStrikethrough, valueNull, notTextInsertion, doNotAllowExecutionWhenDisabled } },
-        { "StyleWithCSS"_s, { executeStyleWithCSS, supported, enabled, stateStyleWithCSS, valueNull, notTextInsertion, doNotAllowExecutionWhenDisabled } },
+        { "StyleWithCSS"_s, { executeStyleWithCSS, supported, enabled, stateStyleWithCSS, valueAsEmptyString, notTextInsertion, doNotAllowExecutionWhenDisabled } },
         { "Subscript"_s, { executeSubscript, supported, enabledInRichlyEditableText, stateSubscript, valueNull, notTextInsertion, doNotAllowExecutionWhenDisabled } },
         { "Superscript"_s, { executeSuperscript, supported, enabledInRichlyEditableText, stateSuperscript, valueNull, notTextInsertion, doNotAllowExecutionWhenDisabled } },
         { "SwapWithMark"_s, { executeSwapWithMark, supportedFromMenuOrKeyBinding, enabledVisibleSelectionAndMark, stateNone, valueNull, notTextInsertion, doNotAllowExecutionWhenDisabled } },

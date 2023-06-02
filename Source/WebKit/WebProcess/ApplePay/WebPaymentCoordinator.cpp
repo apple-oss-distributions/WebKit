@@ -78,11 +78,17 @@ std::optional<String> WebPaymentCoordinator::validatedPaymentNetwork(const Strin
 
 bool WebPaymentCoordinator::canMakePayments()
 {
-    bool canMakePayments;
-    if (!sendSync(Messages::WebPaymentCoordinatorProxy::CanMakePayments(), Messages::WebPaymentCoordinatorProxy::CanMakePayments::Reply(canMakePayments)))
-        return false;
+    auto now = MonotonicTime::now();
+    if (now - m_timestampOfLastCanMakePaymentsRequest > 1_min || !m_lastCanMakePaymentsResult) {
+        auto sendResult = sendSync(Messages::WebPaymentCoordinatorProxy::CanMakePayments());
+        if (!sendResult)
+            return false;
+        auto [canMakePayments] = sendResult.takeReply();
 
-    return canMakePayments;
+        m_timestampOfLastCanMakePaymentsRequest = now;
+        m_lastCanMakePaymentsResult = canMakePayments;
+    }
+    return *m_lastCanMakePaymentsResult;
 }
 
 void WebPaymentCoordinator::canMakePaymentsWithActiveCard(const String& merchantIdentifier, const String& domainName, CompletionHandler<void(bool)>&& completionHandler)
@@ -101,10 +107,8 @@ bool WebPaymentCoordinator::showPaymentUI(const URL& originatingURL, const Vecto
         return linkIconURL.string();
     });
 
-    bool result;
-    if (!sendSync(Messages::WebPaymentCoordinatorProxy::ShowPaymentUI(m_webPage.identifier(), m_webPage.webPageProxyIdentifier(), originatingURL.string(), linkIconURLStrings, paymentRequest), Messages::WebPaymentCoordinatorProxy::ShowPaymentUI::Reply(result)))
-        return false;
-
+    auto sendResult = sendSync(Messages::WebPaymentCoordinatorProxy::ShowPaymentUI(m_webPage.identifier(), m_webPage.webPageProxyIdentifier(), originatingURL.string(), linkIconURLStrings, paymentRequest));
+    auto [result] = sendResult.takeReplyOr(false);
     return result;
 }
 

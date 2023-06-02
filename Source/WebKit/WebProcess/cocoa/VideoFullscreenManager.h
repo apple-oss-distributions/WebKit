@@ -30,7 +30,6 @@
 #include "Connection.h"
 #include "MessageReceiver.h"
 #include "PlaybackSessionContextIdentifier.h"
-#include "VideoFullscreenManagerMessagesReplies.h"
 #include <WebCore/EventListener.h>
 #include <WebCore/HTMLMediaElementEnums.h>
 #include <WebCore/PlatformCALayer.h>
@@ -116,7 +115,7 @@ class VideoFullscreenManager : public RefCounted<VideoFullscreenManager>, privat
 public:
     static Ref<VideoFullscreenManager> create(WebPage&, PlaybackSessionManager&);
     virtual ~VideoFullscreenManager();
-    
+
     void invalidate();
 
     bool hasVideoPlayingInPictureInPicture() const;
@@ -161,13 +160,14 @@ protected:
     void willExitFullscreen(PlaybackSessionContextIdentifier);
     void didExitFullscreen(PlaybackSessionContextIdentifier);
     void didEnterFullscreen(PlaybackSessionContextIdentifier, std::optional<WebCore::FloatSize>);
+    void failedToEnterFullscreen(PlaybackSessionContextIdentifier);
     void didCleanupFullscreen(PlaybackSessionContextIdentifier);
     void setVideoLayerFrameFenced(PlaybackSessionContextIdentifier, WebCore::FloatRect bounds, const WTF::MachSendRight&);
     void setVideoLayerGravityEnum(PlaybackSessionContextIdentifier, unsigned gravity);
     void fullscreenModeChanged(PlaybackSessionContextIdentifier, WebCore::HTMLMediaElementEnums::VideoFullscreenMode);
     void fullscreenMayReturnToInline(PlaybackSessionContextIdentifier, bool isPageVisible);
-    void requestRouteSharingPolicyAndContextUID(PlaybackSessionContextIdentifier, Messages::VideoFullscreenManager::RequestRouteSharingPolicyAndContextUIDAsyncReply&&);
-    
+    void requestRouteSharingPolicyAndContextUID(PlaybackSessionContextIdentifier, CompletionHandler<void(WebCore::RouteSharingPolicy, String)>&&);
+
     void setCurrentlyInFullscreen(VideoFullscreenInterfaceContext&, bool);
 
     WebPage* m_page;
@@ -176,7 +176,7 @@ protected:
     HashMap<PlaybackSessionContextIdentifier, ModelInterfaceTuple> m_contextMap;
     PlaybackSessionContextIdentifier m_controlsManagerContextId;
     HashMap<PlaybackSessionContextIdentifier, int> m_clientCounts;
-    WeakPtr<WebCore::HTMLVideoElement> m_videoElementInPictureInPicture;
+    WeakPtr<WebCore::HTMLVideoElement, WebCore::WeakPtrImplWithEventTargetData> m_videoElementInPictureInPicture;
     bool m_currentlyInFullscreen { false };
 };
 

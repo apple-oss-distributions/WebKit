@@ -44,6 +44,7 @@ class Decoder;
 namespace WebCore {
 class IntRect;
 class Element;
+class WeakPtrImplWithEventTargetData;
 class GraphicsLayer;
 class HTMLVideoElement;
 }
@@ -56,6 +57,8 @@ class WebFullScreenManager final : public WebCore::EventListener {
 public:
     static Ref<WebFullScreenManager> create(WebPage*);
     virtual ~WebFullScreenManager();
+
+    void invalidate();
 
     void didReceiveMessage(IPC::Connection&, IPC::Decoder&);
 
@@ -80,7 +83,7 @@ protected:
     void setPIPStandbyElement(WebCore::HTMLVideoElement*);
 
     void setAnimatingFullScreen(bool);
-    void requestEnterFullScreen();
+    void requestRestoreFullScreen();
     void requestExitFullScreen();
     void saveScrollPosition();
     void restoreScrollPosition();
@@ -96,6 +99,7 @@ protected:
     float m_topContentInset { 0 };
     RefPtr<WebPage> m_page;
     RefPtr<WebCore::Element> m_element;
+    WeakPtr<WebCore::Element, WebCore::WeakPtrImplWithEventTargetData> m_elementToRestore;
 #if ENABLE(VIDEO)
     RefPtr<WebCore::HTMLVideoElement> m_pipStandbyElement;
 #endif
@@ -106,6 +110,7 @@ private:
     void handleEvent(WebCore::ScriptExecutionContext&, WebCore::Event&) final;
 
     void setElement(WebCore::Element&);
+    void clearElement();
 
 #if ENABLE(VIDEO)
     void scheduleTextRecognitionForMainVideo();
@@ -114,8 +119,8 @@ private:
     void updateMainVideoElement();
     void setMainVideoElement(RefPtr<WebCore::HTMLVideoElement>&&);
 
-    WeakPtr<WebCore::HTMLVideoElement> m_mainVideoElement;
-    RunLoop::Timer<WebFullScreenManager> m_mainVideoElementTextRecognitionTimer;
+    WeakPtr<WebCore::HTMLVideoElement, WebCore::WeakPtrImplWithEventTargetData> m_mainVideoElement;
+    RunLoop::Timer m_mainVideoElementTextRecognitionTimer;
     bool m_isPerformingTextRecognitionInMainVideo { false };
 #endif // ENABLE(VIDEO)
 

@@ -146,6 +146,13 @@ bool HTMLOptionElement::accessKeyAction(bool)
     return false;
 }
 
+HTMLFormElement* HTMLOptionElement::form() const
+{
+    if (RefPtr selectElement = ownerSelectElement())
+        return selectElement->form();
+    return nullptr;
+}
+
 int HTMLOptionElement::index() const
 {
     // It would be faster to cache the index, but harder to get it right in all cases.
@@ -239,17 +246,18 @@ void HTMLOptionElement::setSelectedState(bool selected, AllowStyleInvalidation a
 
     m_isSelected = selected;
 
-#if USE(ATSPI)
     if (auto* cache = document().existingAXObjectCache())
-        cache->postNotification(this, AXObjectCache::AXSelectedStateChanged);
-#endif
+        cache->onSelectedChanged(this);
 }
 
 void HTMLOptionElement::childrenChanged(const ChildChange& change)
 {
 #if ENABLE(DATALIST_ELEMENT)
+    Vector<Ref<HTMLDataListElement>> ancestors;
     for (auto& dataList : ancestorsOfType<HTMLDataListElement>(*this))
-        dataList.optionElementChildrenChanged();
+        ancestors.append(dataList);
+    for (auto& dataList : ancestors)
+        dataList->optionElementChildrenChanged();
 #endif
     if (RefPtr select = ownerSelectElement())
         select->optionElementChildrenChanged();

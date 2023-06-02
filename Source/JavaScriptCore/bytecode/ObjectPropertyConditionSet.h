@@ -170,6 +170,7 @@ ObjectPropertyConditionSet generateConditionsForPropertyMiss(
     VM&, JSCell* owner, JSGlobalObject*, Structure* headStructure, UniquedStringImpl* uid);
 ObjectPropertyConditionSet generateConditionsForPropertySetterMiss(
     VM&, JSCell* owner, JSGlobalObject*, Structure* headStructure, UniquedStringImpl* uid);
+ObjectPropertyConditionSet generateConditionsForIndexedMiss(VM&, JSCell* owner, JSGlobalObject*, Structure* headStructure);
 ObjectPropertyConditionSet generateConditionsForPrototypePropertyHit(
     VM&, JSCell* owner, JSGlobalObject*, Structure* headStructure, JSObject* prototype,
     UniquedStringImpl* uid);
@@ -193,8 +194,8 @@ struct PrototypeChainCachingStatus {
     bool flattenedDictionary;
 };
 
-std::optional<PrototypeChainCachingStatus> prepareChainForCaching(JSGlobalObject*, JSCell* base, const PropertySlot&);
-std::optional<PrototypeChainCachingStatus> prepareChainForCaching(JSGlobalObject*, JSCell* base, JSObject* target);
-std::optional<PrototypeChainCachingStatus> prepareChainForCaching(JSGlobalObject*, Structure* base, JSObject* target);
+std::optional<PrototypeChainCachingStatus> prepareChainForCaching(JSGlobalObject*, JSCell* base, UniquedStringImpl*, const PropertySlot&);
+std::optional<PrototypeChainCachingStatus> prepareChainForCaching(JSGlobalObject*, JSCell* base, UniquedStringImpl*, JSObject* target);
+std::optional<PrototypeChainCachingStatus> prepareChainForCaching(JSGlobalObject*, Structure* base, UniquedStringImpl*, JSObject* target);
 
 } // namespace JSC

@@ -215,9 +215,9 @@ template<> void JSTestPromiseRejectionEventDOMConstructor::initializeProperties(
 
 static const HashTableValue JSTestPromiseRejectionEventPrototypeTableValues[] =
 {
-    { "constructor"_s, static_cast<unsigned>(JSC::PropertyAttribute::DontEnum), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestPromiseRejectionEventConstructor), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(0) } },
-    { "promise"_s, static_cast<unsigned>(JSC::PropertyAttribute::ReadOnly | JSC::PropertyAttribute::CustomAccessor), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestPromiseRejectionEvent_promise), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(0) } },
-    { "reason"_s, static_cast<unsigned>(JSC::PropertyAttribute::ReadOnly | JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestPromiseRejectionEvent_reason), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(0) } },
+    { "constructor"_s, static_cast<unsigned>(JSC::PropertyAttribute::DontEnum), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestPromiseRejectionEventConstructor, 0 } },
+    { "promise"_s, static_cast<unsigned>(JSC::PropertyAttribute::ReadOnly | JSC::PropertyAttribute::CustomAccessor), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestPromiseRejectionEvent_promise, 0 } },
+    { "reason"_s, static_cast<unsigned>(JSC::PropertyAttribute::ReadOnly | JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestPromiseRejectionEvent_reason, 0 } },
 };
 
 const ClassInfo JSTestPromiseRejectionEventPrototype::s_info = { "TestPromiseRejectionEvent"_s, &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(JSTestPromiseRejectionEventPrototype) };
@@ -300,9 +300,9 @@ JSC::GCClient::IsoSubspace* JSTestPromiseRejectionEvent::subspaceForImpl(JSC::VM
 {
     return WebCore::subspaceForImpl<JSTestPromiseRejectionEvent, UseCustomHeapCellType::No>(vm,
         [] (auto& spaces) { return spaces.m_clientSubspaceForTestPromiseRejectionEvent.get(); },
-        [] (auto& spaces, auto&& space) { spaces.m_clientSubspaceForTestPromiseRejectionEvent = WTFMove(space); },
+        [] (auto& spaces, auto&& space) { spaces.m_clientSubspaceForTestPromiseRejectionEvent = std::forward<decltype(space)>(space); },
         [] (auto& spaces) { return spaces.m_subspaceForTestPromiseRejectionEvent.get(); },
-        [] (auto& spaces, auto&& space) { spaces.m_subspaceForTestPromiseRejectionEvent = WTFMove(space); }
+        [] (auto& spaces, auto&& space) { spaces.m_subspaceForTestPromiseRejectionEvent = std::forward<decltype(space)>(space); }
     );
 }
 

@@ -130,14 +130,14 @@ template<> void JSTestSerializedScriptValueInterfaceDOMConstructor::initializePr
 
 static const HashTableValue JSTestSerializedScriptValueInterfacePrototypeTableValues[] =
 {
-    { "constructor"_s, static_cast<unsigned>(JSC::PropertyAttribute::DontEnum), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestSerializedScriptValueInterfaceConstructor), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(0) } },
-    { "value"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestSerializedScriptValueInterface_value), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(setJSTestSerializedScriptValueInterface_value) } },
-    { "readonlyValue"_s, static_cast<unsigned>(JSC::PropertyAttribute::ReadOnly | JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestSerializedScriptValueInterface_readonlyValue), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(0) } },
-    { "cachedValue"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestSerializedScriptValueInterface_cachedValue), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(setJSTestSerializedScriptValueInterface_cachedValue) } },
-    { "ports"_s, static_cast<unsigned>(JSC::PropertyAttribute::ReadOnly | JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestSerializedScriptValueInterface_ports), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(0) } },
-    { "cachedReadonlyValue"_s, static_cast<unsigned>(JSC::PropertyAttribute::ReadOnly | JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestSerializedScriptValueInterface_cachedReadonlyValue), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(0) } },
-    { "function"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestSerializedScriptValueInterfacePrototypeFunction_function), (intptr_t) (1) } },
-    { "functionReturning"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestSerializedScriptValueInterfacePrototypeFunction_functionReturning), (intptr_t) (0) } },
+    { "constructor"_s, static_cast<unsigned>(JSC::PropertyAttribute::DontEnum), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestSerializedScriptValueInterfaceConstructor, 0 } },
+    { "value"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestSerializedScriptValueInterface_value, setJSTestSerializedScriptValueInterface_value } },
+    { "readonlyValue"_s, static_cast<unsigned>(JSC::PropertyAttribute::ReadOnly | JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestSerializedScriptValueInterface_readonlyValue, 0 } },
+    { "cachedValue"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestSerializedScriptValueInterface_cachedValue, setJSTestSerializedScriptValueInterface_cachedValue } },
+    { "ports"_s, static_cast<unsigned>(JSC::PropertyAttribute::ReadOnly | JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestSerializedScriptValueInterface_ports, 0 } },
+    { "cachedReadonlyValue"_s, static_cast<unsigned>(JSC::PropertyAttribute::ReadOnly | JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestSerializedScriptValueInterface_cachedReadonlyValue, 0 } },
+    { "function"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestSerializedScriptValueInterfacePrototypeFunction_function, 1 } },
+    { "functionReturning"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestSerializedScriptValueInterfacePrototypeFunction_functionReturning, 0 } },
 };
 
 const ClassInfo JSTestSerializedScriptValueInterfacePrototype::s_info = { "TestSerializedScriptValueInterface"_s, &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(JSTestSerializedScriptValueInterfacePrototype) };
@@ -212,6 +212,7 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestSerializedScriptValueInterface_value, (JSGlobalOb
 static inline bool setJSTestSerializedScriptValueInterface_valueSetter(JSGlobalObject& lexicalGlobalObject, JSTestSerializedScriptValueInterface& thisObject, JSValue value)
 {
     auto& vm = JSC::getVM(&lexicalGlobalObject);
+    UNUSED_PARAM(vm);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     auto& impl = thisObject.wrapped();
     auto nativeValue = convert<IDLSerializedScriptValue<SerializedScriptValue>>(lexicalGlobalObject, value);
@@ -261,6 +262,7 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestSerializedScriptValueInterface_cachedValue, (JSGl
 static inline bool setJSTestSerializedScriptValueInterface_cachedValueSetter(JSGlobalObject& lexicalGlobalObject, JSTestSerializedScriptValueInterface& thisObject, JSValue value)
 {
     auto& vm = JSC::getVM(&lexicalGlobalObject);
+    UNUSED_PARAM(vm);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     auto& impl = thisObject.wrapped();
     auto nativeValue = convert<IDLSerializedScriptValue<SerializedScriptValue>>(lexicalGlobalObject, value);
@@ -346,9 +348,9 @@ JSC::GCClient::IsoSubspace* JSTestSerializedScriptValueInterface::subspaceForImp
 {
     return WebCore::subspaceForImpl<JSTestSerializedScriptValueInterface, UseCustomHeapCellType::No>(vm,
         [] (auto& spaces) { return spaces.m_clientSubspaceForTestSerializedScriptValueInterface.get(); },
-        [] (auto& spaces, auto&& space) { spaces.m_clientSubspaceForTestSerializedScriptValueInterface = WTFMove(space); },
+        [] (auto& spaces, auto&& space) { spaces.m_clientSubspaceForTestSerializedScriptValueInterface = std::forward<decltype(space)>(space); },
         [] (auto& spaces) { return spaces.m_subspaceForTestSerializedScriptValueInterface.get(); },
-        [] (auto& spaces, auto&& space) { spaces.m_subspaceForTestSerializedScriptValueInterface = WTFMove(space); }
+        [] (auto& spaces, auto&& space) { spaces.m_subspaceForTestSerializedScriptValueInterface = std::forward<decltype(space)>(space); }
     );
 }
 

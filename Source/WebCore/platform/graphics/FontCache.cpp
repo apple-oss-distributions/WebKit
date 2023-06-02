@@ -39,6 +39,7 @@
 #include "ThreadGlobalData.h"
 #include "WebKitFontFamilyNames.h"
 #include "WorkerOrWorkletThread.h"
+#include <wtf/Function.h>
 #include <wtf/HashMap.h>
 #include <wtf/MemoryPressureHandler.h>
 #include <wtf/NeverDestroyed.h>
@@ -51,35 +52,6 @@
 #endif
 
 namespace WebCore {
-
-FontFamilyName::FontFamilyName() = default;
-
-inline FontFamilyName::FontFamilyName(const AtomString& name)
-    : m_name { name }
-{
-}
-
-inline const AtomString& FontFamilyName::string() const
-{
-    return m_name;
-}
-
-inline void add(Hasher& hasher, const FontFamilyName& name)
-{
-    // FIXME: Would be better to hash the characters in the name instead of hashing a hash.
-    if (!name.string().isNull())
-        add(hasher, FontCascadeDescription::familyNameHash(name.string()));
-}
-
-inline bool operator==(const FontFamilyName& a, const FontFamilyName& b)
-{
-    return (a.string().isNull() || b.string().isNull()) ? a.string() == b.string() : FontCascadeDescription::familyNamesAreEqual(a.string(), b.string());
-}
-
-inline bool operator!=(const FontFamilyName& a, const FontFamilyName& b)
-{
-    return !(a == b);
-}
 
 struct FontPlatformDataCacheKey {
     FontDescriptionKey descriptionKey;
@@ -159,6 +131,11 @@ struct FontCache::FontDataCaches {
 FontCache& FontCache::forCurrentThread()
 {
     return threadGlobalData().fontCache();
+}
+
+FontCache* FontCache::forCurrentThreadIfExists()
+{
+    return threadGlobalData().fontCacheIfExists();
 }
 
 FontCache* FontCache::forCurrentThreadIfNotDestroyed()
@@ -316,8 +293,8 @@ void FontCache::purgeInactiveFontData(unsigned purgeCount)
 {
     LOG(Fonts, "FontCache::purgeInactiveFontData(%u)", purgeCount);
 
-    pruneUnreferencedEntriesFromFontCascadeCache();
-    pruneSystemFallbackFonts();
+    m_fontCascadeCache.pruneUnreferencedEntries();
+    m_fontCascadeCache.pruneSystemFallbackFonts();
 
 #if PLATFORM(IOS_FAMILY)
     Locker locker { m_fontLock };
@@ -360,25 +337,6 @@ void FontCache::purgeInactiveFontData(unsigned purgeCount)
     platformPurgeInactiveFontData();
 }
 
-bool operator==(const FontCascadeCacheKey& a, const FontCascadeCacheKey& b)
-{
-    return a.fontDescriptionKey == b.fontDescriptionKey
-        && a.fontSelectorId == b.fontSelectorId
-        && a.fontSelectorVersion == b.fontSelectorVersion
-        && a.families == b.families;
-}
-
-void FontCache::invalidateFontCascadeCache()
-{
-    m_fontCascadeCache.clear();
-}
-
-void FontCache::clearWidthCaches()
-{
-    for (auto& value : m_fontCascadeCache.values())
-        value->fonts.get().widthCache().clear();
-}
-
 #if ENABLE(OPENTYPE_VERTICAL)
 RefPtr<OpenTypeVerticalData> FontCache::verticalData(const FontPlatformData& platformData)
 {
@@ -389,58 +347,9 @@ RefPtr<OpenTypeVerticalData> FontCache::verticalData(const FontPlatformData& pla
 }
 #endif
 
-static FontCascadeCacheKey makeFontCascadeCacheKey(const FontCascadeDescription& description, FontSelector* fontSelector)
-{
-    FontCascadeCacheKey key;
-    key.fontDescriptionKey = FontDescriptionKey(description);
-    unsigned familyCount = description.familyCount();
-    key.families.reserveInitialCapacity(familyCount);
-    for (unsigned i = 0; i < familyCount; ++i)
-        key.families.uncheckedAppend(description.familyAt(i));
-    key.fontSelectorId = fontSelector ? fontSelector->uniqueId() : 0;
-    key.fontSelectorVersion = fontSelector ? fontSelector->version() : 0;
-    return key;
-}
-
-void FontCache::pruneUnreferencedEntriesFromFontCascadeCache()
-{
-    m_fontCascadeCache.removeIf([](auto& entry) {
-        return entry.value->fonts.get().hasOneRef();
-    });
-}
-
-void FontCache::pruneSystemFallbackFonts()
-{
-    for (auto& entry : m_fontCascadeCache.values())
-        entry->fonts->pruneSystemFallbacks();
-}
-
-Ref<FontCascadeFonts> FontCache::retrieveOrAddCachedFonts(const FontCascadeDescription& fontDescription, RefPtr<FontSelector>&& fontSelector)
-{
-    auto key = makeFontCascadeCacheKey(fontDescription, fontSelector.get());
-    auto addResult = m_fontCascadeCache.add(key, nullptr);
-    if (!addResult.isNewEntry)
-        return addResult.iterator->value->fonts.get();
-
-    auto& newEntry = addResult.iterator->value;
-    newEntry = makeUnique<FontCascadeCacheEntry>(FontCascadeCacheEntry { WTFMove(key), FontCascadeFonts::create(WTFMove(fontSelector)) });
-    Ref<FontCascadeFonts> glyphs = newEntry->fonts.get();
-
-    static constexpr unsigned unreferencedPruneInterval = 50;
-    static constexpr int maximumEntries = 400;
-    static unsigned pruneCounter;
-    // Referenced FontCascadeFonts would exist anyway so pruning them saves little memory.
-    if (!(++pruneCounter % unreferencedPruneInterval))
-        pruneUnreferencedEntriesFromFontCascadeCache();
-    // Prevent pathological growth.
-    if (m_fontCascadeCache.size() > maximumEntries)
-        m_fontCascadeCache.remove(m_fontCascadeCache.random());
-    return glyphs;
-}
-
 void FontCache::updateFontCascade(const FontCascade& fontCascade, RefPtr<FontSelector>&& fontSelector)
 {
-    fontCascade.updateFonts(retrieveOrAddCachedFonts(fontCascade.fontDescription(), WTFMove(fontSelector)));
+    fontCascade.updateFonts(m_fontCascadeCache.retrieveOrAddCachedFonts(fontCascade.fontDescription(), WTFMove(fontSelector)));
 }
 
 size_t FontCache::fontCount()
@@ -463,15 +372,14 @@ size_t FontCache::inactiveFontCount()
 
 void FontCache::addClient(FontSelector& client)
 {
-    ASSERT(!m_clients.contains(&client));
-    m_clients.add(&client);
+    ASSERT(!m_clients.contains(client));
+    m_clients.add(client);
 }
 
 void FontCache::removeClient(FontSelector& client)
 {
-    ASSERT(m_clients.contains(&client));
-
-    m_clients.remove(&client);
+    ASSERT(m_clients.contains(client));
+    m_clients.remove(client);
 }
 
 void FontCache::invalidate()
@@ -480,7 +388,7 @@ void FontCache::invalidate()
 #if ENABLE(OPENTYPE_VERTICAL)
     m_fontDataCaches->verticalData.clear();
 #endif
-    invalidateFontCascadeCache();
+    m_fontCascadeCache.invalidate();
 
     SystemFontDatabase::singleton().invalidate();
 
@@ -488,7 +396,7 @@ void FontCache::invalidate()
 
     ++m_generation;
 
-    for (auto& client : copyToVectorOf<RefPtr<FontSelector>>(m_clients))
+    for (auto& client : copyToVectorOf<Ref<FontSelector>>(m_clients))
         client->fontCacheInvalidated();
 
     purgeInactiveFontData();
@@ -505,15 +413,65 @@ void FontCache::registerFontCacheInvalidationCallback(Function<void()>&& callbac
     fontCacheInvalidationCallback() = WTFMove(callback);
 }
 
-void FontCache::invalidateAllFontCaches(ShouldRunInvalidationCallback shouldRunInvalidationCallback)
+template<typename F>
+static void dispatchToAllFontCaches(F function)
 {
     ASSERT(isMainThread());
 
-    // FIXME: Invalidate FontCaches in workers too.
-    FontCache::forCurrentThread().invalidate();
+    function(FontCache::forCurrentThread());
+
+    Locker locker { WorkerOrWorkletThread::workerOrWorkletThreadsLock() };
+    for (auto thread : WorkerOrWorkletThread::workerOrWorkletThreads()) {
+        thread->runLoop().postTask([function](ScriptExecutionContext&) {
+            if (auto fontCache = FontCache::forCurrentThreadIfExists())
+                function(*fontCache);
+        });
+    }
+}
+
+void FontCache::invalidateAllFontCaches(ShouldRunInvalidationCallback shouldRunInvalidationCallback)
+{
+    dispatchToAllFontCaches([](FontCache& fontCache) {
+        fontCache.invalidate();
+    });
 
     if (shouldRunInvalidationCallback == ShouldRunInvalidationCallback::Yes && fontCacheInvalidationCallback())
         fontCacheInvalidationCallback()();
+}
+
+void FontCache::releaseNoncriticalMemory()
+{
+    purgeInactiveFontData();
+    m_fontCascadeCache.clearWidthCaches();
+    platformReleaseNoncriticalMemory();
+}
+
+void FontCache::releaseNoncriticalMemoryInAllFontCaches()
+{
+    dispatchToAllFontCaches([](FontCache& fontCache) {
+        fontCache.releaseNoncriticalMemory();
+    });
+}
+
+bool FontCache::useBackslashAsYenSignForFamily(const AtomString& family)
+{
+    if (family.isEmpty())
+        return false;
+
+    if (m_familiesUsingBackslashAsYenSign.isEmpty()) {
+        auto add = [&] (ASCIILiteral name, std::initializer_list<UChar> unicodeName) {
+            m_familiesUsingBackslashAsYenSign.add(AtomString { name });
+            unsigned unicodeNameLength = unicodeName.size();
+            m_familiesUsingBackslashAsYenSign.add(AtomString { unicodeName.begin(), unicodeNameLength });
+        };
+        add("MS PGothic"_s, { 0xFF2D, 0xFF33, 0x0020, 0xFF30, 0x30B4, 0x30B7, 0x30C3, 0x30AF });
+        add("MS PMincho"_s, { 0xFF2D, 0xFF33, 0x0020, 0xFF30, 0x660E, 0x671D });
+        add("MS Gothic"_s, { 0xFF2D, 0xFF33, 0x0020, 0x30B4, 0x30B7, 0x30C3, 0x30AF });
+        add("MS Mincho"_s, { 0xFF2D, 0xFF33, 0x0020, 0x660E, 0x671D });
+        add("Meiryo"_s, { 0x30E1, 0x30A4, 0x30EA, 0x30AA });
+    }
+
+    return m_familiesUsingBackslashAsYenSign.contains(family);
 }
 
 #if !PLATFORM(COCOA)
@@ -534,6 +492,10 @@ void FontCache::prewarm(PrewarmInformation&&)
 RefPtr<Font> FontCache::similarFont(const FontDescription&, const String&)
 {
     return nullptr;
+}
+
+void FontCache::platformReleaseNoncriticalMemory()
+{
 }
 #endif
 

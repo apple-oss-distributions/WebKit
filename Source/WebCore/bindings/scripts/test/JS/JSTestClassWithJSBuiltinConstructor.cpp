@@ -110,7 +110,7 @@ template<> FunctionExecutable* JSTestClassWithJSBuiltinConstructorDOMConstructor
 
 static const HashTableValue JSTestClassWithJSBuiltinConstructorPrototypeTableValues[] =
 {
-    { "constructor"_s, static_cast<unsigned>(JSC::PropertyAttribute::DontEnum), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestClassWithJSBuiltinConstructorConstructor), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(0) } },
+    { "constructor"_s, static_cast<unsigned>(JSC::PropertyAttribute::DontEnum), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestClassWithJSBuiltinConstructorConstructor, 0 } },
 };
 
 const ClassInfo JSTestClassWithJSBuiltinConstructorPrototype::s_info = { "TestClassWithJSBuiltinConstructor"_s, &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(JSTestClassWithJSBuiltinConstructorPrototype) };
@@ -173,9 +173,9 @@ JSC::GCClient::IsoSubspace* JSTestClassWithJSBuiltinConstructor::subspaceForImpl
 {
     return WebCore::subspaceForImpl<JSTestClassWithJSBuiltinConstructor, UseCustomHeapCellType::No>(vm,
         [] (auto& spaces) { return spaces.m_clientSubspaceForTestClassWithJSBuiltinConstructor.get(); },
-        [] (auto& spaces, auto&& space) { spaces.m_clientSubspaceForTestClassWithJSBuiltinConstructor = WTFMove(space); },
+        [] (auto& spaces, auto&& space) { spaces.m_clientSubspaceForTestClassWithJSBuiltinConstructor = std::forward<decltype(space)>(space); },
         [] (auto& spaces) { return spaces.m_subspaceForTestClassWithJSBuiltinConstructor.get(); },
-        [] (auto& spaces, auto&& space) { spaces.m_subspaceForTestClassWithJSBuiltinConstructor = WTFMove(space); }
+        [] (auto& spaces, auto&& space) { spaces.m_subspaceForTestClassWithJSBuiltinConstructor = std::forward<decltype(space)>(space); }
     );
 }
 

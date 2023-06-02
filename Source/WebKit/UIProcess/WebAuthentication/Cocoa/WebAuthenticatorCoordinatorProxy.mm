@@ -29,6 +29,7 @@
 #import "WebAuthenticatorCoordinatorProxy.h"
 
 #import "LocalService.h"
+#import "Logging.h"
 #import "WKError.h"
 #import "WebAuthenticationRequestData.h"
 #import "WebPageProxy.h"
@@ -184,7 +185,7 @@ static inline RetainPtr<ASCWebAuthenticationExtensionsClientInputs> toASCExtensi
 static inline void setGlobalFrameIDForContext(RetainPtr<ASCCredentialRequestContext> requestContext, std::optional<WebCore::GlobalFrameIdentifier> globalFrameID)
 {
     if (globalFrameID && [requestContext respondsToSelector:@selector(setGlobalFrameID:)]) {
-        auto asGlobalFrameID = adoptNS([allocASGlobalFrameIdentifierInstance() initWithPageID:[NSNumber numberWithUnsignedLong:globalFrameID->pageID.toUInt64()] frameID:[NSNumber numberWithUnsignedLong:globalFrameID->frameID.toUInt64()]]);
+        auto asGlobalFrameID = adoptNS([allocASGlobalFrameIdentifierInstance() initWithPageID:[NSNumber numberWithUnsignedLong:globalFrameID->pageID.toUInt64()] frameID:[NSNumber numberWithUnsignedLong:globalFrameID->frameID.object().toUInt64()]]);
         requestContext.get().globalFrameID = asGlobalFrameID.get();
     }
 }
@@ -390,33 +391,32 @@ RetainPtr<ASCCredentialRequestContext> WebAuthenticatorCoordinatorProxy::context
 static inline void continueAfterRequest(RetainPtr<id <ASCCredentialProtocol>> credential, RetainPtr<NSError> error, RequestCompletionHandler&& handler)
 {
     AuthenticatorResponseData response = { };
-    AuthenticatorAttachment attachment;
     ExceptionData exceptionData = { };
+    NSString *rawAttachment = nil;
 
     if ([credential isKindOfClass:getASCPlatformPublicKeyCredentialRegistrationClass()]) {
-        attachment = AuthenticatorAttachment::Platform;
         response.isAuthenticatorAttestationResponse = true;
 
         ASCPlatformPublicKeyCredentialRegistration *registrationCredential = credential.get();
         response.rawId = toArrayBuffer(registrationCredential.credentialID);
         response.attestationObject = toArrayBuffer(registrationCredential.attestationObject);
+        rawAttachment = registrationCredential.attachment;
         if ([registrationCredential respondsToSelector:@selector(transports)])
             response.transports = toAuthenticatorTransports(registrationCredential.transports);
         if ([registrationCredential respondsToSelector:@selector(extensionOutputsCBOR)])
             response.extensionOutputs = toExtensionOutputs(registrationCredential.extensionOutputsCBOR);
     } else if ([credential isKindOfClass:getASCSecurityKeyPublicKeyCredentialRegistrationClass()]) {
-        attachment = AuthenticatorAttachment::CrossPlatform;
         response.isAuthenticatorAttestationResponse = true;
 
         ASCSecurityKeyPublicKeyCredentialRegistration *registrationCredential = credential.get();
         response.rawId = toArrayBuffer(registrationCredential.credentialID);
         response.attestationObject = toArrayBuffer(registrationCredential.attestationObject);
+        rawAttachment = registrationCredential.attachment;
         if ([registrationCredential respondsToSelector:@selector(transports)])
             response.transports = toAuthenticatorTransports(registrationCredential.transports);
         if ([registrationCredential respondsToSelector:@selector(extensionOutputsCBOR)])
             response.extensionOutputs = toExtensionOutputs(registrationCredential.extensionOutputsCBOR);
     } else if ([credential isKindOfClass:getASCPlatformPublicKeyCredentialAssertionClass()]) {
-        attachment = AuthenticatorAttachment::Platform;
         response.isAuthenticatorAttestationResponse = false;
 
         ASCPlatformPublicKeyCredentialAssertion *assertionCredential = credential.get();
@@ -424,10 +424,10 @@ static inline void continueAfterRequest(RetainPtr<id <ASCCredentialProtocol>> cr
         response.authenticatorData = toArrayBuffer(assertionCredential.authenticatorData);
         response.signature = toArrayBuffer(assertionCredential.signature);
         response.userHandle = toArrayBuffer(assertionCredential.userHandle);
+        rawAttachment = assertionCredential.attachment;
         if ([assertionCredential respondsToSelector:@selector(extensionOutputsCBOR)])
             response.extensionOutputs = toExtensionOutputs(assertionCredential.extensionOutputsCBOR);
     } else if ([credential isKindOfClass:getASCSecurityKeyPublicKeyCredentialAssertionClass()]) {
-        attachment = AuthenticatorAttachment::CrossPlatform;
         response.isAuthenticatorAttestationResponse = false;
 
         ASCSecurityKeyPublicKeyCredentialAssertion *assertionCredential = credential.get();
@@ -435,10 +435,10 @@ static inline void continueAfterRequest(RetainPtr<id <ASCCredentialProtocol>> cr
         response.authenticatorData = toArrayBuffer(assertionCredential.authenticatorData);
         response.signature = toArrayBuffer(assertionCredential.signature);
         response.userHandle = toArrayBuffer(assertionCredential.userHandle);
+        rawAttachment = assertionCredential.attachment;
         if ([assertionCredential respondsToSelector:@selector(extensionOutputsCBOR)])
             response.extensionOutputs = toExtensionOutputs(assertionCredential.extensionOutputsCBOR);
     } else {
-        attachment = (AuthenticatorAttachment) 0;
         ExceptionCode exceptionCode;
         NSString *errorMessage = nil;
         if ([error.get().domain isEqualToString:WKErrorDomain]) {
@@ -447,14 +447,23 @@ static inline void continueAfterRequest(RetainPtr<id <ASCCredentialProtocol>> cr
         } else {
             exceptionCode = NotAllowedError;
 
-            if ([error.get().domain isEqualToString:ASCAuthorizationErrorDomain] && error.get().code == ASCAuthorizationErrorUserCanceled)
+            if ([error.get().domain isEqualToString:ASCAuthorizationErrorDomain] && error.get().code == ASCAuthorizationErrorUserCanceled) {
                 errorMessage = @"This request has been cancelled by the user.";
-            else
+                RELEASE_LOG_ERROR(WebAuthn, "Request cancelled after ASCAuthorizationErrorUserCanceled.");
+            } else {
                 errorMessage = @"Operation failed.";
+                RELEASE_LOG_ERROR(WebAuthn, "Request cancelled after error: %@.", error.get().localizedDescription);
+            }
         }
 
         exceptionData = { exceptionCode, errorMessage };
     }
+    
+    AuthenticatorAttachment attachment;
+    if ([rawAttachment isEqualToString:@"platform"])
+        attachment = AuthenticatorAttachment::Platform;
+    else
+        attachment = AuthenticatorAttachment::CrossPlatform;
 
     handler(response, attachment, exceptionData);
 }
@@ -463,6 +472,7 @@ void WebAuthenticatorCoordinatorProxy::performRequest(RetainPtr<ASCCredentialReq
 {
     if (requestContext.get().requestTypes == ASCCredentialRequestTypeNone) {
         handler({ }, (AuthenticatorAttachment)0, ExceptionData { NotAllowedError, "This request has been cancelled by the user."_s });
+        RELEASE_LOG_ERROR(WebAuthn, "Request cancelled due to none requestTypes.");
         return;
     }
     m_proxy = adoptNS([allocASCAgentProxyInstance() init]);
@@ -472,6 +482,7 @@ void WebAuthenticatorCoordinatorProxy::performRequest(RetainPtr<ASCCredentialReq
             ensureOnMainRunLoop([weakThis, handler = WTFMove(handler), credential = retainPtr(credential), error = retainPtr(error)] () mutable {
                 if (!weakThis) {
                     handler({ }, (AuthenticatorAttachment)0, ExceptionData { NotAllowedError, "Operation failed."_s });
+                    RELEASE_LOG_ERROR(WebAuthn, "Request cancelled after WebAuthenticatorCoordinatorProxy invalid after staring request.");
                     return;
                 }
                 continueAfterRequest(credential, error, WTFMove(handler));
@@ -490,7 +501,7 @@ void WebAuthenticatorCoordinatorProxy::performRequest(RetainPtr<ASCCredentialReq
     [m_proxy performAuthorizationRequestsForContext:requestContext.get() withClearanceHandler:makeBlockPtr([weakThis = WeakPtr { *this }, handler = WTFMove(handler), window = WTFMove(window)](NSXPCListenerEndpoint *daemonEndpoint, NSError *error) mutable {
         callOnMainRunLoop([weakThis, handler = WTFMove(handler), window = WTFMove(window), daemonEndpoint = retainPtr(daemonEndpoint), error = retainPtr(error)] () mutable {
             if (!weakThis || !daemonEndpoint) {
-                LOG_ERROR("Could not connect to authorization daemon: %@\n", error.get());
+                RELEASE_LOG_ERROR(WebAuthn, "Could not connect to authorization daemon: %@.", error.get().localizedDescription);
                 handler({ }, (AuthenticatorAttachment)0, ExceptionData { NotAllowedError, "Operation failed."_s });
                 if (weakThis && weakThis->m_proxy)
                     weakThis->m_proxy.clear();
@@ -512,19 +523,32 @@ void WebAuthenticatorCoordinatorProxy::performRequest(RetainPtr<ASCCredentialReq
     }).get()];
 }
 
-void WebAuthenticatorCoordinatorProxy::isConditionalMediationAvailable(QueryCompletionHandler&& handler)
+static inline bool canCurrentProcessAccessPasskeysForRelyingParty(const WebCore::SecurityOriginData& data)
 {
-    handler([getASCWebKitSPISupportClass() shouldUseAlternateCredentialStore]);
+    if ([getASCWebKitSPISupportClass() respondsToSelector:@selector(canCurrentProcessAccessPasskeysForRelyingParty:)])
+        return [getASCWebKitSPISupportClass() canCurrentProcessAccessPasskeysForRelyingParty:data.securityOrigin()->domain()];
+    return false;
 }
 
-void WebAuthenticatorCoordinatorProxy::isUserVerifyingPlatformAuthenticatorAvailable(QueryCompletionHandler&& handler)
+void WebAuthenticatorCoordinatorProxy::isConditionalMediationAvailable(const WebCore::SecurityOriginData& data, QueryCompletionHandler&& handler)
 {
-    if ([getASCWebKitSPISupportClass() shouldUseAlternateCredentialStore]) {
-        handler(true);
+    if (canCurrentProcessAccessPasskeysForRelyingParty(data)) {
+        handler([getASCWebKitSPISupportClass() shouldUseAlternateCredentialStore]);
         return;
     }
+    handler(false);
+}
 
-    handler(LocalService::isAvailable());
+void WebAuthenticatorCoordinatorProxy::isUserVerifyingPlatformAuthenticatorAvailable(const SecurityOriginData& data, QueryCompletionHandler&& handler)
+{
+    if (canCurrentProcessAccessPasskeysForRelyingParty(data)) {
+        if ([getASCWebKitSPISupportClass() shouldUseAlternateCredentialStore]) {
+            handler(![getASCWebKitSPISupportClass() respondsToSelector:@selector(arePasskeysDisallowedForRelyingParty:)] || ![getASCWebKitSPISupportClass() arePasskeysDisallowedForRelyingParty:data.securityOrigin()->domain()]);
+            return;
+        }
+        handler(LocalService::isAvailable());
+    }
+    handler(false);
 }
 
 void WebAuthenticatorCoordinatorProxy::cancel()

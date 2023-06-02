@@ -118,11 +118,11 @@ template<> void JSTestDefaultToJSONFilteredByExposedDOMConstructor::initializePr
 
 static const HashTableValue JSTestDefaultToJSONFilteredByExposedPrototypeTableValues[] =
 {
-    { "constructor"_s, static_cast<unsigned>(JSC::PropertyAttribute::DontEnum), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestDefaultToJSONFilteredByExposedConstructor), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(0) } },
-    { "normalAttribute"_s, static_cast<unsigned>(JSC::PropertyAttribute::ReadOnly | JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestDefaultToJSONFilteredByExposed_normalAttribute), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(0) } },
-    { "filteredByExposedWindowAttribute"_s, static_cast<unsigned>(JSC::PropertyAttribute::ReadOnly | JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestDefaultToJSONFilteredByExposed_filteredByExposedWindowAttribute), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(0) } },
-    { "filteredByExposedWorkerAttribute"_s, static_cast<unsigned>(JSC::PropertyAttribute::ReadOnly | JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestDefaultToJSONFilteredByExposed_filteredByExposedWorkerAttribute), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(0) } },
-    { "toJSON"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestDefaultToJSONFilteredByExposedPrototypeFunction_toJSON), (intptr_t) (0) } },
+    { "constructor"_s, static_cast<unsigned>(JSC::PropertyAttribute::DontEnum), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestDefaultToJSONFilteredByExposedConstructor, 0 } },
+    { "normalAttribute"_s, static_cast<unsigned>(JSC::PropertyAttribute::ReadOnly | JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestDefaultToJSONFilteredByExposed_normalAttribute, 0 } },
+    { "filteredByExposedWindowAttribute"_s, static_cast<unsigned>(JSC::PropertyAttribute::ReadOnly | JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestDefaultToJSONFilteredByExposed_filteredByExposedWindowAttribute, 0 } },
+    { "filteredByExposedWorkerAttribute"_s, static_cast<unsigned>(JSC::PropertyAttribute::ReadOnly | JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestDefaultToJSONFilteredByExposed_filteredByExposedWorkerAttribute, 0 } },
+    { "toJSON"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestDefaultToJSONFilteredByExposedPrototypeFunction_toJSON, 0 } },
 };
 
 const ClassInfo JSTestDefaultToJSONFilteredByExposedPrototype::s_info = { "TestDefaultToJSONFilteredByExposed"_s, &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(JSTestDefaultToJSONFilteredByExposedPrototype) };
@@ -243,7 +243,7 @@ static inline EncodedJSValue jsTestDefaultToJSONFilteredByExposedPrototypeFuncti
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     UNUSED_PARAM(throwScope);
     auto& impl = castedThis->wrapped();
-    auto* result = constructEmptyObject(lexicalGlobalObject, castedThis->globalObject()->objectPrototype());
+    auto* result = constructEmptyObject(lexicalGlobalObject);
     auto normalAttributeValue = toJS<IDLLong>(*lexicalGlobalObject, throwScope, impl.normalAttribute());
     RETURN_IF_EXCEPTION(throwScope, { });
     result->putDirect(vm, Identifier::fromString(vm, "normalAttribute"_s), normalAttributeValue);
@@ -269,9 +269,9 @@ JSC::GCClient::IsoSubspace* JSTestDefaultToJSONFilteredByExposed::subspaceForImp
 {
     return WebCore::subspaceForImpl<JSTestDefaultToJSONFilteredByExposed, UseCustomHeapCellType::No>(vm,
         [] (auto& spaces) { return spaces.m_clientSubspaceForTestDefaultToJSONFilteredByExposed.get(); },
-        [] (auto& spaces, auto&& space) { spaces.m_clientSubspaceForTestDefaultToJSONFilteredByExposed = WTFMove(space); },
+        [] (auto& spaces, auto&& space) { spaces.m_clientSubspaceForTestDefaultToJSONFilteredByExposed = std::forward<decltype(space)>(space); },
         [] (auto& spaces) { return spaces.m_subspaceForTestDefaultToJSONFilteredByExposed.get(); },
-        [] (auto& spaces, auto&& space) { spaces.m_subspaceForTestDefaultToJSONFilteredByExposed = WTFMove(space); }
+        [] (auto& spaces, auto&& space) { spaces.m_subspaceForTestDefaultToJSONFilteredByExposed = std::forward<decltype(space)>(space); }
     );
 }
 

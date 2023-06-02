@@ -30,9 +30,10 @@
 #if PLATFORM(IOS_FAMILY) && ENABLE(ASYNC_SCROLLING)
 
 #import "RemoteLayerTreeViews.h"
-#import "RemoteScrollingCoordinatorProxy.h"
+#import "RemoteScrollingCoordinatorProxyIOS.h"
 #import "RemoteScrollingTree.h"
 #import "UIKitSPI.h"
+#import "WKScrollView.h"
 #import "WebPageProxy.h"
 #import <QuartzCore/QuartzCore.h>
 #import <UIKit/UIPanGestureRecognizer.h>
@@ -223,8 +224,12 @@ void ScrollingTreeScrollingNodeDelegateIOS::commitStateBeforeChildren(const Scro
 
 void ScrollingTreeScrollingNodeDelegateIOS::updateScrollViewForOverscrollBehavior(UIScrollView *scrollView, const WebCore::OverscrollBehavior horizontalOverscrollBehavior, WebCore::OverscrollBehavior verticalOverscrollBehavior, AllowOverscrollToPreventScrollPropagation allowPropogation)
 {
-    scrollView.bouncesHorizontally = horizontalOverscrollBehavior != OverscrollBehavior::None;
-    scrollView.bouncesVertically = verticalOverscrollBehavior != OverscrollBehavior::None;
+    if ([scrollView isKindOfClass:[WKScrollView class]])
+        [(WKScrollView*)scrollView _setBouncesInternal:horizontalOverscrollBehavior != WebCore::OverscrollBehavior::None vertical: verticalOverscrollBehavior != WebCore::OverscrollBehavior::None];
+    else {
+        scrollView.bouncesHorizontally = horizontalOverscrollBehavior != OverscrollBehavior::None;
+        scrollView.bouncesVertically = verticalOverscrollBehavior != OverscrollBehavior::None;
+    }
     if (allowPropogation == AllowOverscrollToPreventScrollPropagation::Yes) {
 #if HAVE(UIKIT_OVERSCROLL_BEHAVIOR_SUPPORT)
         scrollView._allowsParentToBeginHorizontally = horizontalOverscrollBehavior == OverscrollBehavior::Auto;
@@ -295,8 +300,8 @@ void ScrollingTreeScrollingNodeDelegateIOS::commitStateAfterChildren(const Scrol
         BEGIN_BLOCK_OBJC_EXCEPTIONS
         UIScrollView *scrollView = this->scrollView();
 
-        [scrollView setShowsHorizontalScrollIndicator:!scrollingNode().horizontalScrollbarHiddenByStyle()];
-        [scrollView setShowsVerticalScrollIndicator:!scrollingNode().verticalScrollbarHiddenByStyle()];
+        [scrollView setShowsHorizontalScrollIndicator:!(scrollingNode().horizontalNativeScrollbarVisibility() == NativeScrollbarVisibility::HiddenByStyle)];
+        [scrollView setShowsVerticalScrollIndicator:!(scrollingNode().verticalNativeScrollbarVisibility() == NativeScrollbarVisibility::HiddenByStyle)];
         [scrollView setScrollEnabled:scrollingNode().canHaveScrollbars()];
 
         END_BLOCK_OBJC_EXCEPTIONS
@@ -397,9 +402,12 @@ UIScrollView *ScrollingTreeScrollingNodeDelegateIOS::findActingScrollParent(UISc
 
 void ScrollingTreeScrollingNodeDelegateIOS::computeActiveTouchActionsForGestureRecognizer(UIGestureRecognizer* gestureRecognizer)
 {
-    auto& scrollingCoordinatorProxy = downcast<RemoteScrollingTree>(scrollingTree()).scrollingCoordinatorProxy();
-    if (auto touchIdentifier = scrollingCoordinatorProxy.webPageProxy().pageClient().activeTouchIdentifierForGestureRecognizer(gestureRecognizer))
-        m_activeTouchActions = scrollingCoordinatorProxy.activeTouchActionsForTouchIdentifier(*touchIdentifier);
+    auto* scrollingCoordinatorProxy = dynamicDowncast<RemoteScrollingCoordinatorProxyIOS>(downcast<RemoteScrollingTree>(scrollingTree()).scrollingCoordinatorProxy());
+    if (!scrollingCoordinatorProxy)
+        return;
+
+    if (auto touchIdentifier = scrollingCoordinatorProxy->webPageProxy().pageClient().activeTouchIdentifierForGestureRecognizer(gestureRecognizer))
+        m_activeTouchActions = scrollingCoordinatorProxy->activeTouchActionsForTouchIdentifier(*touchIdentifier);
 }
 
 void ScrollingTreeScrollingNodeDelegateIOS::cancelPointersForGestureRecognizer(UIGestureRecognizer* gestureRecognizer)

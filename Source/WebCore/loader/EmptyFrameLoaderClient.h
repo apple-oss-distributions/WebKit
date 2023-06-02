@@ -33,7 +33,6 @@ class WEBCORE_EXPORT EmptyFrameLoaderClient : public FrameLoaderClient {
 private:
     Ref<DocumentLoader> createDocumentLoader(const ResourceRequest&, const SubstituteData&) override;
 
-    std::optional<FrameIdentifier> frameID() const override;
     std::optional<PageIdentifier> pageID() const override;
 
     bool hasWebView() const final;
@@ -85,7 +84,7 @@ private:
     void dispatchWillClose() final;
     void dispatchDidStartProvisionalLoad() final;
     void dispatchDidReceiveTitle(const StringWithDirection&) final;
-    void dispatchDidCommitLoad(std::optional<HasInsecureContent>, std::optional<UsedLegacyTLS>) final;
+    void dispatchDidCommitLoad(std::optional<HasInsecureContent>, std::optional<UsedLegacyTLS>, std::optional<WasPrivateRelayed>) final;
     void dispatchDidFailProvisionalLoad(const ResourceError&, WillContinueLoading) final;
     void dispatchDidFailLoad(const ResourceError&) final;
     void dispatchDidFinishDocumentLoad() final;
@@ -170,12 +169,11 @@ private:
     bool canCachePage() const final;
     void didDisplayInsecureContent() final;
     void didRunInsecureContent(SecurityOrigin&, const URL&) final;
-    void didDetectXSS(const URL&, bool) final;
     RefPtr<Frame> createFrame(const AtomString&, HTMLFrameOwnerElement&) final;
     RefPtr<Widget> createPlugin(const IntSize&, HTMLPlugInElement&, const URL&, const Vector<AtomString>&, const Vector<AtomString>&, const String&, bool) final;
 
     ObjectContentType objectContentType(const URL&, const String&) final;
-    String overrideMediaType() const final;
+    AtomString overrideMediaType() const final;
 
     void redirectDataToPlugin(Widget&) final;
     void dispatchDidClearWindowObjectInWorld(DOMWrapperWorld&) final;
@@ -199,7 +197,7 @@ private:
     RefPtr<LegacyPreviewLoaderClient> createPreviewLoaderClient(const String&, const String&) final;
 #endif
 
-#if ENABLE(INTELLIGENT_TRACKING_PREVENTION)
+#if ENABLE(TRACKING_PREVENTION)
     bool hasFrameSpecificStorageAccess() final;
 #endif
 };

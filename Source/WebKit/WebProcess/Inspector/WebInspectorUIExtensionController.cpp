@@ -31,7 +31,6 @@
 #include "Logging.h"
 #include "WebInspectorUI.h"
 #include "WebInspectorUIExtensionControllerMessages.h"
-#include "WebInspectorUIExtensionControllerMessagesReplies.h"
 #include "WebInspectorUIExtensionControllerProxyMessages.h"
 #include "WebPage.h"
 #include "WebProcess.h"
@@ -371,6 +370,39 @@ void WebInspectorUIExtensionController::showExtensionTab(const Inspector::Extens
         ASSERT(result.has_value());
 
         completionHandler({ });
+    });
+}
+
+void WebInspectorUIExtensionController::navigateTabForExtension(const Inspector::ExtensionTabID& extensionTabIdentifier, const URL& sourceURL, WTF::CompletionHandler<void(const std::optional<Inspector::ExtensionError>&)>&& completionHandler)
+{
+    if (!m_frontendClient) {
+        completionHandler(Inspector::ExtensionError::InvalidRequest);
+        return;
+    }
+
+    Vector<Ref<JSON::Value>> arguments {
+        JSON::Value::create(extensionTabIdentifier),
+        JSON::Value::create(sourceURL.string()),
+    };
+    m_frontendClient->frontendAPIDispatcher().dispatchCommandWithResultAsync("navigateTabForExtension"_s, WTFMove(arguments), [weakThis = WeakPtr { *this }, completionHandler = WTFMove(completionHandler)](WebCore::InspectorFrontendAPIDispatcher::EvaluationResult&& result) mutable {
+        if (!weakThis) {
+            completionHandler(Inspector::ExtensionError::ContextDestroyed);
+            return;
+        }
+
+        auto* frontendGlobalObject = weakThis->m_frontendClient->frontendAPIDispatcher().frontendGlobalObject();
+        if (!frontendGlobalObject) {
+            completionHandler(Inspector::ExtensionError::ContextDestroyed);
+            return;
+        }
+
+        if (auto parsedError = weakThis->parseExtensionErrorFromEvaluationResult(result)) {
+            LOG(Inspector, "Internal error encountered while evaluating upon the frontend: %s", Inspector::extensionErrorToString(*parsedError).utf8().data());
+            completionHandler(parsedError);
+            return;
+        }
+
+        completionHandler(std::nullopt);
     });
 }
 

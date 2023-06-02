@@ -404,6 +404,7 @@ void AuthenticatorManager::requestLAContextForUserVerification(CompletionHandler
 void AuthenticatorManager::cancelRequest()
 {
     invokePendingCompletionHandler(ExceptionData { NotAllowedError, "This request has been cancelled by the user."_s });
+    RELEASE_LOG_ERROR(WebAuthn, "Request cancelled due to AuthenticatorManager::cancelRequest being called.");
     clearState();
     m_requestTimeOutTimer.stop();
 }
@@ -464,7 +465,7 @@ void AuthenticatorManager::runPanel()
     if (!page)
         return;
     ASSERT(m_pendingRequestData.globalFrameID && page->webPageID() == m_pendingRequestData.globalFrameID->pageID);
-    auto* frame = page->process().webFrame(m_pendingRequestData.globalFrameID->frameID);
+    auto* frame = WebFrameProxy::webFrame(m_pendingRequestData.globalFrameID->frameID);
     if (!frame)
         return;
 

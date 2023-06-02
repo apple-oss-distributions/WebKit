@@ -23,6 +23,7 @@
 #include "ShareableBitmapUtilities.h"
 #include "WebCoreArgumentCoders.h"
 #include <WebCore/Document.h>
+#include <WebCore/ElementInlines.h>
 #include <WebCore/Frame.h>
 #include <WebCore/FrameView.h>
 #include <WebCore/HitTestResult.h>
@@ -55,7 +56,6 @@ WebHitTestResultData::WebHitTestResultData(const HitTestResult& hitTestResult, c
     , isOverTextInsideFormControlElement(hitTestResult.isOverTextInsideFormControlElement())
     , isDownloadableMedia(hitTestResult.isDownloadableMedia())
     , toolTipText(toolTipText)
-    , imageSize(0)
 {
     if (auto* scrollbar = hitTestResult.scrollbar())
         isScrollbar = scrollbar->orientation() == ScrollbarOrientation::Horizontal ? IsScrollbar::Horizontal : IsScrollbar::Vertical;
@@ -76,7 +76,6 @@ WebHitTestResultData::WebHitTestResultData(const HitTestResult& hitTestResult, b
     , isTextNode(hitTestResult.innerNode() && hitTestResult.innerNode()->isTextNode())
     , isOverTextInsideFormControlElement(hitTestResult.isOverTextInsideFormControlElement())
     , isDownloadableMedia(hitTestResult.isDownloadableMedia())
-    , imageSize(0)
 {
     if (auto* scrollbar = hitTestResult.scrollbar())
         isScrollbar = scrollbar->orientation() == ScrollbarOrientation::Horizontal ? IsScrollbar::Horizontal : IsScrollbar::Vertical;
@@ -86,10 +85,8 @@ WebHitTestResultData::WebHitTestResultData(const HitTestResult& hitTestResult, b
 
     if (Image* image = hitTestResult.image()) {
         RefPtr<FragmentedSharedBuffer> buffer = image->data();
-        if (buffer) {
+        if (buffer)
             imageSharedMemory = WebKit::SharedMemory::copyBuffer(*buffer);
-            imageSize = buffer->size();
-        }
     }
 
     if (auto target = RefPtr { hitTestResult.innerNonSharedNode() }) {
@@ -99,127 +96,57 @@ WebHitTestResultData::WebHitTestResultData(const HitTestResult& hitTestResult, b
                 if (auto* image = cachedImage->image())
                     sourceImageMIMEType = image->mimeType();
             }
+
+            imageText = [&]() -> String {
+                if (auto* element = dynamicDowncast<Element>(target.get())) {
+                    auto& title = element->attributeWithoutSynchronization(HTMLNames::titleAttr);
+                    if (!title.isEmpty())
+                        return title;
+                }
+
+                return renderer->altText();
+            }();
         }
     }
+}
+
+WebHitTestResultData::WebHitTestResultData(const String& absoluteImageURL, const String& absolutePDFURL, const String& absoluteLinkURL, const String& absoluteMediaURL, const String& linkLabel, const String& linkTitle, const String& linkSuggestedFilename, bool isContentEditable, const WebCore::IntRect& elementBoundingBox, const WebKit::WebHitTestResultData::IsScrollbar& isScrollbar, bool isSelected, bool isTextNode, bool isOverTextInsideFormControlElement, bool isDownloadableMedia, const String& lookupText, const String& toolTipText, const String& imageText, const std::optional<WebKit::SharedMemory::Handle>& imageHandle, const RefPtr<WebKit::ShareableBitmap>& imageBitmap, const String& sourceImageMIMEType,
+#if PLATFORM(MAC)
+    const WebHitTestResultPlatformData& platformData,
+#endif
+    const WebCore::DictionaryPopupInfo& dictionaryPopupInfo, const RefPtr<WebCore::TextIndicator>& linkTextIndicator)
+        : absoluteImageURL(absoluteImageURL)
+        , absolutePDFURL(absolutePDFURL)
+        , absoluteLinkURL(absoluteLinkURL)
+        , absoluteMediaURL(absoluteMediaURL)
+        , linkLabel(linkLabel)
+        , linkTitle(linkTitle)
+        , linkSuggestedFilename(linkSuggestedFilename)
+        , isContentEditable(isContentEditable)
+        , elementBoundingBox(elementBoundingBox)
+        , isScrollbar(isScrollbar)
+        , isSelected(isSelected)
+        , isTextNode(isTextNode)
+        , isOverTextInsideFormControlElement(isOverTextInsideFormControlElement)
+        , isDownloadableMedia(isDownloadableMedia)
+        , lookupText(lookupText)
+        , toolTipText(toolTipText)
+        , imageText(imageText)
+        , imageBitmap(imageBitmap)
+        , sourceImageMIMEType(sourceImageMIMEType)
+#if PLATFORM(MAC)
+        , platformData(platformData)
+#endif
+        , dictionaryPopupInfo(dictionaryPopupInfo)
+        , linkTextIndicator(linkTextIndicator)
+{
+    if (imageHandle && !imageHandle->isNull())
+        imageSharedMemory = WebKit::SharedMemory::map(*imageHandle, WebKit::SharedMemory::Protection::ReadOnly);
 }
 
 WebHitTestResultData::~WebHitTestResultData()
 {
 }
-
-void WebHitTestResultData::encode(IPC::Encoder& encoder) const
-{
-    encoder << absoluteImageURL;
-    encoder << absolutePDFURL;
-    encoder << absoluteLinkURL;
-    encoder << absoluteMediaURL;
-    encoder << linkLabel;
-    encoder << linkTitle;
-    encoder << linkSuggestedFilename;
-    encoder << isContentEditable;
-    encoder << elementBoundingBox;
-    encoder << isScrollbar;
-    encoder << isSelected;
-    encoder << isTextNode;
-    encoder << isOverTextInsideFormControlElement;
-    encoder << isDownloadableMedia;
-    encoder << lookupText;
-    encoder << toolTipText;
-    encoder << dictionaryPopupInfo;
-
-    WebKit::SharedMemory::Handle imageHandle;
-    if (imageSharedMemory && imageSharedMemory->data())
-        imageSharedMemory->createHandle(imageHandle, WebKit::SharedMemory::Protection::ReadOnly);
-
-    encoder << WebKit::SharedMemory::IPCHandle { WTFMove(imageHandle), imageSize };
-
-    ShareableBitmap::Handle imageBitmapHandle;
-    if (imageBitmap)
-        imageBitmap->createHandle(imageBitmapHandle, SharedMemory::Protection::ReadOnly);
-    encoder << imageBitmapHandle;
-    encoder << sourceImageMIMEType;
-
-    bool hasLinkTextIndicator = linkTextIndicator;
-    encoder << hasLinkTextIndicator;
-    if (hasLinkTextIndicator)
-        encoder << linkTextIndicator->data();
-
-    platformEncode(encoder);
-}
-
-bool WebHitTestResultData::decode(IPC::Decoder& decoder, WebHitTestResultData& hitTestResultData)
-{
-    if (!decoder.decode(hitTestResultData.absoluteImageURL)
-        || !decoder.decode(hitTestResultData.absolutePDFURL)
-        || !decoder.decode(hitTestResultData.absoluteLinkURL)
-        || !decoder.decode(hitTestResultData.absoluteMediaURL)
-        || !decoder.decode(hitTestResultData.linkLabel)
-        || !decoder.decode(hitTestResultData.linkTitle)
-        || !decoder.decode(hitTestResultData.linkSuggestedFilename)
-        || !decoder.decode(hitTestResultData.isContentEditable)
-        || !decoder.decode(hitTestResultData.elementBoundingBox)
-        || !decoder.decode(hitTestResultData.isScrollbar)
-        || !decoder.decode(hitTestResultData.isSelected)
-        || !decoder.decode(hitTestResultData.isTextNode)
-        || !decoder.decode(hitTestResultData.isOverTextInsideFormControlElement)
-        || !decoder.decode(hitTestResultData.isDownloadableMedia)
-        || !decoder.decode(hitTestResultData.lookupText)
-        || !decoder.decode(hitTestResultData.toolTipText)
-        || !decoder.decode(hitTestResultData.dictionaryPopupInfo))
-        return false;
-
-    WebKit::SharedMemory::IPCHandle imageHandle;
-    if (!decoder.decode(imageHandle))
-        return false;
-
-    hitTestResultData.imageSize = imageHandle.dataSize;
-    if (imageHandle.handle.isNull()) {
-        if (hitTestResultData.imageSize)
-            return false;
-    } else {
-        hitTestResultData.imageSharedMemory = WebKit::SharedMemory::map(imageHandle.handle, WebKit::SharedMemory::Protection::ReadOnly);
-        if (!hitTestResultData.imageSharedMemory)
-            return false;
-        if (!hitTestResultData.imageSize)
-            return false;
-    }
-
-    ShareableBitmap::Handle imageBitmapHandle;
-    if (!decoder.decode(imageBitmapHandle))
-        return false;
-
-    if (!imageBitmapHandle.isNull())
-        hitTestResultData.imageBitmap = ShareableBitmap::create(imageBitmapHandle, SharedMemory::Protection::ReadOnly);
-
-    if (!decoder.decode(hitTestResultData.sourceImageMIMEType))
-        return false;
-
-    bool hasLinkTextIndicator;
-    if (!decoder.decode(hasLinkTextIndicator))
-        return false;
-
-    if (hasLinkTextIndicator) {
-        std::optional<WebCore::TextIndicatorData> indicatorData;
-        decoder >> indicatorData;
-        if (!indicatorData)
-            return false;
-
-        hitTestResultData.linkTextIndicator = WebCore::TextIndicator::create(*indicatorData);
-    }
-
-    return platformDecode(decoder, hitTestResultData);
-}
-
-#if !PLATFORM(MAC)
-void WebHitTestResultData::platformEncode(IPC::Encoder& encoder) const
-{
-}
-
-bool WebHitTestResultData::platformDecode(IPC::Decoder& decoder, WebHitTestResultData& hitTestResultData)
-{
-    return true;
-}
-#endif // !PLATFORM(MAC)
 
 IntRect WebHitTestResultData::elementBoundingBoxInWindowCoordinates(const WebCore::HitTestResult& hitTestResult)
 {
@@ -240,6 +167,16 @@ IntRect WebHitTestResultData::elementBoundingBoxInWindowCoordinates(const WebCor
         return IntRect();
 
     return view->contentsToWindow(renderer->absoluteBoundingBoxRect());
+}
+
+std::optional<WebKit::SharedMemory::Handle> WebHitTestResultData::getImageSharedMemoryHandle() const
+{
+    std::optional<WebKit::SharedMemory::Handle> imageHandle = std::nullopt;
+    if (imageSharedMemory && imageSharedMemory->data()) {
+        if (auto handle = imageSharedMemory->createHandle(WebKit::SharedMemory::Protection::ReadOnly))
+            imageHandle = WTFMove(*handle);
+    }
+    return imageHandle;
 }
 
 } // WebKit

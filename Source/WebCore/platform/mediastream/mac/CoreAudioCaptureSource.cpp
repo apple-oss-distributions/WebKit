@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2017-2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -79,27 +79,31 @@ static CaptureSourceOrError initializeCoreAudioCaptureSource(Ref<CoreAudioCaptur
     return CaptureSourceOrError(WTFMove(source));
 }
 
-CaptureSourceOrError CoreAudioCaptureSource::create(String&& deviceID, String&& hashSalt, const MediaConstraints* constraints, PageIdentifier pageIdentifier)
+CaptureSourceOrError CoreAudioCaptureSource::create(String&& deviceID, MediaDeviceHashSalts&& hashSalts, const MediaConstraints* constraints, PageIdentifier pageIdentifier)
 {
+    CoreAudioCaptureSourceFactory::singleton().setOverrideUnit(nullptr);
+
 #if PLATFORM(MAC)
     auto device = CoreAudioCaptureDeviceManager::singleton().coreAudioDeviceWithUID(deviceID);
     if (!device)
         return { "No CoreAudioCaptureSource device"_s };
 
-    auto source = adoptRef(*new CoreAudioCaptureSource(WTFMove(deviceID), AtomString { device->label() }, WTFMove(hashSalt), device->deviceID(), nullptr, pageIdentifier));
+    auto source = adoptRef(*new CoreAudioCaptureSource(device.value(), device->deviceID(), WTFMove(hashSalts), nullptr, pageIdentifier));
 #elif PLATFORM(IOS_FAMILY)
     auto device = AVAudioSessionCaptureDeviceManager::singleton().audioSessionDeviceWithUID(WTFMove(deviceID));
     if (!device)
         return { "No AVAudioSessionCaptureDevice device"_s };
 
-    auto source = adoptRef(*new CoreAudioCaptureSource(WTFMove(deviceID), AtomString { device->label() }, WTFMove(hashSalt), 0, nullptr, pageIdentifier));
+    auto source = adoptRef(*new CoreAudioCaptureSource(device.value(), 0, WTFMove(hashSalts), nullptr, pageIdentifier));
 #endif
     return initializeCoreAudioCaptureSource(WTFMove(source), constraints);
 }
 
-CaptureSourceOrError CoreAudioCaptureSource::createForTesting(String&& deviceID, AtomString&& label, String&& hashSalt, const MediaConstraints* constraints, BaseAudioSharedUnit& overrideUnit, PageIdentifier pageIdentifier)
+CaptureSourceOrError CoreAudioCaptureSource::createForTesting(String&& deviceID, AtomString&& label, MediaDeviceHashSalts&& hashSalts, const MediaConstraints* constraints, BaseAudioSharedUnit& overrideUnit, PageIdentifier pageIdentifier)
 {
-    auto source = adoptRef(*new CoreAudioCaptureSource(WTFMove(deviceID), WTFMove(label), WTFMove(hashSalt), 0, &overrideUnit, pageIdentifier));
+    CoreAudioCaptureSourceFactory::singleton().setOverrideUnit(&overrideUnit);
+
+    auto source = adoptRef(*new CoreAudioCaptureSource(CaptureDevice { WTFMove(deviceID), CaptureDevice::DeviceType::Microphone, WTFMove(label) }, 0, WTFMove(hashSalts), &overrideUnit, pageIdentifier));
     return initializeCoreAudioCaptureSource(WTFMove(source), constraints);
 }
 
@@ -113,17 +117,32 @@ const BaseAudioSharedUnit& CoreAudioCaptureSource::unit() const
     return m_overrideUnit ? *m_overrideUnit : CoreAudioSharedUnit::singleton();
 }
 
+CoreAudioCaptureSourceFactory::CoreAudioCaptureSourceFactory()
+{
+    AudioSession::sharedSession().addInterruptionObserver(*this);
+}
+
+CoreAudioCaptureSourceFactory::~CoreAudioCaptureSourceFactory()
+{
+    AudioSession::sharedSession().removeInterruptionObserver(*this);
+}
+
+BaseAudioSharedUnit& CoreAudioCaptureSourceFactory::unit()
+{
+    return m_overrideUnit ? *m_overrideUnit : CoreAudioSharedUnit::singleton();
+}
+
 void CoreAudioCaptureSourceFactory::beginInterruption()
 {
     ensureOnMainThread([] {
-        CoreAudioSharedUnit::singleton().suspend();
+        CoreAudioCaptureSourceFactory::singleton().unit().suspend();
     });
 }
 
 void CoreAudioCaptureSourceFactory::endInterruption()
 {
     ensureOnMainThread([] {
-        CoreAudioSharedUnit::singleton().resume();
+        CoreAudioCaptureSourceFactory::singleton().unit().resume();
     });
 }
 
@@ -182,8 +201,18 @@ void CoreAudioCaptureSourceFactory::whenAudioCaptureUnitIsNotRunning(Function<vo
     return CoreAudioSharedUnit::unit().whenAudioCaptureUnitIsNotRunning(WTFMove(callback));
 }
 
-CoreAudioCaptureSource::CoreAudioCaptureSource(String&& deviceID, AtomString&& label, String&& hashSalt, uint32_t captureDeviceID, BaseAudioSharedUnit* overrideUnit, PageIdentifier pageIdentifier)
-    : RealtimeMediaSource(RealtimeMediaSource::Type::Audio, WTFMove(label), WTFMove(deviceID), WTFMove(hashSalt), pageIdentifier)
+bool CoreAudioCaptureSourceFactory::shouldAudioCaptureUnitRenderAudio()
+{
+    auto& unit = CoreAudioSharedUnit::unit();
+#if PLATFORM(IOS_FAMILY)
+    return unit.isRunning();
+#else
+    return unit.isRunning() && unit.isUsingVPIO();
+#endif // PLATFORM(IOS_FAMILY)
+}
+
+CoreAudioCaptureSource::CoreAudioCaptureSource(const CaptureDevice& device, uint32_t captureDeviceID, MediaDeviceHashSalts&& hashSalts, BaseAudioSharedUnit* overrideUnit, PageIdentifier pageIdentifier)
+    : RealtimeMediaSource(device, WTFMove(hashSalts), pageIdentifier)
     , m_captureDeviceID(captureDeviceID)
     , m_overrideUnit(overrideUnit)
 {
@@ -230,6 +259,7 @@ CoreAudioCaptureSource::~CoreAudioCaptureSource()
 
 void CoreAudioCaptureSource::startProducingData()
 {
+    m_canResumeAfterInterruption = true;
     initializeToStartProducingData();
     unit().startProducingData();
     m_currentSettings = { };
@@ -308,10 +338,36 @@ void CoreAudioCaptureSource::delaySamples(Seconds seconds)
     unit().delaySamples(seconds);
 }
 
+#if PLATFORM(IOS_FAMILY)
+void CoreAudioCaptureSource::setIsInBackground(bool value)
+{
+    if (isProducingData())
+        CoreAudioSharedUnit::unit().setIsInBackground(value);
+}
+#endif
+
 void CoreAudioCaptureSource::audioUnitWillStart()
 {
     forEachObserver([](auto& observer) {
         observer.audioUnitWillStart();
+    });
+}
+
+void CoreAudioCaptureSource::handleNewCurrentMicrophoneDevice(const CaptureDevice& device)
+{
+    if (!isProducingData() || persistentID() == device.persistentId())
+        return;
+    
+    RELEASE_LOG_INFO(WebRTC, "CoreAudioCaptureSource switching from '%s' to '%s'", name().string().utf8().data(), device.label().utf8().data());
+    
+    setName(AtomString { device.label() });
+    setPersistentId(device.persistentId());
+    
+    m_currentSettings = { };
+    m_capabilities = { };
+
+    forEachObserver([](auto& observer) {
+        observer.sourceConfigurationChanged();
     });
 }
 

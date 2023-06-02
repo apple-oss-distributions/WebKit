@@ -49,11 +49,14 @@ typedef struct __CVBuffer *CVOpenGLTextureRef;
 
 namespace WebCore {
 
+class AudioTrackPrivate;
 class CDMSessionMediaSourceAVFObjC;
 class EffectiveRateChangedListener;
+class InbandTextTrackPrivate;
 class MediaSourcePrivateAVFObjC;
 class PixelBufferConformerCV;
 class VideoLayerManagerObjC;
+class VideoTrackPrivate;
 class WebCoreDecompressionSession;
 
 
@@ -77,6 +80,10 @@ public:
     void addAudioRenderer(AVSampleBufferAudioRenderer*);
     void removeAudioRenderer(AVSampleBufferAudioRenderer*);
     ALLOW_NEW_API_WITHOUT_GUARDS_END
+    
+    void removeAudioTrack(AudioTrackPrivate&);
+    void removeVideoTrack(VideoTrackPrivate&);
+    void removeTextTrack(InbandTextTrackPrivate&);
 
     MediaPlayer::NetworkState networkState() const override;
     MediaPlayer::ReadyState readyState() const override;
@@ -146,6 +153,8 @@ public:
     const Vector<ContentType>& mediaContentTypesRequiringHardwareSupport() const;
     bool shouldCheckHardwareSupport() const;
 
+    void needsVideoLayerChanged();
+
 #if !RELEASE_LOG_DISABLED
     const Logger& logger() const final { return m_logger.get(); }
     const char* logClassName() const override { return "MediaPlayerPrivateMediaSourceAVFObjC"; }
@@ -157,6 +166,7 @@ public:
 #endif
 
     enum SeekState {
+        WaitingToSeek,
         Seeking,
         WaitingForAvailableFame,
         SeekCompleted,
@@ -232,14 +242,13 @@ private:
     void acceleratedRenderingStateChanged() override;
     void notifyActiveSourceBuffersChanged() override;
 
-    void playerContentBoxRectChanged(const LayoutRect&) final;
+    void setPresentationSize(const IntSize&) final;
 
     void updateDisplayLayerAndDecompressionSession();
 
     // NOTE: Because the only way for MSE to recieve data is through an ArrayBuffer provided by
     // javascript running in the page, the video will, by necessity, always be CORS correct and
     // in the page's origin.
-    bool hasSingleSecurityOrigin() const override { return true; }
     bool didPassCORSAccessCheck() const override { return true; }
 
     MediaPlayer::MovieLoadType movieLoadType() const override;
@@ -289,6 +298,9 @@ private:
     MediaTime clampTimeToLastSeekTime(const MediaTime&) const;
 
     bool shouldEnsureLayer() const;
+
+    void setShouldDisableHDR(bool) final;
+    void playerContentBoxRectChanged(const LayoutRect&) final;
 
     friend class MediaSourcePrivateAVFObjC;
 
@@ -341,7 +353,7 @@ private:
     FloatSize m_naturalSize;
     double m_rate;
     bool m_playing;
-    bool m_seeking;
+    bool m_synchronizerSeeking;
     SeekState m_seekCompleted { SeekCompleted };
     mutable bool m_loadingProgressed;
 #if !HAVE(AVSAMPLEBUFFERDISPLAYLAYER_COPYDISPLAYEDPIXELBUFFER)

@@ -87,7 +87,7 @@ void SourceBufferPrivateRemote::append(Ref<SharedBuffer>&& data)
     m_gpuProcessConnection->connection().sendWithAsyncReply(Messages::RemoteSourceBufferProxy::Append(IPC::SharedBufferReference { WTFMove(data) }), [] (auto&& bufferHandle) {
         // Take ownership of shared memory and mark it as media-related memory.
         if (bufferHandle)
-            bufferHandle->handle.takeOwnershipOfMemory(MemoryLedger::Media);
+            bufferHandle->takeOwnershipOfMemory(MemoryLedger::Media);
     }, m_remoteSourceBufferIdentifier);
 }
 
@@ -151,12 +151,11 @@ void SourceBufferPrivateRemote::setActive(bool active)
 
 bool SourceBufferPrivateRemote::canSwitchToType(const ContentType& contentType)
 {
-    bool canSwitch = false;
     if (!m_gpuProcessConnection)
-        return canSwitch;
+        return false;
 
-    m_gpuProcessConnection->connection().sendSync(Messages::RemoteSourceBufferProxy::CanSwitchToType(contentType), Messages::RemoteSourceBufferProxy::CanSwitchToType::Reply(canSwitch), m_remoteSourceBufferIdentifier);
-
+    auto sendResult = m_gpuProcessConnection->connection().sendSync(Messages::RemoteSourceBufferProxy::CanSwitchToType(contentType), m_remoteSourceBufferIdentifier);
+    auto [canSwitch] = sendResult.takeReplyOr(false);
     return canSwitch;
 }
 
@@ -184,10 +183,11 @@ void SourceBufferPrivateRemote::updateBufferedFromTrackBuffers(bool sourceIsEnde
     if (!m_gpuProcessConnection)
         return;
 
-    PlatformTimeRanges buffered;
-    if (!m_gpuProcessConnection->connection().sendSync(Messages::RemoteSourceBufferProxy::UpdateBufferedFromTrackBuffers(sourceIsEnded), Messages::RemoteSourceBufferProxy::UpdateBufferedFromTrackBuffers::Reply(buffered), m_remoteSourceBufferIdentifier))
+    auto sendResult = m_gpuProcessConnection->connection().sendSync(Messages::RemoteSourceBufferProxy::UpdateBufferedFromTrackBuffers(sourceIsEnded), m_remoteSourceBufferIdentifier);
+    if (!sendResult)
         return;
 
+    auto [buffered] = sendResult.takeReply();
     setBufferedRanges(buffered);
 }
 
@@ -205,15 +205,14 @@ void SourceBufferPrivateRemote::removeCodedFrames(const MediaTime& start, const 
         m_remoteSourceBufferIdentifier);
 }
 
-void SourceBufferPrivateRemote::evictCodedFrames(uint64_t newDataSize, uint64_t maximumBufferSize, const MediaTime& currentTime, const MediaTime& duration, bool isEnded)
+void SourceBufferPrivateRemote::evictCodedFrames(uint64_t newDataSize, uint64_t maximumBufferSize, const MediaTime& currentTime, bool isEnded)
 {
     if (!m_gpuProcessConnection)
         return;
 
-    uint64_t totalBufferSizeInBytes = 0;
-    if (m_gpuProcessConnection->connection().sendSync(Messages::RemoteSourceBufferProxy::EvictCodedFrames(newDataSize, maximumBufferSize, currentTime, duration, isEnded), Messages::RemoteSourceBufferProxy::EvictCodedFrames::Reply(totalBufferSizeInBytes), m_remoteSourceBufferIdentifier)) {
-        m_totalTrackBufferSizeInBytes = totalBufferSizeInBytes;
-    }
+    auto sendResult = m_gpuProcessConnection->connection().sendSync(Messages::RemoteSourceBufferProxy::EvictCodedFrames(newDataSize, maximumBufferSize, currentTime, isEnded), m_remoteSourceBufferIdentifier);
+    if (sendResult)
+        std::tie(m_totalTrackBufferSizeInBytes) = sendResult.takeReply();
 }
 
 void SourceBufferPrivateRemote::addTrackBuffer(const AtomString& trackId, RefPtr<MediaDescription>&&)
@@ -365,10 +364,10 @@ void SourceBufferPrivateRemote::enqueuedSamplesForTrackID(const AtomString& trac
     }, m_remoteSourceBufferIdentifier);
 }
 
-void SourceBufferPrivateRemote::sourceBufferPrivateDidReceiveInitializationSegment(InitializationSegmentInfo&& segmentInfo, CompletionHandler<void()>&& completionHandler)
+void SourceBufferPrivateRemote::sourceBufferPrivateDidReceiveInitializationSegment(InitializationSegmentInfo&& segmentInfo, CompletionHandler<void(WebCore::SourceBufferPrivateClient::ReceiveResult)>&& completionHandler)
 {
     if (!m_client || !m_mediaPlayerPrivate) {
-        completionHandler();
+        completionHandler(WebCore::SourceBufferPrivateClient::ReceiveResult::ClientDisconnected);
         return;
     }
 

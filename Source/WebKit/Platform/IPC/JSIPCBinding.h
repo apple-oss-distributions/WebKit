@@ -69,7 +69,7 @@ template<> JSC::JSValue jsValueForDecodedArgumentValue(JSC::JSGlobalObject*, URL
 template<> JSC::JSValue jsValueForDecodedArgumentValue(JSC::JSGlobalObject*, WebCore::RegistrableDomain&&);
 
 template<> JSC::JSValue jsValueForDecodedArgumentValue(JSC::JSGlobalObject*, IPC::Semaphore&&);
-template<> JSC::JSValue jsValueForDecodedArgumentValue(JSC::JSGlobalObject*, WebKit::SharedMemory::IPCHandle&&);
+template<> JSC::JSValue jsValueForDecodedArgumentValue(JSC::JSGlobalObject*, WebKit::SharedMemory::Handle&&);
 
 template<typename T, std::enable_if_t<std::is_arithmetic<T>::value>* = nullptr>
 JSC::JSValue jsValueForDecodedArgumentValue(JSC::JSGlobalObject*, T)
@@ -154,7 +154,7 @@ static std::optional<JSC::JSValue> jsValueForDecodedArguments(JSC::JSGlobalObjec
     auto scope = DECLARE_THROW_SCOPE(globalObject->vm());
     auto* array = JSC::constructEmptyArray(globalObject, nullptr);
     RETURN_IF_EXCEPTION(scope, JSC::JSValue());
-    typename IPC::CodingType<T>::Type* dummyArguments = nullptr;
+    T* dummyArguments = nullptr;
     return putJSValueForDecodeArgumentInArray<>(globalObject, decoder, array, 0, dummyArguments);
 }
 

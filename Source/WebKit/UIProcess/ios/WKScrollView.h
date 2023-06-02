@@ -38,6 +38,7 @@
 - (void)_setContentSizePreservingContentOffsetDuringRubberband:(CGSize)contentSize;
 - (void)_setScrollEnabledInternal:(BOOL)enabled;
 - (void)_setZoomEnabledInternal:(BOOL)enabled;
+- (void)_setBouncesInternal:(BOOL)horizontal vertical:(BOOL)vertical;
 - (BOOL)_setContentScrollInsetInternal:(UIEdgeInsets)insets;
 - (void)_setDecelerationRateInternal:(UIScrollViewDecelerationRate)rate;
 
@@ -46,6 +47,10 @@
 @property (nonatomic, assign, readonly) BOOL _contentInsetAdjustmentBehaviorWasExternallyOverridden;
 - (void)_setContentInsetAdjustmentBehaviorInternal:(UIScrollViewContentInsetAdjustmentBehavior)insetAdjustmentBehavior;
 #endif
+
+#if ENABLE(OVERLAY_REGIONS_IN_EVENT_REGION)
+- (bool)_updateOverlayRegions:(const Vector<CGRect> &)overlayRegions;
+#endif // ENABLE(OVERLAY_REGIONS_IN_EVENT_REGION)
 
 @end
 

@@ -160,8 +160,7 @@ private:
 
 - (void)showMainResourceForFrame:(_WKFrameHandle *)frame
 {
-    if (auto* page = _inspector->inspectedPage())
-        _inspector->showMainResourceForFrame(page->process().webFrame(frame->_frameHandle->frameID()));
+    _inspector->showMainResourceForFrame(WebKit::WebFrameProxy::webFrame(frame->_frameHandle->frameID()));
 }
 
 - (void)attach
@@ -282,6 +281,26 @@ private:
     _inspector->extensionController()->showExtensionTab(extensionTabIdentifier, [protectedSelf = retainPtr(self), capturedBlock = makeBlockPtr(completionHandler)] (Expected<void, Inspector::ExtensionError>&& result) mutable {
         if (!result) {
             capturedBlock([NSError errorWithDomain:WKErrorDomain code:WKErrorUnknown userInfo:@{ NSLocalizedFailureReasonErrorKey: Inspector::extensionErrorToString(result.error())}]);
+            return;
+        }
+
+        capturedBlock(nil);
+    });
+#endif
+}
+
+- (void)navigateExtensionTabWithIdentifier:(NSString *)extensionTabIdentifier toURL:(NSURL *)url completionHandler:(void(^)(NSError *))completionHandler
+{
+#if ENABLE(INSPECTOR_EXTENSIONS)
+    // It is an error to call this method prior to creating a frontend (i.e., with -connect or -show).
+    if (!_inspector->extensionController()) {
+        completionHandler([NSError errorWithDomain:WKErrorDomain code:WKErrorUnknown userInfo:@{ NSLocalizedFailureReasonErrorKey: Inspector::extensionErrorToString(Inspector::ExtensionError::InvalidRequest) }]);
+        return;
+    }
+
+    _inspector->extensionController()->navigateTabForExtension(extensionTabIdentifier, url, [protectedSelf = retainPtr(self), capturedBlock = makeBlockPtr(completionHandler)] (const std::optional<Inspector::ExtensionError>&& result) mutable {
+        if (result) {
+            capturedBlock([NSError errorWithDomain:WKErrorDomain code:WKErrorUnknown userInfo:@{ NSLocalizedFailureReasonErrorKey: Inspector::extensionErrorToString(result.value()) }]);
             return;
         }
 

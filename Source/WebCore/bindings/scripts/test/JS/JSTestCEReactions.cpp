@@ -132,15 +132,15 @@ template<> void JSTestCEReactionsDOMConstructor::initializeProperties(VM& vm, JS
 
 static const HashTableValue JSTestCEReactionsPrototypeTableValues[] =
 {
-    { "constructor"_s, static_cast<unsigned>(JSC::PropertyAttribute::DontEnum), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestCEReactionsConstructor), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(0) } },
-    { "attributeWithCEReactions"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestCEReactions_attributeWithCEReactions), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(setJSTestCEReactions_attributeWithCEReactions) } },
-    { "reflectAttributeWithCEReactions"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestCEReactions_reflectAttributeWithCEReactions), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(setJSTestCEReactions_reflectAttributeWithCEReactions) } },
-    { "stringifierAttribute"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestCEReactions_stringifierAttribute), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(setJSTestCEReactions_stringifierAttribute) } },
-    { "attributeWithCEReactionsNotNeeded"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestCEReactions_attributeWithCEReactionsNotNeeded), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(setJSTestCEReactions_attributeWithCEReactionsNotNeeded) } },
-    { "reflectAttributeWithCEReactionsNotNeeded"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestCEReactions_reflectAttributeWithCEReactionsNotNeeded), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(setJSTestCEReactions_reflectAttributeWithCEReactionsNotNeeded) } },
-    { "stringifierAttributeNotNeeded"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestCEReactions_stringifierAttributeNotNeeded), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(setJSTestCEReactions_stringifierAttributeNotNeeded) } },
-    { "methodWithCEReactions"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestCEReactionsPrototypeFunction_methodWithCEReactions), (intptr_t) (0) } },
-    { "methodWithCEReactionsNotNeeded"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestCEReactionsPrototypeFunction_methodWithCEReactionsNotNeeded), (intptr_t) (0) } },
+    { "constructor"_s, static_cast<unsigned>(JSC::PropertyAttribute::DontEnum), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestCEReactionsConstructor, 0 } },
+    { "attributeWithCEReactions"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestCEReactions_attributeWithCEReactions, setJSTestCEReactions_attributeWithCEReactions } },
+    { "reflectAttributeWithCEReactions"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestCEReactions_reflectAttributeWithCEReactions, setJSTestCEReactions_reflectAttributeWithCEReactions } },
+    { "stringifierAttribute"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestCEReactions_stringifierAttribute, setJSTestCEReactions_stringifierAttribute } },
+    { "attributeWithCEReactionsNotNeeded"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestCEReactions_attributeWithCEReactionsNotNeeded, setJSTestCEReactions_attributeWithCEReactionsNotNeeded } },
+    { "reflectAttributeWithCEReactionsNotNeeded"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestCEReactions_reflectAttributeWithCEReactionsNotNeeded, setJSTestCEReactions_reflectAttributeWithCEReactionsNotNeeded } },
+    { "stringifierAttributeNotNeeded"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestCEReactions_stringifierAttributeNotNeeded, setJSTestCEReactions_stringifierAttributeNotNeeded } },
+    { "methodWithCEReactions"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestCEReactionsPrototypeFunction_methodWithCEReactions, 0 } },
+    { "methodWithCEReactionsNotNeeded"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestCEReactionsPrototypeFunction_methodWithCEReactionsNotNeeded, 0 } },
 };
 
 const ClassInfo JSTestCEReactionsPrototype::s_info = { "TestCEReactions"_s, &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(JSTestCEReactionsPrototype) };
@@ -215,6 +215,7 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestCEReactions_attributeWithCEReactions, (JSGlobalOb
 static inline bool setJSTestCEReactions_attributeWithCEReactionsSetter(JSGlobalObject& lexicalGlobalObject, JSTestCEReactions& thisObject, JSValue value)
 {
     auto& vm = JSC::getVM(&lexicalGlobalObject);
+    UNUSED_PARAM(vm);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     CustomElementReactionStack customElementReactionStack(lexicalGlobalObject);
     auto& impl = thisObject.wrapped();
@@ -247,6 +248,7 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestCEReactions_reflectAttributeWithCEReactions, (JSG
 static inline bool setJSTestCEReactions_reflectAttributeWithCEReactionsSetter(JSGlobalObject& lexicalGlobalObject, JSTestCEReactions& thisObject, JSValue value)
 {
     auto& vm = JSC::getVM(&lexicalGlobalObject);
+    UNUSED_PARAM(vm);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     CustomElementReactionStack customElementReactionStack(lexicalGlobalObject);
     auto& impl = thisObject.wrapped();
@@ -279,6 +281,7 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestCEReactions_stringifierAttribute, (JSGlobalObject
 static inline bool setJSTestCEReactions_stringifierAttributeSetter(JSGlobalObject& lexicalGlobalObject, JSTestCEReactions& thisObject, JSValue value)
 {
     auto& vm = JSC::getVM(&lexicalGlobalObject);
+    UNUSED_PARAM(vm);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     auto id = Identifier::fromString(vm, "stringifierAttribute"_s);
     auto valueToForwardTo = thisObject.get(&lexicalGlobalObject, id);
@@ -315,6 +318,7 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestCEReactions_attributeWithCEReactionsNotNeeded, (J
 static inline bool setJSTestCEReactions_attributeWithCEReactionsNotNeededSetter(JSGlobalObject& lexicalGlobalObject, JSTestCEReactions& thisObject, JSValue value)
 {
     auto& vm = JSC::getVM(&lexicalGlobalObject);
+    UNUSED_PARAM(vm);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     CustomElementReactionDisallowedScope customElementReactionDisallowedScope;
     auto& impl = thisObject.wrapped();
@@ -347,6 +351,7 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestCEReactions_reflectAttributeWithCEReactionsNotNee
 static inline bool setJSTestCEReactions_reflectAttributeWithCEReactionsNotNeededSetter(JSGlobalObject& lexicalGlobalObject, JSTestCEReactions& thisObject, JSValue value)
 {
     auto& vm = JSC::getVM(&lexicalGlobalObject);
+    UNUSED_PARAM(vm);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     CustomElementReactionDisallowedScope customElementReactionDisallowedScope;
     auto& impl = thisObject.wrapped();
@@ -379,6 +384,7 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestCEReactions_stringifierAttributeNotNeeded, (JSGlo
 static inline bool setJSTestCEReactions_stringifierAttributeNotNeededSetter(JSGlobalObject& lexicalGlobalObject, JSTestCEReactions& thisObject, JSValue value)
 {
     auto& vm = JSC::getVM(&lexicalGlobalObject);
+    UNUSED_PARAM(vm);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     auto id = Identifier::fromString(vm, "stringifierAttributeNotNeeded"_s);
     auto valueToForwardTo = thisObject.get(&lexicalGlobalObject, id);
@@ -435,9 +441,9 @@ JSC::GCClient::IsoSubspace* JSTestCEReactions::subspaceForImpl(JSC::VM& vm)
 {
     return WebCore::subspaceForImpl<JSTestCEReactions, UseCustomHeapCellType::No>(vm,
         [] (auto& spaces) { return spaces.m_clientSubspaceForTestCEReactions.get(); },
-        [] (auto& spaces, auto&& space) { spaces.m_clientSubspaceForTestCEReactions = WTFMove(space); },
+        [] (auto& spaces, auto&& space) { spaces.m_clientSubspaceForTestCEReactions = std::forward<decltype(space)>(space); },
         [] (auto& spaces) { return spaces.m_subspaceForTestCEReactions.get(); },
-        [] (auto& spaces, auto&& space) { spaces.m_subspaceForTestCEReactions = WTFMove(space); }
+        [] (auto& spaces, auto&& space) { spaces.m_subspaceForTestCEReactions = std::forward<decltype(space)>(space); }
     );
 }
 

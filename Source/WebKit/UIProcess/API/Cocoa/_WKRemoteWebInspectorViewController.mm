@@ -44,7 +44,6 @@
 #import <wtf/BlockPtr.h>
 #endif
 
-NS_ASSUME_NONNULL_BEGIN
 
 @interface _WKRemoteWebInspectorViewController ()
 - (void)sendMessageToBackend:(NSString *)message;
@@ -157,7 +156,7 @@ private:
 
 // MARK: _WKRemoteWebInspectorViewControllerPrivate methods
 
-- (void)_setDiagnosticLoggingDelegate:(id<_WKDiagnosticLoggingDelegate> _Nullable)delegate
+- (void)_setDiagnosticLoggingDelegate:(id<_WKDiagnosticLoggingDelegate>)delegate
 {
     self.webView._diagnosticLoggingDelegate = delegate;
     m_remoteInspectorProxy->setDiagnosticLoggingAvailable(!!delegate);
@@ -170,7 +169,7 @@ private:
     return self.webView;
 }
 
-- (void)registerExtensionWithID:(NSString *)extensionID extensionBundleIdentifier:(NSString *)extensionBundleIdentifier displayName:(NSString *)displayName completionHandler:(void(^)(NSError *, _WKInspectorExtension * _Nullable))completionHandler
+- (void)registerExtensionWithID:(NSString *)extensionID extensionBundleIdentifier:(NSString *)extensionBundleIdentifier displayName:(NSString *)displayName completionHandler:(void(^)(NSError *, _WKInspectorExtension *))completionHandler
 {
 #if ENABLE(INSPECTOR_EXTENSIONS)
     // If this method is called prior to creating a frontend with -loadForDebuggable:backendCommandsURL:, it will not succeed.
@@ -223,7 +222,7 @@ private:
     m_remoteInspectorProxy->showResources();
 }
 
-- (void)showExtensionTabWithIdentifier:(NSString *)extensionTabIdentifier completionHandler:(void(^)(NSError * _Nullable))completionHandler
+- (void)showExtensionTabWithIdentifier:(NSString *)extensionTabIdentifier completionHandler:(void(^)(NSError *))completionHandler
 {
 #if ENABLE(INSPECTOR_EXTENSIONS)
     // It is an error to call this method prior to creating a frontend (i.e., with -connect or -show).
@@ -243,8 +242,26 @@ private:
 #endif
 }
 
-@end
+- (void)navigateExtensionTabWithIdentifier:(NSString *)extensionTabIdentifier toURL:(NSURL *)url completionHandler:(void(^)(NSError *))completionHandler
+{
+#if ENABLE(INSPECTOR_EXTENSIONS)
+    // It is an error to call this method prior to creating a frontend (i.e., with -connect or -show).
+    if (!m_remoteInspectorProxy->extensionController()) {
+        completionHandler([NSError errorWithDomain:WKErrorDomain code:WKErrorUnknown userInfo:@{ NSLocalizedFailureReasonErrorKey: Inspector::extensionErrorToString(Inspector::ExtensionError::InvalidRequest) }]);
+        return;
+    }
 
-NS_ASSUME_NONNULL_END
+    m_remoteInspectorProxy->extensionController()->navigateTabForExtension(extensionTabIdentifier, url, [protectedSelf = retainPtr(self), capturedBlock = makeBlockPtr(completionHandler)] (const std::optional<Inspector::ExtensionError> result) mutable {
+        if (result) {
+            capturedBlock([NSError errorWithDomain:WKErrorDomain code:WKErrorUnknown userInfo:@{ NSLocalizedFailureReasonErrorKey: Inspector::extensionErrorToString(result.value()) }]);
+            return;
+        }
+
+        capturedBlock(nil);
+    });
+#endif
+}
+
+@end
 
 #endif // PLATFORM(MAC)

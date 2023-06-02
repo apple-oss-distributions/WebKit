@@ -106,7 +106,7 @@ template<> void JSTestIndexedSetterNoIdentifierDOMConstructor::initializePropert
 
 static const HashTableValue JSTestIndexedSetterNoIdentifierPrototypeTableValues[] =
 {
-    { "constructor"_s, static_cast<unsigned>(JSC::PropertyAttribute::DontEnum), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestIndexedSetterNoIdentifierConstructor), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(0) } },
+    { "constructor"_s, static_cast<unsigned>(JSC::PropertyAttribute::DontEnum), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestIndexedSetterNoIdentifierConstructor, 0 } },
 };
 
 const ClassInfo JSTestIndexedSetterNoIdentifierPrototype::s_info = { "TestIndexedSetterNoIdentifier"_s, &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(JSTestIndexedSetterNoIdentifierPrototype) };
@@ -273,9 +273,9 @@ JSC::GCClient::IsoSubspace* JSTestIndexedSetterNoIdentifier::subspaceForImpl(JSC
 {
     return WebCore::subspaceForImpl<JSTestIndexedSetterNoIdentifier, UseCustomHeapCellType::No>(vm,
         [] (auto& spaces) { return spaces.m_clientSubspaceForTestIndexedSetterNoIdentifier.get(); },
-        [] (auto& spaces, auto&& space) { spaces.m_clientSubspaceForTestIndexedSetterNoIdentifier = WTFMove(space); },
+        [] (auto& spaces, auto&& space) { spaces.m_clientSubspaceForTestIndexedSetterNoIdentifier = std::forward<decltype(space)>(space); },
         [] (auto& spaces) { return spaces.m_subspaceForTestIndexedSetterNoIdentifier.get(); },
-        [] (auto& spaces, auto&& space) { spaces.m_subspaceForTestIndexedSetterNoIdentifier = WTFMove(space); }
+        [] (auto& spaces, auto&& space) { spaces.m_subspaceForTestIndexedSetterNoIdentifier = std::forward<decltype(space)>(space); }
     );
 }
 

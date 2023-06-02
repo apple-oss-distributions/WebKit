@@ -70,6 +70,7 @@
 #include "ImageOverlay.h"
 #include "Model.h"
 #include "MoveSelectionCommand.h"
+#include "MutableStyleProperties.h"
 #include "Page.h"
 #include "Pasteboard.h"
 #include "PlatformKeyboardEvent.h"
@@ -88,7 +89,6 @@
 #include "Settings.h"
 #include "ShadowRoot.h"
 #include "SimpleRange.h"
-#include "StyleProperties.h"
 #include "Text.h"
 #include "TextEvent.h"
 #include "VisiblePosition.h"
@@ -128,16 +128,8 @@ bool isDraggableLink(const Element& element)
     
 static PlatformMouseEvent createMouseEvent(const DragData& dragData)
 {
-    bool shiftKey = false;
-    bool ctrlKey = false;
-    bool altKey = false;
-    bool metaKey = false;
-
-    PlatformKeyboardEvent::getCurrentModifierState(shiftKey, ctrlKey, altKey, metaKey);
-
-    return PlatformMouseEvent(dragData.clientPosition(), dragData.globalPosition(),
-                              LeftButton, PlatformEvent::MouseMoved, 0, shiftKey, ctrlKey, altKey,
-                              metaKey, WallTime::now(), ForceAtClick, NoTap);
+    auto modifiers = PlatformKeyboardEvent::currentStateOfModifierKeys();
+    return PlatformMouseEvent(dragData.clientPosition(), dragData.globalPosition(), LeftButton, PlatformEvent::Type::MouseMoved, 0, modifiers, WallTime::now(), ForceAtClick, NoTap);
 }
 
 DragController::DragController(Page& page, std::unique_ptr<DragClient>&& client)
@@ -216,13 +208,15 @@ void DragController::dragEnded()
     client().dragEnded();
 }
 
-std::optional<DragOperation> DragController::dragEntered(const DragData& dragData)
+std::optional<DragOperation> DragController::dragEntered(DragData&& dragData)
 {
-    return dragEnteredOrUpdated(dragData);
+    return dragEnteredOrUpdated(WTFMove(dragData));
 }
 
-void DragController::dragExited(const DragData& dragData)
+void DragController::dragExited(DragData&& dragData)
 {
+    disallowFileAccessIfNeeded(dragData);
+
     auto& mainFrame = m_page.mainFrame();
     if (mainFrame.view())
         mainFrame.eventHandler().cancelDragAndDrop(createMouseEvent(dragData), Pasteboard::create(dragData), dragData.draggingSourceOperationMask(), dragData.containsFiles());
@@ -232,9 +226,9 @@ void DragController::dragExited(const DragData& dragData)
     m_fileInputElementUnderMouse = nullptr;
 }
 
-std::optional<DragOperation> DragController::dragUpdated(const DragData& dragData)
+std::optional<DragOperation> DragController::dragUpdated(DragData&& dragData)
 {
-    return dragEnteredOrUpdated(dragData);
+    return dragEnteredOrUpdated(WTFMove(dragData));
 }
 
 inline static bool dragIsHandledByDocument(DragHandlingMethod dragHandlingMethod)
@@ -242,7 +236,7 @@ inline static bool dragIsHandledByDocument(DragHandlingMethod dragHandlingMethod
     return dragHandlingMethod != DragHandlingMethod::None && dragHandlingMethod != DragHandlingMethod::PageLoad;
 }
 
-bool DragController::performDragOperation(const DragData& dragData)
+bool DragController::performDragOperation(DragData&& dragData)
 {
     if (!m_droppedImagePlaceholders.isEmpty() && m_droppedImagePlaceholderRange && tryToUpdateDroppedImagePlaceholders(dragData)) {
         m_droppedImagePlaceholders.clear();
@@ -258,6 +252,8 @@ bool DragController::performDragOperation(const DragData& dragData)
     IgnoreSelectionChangeForScope ignoreSelectionChanges { m_page.focusController().focusedOrMainFrame() };
 
     m_documentUnderMouse = m_page.mainFrame().documentAtPoint(dragData.clientPosition());
+
+    disallowFileAccessIfNeeded(dragData);
 
     ShouldOpenExternalURLsPolicy shouldOpenExternalURLsPolicy = ShouldOpenExternalURLsPolicy::ShouldNotAllow;
     if (m_documentUnderMouse)
@@ -314,7 +310,7 @@ void DragController::mouseMovedIntoDocument(Document* newDocument)
     m_documentUnderMouse = newDocument;
 }
 
-std::optional<DragOperation> DragController::dragEnteredOrUpdated(const DragData& dragData)
+std::optional<DragOperation> DragController::dragEnteredOrUpdated(DragData&& dragData)
 {
     mouseMovedIntoDocument(m_page.mainFrame().documentAtPoint(dragData.clientPosition()));
 
@@ -323,6 +319,8 @@ std::optional<DragOperation> DragController::dragEnteredOrUpdated(const DragData
         clearDragCaret(); // FIXME: Why not call mouseMovedIntoDocument(nullptr)?
         return std::nullopt;
     }
+
+    disallowFileAccessIfNeeded(dragData);
 
     std::optional<DragOperation> dragOperation;
     m_dragHandlingMethod = tryDocumentDrag(dragData, m_dragDestinationActionMask, dragOperation);
@@ -335,6 +333,13 @@ std::optional<DragOperation> DragController::dragEnteredOrUpdated(const DragData
 
     updateSupportedTypeIdentifiersForDragHandlingMethod(m_dragHandlingMethod, dragData);
     return dragOperation;
+}
+
+void DragController::disallowFileAccessIfNeeded(DragData& dragData)
+{
+    RefPtr frame = m_documentUnderMouse ? m_documentUnderMouse->frame() : nullptr;
+    if (frame && !frame->eventHandler().canDropCurrentlyDraggedImageAsFile())
+        dragData.disallowFileAccess();
 }
 
 static HTMLInputElement* asFileInput(Node& node)
@@ -1495,7 +1500,7 @@ void DragController::insertDroppedImagePlaceholdersAtCaret(const Vector<IntSize>
         image->setAttributeWithoutSynchronization(HTMLNames::widthAttr, AtomString::number(size.width()));
         image->setAttributeWithoutSynchronization(HTMLNames::heightAttr, AtomString::number(size.height()));
         image->setInlineStyleProperty(CSSPropertyMaxWidth, 100, CSSUnitType::CSS_PERCENTAGE);
-        image->setInlineStyleProperty(CSSPropertyBackgroundColor, serializationForCSS(Color::black.colorWithAlphaByte(13)));
+        image->setInlineStyleProperty(CSSPropertyBackgroundColor, serializationForCSS(Color { Color::black.colorWithAlphaByte(13) }));
         image->setIsDroppedImagePlaceholder();
         fragment->appendChild(WTFMove(image));
     }

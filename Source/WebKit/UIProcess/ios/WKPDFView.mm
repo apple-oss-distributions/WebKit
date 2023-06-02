@@ -34,6 +34,7 @@
 #import "UIKitSPI.h"
 #import "WKActionSheetAssistant.h"
 #import "WKKeyboardScrollingAnimator.h"
+#import "WKScrollView.h"
 #import "WKUIDelegatePrivate.h"
 #import "WKWebEvent.h"
 #import "WKWebViewIOS.h"
@@ -192,7 +193,7 @@
 
     UIColor *backgroundColor = PDFHostViewController.backgroundColor;
     self.backgroundColor = backgroundColor;
-    webView.scrollView.backgroundColor = backgroundColor;
+    [webView._wkScrollView _setBackgroundColorInternal:backgroundColor];
 
     _keyboardScrollingAnimator = adoptNS([[WKKeyboardScrollViewAnimator alloc] initWithScrollView:webView.scrollView]);
 
@@ -639,6 +640,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 
     WebCore::ShareDataWithParsedURL shareData;
     shareData.url = { url };
+    shareData.originator = WebCore::ShareDataOriginator::User;
     
     [_shareSheet dismiss];
 
@@ -695,6 +697,16 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 - (UITextRange *)selectedTextRange
 {
     return nil;
+}
+
+- (BOOL)supportsTextReplacement
+{
+    return NO;
+}
+
+- (void)scrollRangeToVisible:(UITextRange *)range inDocument:(UITextSearchDocumentIdentifier)document
+{
+    // Intentionally empty. PDFHostViewController has a single method for decoration and scrolling, so scrolling is performed in `decorateFoundTextRange`.
 }
 
 - (NSComparisonResult)compareFoundRange:(UITextRange *)fromRange toRange:(UITextRange *)toRange inDocument:(UITextSearchDocumentIdentifier)document

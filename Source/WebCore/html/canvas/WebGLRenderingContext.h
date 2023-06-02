@@ -48,7 +48,6 @@ public:
     GCGLint getMaxDrawBuffers() final;
     GCGLint getMaxColorAttachments() final;
     void initializeVertexArrayObjects() final;
-    bool validateIndexArrayConservative(GCGLenum type, unsigned& numElementsRequired) final;
     bool validateBlendEquation(const char* functionName, GCGLenum mode) final;
 
 private:

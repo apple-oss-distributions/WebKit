@@ -45,7 +45,6 @@ public:
     WebFrame* webFrame() const { return m_webFrame; }
 
     std::optional<WebCore::PageIdentifier> pageID() const final;
-    std::optional<WebCore::FrameIdentifier> frameID() const final;
 
     bool hasWebView() const override;
 
@@ -84,7 +83,7 @@ public:
     void dispatchWillClose() override;
     void dispatchDidStartProvisionalLoad() override;
     void dispatchDidReceiveTitle(const WebCore::StringWithDirection&) override;
-    void dispatchDidCommitLoad(std::optional<WebCore::HasInsecureContent>, std::optional<WebCore::UsedLegacyTLS>) override;
+    void dispatchDidCommitLoad(std::optional<WebCore::HasInsecureContent>, std::optional<WebCore::UsedLegacyTLS>, std::optional<WebCore::WasPrivateRelayed>) override;
     void dispatchDidFailProvisionalLoad(const WebCore::ResourceError&, WebCore::WillContinueLoading) override;
     void dispatchDidFailLoad(const WebCore::ResourceError&) override;
     void dispatchDidFinishDocumentLoad() override;
@@ -127,7 +126,6 @@ public:
 
     void didDisplayInsecureContent() override;
     void didRunInsecureContent(WebCore::SecurityOrigin&, const URL&) override;
-    void didDetectXSS(const URL&, bool didBlockEntirePage) override;
 
     WebCore::ResourceError cancelledError(const WebCore::ResourceRequest&) const override;
     WebCore::ResourceError blockedError(const WebCore::ResourceRequest&) const override;
@@ -173,7 +171,7 @@ public:
     void redirectDataToPlugin(WebCore::Widget&) override;
 
     WebCore::ObjectContentType objectContentType(const URL&, const WTF::String& mimeType) override;
-    WTF::String overrideMediaType() const override;
+    WTF::AtomString overrideMediaType() const override;
 
     void dispatchDidClearWindowObjectInWorld(WebCore::DOMWrapperWorld&) override;
 

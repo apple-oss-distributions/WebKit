@@ -25,7 +25,7 @@
 
 #pragma once
 
-#if ENABLE(INTELLIGENT_TRACKING_PREVENTION)
+#if ENABLE(TRACKING_PREVENTION)
 
 #include "DatabaseUtilities.h"
 #include "ResourceLoadStatisticsStore.h"
@@ -47,6 +47,9 @@ namespace WebKit {
 static constexpr size_t numberOfBucketsPerStatistic = 5;
 static constexpr size_t numberOfStatistics = 7;
 static constexpr std::array<unsigned, numberOfBucketsPerStatistic> bucketSizes {{ 1, 3, 10, 50, 100 }};
+
+// FIXME: ResourceLoadStatisticsDatabaseStore is the only subclass of the abstract class ResourceLoadStatisticsStore.
+// There is no longer any reason to have them be separate classes.
 
 // This is always constructed / used / destroyed on the WebResourceLoadStatisticsStore's statistics queue.
 class ResourceLoadStatisticsDatabaseStore final : public ResourceLoadStatisticsStore, public DatabaseUtilities {
@@ -82,6 +85,7 @@ public:
     void setGrandfathered(const RegistrableDomain&, bool value) override;
     bool isGrandfathered(const RegistrableDomain&) const override;
 
+    void setMostRecentWebPushInteractionTime(const RegistrableDomain&) override;
     void setIsScheduledForAllScriptWrittenStorageRemoval(const RegistrableDomain&, bool value);
     void setSubframeUnderTopFrameDomain(const SubFrameDomain&, const TopFrameDomain&) override;
     void setSubresourceUnderTopFrameDomain(const SubResourceDomain&, const TopFrameDomain&) override;
@@ -101,6 +105,8 @@ public:
     void logUserInteraction(const TopFrameDomain&, CompletionHandler<void()>&&) override;
     void clearUserInteraction(const RegistrableDomain&, CompletionHandler<void()>&&) override;
     bool hasHadUserInteraction(const RegistrableDomain&, OperatingDatesWindow) override;
+
+    void setTimeAdvanceForTesting(Seconds) final;
 
     void setLastSeen(const RegistrableDomain&, Seconds) override;
     bool isCorrectSubStatisticsCount(const RegistrableDomain&, const TopFrameDomain&);
@@ -161,12 +167,14 @@ private:
         unsigned domainID;
         RegistrableDomain registrableDomain;
         WallTime mostRecentUserInteractionTime;
+        WallTime mostRecentWebPushInteractionTime;
         bool hadUserInteraction;
         bool grandfathered;
         bool isScheduledForAllButCookieDataRemoval;
         unsigned topFrameUniqueRedirectsToSinceSameSiteStrictEnforcement;
     };
     Vector<DomainData> domains() const;
+    bool hasHadRecentWebPushInteraction(const DomainData&) const;
     bool hasHadUnexpiredRecentUserInteraction(const DomainData&, OperatingDatesWindow);
     void clearGrandfathering(Vector<unsigned>&&);
     WebCore::StorageAccessPromptWasShown hasUserGrantedStorageAccessThroughPrompt(unsigned domainID, const RegistrableDomain&);
@@ -229,6 +237,7 @@ private:
     mutable std::unique_ptr<WebCore::SQLiteStatement> m_hadUserInteractionStatement;
     std::unique_ptr<WebCore::SQLiteStatement> m_updateGrandfatheredStatement;
     mutable std::unique_ptr<WebCore::SQLiteStatement> m_updateIsScheduledForAllButCookieDataRemovalStatement;
+    mutable std::unique_ptr<WebCore::SQLiteStatement> m_updateMostRecentWebPushInteractionTimeStatement;
     mutable std::unique_ptr<WebCore::SQLiteStatement> m_isGrandfatheredStatement;
     mutable std::unique_ptr<WebCore::SQLiteStatement> m_countPrevalentResourcesStatement;
     mutable std::unique_ptr<WebCore::SQLiteStatement> m_countPrevalentResourcesWithUserInteractionStatement;
@@ -258,6 +267,7 @@ private:
 
 } // namespace WebKit
 
+// FIXME: Remove this. All ResourceLoadStatisticsStores are ResourceLoadStatisticsDatabaseStores. See FIXME above.
 SPECIALIZE_TYPE_TRAITS_BEGIN(WebKit::ResourceLoadStatisticsDatabaseStore)
     static bool isType(const WebKit::ResourceLoadStatisticsStore& store) { return store.isDatabaseStore(); }
 SPECIALIZE_TYPE_TRAITS_END()

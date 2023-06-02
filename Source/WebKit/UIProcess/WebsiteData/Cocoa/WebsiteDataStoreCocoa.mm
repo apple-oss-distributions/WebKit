@@ -30,6 +30,7 @@
 #import "DefaultWebBrowserChecks.h"
 #import "NetworkProcessProxy.h"
 #import "SandboxUtilities.h"
+#import "UnifiedOriginStorageLevel.h"
 #import "WebFramePolicyListenerProxy.h"
 #import "WebPreferencesDefaultValues.h"
 #import "WebPreferencesKeys.h"
@@ -77,15 +78,15 @@ static std::atomic<bool> hasInitializedAppBoundDomains = false;
 static std::atomic<bool> keyExists = false;
 #endif
 
-// FIXME: we should not read the values from NSUserDefaults; we should let clients who set the values to pass them via configuration.
-static bool internalFeatureEnabled(const String& key, bool defaultValue = false)
+#if ENABLE(MANAGED_DOMAINS)
+static WorkQueue& managedDomainQueue()
 {
-    auto defaultsKey = adoptNS([[NSString alloc] initWithFormat:@"InternalDebug%@", static_cast<NSString *>(key)]);
-    if ([[NSUserDefaults standardUserDefaults] objectForKey:defaultsKey.get()] != nil)
-        return [[NSUserDefaults standardUserDefaults] boolForKey:defaultsKey.get()];
-
-    return defaultValue;
+    static auto& queue = WorkQueue::create("com.apple.WebKit.ManagedDomains").leakRef();
+    return queue;
 }
+static std::atomic<bool> hasInitializedManagedDomains = false;
+static std::atomic<bool> managedKeyExists = false;
+#endif
 
 static bool experimentalFeatureEnabled(const String& key, bool defaultValue = false)
 {
@@ -96,7 +97,20 @@ static bool experimentalFeatureEnabled(const String& key, bool defaultValue = fa
     return defaultValue;
 }
 
-#if ENABLE(INTELLIGENT_TRACKING_PREVENTION)
+static NSString* applicationOrProcessIdentifier()
+{
+    NSString *identifier = [NSBundle mainBundle].bundleIdentifier;
+    NSString *processName = [NSProcessInfo processInfo].processName;
+    // SafariForWebKitDevelopment has the same bundle identifier as Safari, but it does not have the privilege to
+    // access Safari's paths.
+    if ([identifier isEqualToString:@"com.apple.Safari"] && [processName isEqualToString:@"SafariForWebKitDevelopment"])
+        identifier = processName;
+    if (!identifier)
+        identifier = processName;
+    return identifier;
+}
+
+#if ENABLE(TRACKING_PREVENTION)
 WebCore::ThirdPartyCookieBlockingMode WebsiteDataStore::thirdPartyCookieBlockingMode() const
 {
     if (!m_thirdPartyCookieBlockingMode) {
@@ -115,13 +129,10 @@ void WebsiteDataStore::platformSetNetworkParameters(WebsiteDataStoreParameters& 
 
     NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
     bool shouldLogCookieInformation = false;
-    bool enableResourceLoadStatisticsDebugMode = false;
     auto sameSiteStrictEnforcementEnabled = WebCore::SameSiteStrictEnforcementEnabled::No;
     auto firstPartyWebsiteDataRemovalMode = WebCore::FirstPartyWebsiteDataRemovalMode::AllButCookies;
     WebCore::RegistrableDomain resourceLoadStatisticsManualPrevalentResource { };
-#if ENABLE(INTELLIGENT_TRACKING_PREVENTION)
-    enableResourceLoadStatisticsDebugMode = [defaults boolForKey:@"ITPDebugMode"];
-
+#if ENABLE(TRACKING_PREVENTION)
     if (experimentalFeatureEnabled(WebPreferencesKey::isSameSiteStrictEnforcementEnabledKey()))
         sameSiteStrictEnforcementEnabled = WebCore::SameSiteStrictEnforcementEnabled::Yes;
 
@@ -147,7 +158,7 @@ void WebsiteDataStore::platformSetNetworkParameters(WebsiteDataStoreParameters& 
     static NSString * const WebKitLogCookieInformationDefaultsKey = @"WebKitLogCookieInformation";
     shouldLogCookieInformation = [defaults boolForKey:WebKitLogCookieInformationDefaultsKey];
 #endif
-#endif // ENABLE(INTELLIGENT_TRACKING_PREVENTION)
+#endif // ENABLE(TRACKING_PREVENTION)
 
     URL httpProxy = m_configuration->httpProxy();
     URL httpsProxy = m_configuration->httpsProxy();
@@ -168,7 +179,6 @@ void WebsiteDataStore::platformSetNetworkParameters(WebsiteDataStoreParameters& 
         httpsProxy = URL { [defaults stringForKey:(NSString *)WebKit2HTTPSProxyDefaultsKey] };
 
 #if HAVE(CFNETWORK_ALTERNATIVE_SERVICE)
-    bool http3Enabled = WebsiteDataStore::http3Enabled();
     SandboxExtension::Handle alternativeServiceStorageDirectoryExtensionHandle;
     String alternativeServiceStorageDirectory = resolvedAlternativeServicesStorageDirectory();
     createHandleFromResolvedPathIfPossible(alternativeServiceStorageDirectory, alternativeServiceStorageDirectoryExtensionHandle);
@@ -185,10 +195,8 @@ void WebsiteDataStore::platformSetNetworkParameters(WebsiteDataStoreParameters& 
 #if HAVE(CFNETWORK_ALTERNATIVE_SERVICE)
     parameters.networkSessionParameters.alternativeServiceDirectory = WTFMove(alternativeServiceStorageDirectory);
     parameters.networkSessionParameters.alternativeServiceDirectoryExtensionHandle = WTFMove(alternativeServiceStorageDirectoryExtensionHandle);
-    parameters.networkSessionParameters.http3Enabled = WTFMove(http3Enabled);
 #endif
     parameters.networkSessionParameters.resourceLoadStatisticsParameters.shouldIncludeLocalhost = shouldIncludeLocalhostInResourceLoadStatistics;
-    parameters.networkSessionParameters.resourceLoadStatisticsParameters.enableDebugMode = enableResourceLoadStatisticsDebugMode;
     parameters.networkSessionParameters.resourceLoadStatisticsParameters.sameSiteStrictEnforcementEnabled = sameSiteStrictEnforcementEnabled;
     parameters.networkSessionParameters.resourceLoadStatisticsParameters.firstPartyWebsiteDataRemovalMode = firstPartyWebsiteDataRemovalMode;
     parameters.networkSessionParameters.resourceLoadStatisticsParameters.standaloneApplicationDomain = WebCore::RegistrableDomain { m_configuration->standaloneApplicationURL() };
@@ -208,15 +216,6 @@ void WebsiteDataStore::platformSetNetworkParameters(WebsiteDataStoreParameters& 
     parameters.networkSessionParameters.enablePrivateClickMeasurementDebugMode = experimentalFeatureEnabled(WebPreferencesKey::privateClickMeasurementDebugModeEnabledKey());
 }
 
-bool WebsiteDataStore::http3Enabled()
-{
-#if HAVE(CFNETWORK_ALTERNATIVE_SERVICE)
-    return experimentalFeatureEnabled(WebPreferencesKey::http3EnabledKey());
-#else
-    return false;
-#endif
-}
-
 bool WebsiteDataStore::useNetworkLoader()
 {
 #if HAVE(NETWORK_LOADER)
@@ -233,6 +232,9 @@ void WebsiteDataStore::platformInitialize()
 #if ENABLE(APP_BOUND_DOMAINS)
     initializeAppBoundDomains();
 #endif
+#if ENABLE(MANAGED_DOMAINS)
+    initializeManagedDomains();
+#endif
 }
 
 void WebsiteDataStore::platformDestroy()
@@ -246,13 +248,63 @@ void WebsiteDataStore::platformRemoveRecentSearches(WallTime oldestTimeToRemove)
     WebCore::removeRecentlyModifiedRecentSearches(oldestTimeToRemove);
 }
 
-NSString *WebDatabaseDirectoryDefaultsKey = @"WebDatabaseDirectory";
-NSString *WebStorageDirectoryDefaultsKey = @"WebKitLocalStorageDatabasePathPreferenceKey";
-NSString *WebKitMediaCacheDirectoryDefaultsKey = @"WebKitMediaCacheDirectory";
-NSString *WebKitMediaKeysStorageDirectoryDefaultsKey = @"WebKitMediaKeysStorageDirectory";
-
-String WebsiteDataStore::defaultApplicationCacheDirectory()
+static String defaultWebsiteDataStoreRootDirectory()
 {
+    static dispatch_once_t onceToken;
+    static NeverDestroyed<RetainPtr<NSURL>> websiteDataStoreDirectory;
+    dispatch_once(&onceToken, ^{
+        NSURL *libraryDirectory = [[NSFileManager defaultManager] URLForDirectory:NSLibraryDirectory inDomain:NSUserDomainMask appropriateForURL:nullptr create:NO error:nullptr];
+        RELEASE_ASSERT(libraryDirectory);
+        NSURL *webkitDirectory = [libraryDirectory URLByAppendingPathComponent:@"WebKit" isDirectory:YES];
+        if (!WebKit::processHasContainer())
+            webkitDirectory = [webkitDirectory URLByAppendingPathComponent:applicationOrProcessIdentifier() isDirectory:YES];
+
+        websiteDataStoreDirectory.get() = [webkitDirectory URLByAppendingPathComponent:@"WebsiteDataStore" isDirectory:YES];
+    });
+
+    return websiteDataStoreDirectory.get().get().absoluteURL.path;
+}
+
+void WebsiteDataStore::fetchAllDataStoreIdentifiers(CompletionHandler<void(Vector<UUID>&&)>&& completionHandler)
+{
+    Vector<UUID> identifiers;
+    for (auto identifierString : FileSystem::listDirectory(defaultWebsiteDataStoreRootDirectory())) {
+        if (auto identifier = UUID::parse(identifierString))
+            identifiers.append(*identifier);
+    }
+
+    completionHandler(WTFMove(identifiers));
+}
+
+void WebsiteDataStore::removeDataStoreWithIdentifier(const UUID& identifier, CompletionHandler<void(const String&)>&& completionHandler)
+{
+    if (!identifier)
+        return completionHandler("Identifier is invalid"_s);
+
+    if (!FileSystem::deleteNonEmptyDirectory(defaultWebsiteDataStoreDirectory(identifier)))
+        return completionHandler("WebsiteDataStore with this identifier does not exist or deletion failed"_s);
+
+    return completionHandler({ });
+}
+
+String WebsiteDataStore::defaultWebsiteDataStoreDirectory(const UUID& identifier)
+{
+    return FileSystem::pathByAppendingComponent(defaultWebsiteDataStoreRootDirectory(), identifier.toString());
+}
+
+String WebsiteDataStore::defaultCookieStorageFile(const String& baseDirectory)
+{
+    if (baseDirectory.isEmpty())
+        return { };
+
+    return FileSystem::pathByAppendingComponents(baseDirectory, { "Cookies"_s, "Cookies.binarycookies"_s });
+}
+
+String WebsiteDataStore::defaultApplicationCacheDirectory(const String& baseDirectory)
+{
+    if (!baseDirectory.isEmpty())
+        return FileSystem::pathByAppendingComponent(baseDirectory, "ApplicationCache"_s);
+
 #if PLATFORM(IOS_FAMILY)
     // This quirk used to make these apps share application cache storage, but doesn't accomplish that any more.
     // Preserving it avoids the need to migrate data when upgrading.
@@ -265,22 +317,27 @@ String WebsiteDataStore::defaultApplicationCacheDirectory()
     }
 #endif
 
-    return cacheDirectoryFileSystemRepresentation("OfflineWebApplicationCache"_s);
+    return cacheDirectoryFileSystemRepresentation("OfflineWebApplicationCache"_s, { }, ShouldCreateDirectory::No);
 }
 
-String WebsiteDataStore::defaultCacheStorageDirectory()
+String WebsiteDataStore::defaultCacheStorageDirectory(const String& baseDirectory)
 {
+    if (!baseDirectory.isEmpty())
+        return FileSystem::pathByAppendingComponent(baseDirectory, "CacheStorage"_s);
+
     return cacheDirectoryFileSystemRepresentation("CacheStorage"_s);
 }
 
-String WebsiteDataStore::defaultGeneralStorageDirectory()
+String WebsiteDataStore::defaultGeneralStorageDirectory(const String& baseDirectory)
 {
-    auto directory = websiteDataDirectoryFileSystemRepresentation("Default"_s);
+    if (!baseDirectory.isEmpty())
+        return FileSystem::pathByAppendingComponent(baseDirectory, "Origins"_s);
 
+    auto directory = websiteDataDirectoryFileSystemRepresentation("Default"_s);
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
         // This is the old storage directory, and there might be files left here.
-        auto oldDirectory = cacheDirectoryFileSystemRepresentation("Storage"_s, ShouldCreateDirectory::No);
+        auto oldDirectory = cacheDirectoryFileSystemRepresentation("Storage"_s, { }, ShouldCreateDirectory::No);
         NSFileManager *fileManager = [NSFileManager defaultManager];
         NSArray *files = [fileManager contentsOfDirectoryAtPath:oldDirectory error:0];
         if (files) {
@@ -299,64 +356,108 @@ String WebsiteDataStore::defaultGeneralStorageDirectory()
     return directory;
 }
 
-String WebsiteDataStore::defaultNetworkCacheDirectory()
+String WebsiteDataStore::defaultNetworkCacheDirectory(const String& baseDirectory)
 {
+    if (!baseDirectory.isEmpty())
+        return FileSystem::pathByAppendingComponent(baseDirectory, "NetworkCache"_s);
+
     return cacheDirectoryFileSystemRepresentation("NetworkCache"_s);
 }
 
-String WebsiteDataStore::defaultAlternativeServicesDirectory()
+String WebsiteDataStore::defaultAlternativeServicesDirectory(const String& baseDirectory)
 {
-    return cacheDirectoryFileSystemRepresentation("AlternativeServices"_s, ShouldCreateDirectory::No);
+    if (!baseDirectory.isEmpty())
+        return FileSystem::pathByAppendingComponent(baseDirectory, "AlternativeServices"_s);
+
+    return cacheDirectoryFileSystemRepresentation("AlternativeServices"_s, { }, ShouldCreateDirectory::No);
 }
 
-String WebsiteDataStore::defaultMediaCacheDirectory()
+String WebsiteDataStore::defaultHSTSStorageDirectory(const String& baseDirectory)
 {
+    if (!baseDirectory.isEmpty())
+        return FileSystem::pathByAppendingComponent(baseDirectory, "HSTS"_s);
+
+    return cacheDirectoryFileSystemRepresentation("HSTS"_s);
+}
+
+String WebsiteDataStore::defaultMediaCacheDirectory(const String& baseDirectory)
+{
+    if (!baseDirectory.isEmpty())
+        return FileSystem::pathByAppendingComponent(baseDirectory, "MediaCache"_s);
+
     return tempDirectoryFileSystemRepresentation("MediaCache"_s);
 }
 
-String WebsiteDataStore::defaultIndexedDBDatabaseDirectory()
+String WebsiteDataStore::defaultIndexedDBDatabaseDirectory(const String& baseDirectory)
 {
+    if (!baseDirectory.isEmpty())
+        return FileSystem::pathByAppendingComponent(baseDirectory, "IndexedDB"_s);
+
     return websiteDataDirectoryFileSystemRepresentation("IndexedDB"_s);
 }
 
-String WebsiteDataStore::defaultServiceWorkerRegistrationDirectory()
+String WebsiteDataStore::defaultServiceWorkerRegistrationDirectory(const String& baseDirectory)
 {
+    if (!baseDirectory.isEmpty())
+        return FileSystem::pathByAppendingComponent(baseDirectory, "ServiceWorkers"_s);
+
     return cacheDirectoryFileSystemRepresentation("ServiceWorkers"_s);
 }
 
-String WebsiteDataStore::defaultLocalStorageDirectory()
+String WebsiteDataStore::defaultLocalStorageDirectory(const String& baseDirectory)
 {
+    if (!baseDirectory.isEmpty())
+        return FileSystem::pathByAppendingComponent(baseDirectory, "LocalStorage"_s);
+
     return websiteDataDirectoryFileSystemRepresentation("LocalStorage"_s);
 }
 
-String WebsiteDataStore::defaultMediaKeysStorageDirectory()
+String WebsiteDataStore::defaultMediaKeysStorageDirectory(const String& baseDirectory)
 {
+    if (!baseDirectory.isEmpty())
+        return FileSystem::pathByAppendingComponent(baseDirectory, "MediaKeys"_s);
+
     return websiteDataDirectoryFileSystemRepresentation("MediaKeys"_s);
 }
 
-String WebsiteDataStore::defaultDeviceIdHashSaltsStorageDirectory()
+String WebsiteDataStore::defaultDeviceIdHashSaltsStorageDirectory(const String& baseDirectory)
 {
+    if (!baseDirectory.isEmpty())
+        return FileSystem::pathByAppendingComponent(baseDirectory, "DeviceIdHashSalts"_s);
+
     return websiteDataDirectoryFileSystemRepresentation("DeviceIdHashSalts"_s);
 }
 
-String WebsiteDataStore::defaultWebSQLDatabaseDirectory()
+String WebsiteDataStore::defaultWebSQLDatabaseDirectory(const String& baseDirectory)
 {
-    return websiteDataDirectoryFileSystemRepresentation("WebSQL"_s, ShouldCreateDirectory::No);
+    if (!baseDirectory.isEmpty())
+        return FileSystem::pathByAppendingComponent(baseDirectory, "WebSQL"_s);
+
+    return websiteDataDirectoryFileSystemRepresentation("WebSQL"_s, { }, ShouldCreateDirectory::No);
 }
 
-String WebsiteDataStore::defaultResourceLoadStatisticsDirectory()
+String WebsiteDataStore::defaultResourceLoadStatisticsDirectory(const String& baseDirectory)
 {
+    if (!baseDirectory.isEmpty())
+        return FileSystem::pathByAppendingComponent(baseDirectory, "ResourceLoadStatistics"_s);
+
     return websiteDataDirectoryFileSystemRepresentation("ResourceLoadStatistics"_s);
 }
 
-String WebsiteDataStore::defaultJavaScriptConfigurationDirectory()
+String WebsiteDataStore::defaultJavaScriptConfigurationDirectory(const String& baseDirectory)
 {
+    if (!baseDirectory.isEmpty())
+        return FileSystem::pathByAppendingComponent(baseDirectory, "JavaScriptCoreDebug"_s);
+
     return tempDirectoryFileSystemRepresentation("JavaScriptCoreDebug"_s, ShouldCreateDirectory::No);
 }
 
 #if ENABLE(ARKIT_INLINE_PREVIEW)
-String WebsiteDataStore::defaultModelElementCacheDirectory()
+String WebsiteDataStore::defaultModelElementCacheDirectory(const String& baseDirectory)
 {
+    if (!baseDirectory.isEmpty())
+        return FileSystem::pathByAppendingComponent(baseDirectory, "ModelElement"_s);
+
     return tempDirectoryFileSystemRepresentation("ModelElement"_s, ShouldCreateDirectory::No);
 }
 #endif
@@ -371,12 +472,8 @@ String WebsiteDataStore::tempDirectoryFileSystemRepresentation(const String& dir
         if (!url)
             RELEASE_ASSERT_NOT_REACHED();
         
-        if (!WebKit::processHasContainer()) {
-            NSString *bundleIdentifier = [NSBundle mainBundle].bundleIdentifier;
-            if (!bundleIdentifier)
-                bundleIdentifier = [NSProcessInfo processInfo].processName;
-            url = [url URLByAppendingPathComponent:bundleIdentifier isDirectory:YES];
-        }
+        if (!WebKit::processHasContainer())
+            url = [url URLByAppendingPathComponent:applicationOrProcessIdentifier() isDirectory:YES];
         
         tempURL.get() = [url URLByAppendingPathComponent:@"WebKit" isDirectory:YES];
     });
@@ -390,7 +487,7 @@ String WebsiteDataStore::tempDirectoryFileSystemRepresentation(const String& dir
     return url.absoluteURL.path;
 }
 
-String WebsiteDataStore::cacheDirectoryFileSystemRepresentation(const String& directoryName, ShouldCreateDirectory shouldCreateDirectory)
+String WebsiteDataStore::cacheDirectoryFileSystemRepresentation(const String& directoryName, const String&, ShouldCreateDirectory shouldCreateDirectory)
 {
     static dispatch_once_t onceToken;
     static NeverDestroyed<RetainPtr<NSURL>> cacheURL;
@@ -400,12 +497,8 @@ String WebsiteDataStore::cacheDirectoryFileSystemRepresentation(const String& di
         if (!url)
             RELEASE_ASSERT_NOT_REACHED();
 
-        if (!WebKit::processHasContainer()) {
-            NSString *bundleIdentifier = [NSBundle mainBundle].bundleIdentifier;
-            if (!bundleIdentifier)
-                bundleIdentifier = [NSProcessInfo processInfo].processName;
-            url = [url URLByAppendingPathComponent:bundleIdentifier isDirectory:YES];
-        }
+        if (!WebKit::processHasContainer())
+            url = [url URLByAppendingPathComponent:applicationOrProcessIdentifier() isDirectory:YES];
 
         cacheURL.get() = [url URLByAppendingPathComponent:@"WebKit" isDirectory:YES];
     });
@@ -418,7 +511,7 @@ String WebsiteDataStore::cacheDirectoryFileSystemRepresentation(const String& di
     return url.absoluteURL.path;
 }
 
-String WebsiteDataStore::websiteDataDirectoryFileSystemRepresentation(const String& directoryName, ShouldCreateDirectory shouldCreateDirectory)
+String WebsiteDataStore::websiteDataDirectoryFileSystemRepresentation(const String& directoryName, const String&, ShouldCreateDirectory shouldCreateDirectory)
 {
     static dispatch_once_t onceToken;
     static NeverDestroyed<RetainPtr<NSURL>> websiteDataURL;
@@ -429,13 +522,8 @@ String WebsiteDataStore::websiteDataDirectoryFileSystemRepresentation(const Stri
             RELEASE_ASSERT_NOT_REACHED();
 
         url = [url URLByAppendingPathComponent:@"WebKit" isDirectory:YES];
-
-        if (!WebKit::processHasContainer()) {
-            NSString *bundleIdentifier = [NSBundle mainBundle].bundleIdentifier;
-            if (!bundleIdentifier)
-                bundleIdentifier = [NSProcessInfo processInfo].processName;
-            url = [url URLByAppendingPathComponent:bundleIdentifier isDirectory:YES];
-        }
+        if (!WebKit::processHasContainer())
+            url = [url URLByAppendingPathComponent:applicationOrProcessIdentifier() isDirectory:YES];
 
         websiteDataURL.get() = [url URLByAppendingPathComponent:@"WebsiteData" isDirectory:YES];
     });
@@ -611,14 +699,136 @@ void WebsiteDataStore::reinitializeAppBoundDomains()
 }
 #endif
 
+
+#if ENABLE(MANAGED_DOMAINS)
+static HashSet<WebCore::RegistrableDomain>& managedDomains()
+{
+    ASSERT(RunLoop::isMain());
+    static NeverDestroyed<HashSet<WebCore::RegistrableDomain>> managedDomains;
+    return managedDomains;
+}
+
+NSString *kManagedSitesIdentifier = @"com.apple.mail-shared";
+NSString *kCrossSiteTrackingPreventionRelaxedDomainsKey = @"CrossSiteTrackingPreventionRelaxedDomains";
+
+void WebsiteDataStore::initializeManagedDomains(ForceReinitialization forceReinitialization)
+{
+    ASSERT(RunLoop::isMain());
+
+    if (hasInitializedManagedDomains && forceReinitialization != ForceReinitialization::Yes)
+        return;
+
+    managedDomainQueue().dispatch([forceReinitialization] () mutable {
+        if (hasInitializedManagedDomains && forceReinitialization != ForceReinitialization::Yes)
+            return;
+        static const auto maxManagedDomainCount = 10;
+        NSArray<NSString *> *crossSiteTrackingPreventionRelaxedDomains = nil;
+#if PLATFORM(MAC)
+        NSDictionary *managedSitesPrefs = [NSDictionary dictionaryWithContentsOfFile:[[NSString stringWithFormat:@"/Library/Managed Preferences/%@/%@.plist", NSUserName(), kManagedSitesIdentifier] stringByStandardizingPath]];
+        crossSiteTrackingPreventionRelaxedDomains = [managedSitesPrefs objectForKey:kCrossSiteTrackingPreventionRelaxedDomainsKey];
+#elif !PLATFORM(MACCATALYST)
+        if ([PAL::getMCProfileConnectionClass() instancesRespondToSelector:@selector(crossSiteTrackingPreventionRelaxedDomains)])
+            crossSiteTrackingPreventionRelaxedDomains = [[PAL::getMCProfileConnectionClass() sharedConnection] crossSiteTrackingPreventionRelaxedDomains];
+        else
+            crossSiteTrackingPreventionRelaxedDomains = @[];
+#endif
+        managedKeyExists = crossSiteTrackingPreventionRelaxedDomains ? true : false;
+    
+        RunLoop::main().dispatch([forceReinitialization, crossSiteTrackingPreventionRelaxedDomains = retainPtr(crossSiteTrackingPreventionRelaxedDomains)] {
+            if (hasInitializedManagedDomains && forceReinitialization != ForceReinitialization::Yes)
+                return;
+
+            if (forceReinitialization == ForceReinitialization::Yes)
+                managedDomains().clear();
+
+            for (NSString *data in crossSiteTrackingPreventionRelaxedDomains.get()) {
+                if (managedDomains().size() >= maxManagedDomainCount)
+                    break;
+
+                URL url { data };
+                if (url.protocol().isEmpty())
+                    url.setProtocol("https"_s);
+                if (!url.isValid())
+                    continue;
+                WebCore::RegistrableDomain managedDomain { url };
+                if (managedDomain.isEmpty())
+                    continue;
+                managedDomains().add(managedDomain);
+            }
+            hasInitializedManagedDomains = true;
+            forwardManagedDomainsToITPIfInitialized([] { });
+        });
+    });
+}
+
+void WebsiteDataStore::ensureManagedDomains(CompletionHandler<void(const HashSet<WebCore::RegistrableDomain>&)>&& completionHandler) const
+{
+    if (hasInitializedManagedDomains) {
+        completionHandler(managedDomains());
+        return;
+    }
+
+    // Hopping to the background thread then back to the main thread
+    // ensures that initializeManagedDomains() has finished.
+    managedDomainQueue().dispatch([protectedThis = Ref { *this }, completionHandler = WTFMove(completionHandler)] () mutable {
+        RunLoop::main().dispatch([protectedThis = WTFMove(protectedThis), completionHandler = WTFMove(completionHandler)] () mutable {
+            ASSERT(hasInitializedManagedDomains);
+            completionHandler(managedDomains());
+        });
+    });
+}
+
+void WebsiteDataStore::getManagedDomains(CompletionHandler<void(const HashSet<WebCore::RegistrableDomain>&)>&& completionHandler) const
+{
+    ASSERT(RunLoop::isMain());
+
+    ensureManagedDomains([completionHandler = WTFMove(completionHandler)] (auto& domains) mutable {
+        completionHandler(domains);
+    });
+}
+
+const HashSet<WebCore::RegistrableDomain>* WebsiteDataStore::managedDomainsIfInitialized()
+{
+    ASSERT(RunLoop::isMain());
+    if (!hasInitializedManagedDomains)
+        return nullptr;
+    return &managedDomains();
+}
+
+void WebsiteDataStore::setManagedDomainsForTesting(HashSet<WebCore::RegistrableDomain>&& domains, CompletionHandler<void()>&& completionHandler)
+{
+    for (auto& domain : domains)
+        RELEASE_ASSERT(domain == "localhost"_s || domain == "127.0.0.1"_s);
+
+    managedDomains() = WTFMove(domains);
+    hasInitializedManagedDomains = true;
+    forwardManagedDomainsToITPIfInitialized(WTFMove(completionHandler));
+}
+
+void WebsiteDataStore::reinitializeManagedDomains()
+{
+    hasInitializedManagedDomains = false;
+    initializeManagedDomains(ForceReinitialization::Yes);
+}
+#endif
+
 bool WebsiteDataStore::networkProcessHasEntitlementForTesting(const String& entitlement)
 {
     return WTF::hasEntitlement(networkProcess().connection()->xpcConnection(), entitlement);
 }
 
-bool WebsiteDataStore::defaultShouldUseCustomStoragePaths()
+UnifiedOriginStorageLevel WebsiteDataStore::defaultUnifiedOriginStorageLevel()
 {
-    return !internalFeatureEnabled(WebPreferencesKey::useGeneralDirectoryForStorageKey(), true);
+    auto defaultUnifiedOriginStorageLevelValue = UnifiedOriginStorageLevel::Basic;
+    NSString* unifiedOriginStorageLevelKey = @"WebKitDebugUnifiedOriginStorageLevel";
+    if ([[NSUserDefaults standardUserDefaults] objectForKey:unifiedOriginStorageLevelKey] == nil)
+        return defaultUnifiedOriginStorageLevelValue;
+
+    auto level = convertToUnifiedOriginStorageLevel([[NSUserDefaults standardUserDefaults] integerForKey:unifiedOriginStorageLevelKey]);
+    if (!level)
+        return defaultUnifiedOriginStorageLevelValue;
+
+    return *level;
 }
 
 #if PLATFORM(IOS_FAMILY)

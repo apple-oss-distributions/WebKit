@@ -37,40 +37,38 @@ struct ResourceLoadStatisticsParameters {
 
     String directory;
     SandboxExtension::Handle directoryExtensionHandle;
-    String privateClickMeasurementStorageDirectory;
-    SandboxExtension::Handle privateClickMeasurementStorageDirectoryExtensionHandle;
     bool enabled { false };
-    bool isItpStateExplicitlySet { false };
+    bool isTrackingPreventionStateExplicitlySet { false };
     bool enableLogTestingEvent { false };
     bool shouldIncludeLocalhost { true };
     bool enableDebugMode { false };
-#if ENABLE(INTELLIGENT_TRACKING_PREVENTION)
+#if ENABLE(TRACKING_PREVENTION)
     WebCore::ThirdPartyCookieBlockingMode thirdPartyCookieBlockingMode { WebCore::ThirdPartyCookieBlockingMode::All };
     WebCore::SameSiteStrictEnforcementEnabled sameSiteStrictEnforcementEnabled { WebCore::SameSiteStrictEnforcementEnabled::No };
 #endif
     WebCore::FirstPartyWebsiteDataRemovalMode firstPartyWebsiteDataRemovalMode { WebCore::FirstPartyWebsiteDataRemovalMode::AllButCookies };
     WebCore::RegistrableDomain standaloneApplicationDomain;
     HashSet<WebCore::RegistrableDomain> appBoundDomains;
+    HashSet<WebCore::RegistrableDomain> managedDomains;
     WebCore::RegistrableDomain manualPrevalentResource;
     
     void encode(IPC::Encoder& encoder) const
     {
         encoder << directory;
         encoder << directoryExtensionHandle;
-        encoder << privateClickMeasurementStorageDirectory;
-        encoder << privateClickMeasurementStorageDirectoryExtensionHandle;
         encoder << enabled;
-        encoder << isItpStateExplicitlySet;
+        encoder << isTrackingPreventionStateExplicitlySet;
         encoder << enableLogTestingEvent;
         encoder << shouldIncludeLocalhost;
         encoder << enableDebugMode;
-#if ENABLE(INTELLIGENT_TRACKING_PREVENTION)
+#if ENABLE(TRACKING_PREVENTION)
         encoder << thirdPartyCookieBlockingMode;
         encoder << sameSiteStrictEnforcementEnabled;
 #endif
         encoder << firstPartyWebsiteDataRemovalMode;
         encoder << standaloneApplicationDomain;
         encoder << appBoundDomains;
+        encoder << managedDomains;
         encoder << manualPrevalentResource;
     }
 
@@ -86,24 +84,14 @@ struct ResourceLoadStatisticsParameters {
         if (!directoryExtensionHandle)
             return std::nullopt;
 
-        std::optional<String> privateClickMeasurementStorageDirectory;
-        decoder >> privateClickMeasurementStorageDirectory;
-        if (!privateClickMeasurementStorageDirectory)
-            return std::nullopt;
-        
-        std::optional<SandboxExtension::Handle> privateClickMeasurementStorageDirectoryExtensionHandle;
-        decoder >> privateClickMeasurementStorageDirectoryExtensionHandle;
-        if (!privateClickMeasurementStorageDirectoryExtensionHandle)
-            return std::nullopt;
-
         std::optional<bool> enabled;
         decoder >> enabled;
         if (!enabled)
             return std::nullopt;
 
-        std::optional<bool> isItpStateExplicitlySet;
-        decoder >> isItpStateExplicitlySet;
-        if (!isItpStateExplicitlySet)
+        std::optional<bool> isTrackingPreventionStateExplicitlySet;
+        decoder >> isTrackingPreventionStateExplicitlySet;
+        if (!isTrackingPreventionStateExplicitlySet)
             return std::nullopt;
 
         std::optional<bool> enableLogTestingEvent;
@@ -121,7 +109,7 @@ struct ResourceLoadStatisticsParameters {
         if (!enableDebugMode)
             return std::nullopt;
 
-#if ENABLE(INTELLIGENT_TRACKING_PREVENTION)
+#if ENABLE(TRACKING_PREVENTION)
         std::optional<WebCore::ThirdPartyCookieBlockingMode> thirdPartyCookieBlockingMode;
         decoder >> thirdPartyCookieBlockingMode;
         if (!thirdPartyCookieBlockingMode)
@@ -148,6 +136,11 @@ struct ResourceLoadStatisticsParameters {
         if (!appBoundDomains)
             return std::nullopt;
 
+        std::optional<HashSet<WebCore::RegistrableDomain>> managedDomains;
+        decoder >> managedDomains;
+        if (!managedDomains)
+            return std::nullopt;
+
         std::optional<WebCore::RegistrableDomain> manualPrevalentResource;
         decoder >> manualPrevalentResource;
         if (!manualPrevalentResource)
@@ -156,20 +149,19 @@ struct ResourceLoadStatisticsParameters {
         return {{
             WTFMove(*directory),
             WTFMove(*directoryExtensionHandle),
-            WTFMove(*privateClickMeasurementStorageDirectory),
-            WTFMove(*privateClickMeasurementStorageDirectoryExtensionHandle),
             WTFMove(*enabled),
-            WTFMove(*isItpStateExplicitlySet),
+            WTFMove(*isTrackingPreventionStateExplicitlySet),
             WTFMove(*enableLogTestingEvent),
             WTFMove(*shouldIncludeLocalhost),
             WTFMove(*enableDebugMode),
-#if ENABLE(INTELLIGENT_TRACKING_PREVENTION)
+#if ENABLE(TRACKING_PREVENTION)
             WTFMove(*thirdPartyCookieBlockingMode),
             WTFMove(*sameSiteStrictEnforcementEnabled),
 #endif
             WTFMove(*firstPartyWebsiteDataRemovalMode),
             WTFMove(*standaloneApplicationDomain),
             WTFMove(*appBoundDomains),
+            WTFMove(*managedDomains),
             WTFMove(*manualPrevalentResource),
         }};
     }

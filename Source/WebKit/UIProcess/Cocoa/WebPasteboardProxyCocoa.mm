@@ -36,6 +36,7 @@
 #import "WebProcessProxy.h"
 #import <WebCore/Color.h>
 #import <WebCore/DataOwnerType.h>
+#import <WebCore/LegacyNSPasteboardTypes.h>
 #import <WebCore/Pasteboard.h>
 #import <WebCore/PasteboardItemInfo.h>
 #import <WebCore/PlatformPasteboard.h>
@@ -103,7 +104,9 @@ std::optional<WebPasteboardProxy::PasteboardAccessType> WebPasteboardProxy::acce
     auto* process = webProcessProxyForConnection(connection);
     MESSAGE_CHECK_WITH_RETURN_VALUE(process, std::nullopt);
 
-    for (auto* page : process->pages()) {
+    for (auto& page : process->pages()) {
+        if (!page)
+            continue;
         auto& preferences = page->preferences();
         if (!preferences.domPasteAllowed() || !preferences.javaScriptCanAccessClipboard())
             continue;
@@ -174,8 +177,9 @@ void WebPasteboardProxy::getPasteboardPathnamesForType(IPC::Connection& connecti
             PlatformPasteboard(pasteboardName).getPathnamesForType(pathnames, pasteboardType);
             // On iOS, files are copied into app's container upon paste.
 #if PLATFORM(MAC)
-            sandboxExtensions = pathnames.map([](auto& filename) {
-                if (![[NSFileManager defaultManager] fileExistsAtPath:filename])
+            bool needsExtensions = pasteboardType == String(WebCore::legacyFilenamesPasteboardType());
+            sandboxExtensions = pathnames.map([needsExtensions](auto& filename) {
+                if (!needsExtensions || ![[NSFileManager defaultManager] fileExistsAtPath:filename])
                     return SandboxExtension::Handle { };
 
                 return valueOrDefault(SandboxExtension::createHandle(filename, SandboxExtension::Type::ReadOnly));
@@ -633,10 +637,9 @@ std::optional<DataOwnerType> WebPasteboardProxy::determineDataOwner(IPC::Connect
     if (!pageID)
         return DataOwnerType::Undefined;
 
-#if HAVE(PASTEBOARD_DATA_OWNER)
     std::optional<DataOwnerType> result;
-    for (auto* page : process->pages()) {
-        if (page->webPageID() == *pageID) {
+    for (auto& page : process->pages()) {
+        if (page && page->webPageID() == *pageID) {
             result = page->dataOwnerForPasteboard(intent);
             break;
         }
@@ -645,10 +648,6 @@ std::optional<DataOwnerType> WebPasteboardProxy::determineDataOwner(IPC::Connect
     // currently known to the UI process.
     MESSAGE_CHECK_WITH_RETURN_VALUE(result.has_value(), std::nullopt);
     return result;
-#else
-    UNUSED_PARAM(intent);
-    return DataOwnerType::Undefined;
-#endif
 }
 
 void WebPasteboardProxy::PasteboardAccessInformation::grantAccess(WebProcessProxy& process, PasteboardAccessType type)
@@ -690,19 +689,19 @@ std::optional<WebPasteboardProxy::PasteboardAccessType> WebPasteboardProxy::Past
 }
 
 #if ENABLE(IPC_TESTING_API)
-void WebPasteboardProxy::testIPCSharedMemory(IPC::Connection& connection, const String& pasteboardName, const String& pasteboardType, SharedMemory::IPCHandle&& handle, std::optional<PageIdentifier> pageID, CompletionHandler<void(int64_t, String)>&& completionHandler)
+void WebPasteboardProxy::testIPCSharedMemory(IPC::Connection& connection, const String& pasteboardName, const String& pasteboardType, SharedMemory::Handle&& handle, std::optional<PageIdentifier> pageID, CompletionHandler<void(int64_t, String)>&& completionHandler)
 {
     MESSAGE_CHECK_COMPLETION(!pasteboardName.isEmpty(), completionHandler(-1, makeString("error")));
     MESSAGE_CHECK_COMPLETION(!pasteboardType.isEmpty(), completionHandler(-1, makeString("error")));
 
-    auto sharedMemoryBuffer = SharedMemory::map(handle.handle, SharedMemory::Protection::ReadOnly);
+    auto sharedMemoryBuffer = SharedMemory::map(handle, SharedMemory::Protection::ReadOnly);
     if (!sharedMemoryBuffer) {
         completionHandler(-1, makeString("error EOM"));
         return;
     }
 
-    String message = { static_cast<char*>(sharedMemoryBuffer->data()), unsigned(handle.dataSize) };
-    completionHandler(handle.dataSize, WTFMove(message));
+    String message = { static_cast<char*>(sharedMemoryBuffer->data()), static_cast<unsigned>(sharedMemoryBuffer->size()) };
+    completionHandler(sharedMemoryBuffer->size(), WTFMove(message));
 }
 #endif
 

@@ -31,7 +31,6 @@
 #include "GPUConnectionToWebProcess.h"
 #include "MessageReceiver.h"
 #include "RemoteSourceBufferIdentifier.h"
-#include "RemoteSourceBufferProxyMessagesReplies.h"
 #include "SharedMemory.h"
 #include "TrackPrivateRemoteIdentifier.h"
 #include <WebCore/MediaDescription.h>
@@ -70,7 +69,7 @@ private:
     RemoteSourceBufferProxy(GPUConnectionToWebProcess&, RemoteSourceBufferIdentifier, Ref<WebCore::SourceBufferPrivate>&&, RemoteMediaPlayerProxy&);
 
     // SourceBufferPrivateClient
-    void sourceBufferPrivateDidReceiveInitializationSegment(InitializationSegment&&, CompletionHandler<void()>&&) final;
+    void sourceBufferPrivateDidReceiveInitializationSegment(InitializationSegment&&, CompletionHandler<void(ReceiveResult)>&&) final;
     void sourceBufferPrivateStreamEndedWithDecodeError() final;
     void sourceBufferPrivateAppendError(bool decodeError) final;
     void sourceBufferPrivateAppendComplete(WebCore::SourceBufferPrivateClient::AppendResult) final;
@@ -89,7 +88,7 @@ private:
     void setActive(bool);
     void canSwitchToType(const WebCore::ContentType&, CompletionHandler<void(bool)>&&);
     void setMode(WebCore::SourceBufferAppendMode);
-    void append(IPC::SharedBufferReference&&, CompletionHandler<void(std::optional<WebKit::SharedMemory::IPCHandle>&&)>&&);
+    void append(IPC::SharedBufferReference&&, CompletionHandler<void(std::optional<WebKit::SharedMemory::Handle>&&)>&&);
     void abort();
     void resetParserState();
     void removedFromMediaSource();
@@ -97,10 +96,8 @@ private:
     void setReadyState(WebCore::MediaPlayer::ReadyState);
     void startChangingType();
     void updateBufferedFromTrackBuffers(bool sourceIsEnded, CompletionHandler<void(WebCore::PlatformTimeRanges&&)>&&);
-    using RemoveCodedFramesAsyncReply = Messages::RemoteSourceBufferProxy::RemoveCodedFramesAsyncReply;
-    using EvictCodedFramesDelayedReply= Messages::RemoteSourceBufferProxy::EvictCodedFramesDelayedReply;
-    void removeCodedFrames(const MediaTime& start, const MediaTime& end, const MediaTime& currentTime, bool isEnded, RemoveCodedFramesAsyncReply&&);
-    void evictCodedFrames(uint64_t newDataSize, uint64_t maximumBufferSize, const MediaTime& currentTime, const MediaTime& duration, bool isEnded, EvictCodedFramesDelayedReply&&);
+    void removeCodedFrames(const MediaTime& start, const MediaTime& end, const MediaTime& currentTime, bool isEnded, CompletionHandler<void(WebCore::PlatformTimeRanges&&, uint64_t)>&&);
+    void evictCodedFrames(uint64_t newDataSize, uint64_t maximumBufferSize, const MediaTime& currentTime, bool isEnded, CompletionHandler<void(uint64_t)>&&);
     void addTrackBuffer(TrackPrivateRemoteIdentifier);
     void resetTrackBuffers();
     void clearTrackBuffers();

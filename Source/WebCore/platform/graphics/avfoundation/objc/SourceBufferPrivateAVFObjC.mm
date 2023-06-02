@@ -393,8 +393,6 @@ void SourceBufferPrivateAVFObjC::didParseInitializationData(InitializationSegmen
         }
     }
 
-    clearTracks();
-
     m_protectedTrackInitDataMap.swap(m_pendingProtectedTrackInitDataMap);
     m_pendingProtectedTrackInitDataMap.clear();
 
@@ -417,7 +415,7 @@ void SourceBufferPrivateAVFObjC::didParseInitializationData(InitializationSegmen
             m_pendingTrackChangeCallbacks.append(WTFMove(videoTrackSelectedChanged));
         });
 
-        m_videoTracks.append(videoTrackInfo.track);
+        m_videoTracks.set(videoTrackInfo.track->id(), videoTrackInfo.track);
     }
 
     for (auto audioTrackInfo : segment.audioTracks) {
@@ -440,17 +438,19 @@ void SourceBufferPrivateAVFObjC::didParseInitializationData(InitializationSegmen
             m_pendingTrackChangeCallbacks.append(WTFMove(audioTrackEnabledChanged));
         });
 
-        m_audioTracks.append(audioTrackInfo.track);
+        m_audioTracks.set(audioTrackInfo.track->id(), audioTrackInfo.track);
     }
 
     m_processingInitializationSegment = true;
-    didReceiveInitializationSegment(WTFMove(segment), [this, weakThis = WeakPtr { *this }, abortCalled = m_abortCalled]() {
+    didReceiveInitializationSegment(WTFMove(segment), [this, weakThis = WeakPtr { *this }, abortCalled = m_abortCalled] (SourceBufferPrivateClient::ReceiveResult result) {
         ASSERT(isMainThread());
         if (!weakThis)
             return;
 
         m_processingInitializationSegment = false;
-        if (abortCalled != weakThis->m_abortCalled) {
+        auto didAbort = abortCalled != weakThis->m_abortCalled;
+        if (didAbort || result != SourceBufferPrivateClient::ReceiveResult::RecieveSucceeded) {
+            ERROR_LOG(LOGIDENTIFIER, "failed to process initialization segment: didAbort = ", didAbort, " recieveResult = ", result);
             m_pendingTrackChangeCallbacks.clear();
             m_mediaSamples.clear();
             return;
@@ -600,6 +600,7 @@ void SourceBufferPrivateAVFObjC::didProvideContentKeyRequestInitializationDataFo
 
     m_keyIDs = WTFMove(keyIDs.value());
     player->initializationDataEncountered("sinf"_s, m_initData->tryCreateArrayBuffer());
+    player->needsVideoLayerChanged();
 
     m_waitingForKey = true;
     player->waitingForKeyChanged();
@@ -608,6 +609,21 @@ void SourceBufferPrivateAVFObjC::didProvideContentKeyRequestInitializationDataFo
     UNUSED_PARAM(initData);
     UNUSED_PARAM(trackID);
     UNUSED_PARAM(hasSessionSemaphore);
+}
+
+bool SourceBufferPrivateAVFObjC::needsVideoLayer() const
+{
+    if (m_protectedTrackID == notFound)
+        return false;
+
+    if (m_enabledVideoTrackID != m_protectedTrackID)
+        return false;
+
+    // When video content is protected and keys are assigned through
+    // the renderers, decoding content through decompression sessions
+    // will fail. In this scenario, ask the player to create a layer
+    // instead.
+    return sampleBufferRenderersSupportKeySession();
 }
 
 void SourceBufferPrivateAVFObjC::append(Ref<SharedBuffer>&& data)
@@ -805,12 +821,18 @@ void SourceBufferPrivateAVFObjC::destroyRenderers()
 
 void SourceBufferPrivateAVFObjC::clearTracks()
 {
-    for (auto& track : m_videoTracks)
+    for (auto& track : m_videoTracks.values()) {
         track->setSelectedChangedCallback(nullptr);
+        if (auto player = this->player())
+            player->removeVideoTrack(*track);
+    }
     m_videoTracks.clear();
 
-    for (auto& track : m_audioTracks)
+    for (auto& track : m_audioTracks.values()) {
         track->setEnabledChangedCallback(nullptr);
+        if (auto player = this->player())
+            player->removeAudioTrack(*track);
+    }
     m_audioTracks.clear();
 }
 
@@ -869,6 +891,9 @@ void SourceBufferPrivateAVFObjC::trackDidChangeSelected(VideoTrackPrivate& track
             });
         }
     }
+
+    if (auto* player = this->player())
+        player->needsVideoLayerChanged();
 
     m_mediaSource->hasSelectedVideoChanged(*this);
 }
@@ -1229,6 +1254,10 @@ bool SourceBufferPrivateAVFObjC::canEnqueueSample(uint64_t trackID, const MediaS
     if (!m_cdmInstance)
         return false;
 
+    // DecompressionSessions doesn't support encrypted media.
+    if (!m_displayLayer)
+        return false;
+
     // if sample is encrypted, and keyIDs match the current set of keyIDs: enqueue sample.
     auto findResult = m_currentTrackIDs.find(trackID);
     if (findResult != m_currentTrackIDs.end() && findResult->value == sample.keyIDs())
@@ -1328,17 +1357,14 @@ void SourceBufferPrivateAVFObjC::enqueueSample(Ref<MediaSampleAVFObjC>&& sample,
 
                 [m_displayLayer enqueueSampleBuffer:platformSample.sample.cmSampleBuffer];
                 [m_displayLayer prerollDecodeWithCompletionHandler:[this, logSiteIdentifier, weakThis = WeakPtr { *this }] (BOOL success) mutable {
-                    if (!weakThis)
-                        return;
-
-                    if (!success) {
-                        ERROR_LOG(logSiteIdentifier, "prerollDecodeWithCompletionHandler failed");
-                        return;
-                    }
-
-                    callOnMainThread([weakThis = WTFMove(weakThis)] () {
+                    callOnMainThread([this, logSiteIdentifier, weakThis = WTFMove(weakThis), success] () {
                         if (!weakThis)
                             return;
+                        
+                        if (!success) {
+                            ERROR_LOG(logSiteIdentifier, "prerollDecodeWithCompletionHandler failed");
+                            return;
+                        }
 
                         weakThis->bufferWasConsumed();
                     });

@@ -161,7 +161,7 @@ template<> void JSTestLegacyFactoryFunctionLegacyFactoryFunction::initializeProp
 
 static const HashTableValue JSTestLegacyFactoryFunctionPrototypeTableValues[] =
 {
-    { "constructor"_s, static_cast<unsigned>(JSC::PropertyAttribute::DontEnum), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestLegacyFactoryFunctionConstructor), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(0) } },
+    { "constructor"_s, static_cast<unsigned>(JSC::PropertyAttribute::DontEnum), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestLegacyFactoryFunctionConstructor, 0 } },
 };
 
 const ClassInfo JSTestLegacyFactoryFunctionPrototype::s_info = { "TestLegacyFactoryFunction"_s, &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(JSTestLegacyFactoryFunctionPrototype) };
@@ -229,9 +229,9 @@ JSC::GCClient::IsoSubspace* JSTestLegacyFactoryFunction::subspaceForImpl(JSC::VM
 {
     return WebCore::subspaceForImpl<JSTestLegacyFactoryFunction, UseCustomHeapCellType::No>(vm,
         [] (auto& spaces) { return spaces.m_clientSubspaceForTestLegacyFactoryFunction.get(); },
-        [] (auto& spaces, auto&& space) { spaces.m_clientSubspaceForTestLegacyFactoryFunction = WTFMove(space); },
+        [] (auto& spaces, auto&& space) { spaces.m_clientSubspaceForTestLegacyFactoryFunction = std::forward<decltype(space)>(space); },
         [] (auto& spaces) { return spaces.m_subspaceForTestLegacyFactoryFunction.get(); },
-        [] (auto& spaces, auto&& space) { spaces.m_subspaceForTestLegacyFactoryFunction = WTFMove(space); }
+        [] (auto& spaces, auto&& space) { spaces.m_subspaceForTestLegacyFactoryFunction = std::forward<decltype(space)>(space); }
     );
 }
 

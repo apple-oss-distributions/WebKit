@@ -29,7 +29,6 @@
 
 #include "MediaPlayerPrivateAVFoundation.h"
 
-#include "DeprecatedGlobalSettings.h"
 #include "DocumentLoader.h"
 #include "FloatConversion.h"
 #include "GraphicsContext.h"
@@ -374,8 +373,18 @@ void MediaPlayerPrivateAVFoundation::setReadyState(MediaPlayer::ReadyState state
     if (state == m_readyState)
         return;
 
-    m_readyState = state;
+    auto oldState = std::exchange(m_readyState, state);
     m_player->readyStateChanged();
+
+    if (oldState >= MediaPlayer::ReadyState::HaveMetadata)
+        return;
+
+    // Many state methods in MediaPlayerPrivateAVFoundation will return defaults
+    // if queried before reaching HaveMetadata. Re-fire their changed events after
+    // the ready state moves beyond HaveMetadata so the correct values are reflected
+    // upwards to clients.
+    if (!m_cachedNaturalSize.isEmpty())
+        m_player->sizeChanged();
 }
 
 void MediaPlayerPrivateAVFoundation::characteristicsChanged()
@@ -484,13 +493,6 @@ bool MediaPlayerPrivateAVFoundation::supportsFullscreen() const
 #endif
 }
 
-bool MediaPlayerPrivateAVFoundation::hasSingleSecurityOrigin() const
-{
-    if (m_resolvedOrigin && m_requestedOrigin)
-        return m_resolvedOrigin->isSameSchemeHostPort(*m_requestedOrigin);
-    return false;
-}
-
 void MediaPlayerPrivateAVFoundation::setResolvedURL(URL&& resolvedURL)
 {
     m_resolvedURL = WTFMove(resolvedURL);
@@ -514,7 +516,7 @@ void MediaPlayerPrivateAVFoundation::updateStates()
         // -loadValuesAsynchronouslyForKeys:completionHandler: has invoked its handler; test status of keys and determine state.
         AssetStatus assetStatus = this->assetStatus();
         ItemStatus itemStatus = playerItemStatus();
-        
+
         m_assetIsPlayable = (assetStatus == MediaPlayerAVAssetStatusPlayable);
         if (m_readyState < MediaPlayer::ReadyState::HaveMetadata && assetStatus > MediaPlayerAVAssetStatusLoading) {
             if (m_assetIsPlayable) {
@@ -577,9 +579,6 @@ void MediaPlayerPrivateAVFoundation::updateStates()
         }
     }
 
-    if (isReadyForVideoSetup() && currentRenderingMode() != preferredRenderingMode())
-        setUpVideoRendering();
-
     if (firstVideoFrameBecomeAvailable) {
         if (m_readyState < MediaPlayer::ReadyState::HaveCurrentData)
             newReadyState = MediaPlayer::ReadyState::HaveCurrentData;
@@ -593,6 +592,9 @@ void MediaPlayerPrivateAVFoundation::updateStates()
 
     setNetworkState(newNetworkState);
     setReadyState(newReadyState);
+
+    if (isReadyForVideoSetup() && currentRenderingMode() != preferredRenderingMode())
+        setUpVideoRendering();
 }
 
 void MediaPlayerPrivateAVFoundation::setPageIsVisible(bool visible)
@@ -685,6 +687,7 @@ void MediaPlayerPrivateAVFoundation::didEnd()
     // Hang onto the current time and use it as duration from now on since we are definitely at
     // the end of the movie. Do this because the initial duration is sometimes an estimate.
     MediaTime now = currentMediaTime();
+    ALWAYS_LOG(LOGIDENTIFIER, "currentTime: ", now, ", seeking: ", m_seeking);
     if (now > MediaTime::zeroTime() && !m_seeking)
         m_cachedDuration = now;
 
@@ -1144,7 +1147,7 @@ String convertEnumerationToString(MediaPlayerPrivateAVFoundation::MediaRendering
     static_assert(static_cast<size_t>(MediaPlayerPrivateAVFoundation::MediaRenderingMode::MediaRenderingNone) == 0, "MediaRenderingMode::MediaRenderingNone is not 0 as expected");
     static_assert(static_cast<size_t>(MediaPlayerPrivateAVFoundation::MediaRenderingMode::MediaRenderingToContext) == 1, "MediaRenderingMode::MediaRenderingToContext is not 1 as expected");
     static_assert(static_cast<size_t>(MediaPlayerPrivateAVFoundation::MediaRenderingMode::MediaRenderingToLayer) == 2, "MediaRenderingMode::MediaRenderingToLayer is not 2 as expected");
-    ASSERT(static_cast<size_t>(enumerationValue) < WTF_ARRAY_LENGTH(values));
+    ASSERT(static_cast<size_t>(enumerationValue) < std::size(values));
     return values[static_cast<size_t>(enumerationValue)];
 }
 

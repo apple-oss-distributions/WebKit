@@ -83,16 +83,10 @@ void WebSWOriginStore::unregisterSWServerConnection(WebSWServerConnection& conne
 
 void WebSWOriginStore::sendStoreHandle(WebSWServerConnection& connection)
 {
-    SharedMemory::Handle handle;
-    if (!m_store.createSharedMemoryHandle(handle))
+    auto handle = m_store.createSharedMemoryHandle();
+    if (!handle)
         return;
-
-#if (OS(DARWIN) || OS(WINDOWS)) && !USE(UNIX_DOMAIN_SOCKETS)
-    uint64_t dataSize = handle.size();
-#else
-    uint64_t dataSize = 0;
-#endif
-    connection.send(Messages::WebSWClientConnection::SetSWOriginTableSharedMemory(SharedMemory::IPCHandle { WTFMove(handle), dataSize }));
+    connection.send(Messages::WebSWClientConnection::SetSWOriginTableSharedMemory(*handle));
 }
 
 void WebSWOriginStore::didInvalidateSharedMemory()

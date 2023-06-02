@@ -26,71 +26,41 @@
 #include "config.h"
 #include "StreamConnectionBuffer.h"
 
+#include "Decoder.h"
 #include "WebCoreArgumentCoders.h"
 
 namespace IPC {
 
-static Ref<WebKit::SharedMemory> createMemory(size_t size)
-{
-    auto memory = WebKit::SharedMemory::allocate(size);
-    if (!memory)
-        CRASH();
-    return memory.releaseNonNull();
-}
-
-StreamConnectionBuffer::StreamConnectionBuffer(size_t memorySize)
-    : m_dataSize(memorySize - headerSize())
-    , m_sharedMemory(createMemory(memorySize))
-{
-    ASSERT(m_dataSize > 0);
-    ASSERT(m_dataSize <= maximumSize());
-}
-
-StreamConnectionBuffer::StreamConnectionBuffer(Ref<WebKit::SharedMemory>&& memory, size_t memorySize)
-    : m_dataSize(memorySize - headerSize())
+StreamConnectionBuffer::StreamConnectionBuffer(Ref<WebKit::SharedMemory>&& memory)
+    : m_dataSize(memory->size() - headerSize())
     , m_sharedMemory(WTFMove(memory))
 {
-    ASSERT(m_dataSize > 0);
-    ASSERT(m_dataSize <= maximumSize());
+    ASSERT(sharedMemorySizeIsValid(m_sharedMemory->size()));
 }
-
-StreamConnectionBuffer::StreamConnectionBuffer(StreamConnectionBuffer&& other) = default;
 
 StreamConnectionBuffer::~StreamConnectionBuffer() = default;
 
-StreamConnectionBuffer& StreamConnectionBuffer::operator=(StreamConnectionBuffer&& other)
+StreamConnectionBuffer::Handle StreamConnectionBuffer::createHandle()
 {
-    if (this != &other) {
-        m_dataSize = other.m_dataSize;
-        m_sharedMemory = WTFMove(other.m_sharedMemory);
-    }
-    return *this;
-}
-
-void StreamConnectionBuffer::encode(Encoder& encoder) const
-{
-    WebKit::SharedMemory::Handle handle;
-    if (!m_sharedMemory->createHandle(handle, WebKit::SharedMemory::Protection::ReadWrite))
+    auto handle = m_sharedMemory->createHandle(WebKit::SharedMemory::Protection::ReadWrite);
+    if (!handle)
         CRASH();
-    WebKit::SharedMemory::IPCHandle ipcHandle { WTFMove(handle), m_sharedMemory->size() };
-    encoder << ipcHandle;
+    return { WTFMove(*handle) };
 }
 
-std::optional<StreamConnectionBuffer> StreamConnectionBuffer::decode(Decoder& decoder)
+void StreamConnectionBuffer::Handle::encode(Encoder& encoder) const
 {
-    std::optional<WebKit::SharedMemory::IPCHandle> ipcHandle;
-    decoder >> ipcHandle;
-    if (!ipcHandle)
+    encoder << memory;
+}
+
+std::optional<StreamConnectionBuffer::Handle> StreamConnectionBuffer::Handle::decode(Decoder& decoder)
+{
+    auto handle = decoder.decode<WebKit::SharedMemory::Handle>();
+    if (UNLIKELY(!decoder.isValid()))
         return std::nullopt;
-    size_t dataSize = static_cast<size_t>(ipcHandle->dataSize);
-    if (dataSize <= headerSize())
+    if (UNLIKELY(!sharedMemorySizeIsValid(handle->size())))
         return std::nullopt;
-    if (dataSize > headerSize() + maximumSize())
-        return std::nullopt;
-    auto sharedMemory = WebKit::SharedMemory::map(ipcHandle->handle, WebKit::SharedMemory::Protection::ReadWrite);
-    if (!sharedMemory || sharedMemory->size() < dataSize)
-        return std::nullopt;
-    return StreamConnectionBuffer { sharedMemory.releaseNonNull(), dataSize };
+    return Handle { WTFMove(*handle) };
 }
 
 Span<uint8_t> StreamConnectionBuffer::headerForTesting()

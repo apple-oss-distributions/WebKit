@@ -29,6 +29,7 @@
 #include "Connection.h"
 #include "RemoteVideoFrameProxy.h"
 #include "ThreadSafeObjectHeap.h"
+#include "WorkQueueMessageReceiver.h"
 #include <WebCore/DestinationColorSpace.h>
 #include <WebCore/VideoFrame.h>
 
@@ -43,7 +44,7 @@ class PixelBufferConformerCV;
 namespace WebKit {
 
 // Holds references to all VideoFrame instances that are mapped from GPU process to Web process.
-class RemoteVideoFrameObjectHeap final : public IPC::Connection::WorkQueueMessageReceiver {
+class RemoteVideoFrameObjectHeap final : public IPC::WorkQueueMessageReceiver {
 public:
     static Ref<RemoteVideoFrameObjectHeap> create(Ref<IPC::Connection>&&);
     ~RemoteVideoFrameObjectHeap();
@@ -68,7 +69,7 @@ private:
     void pixelBuffer(RemoteVideoFrameReadReference&&, CompletionHandler<void(RetainPtr<CVPixelBufferRef>)>&&);
     void convertFrameBuffer(SharedVideoFrame&&, CompletionHandler<void(WebCore::DestinationColorSpace)>&&);
     void setSharedVideoFrameSemaphore(IPC::Semaphore&&);
-    void setSharedVideoFrameMemory(const SharedMemory::IPCHandle&);
+    void setSharedVideoFrameMemory(const SharedMemory::Handle&);
 #endif
 
     void createPixelConformerIfNeeded();

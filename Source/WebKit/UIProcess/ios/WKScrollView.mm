@@ -34,6 +34,7 @@
 #import <pal/spi/cg/CoreGraphicsSPI.h>
 #import <wtf/WeakObjCPtr.h>
 #import <wtf/cocoa/RuntimeApplicationChecksCocoa.h>
+#import <wtf/cocoa/VectorCocoa.h>
 
 #if HAVE(PEPPER_UI_CORE)
 #import "PepperUICoreSPI.h"
@@ -140,8 +141,14 @@ static BOOL shouldForwardScrollViewDelegateMethodToExternalDelegate(SEL selector
     BOOL _scrollEnabledInternal;
     BOOL _zoomEnabledByClient;
     BOOL _zoomEnabledInternal;
+    BOOL _bouncesSetByClient;
+    BOOL _bouncesHorizontalInternal;
+    BOOL _bouncesVerticalInternal;
     std::optional<UIEdgeInsets> _contentScrollInsetFromClient;
     std::optional<UIEdgeInsets> _contentScrollInsetInternal;
+#if ENABLE(OVERLAY_REGIONS_IN_EVENT_REGION)
+    Vector<CGRect> _overlayRegions;
+#endif
 }
 
 - (id)initWithFrame:(CGRect)frame
@@ -155,6 +162,9 @@ static BOOL shouldForwardScrollViewDelegateMethodToExternalDelegate(SEL selector
     _scrollEnabledInternal = YES;
     _zoomEnabledByClient = YES;
     _zoomEnabledInternal = YES;
+    _bouncesSetByClient = YES;
+    _bouncesHorizontalInternal = YES;
+    _bouncesVerticalInternal = YES;
 
     self.alwaysBounceVertical = YES;
     self.directionalLockEnabled = YES;
@@ -241,6 +251,8 @@ static BOOL shouldForwardScrollViewDelegateMethodToExternalDelegate(SEL selector
         return;
 
     super.backgroundColor = backgroundColor;
+
+    [_internalDelegate _resetCachedScrollViewBackgroundColor];
 }
 
 - (void)setIndicatorStyle:(UIScrollViewIndicatorStyle)indicatorStyle
@@ -443,6 +455,13 @@ static inline bool valuesAreWithinOnePixel(CGFloat a, CGFloat b)
     return systemContentInset;
 }
 
+- (BOOL)isScrollEnabled
+{
+    if (!self.panGestureRecognizer.allowedTouchTypes.count)
+        return NO;
+    return [super isScrollEnabled];
+}
+
 - (void)setScrollEnabled:(BOOL)value
 {
     _scrollEnabledByClient = value;
@@ -458,6 +477,25 @@ static inline bool valuesAreWithinOnePixel(CGFloat a, CGFloat b)
 - (void)_updateScrollability
 {
     [super setScrollEnabled:(_scrollEnabledByClient && _scrollEnabledInternal)];
+}
+
+- (void)setBounces:(BOOL)value
+{
+    _bouncesSetByClient = value;
+    [self _updateBouncability];
+}
+
+- (void)_setBouncesInternal:(BOOL)horizontal vertical:(BOOL)vertical
+{
+    _bouncesHorizontalInternal = horizontal;
+    _bouncesVerticalInternal = vertical;
+    [self _updateBouncability];
+}
+
+- (void)_updateBouncability
+{
+    [super setBouncesHorizontally:(_bouncesSetByClient && _bouncesHorizontalInternal)];
+    [super setBouncesVertically:(_bouncesSetByClient && _bouncesVerticalInternal)];
 }
 
 - (void)setZoomEnabled:(BOOL)value
@@ -549,10 +587,49 @@ static inline bool valuesAreWithinOnePixel(CGFloat a, CGFloat b)
 #endif // HAVE(PEPPER_UI_CORE)
 
 #if ENABLE(OVERLAY_REGIONS_IN_EVENT_REGION)
+static void addDebugOverlays(CALayer *layer, const Vector<CGRect>& overlayRegions)
+{
+    NSString *overlayDebugKey = @"WKOverlayRegionDebugFill";
+    if (![[NSUserDefaults standardUserDefaults] boolForKey:overlayDebugKey])
+        return;
+
+    Vector<CALayer *> layersToRemove;
+    for (CALayer *sublayer in layer.sublayers) {
+        if ([sublayer valueForKey:overlayDebugKey])
+            layersToRemove.append(sublayer);
+    }
+
+    for (CALayer *sublayer : layersToRemove)
+        [sublayer removeFromSuperlayer];
+
+    for (CGRect rect : overlayRegions) {
+        auto debugLayer = adoptNS([[CALayer alloc] init]);
+        [debugLayer setFrame:rect];
+        [debugLayer setBackgroundColor:WebCore::cachedCGColor({ WebCore::SRGBA<float>(1, 0, 0, .3) }).get()];
+        [debugLayer setValue:@YES forKey:overlayDebugKey];
+        [layer addSublayer:debugLayer.get()];
+    }
+}
+
+- (bool)_updateOverlayRegions:(const Vector<CGRect> &)overlayRegions
+{
+    if (_overlayRegions == overlayRegions)
+        return false;
+
+    addDebugOverlays(_internalDelegate.layer, overlayRegions);
+    [self willChangeValueForKey:@"overlayRegions"];
+    _overlayRegions = overlayRegions;
+    [self didChangeValueForKey:@"overlayRegions"];
+    return true;
+}
+
 - (NSArray<NSData *> *)overlayRegions
 {
-    return [_internalDelegate _overlayRegions];
+    return createNSArray(_overlayRegions, [] (auto& rect) {
+        return [NSData dataWithBytes:(void*)&rect length:sizeof(rect)];
+    }).autorelease();
 }
+
 #endif // ENABLE(OVERLAY_REGIONS_IN_EVENT_REGION)
 
 @end

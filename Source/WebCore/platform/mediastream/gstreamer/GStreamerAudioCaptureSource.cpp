@@ -56,9 +56,9 @@ static void initializeDebugCategory()
 
 class GStreamerAudioCaptureSourceFactory : public AudioCaptureFactory {
 public:
-    CaptureSourceOrError createAudioCaptureSource(const CaptureDevice& device, String&& hashSalt, const MediaConstraints* constraints, PageIdentifier) final
+    CaptureSourceOrError createAudioCaptureSource(const CaptureDevice& device, MediaDeviceHashSalts&& hashSalts, const MediaConstraints* constraints, PageIdentifier) final
     {
-        return GStreamerAudioCaptureSource::create(String { device.persistentId() }, WTFMove(hashSalt), constraints);
+        return GStreamerAudioCaptureSource::create(String { device.persistentId() }, WTFMove(hashSalts), constraints);
     }
 private:
     CaptureDeviceManager& audioCaptureDeviceManager() final { return GStreamerAudioCaptureDeviceManager::singleton(); }
@@ -73,7 +73,7 @@ static GStreamerAudioCaptureSourceFactory& libWebRTCAudioCaptureSourceFactory()
     return factory.get();
 }
 
-CaptureSourceOrError GStreamerAudioCaptureSource::create(String&& deviceID, String&& hashSalt, const MediaConstraints* constraints)
+CaptureSourceOrError GStreamerAudioCaptureSource::create(String&& deviceID, MediaDeviceHashSalts&& hashSalts, const MediaConstraints* constraints)
 {
     auto device = GStreamerAudioCaptureDeviceManager::singleton().gstreamerDeviceWithUID(deviceID);
     if (!device) {
@@ -81,7 +81,7 @@ CaptureSourceOrError GStreamerAudioCaptureSource::create(String&& deviceID, Stri
         return CaptureSourceOrError(WTFMove(errorMessage));
     }
 
-    auto source = adoptRef(*new GStreamerAudioCaptureSource(device.value(), WTFMove(hashSalt)));
+    auto source = adoptRef(*new GStreamerAudioCaptureSource(device.value(), WTFMove(hashSalts)));
 
     if (constraints) {
         if (auto result = source->applyConstraints(*constraints))
@@ -95,8 +95,8 @@ AudioCaptureFactory& GStreamerAudioCaptureSource::factory()
     return libWebRTCAudioCaptureSourceFactory();
 }
 
-GStreamerAudioCaptureSource::GStreamerAudioCaptureSource(GStreamerCaptureDevice device, String&& hashSalt)
-    : RealtimeMediaSource(RealtimeMediaSource::Type::Audio, AtomString { device.persistentId() }, String { device.label() }, WTFMove(hashSalt))
+GStreamerAudioCaptureSource::GStreamerAudioCaptureSource(GStreamerCaptureDevice device, MediaDeviceHashSalts&& hashSalts)
+    : RealtimeMediaSource(device, WTFMove(hashSalts))
     , m_capturer(makeUnique<GStreamerAudioCapturer>(device))
 {
     initializeDebugCategory();
@@ -118,15 +118,13 @@ GstFlowReturn GStreamerAudioCaptureSource::newSampleCallback(GstElement* sink, G
 {
     auto sample = adoptGRef(gst_app_sink_pull_sample(GST_APP_SINK(sink)));
 
-    // FIXME - figure out a way to avoid copying (on write) the data.
     auto* buffer = gst_sample_get_buffer(sample.get());
+    auto bufferSize = gst_buffer_get_size(buffer);
+    MediaTime presentationTime(GST_TIME_AS_USECONDS(GST_BUFFER_PTS(buffer)), G_USEC_PER_SEC);
+
     GStreamerAudioData frames(WTFMove(sample));
     GStreamerAudioStreamDescription description(frames.getAudioInfo());
-
-    source->audioSamplesAvailable(
-        MediaTime(GST_TIME_AS_USECONDS(GST_BUFFER_PTS(buffer)), G_USEC_PER_SEC),
-        frames, description, gst_buffer_get_size(buffer) / description.getInfo().bpf);
-
+    source->audioSamplesAvailable(presentationTime, frames, description, bufferSize / description.getInfo().bpf);
     return GST_FLOW_OK;
 }
 

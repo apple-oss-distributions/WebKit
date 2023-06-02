@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019-2021 Apple Inc. All rights reserved.
+ * Copyright (C) 2019-2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -35,8 +35,8 @@
 
 namespace WebKit {
 
-NavigationSOAuthorizationSession::NavigationSOAuthorizationSession(SOAuthorization *soAuthorization, Ref<API::NavigationAction>&& navigationAction, WebPageProxy& page, InitiatingAction action, Callback&& completionHandler)
-    : SOAuthorizationSession(soAuthorization, WTFMove(navigationAction), page, action)
+NavigationSOAuthorizationSession::NavigationSOAuthorizationSession(RetainPtr<WKSOAuthorizationDelegate> delegate, Ref<API::NavigationAction>&& navigationAction, WebPageProxy& page, InitiatingAction action, Callback&& completionHandler)
+    : SOAuthorizationSession(delegate, WTFMove(navigationAction), page, action)
     , m_callback(WTFMove(completionHandler))
 {
 }
@@ -46,7 +46,7 @@ NavigationSOAuthorizationSession::~NavigationSOAuthorizationSession()
     if (m_callback)
         m_callback(true);
     if (state() == State::Waiting && page())
-        page()->removeObserver(*this);
+        page()->removeDidMoveToWindowObserver(*this);
 }
 
 void NavigationSOAuthorizationSession::shouldStartInternal()
@@ -59,7 +59,7 @@ void NavigationSOAuthorizationSession::shouldStartInternal()
     if (!page->isInWindow()) {
         AUTHORIZATIONSESSION_RELEASE_LOG("shouldStartInternal: Starting Extensible SSO authentication for a web view that is not attached to a window. Loading will pause until a window is attached.");
         setState(State::Waiting);
-        page->addObserver(*this);
+        page->addDidMoveToWindowObserver(*this);
         ASSERT(page->mainFrame());
         m_waitingPageActiveURL = page->pageLoadState().activeURL();
         return;
@@ -75,11 +75,11 @@ void NavigationSOAuthorizationSession::webViewDidMoveToWindow()
         return;
     if (pageActiveURLDidChangeDuringWaiting()) {
         abort();
-        page->removeObserver(*this);
+        page->removeDidMoveToWindowObserver(*this);
         return;
     }
     start();
-    page->removeObserver(*this);
+    page->removeDidMoveToWindowObserver(*this);
 }
 
 bool NavigationSOAuthorizationSession::pageActiveURLDidChangeDuringWaiting() const

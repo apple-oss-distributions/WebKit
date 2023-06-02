@@ -106,7 +106,7 @@ template<> void JSTestNamedSetterThrowingExceptionDOMConstructor::initializeProp
 
 static const HashTableValue JSTestNamedSetterThrowingExceptionPrototypeTableValues[] =
 {
-    { "constructor"_s, static_cast<unsigned>(JSC::PropertyAttribute::DontEnum), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestNamedSetterThrowingExceptionConstructor), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(0) } },
+    { "constructor"_s, static_cast<unsigned>(JSC::PropertyAttribute::DontEnum), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestNamedSetterThrowingExceptionConstructor, 0 } },
 };
 
 const ClassInfo JSTestNamedSetterThrowingExceptionPrototype::s_info = { "TestNamedSetterThrowingException"_s, &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(JSTestNamedSetterThrowingExceptionPrototype) };
@@ -297,9 +297,9 @@ JSC::GCClient::IsoSubspace* JSTestNamedSetterThrowingException::subspaceForImpl(
 {
     return WebCore::subspaceForImpl<JSTestNamedSetterThrowingException, UseCustomHeapCellType::No>(vm,
         [] (auto& spaces) { return spaces.m_clientSubspaceForTestNamedSetterThrowingException.get(); },
-        [] (auto& spaces, auto&& space) { spaces.m_clientSubspaceForTestNamedSetterThrowingException = WTFMove(space); },
+        [] (auto& spaces, auto&& space) { spaces.m_clientSubspaceForTestNamedSetterThrowingException = std::forward<decltype(space)>(space); },
         [] (auto& spaces) { return spaces.m_subspaceForTestNamedSetterThrowingException.get(); },
-        [] (auto& spaces, auto&& space) { spaces.m_subspaceForTestNamedSetterThrowingException = WTFMove(space); }
+        [] (auto& spaces, auto&& space) { spaces.m_subspaceForTestNamedSetterThrowingException = std::forward<decltype(space)>(space); }
     );
 }
 

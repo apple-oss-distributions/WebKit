@@ -45,6 +45,7 @@
 
 namespace WebCore {
 
+struct ImageBufferCreationContext;
 class GraphicsContext;
 class GraphicsContextGL;
 #if HAVE(IOSURFACE)
@@ -121,6 +122,7 @@ public:
     virtual void finalizeDrawIntoContext(GraphicsContext&) { }
     virtual RefPtr<NativeImage> copyNativeImage(BackingStoreCopy) const = 0;
 
+    WEBCORE_EXPORT virtual RefPtr<NativeImage> copyNativeImageForDrawing(BackingStoreCopy copyBehavior) const;
     WEBCORE_EXPORT virtual RefPtr<NativeImage> sinkIntoNativeImage();
 
     virtual void clipToMask(GraphicsContext&, const FloatRect&) { }
@@ -140,6 +142,8 @@ public:
 
     virtual bool isInUse() const { return false; }
     virtual void releaseGraphicsContext() { ASSERT_NOT_REACHED(); }
+
+    virtual void transferToNewContext(const ImageBufferCreationContext&) { }
 
     // Returns true on success.
     virtual bool setVolatile() { return true; }
@@ -162,6 +166,10 @@ public:
     virtual ImageBufferBackendSharing* toBackendSharing() { return nullptr; }
 
     virtual void setOwnershipIdentity(const ProcessIdentity&) { }
+
+    virtual void clearContents() { ASSERT_NOT_REACHED(); }
+
+    const Parameters& parameters() { return m_parameters; }
 
 protected:
     WEBCORE_EXPORT ImageBufferBackend(const Parameters&);

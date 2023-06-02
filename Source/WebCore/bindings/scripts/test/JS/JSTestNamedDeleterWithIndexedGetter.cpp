@@ -107,7 +107,7 @@ template<> void JSTestNamedDeleterWithIndexedGetterDOMConstructor::initializePro
 
 static const HashTableValue JSTestNamedDeleterWithIndexedGetterPrototypeTableValues[] =
 {
-    { "constructor"_s, static_cast<unsigned>(JSC::PropertyAttribute::DontEnum), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestNamedDeleterWithIndexedGetterConstructor), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(0) } },
+    { "constructor"_s, static_cast<unsigned>(JSC::PropertyAttribute::DontEnum), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestNamedDeleterWithIndexedGetterConstructor, 0 } },
 };
 
 const ClassInfo JSTestNamedDeleterWithIndexedGetterPrototype::s_info = { "TestNamedDeleterWithIndexedGetter"_s, &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(JSTestNamedDeleterWithIndexedGetterPrototype) };
@@ -259,9 +259,9 @@ JSC::GCClient::IsoSubspace* JSTestNamedDeleterWithIndexedGetter::subspaceForImpl
 {
     return WebCore::subspaceForImpl<JSTestNamedDeleterWithIndexedGetter, UseCustomHeapCellType::No>(vm,
         [] (auto& spaces) { return spaces.m_clientSubspaceForTestNamedDeleterWithIndexedGetter.get(); },
-        [] (auto& spaces, auto&& space) { spaces.m_clientSubspaceForTestNamedDeleterWithIndexedGetter = WTFMove(space); },
+        [] (auto& spaces, auto&& space) { spaces.m_clientSubspaceForTestNamedDeleterWithIndexedGetter = std::forward<decltype(space)>(space); },
         [] (auto& spaces) { return spaces.m_subspaceForTestNamedDeleterWithIndexedGetter.get(); },
-        [] (auto& spaces, auto&& space) { spaces.m_subspaceForTestNamedDeleterWithIndexedGetter = WTFMove(space); }
+        [] (auto& spaces, auto&& space) { spaces.m_subspaceForTestNamedDeleterWithIndexedGetter = std::forward<decltype(space)>(space); }
     );
 }
 

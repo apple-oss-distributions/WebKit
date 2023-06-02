@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019-2021 Apple Inc. All rights reserved.
+ * Copyright (C) 2019-2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -48,20 +48,19 @@ namespace WebKit {
 
 SOAuthorizationCoordinator::SOAuthorizationCoordinator()
 {
+    m_hasAppSSO = !!PAL::getSOAuthorizationClass();
 #if PLATFORM(MAC)
     // In the case of base system, which doesn't have AppSSO.framework.
-    if (!PAL::getSOAuthorizationClass())
+    if (!m_hasAppSSO)
         return;
 #endif
-    m_soAuthorization = adoptNS([PAL::allocSOAuthorizationInstance() init]);
     m_soAuthorizationDelegate = adoptNS([[WKSOAuthorizationDelegate alloc] init]);
-    m_soAuthorization.get().delegate = m_soAuthorizationDelegate.get();
     [NSURLSession _disableAppSSO];
 }
 
 bool SOAuthorizationCoordinator::canAuthorize(const URL& url) const
 {
-    return m_soAuthorization && [PAL::getSOAuthorizationClass() canPerformAuthorizationWithURL:url responseCode:0];
+    return m_hasAppSSO && [PAL::getSOAuthorizationClass() canPerformAuthorizationWithURL:url responseCode:0];
 }
 
 void SOAuthorizationCoordinator::tryAuthorize(Ref<API::NavigationAction>&& navigationAction, WebPageProxy& page, Function<void(bool)>&& completionHandler)
@@ -82,7 +81,7 @@ void SOAuthorizationCoordinator::tryAuthorize(Ref<API::NavigationAction>&& navig
         return;
     }
 
-    auto session = subframeNavigation ? SubFrameSOAuthorizationSession::create(m_soAuthorization.get(), WTFMove(navigationAction), page, WTFMove(completionHandler), targetFrame->handle()->frameID()) : RedirectSOAuthorizationSession::create(m_soAuthorization.get(), WTFMove(navigationAction), page, WTFMove(completionHandler));
+    auto session = subframeNavigation ? SubFrameSOAuthorizationSession::create(m_soAuthorizationDelegate, WTFMove(navigationAction), page, WTFMove(completionHandler), targetFrame->handle()->frameID()) : RedirectSOAuthorizationSession::create(m_soAuthorizationDelegate, WTFMove(navigationAction), page, WTFMove(completionHandler));
     [m_soAuthorizationDelegate setSession:WTFMove(session)];
 }
 
@@ -108,12 +107,13 @@ void SOAuthorizationCoordinator::tryAuthorize(Ref<API::NavigationAction>&& navig
         return;
     }
 
-    auto session = PopUpSOAuthorizationSession::create(m_soAuthorization.get(), page, WTFMove(navigationAction), WTFMove(newPageCallback), WTFMove(uiClientCallback));
+    auto session = PopUpSOAuthorizationSession::create(m_soAuthorizationDelegate, page, WTFMove(navigationAction), WTFMove(newPageCallback), WTFMove(uiClientCallback));
     [m_soAuthorizationDelegate setSession:WTFMove(session)];
 }
 
 } // namespace WebKit
 
+#undef AUTHORIZATIONCOORDINATOR_RELEASE_LOG_ERROR
 #undef AUTHORIZATIONCOORDINATOR_RELEASE_LOG
 
 #endif

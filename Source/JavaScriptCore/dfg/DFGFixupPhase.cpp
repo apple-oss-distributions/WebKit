@@ -81,8 +81,9 @@ private:
         if (optimizeForX86() || optimizeForARM64() || optimizeForARMv7IDIVSupported()) {
             fixIntOrBooleanEdge(leftChild);
             fixIntOrBooleanEdge(rightChild);
+            // FIXME: We should attempt to remove checks.
             if (bytecodeCanTruncateInteger(node->arithNodeFlags()))
-                node->setArithMode(Arith::Unchecked);
+                node->setArithMode(Arith::CheckOverflow);
             else if (bytecodeCanIgnoreNegativeZero(node->arithNodeFlags()))
                 node->setArithMode(Arith::CheckOverflow);
             else
@@ -719,13 +720,15 @@ private:
             
         case ArithMin:
         case ArithMax: {
-            if (m_graph.binaryArithShouldSpeculateInt32(node, FixupPass)) {
-                fixIntOrBooleanEdge(node->child1());
-                fixIntOrBooleanEdge(node->child2());
+            if (m_graph.variadicArithShouldSpeculateInt32(node, FixupPass)) {
+                m_graph.doToChildren(node, [&](Edge& child) {
+                    fixIntOrBooleanEdge(child);
+                });
                 break;
             }
-            fixDoubleOrBooleanEdge(node->child1());
-            fixDoubleOrBooleanEdge(node->child2());
+            m_graph.doToChildren(node, [&](Edge& child) {
+                fixDoubleOrBooleanEdge(child);
+            });
             node->setResult(NodeResultDouble);
             break;
         }
@@ -857,11 +860,8 @@ private:
                 fixEdge<StringUse>(node->child1());
             else if (node->child1()->shouldSpeculateStringOrOther())
                 fixEdge<StringOrOtherUse>(node->child1());
-            else {
-                WatchpointSet* masqueradesAsUndefinedWatchpoint = m_graph.globalObjectFor(node->origin.semantic)->masqueradesAsUndefinedWatchpoint();
-                if (masqueradesAsUndefinedWatchpoint->isStillValid())
-                    m_graph.watchpoints().addLazily(masqueradesAsUndefinedWatchpoint);
-            }
+            else
+                m_graph.isWatchingMasqueradesAsUndefinedWatchpointSet(node);
             break;
         }
 
@@ -1024,6 +1024,12 @@ private:
             break;
         }
 
+        case StringLocaleCompare: {
+            fixEdge<StringUse>(node->child1());
+            fixEdge<StringUse>(node->child2());
+            break;
+        }
+
         case EnumeratorGetByVal: {
             fixEdge<KnownInt32Use>(m_graph.varArgChild(node, 3));
             fixEdge<KnownInt32Use>(m_graph.varArgChild(node, 4));
@@ -1182,6 +1188,10 @@ private:
                 break;
             }
             
+            break;
+        }
+
+        case GetByValWithThis: {
             break;
         }
 
@@ -1426,6 +1436,10 @@ private:
                         SpecInt32Only,
                         element->prediction()));
             }
+
+            if (!elementCount)
+                node->setArrayMode(node->arrayMode().refine(m_graph, node, arrayEdge->prediction() & SpecCell, SpecInt32Only));
+
             blessArrayOperation(arrayEdge, Edge(), storageEdge);
             fixEdge<KnownCellUse>(arrayEdge);
 
@@ -1451,6 +1465,8 @@ private:
                     break;
                 case Array::Contiguous:
                 case Array::ArrayStorage:
+                case Array::SlowPutArrayStorage:
+                case Array::ForceExit:
                     speculateForBarrier(element);
                     break;
                 default:
@@ -1503,13 +1519,25 @@ private:
 
         case StringReplace:
         case StringReplaceRegExp: {
+            if (op == StringReplace
+                && node->child1()->shouldSpeculateString()
+                && node->child2()->shouldSpeculateString()
+                && m_graph.isWatchingStringSymbolReplaceWatchpoint(node)) {
+                node->setOp(StringReplaceString);
+                fixEdge<StringUse>(node->child1());
+                fixEdge<StringUse>(node->child2());
+                if (node->child3()->shouldSpeculateString())
+                    fixEdge<StringUse>(node->child3());
+                break;
+            }
+
             if (node->child2()->shouldSpeculateString()) {
                 m_insertionSet.insertNode(
                     m_indexInBlock, SpecNone, Check, node->origin,
                     Edge(node->child2().node(), StringUse));
                 fixEdge<StringUse>(node->child2());
             } else if (op == StringReplace) {
-                if (node->child2()->shouldSpeculateRegExpObject())
+                if (node->child2()->shouldSpeculateRegExpObject() && m_graph.isWatchingRegExpPrimordialPropertiesWatchpoint(node))
                     addStringReplacePrimordialChecks(node->child2().node());
                 else 
                     m_insertionSet.insertNode(
@@ -1525,6 +1553,14 @@ private:
                 fixEdge<StringUse>(node->child3());
                 break;
             }
+            break;
+        }
+
+        case StringReplaceString: {
+            fixEdge<StringUse>(node->child1());
+            fixEdge<StringUse>(node->child2());
+            if (node->child3()->shouldSpeculateString())
+                fixEdge<StringUse>(node->child3());
             break;
         }
             
@@ -1551,11 +1587,8 @@ private:
                 fixEdge<StringUse>(node->child1());
             else if (node->child1()->shouldSpeculateStringOrOther())
                 fixEdge<StringOrOtherUse>(node->child1());
-            else {
-                WatchpointSet* masqueradesAsUndefinedWatchpoint = m_graph.globalObjectFor(node->origin.semantic)->masqueradesAsUndefinedWatchpoint();
-                if (masqueradesAsUndefinedWatchpoint->isStillValid())
-                    m_graph.watchpoints().addLazily(masqueradesAsUndefinedWatchpoint);
-            }
+            else
+                m_graph.isWatchingMasqueradesAsUndefinedWatchpointSet(node);
             break;
         }
             
@@ -1669,22 +1702,15 @@ private:
             
             watchHavingABadTime(node->child1().node());
 
-            JSGlobalObject* globalObject = m_graph.globalObjectFor(node->child1()->origin.semantic);
             // When we go down the fast path, we don't consult the prototype chain, so we must prove
             // that it doesn't contain any indexed properties, and that any holes will result in
             // jsUndefined().
-            Structure* arrayPrototypeStructure = globalObject->arrayPrototype()->structure();
-            Structure* objectPrototypeStructure = globalObject->objectPrototype()->structure();
             if (node->child1()->shouldSpeculateArray()
-                && arrayPrototypeStructure->transitionWatchpointSetIsStillValid()
-                && objectPrototypeStructure->transitionWatchpointSetIsStillValid()
-                && globalObject->arrayPrototypeChainIsSaneConcurrently(arrayPrototypeStructure, objectPrototypeStructure)
+                && m_graph.isWatchingArrayPrototypeChainIsSaneWatchpoint(node->child1().node())
                 && m_graph.isWatchingArrayIteratorProtocolWatchpoint(node->child1().node())
-                && m_graph.isWatchingHavingABadTimeWatchpoint(node->child1().node())) {
-                m_graph.registerAndWatchStructureTransition(objectPrototypeStructure);
-                m_graph.registerAndWatchStructureTransition(arrayPrototypeStructure);
+                && m_graph.isWatchingHavingABadTimeWatchpoint(node->child1().node()))
                 fixEdge<ArrayUse>(node->child1());
-            } else
+            else
                 fixEdge<CellUse>(node->child1());
             break;
         }
@@ -1746,6 +1772,24 @@ private:
         case NewArrayWithSize: {
             watchHavingABadTime(node);
             fixEdge<Int32Use>(node->child1());
+            break;
+        }
+
+        case NewArrayWithSpecies: {
+            ArrayMode arrayMode = node->arrayMode().refine(m_graph, node, node->child2()->prediction(), ArrayMode::unusedIndexSpeculatedType);
+            node->setArrayMode(arrayMode);
+            Edge unusedEdge;
+            blessArrayOperation(node->child2(), Edge(), unusedEdge, neverNeedsStorage);
+            if (node->child1()->shouldSpeculateInt32()) {
+                fixEdge<Int32Use>(node->child1());
+                ArrayMode arrayMode = node->arrayMode();
+                if (arrayMode.isJSArrayWithOriginalStructure()) {
+                    if (m_graph.isWatchingArraySpeciesWatchpoint(node) && watchSaneChain(node)) {
+                        node->convertToNewArrayWithSize();
+                        watchHavingABadTime(node);
+                    }
+                }
+            }
             break;
         }
 
@@ -2019,6 +2063,14 @@ private:
             break;
         }
 
+        case ObjectToString: {
+#if USE(JSVALUE64)
+            if (node->child1()->shouldSpeculateObject())
+                fixEdge<ObjectUse>(node->child1());
+#endif
+            break;
+        }
+
         case CheckIdent: {
             if (node->uidOperand()->isSymbol())
                 fixEdge<SymbolUse>(node->child1());
@@ -2179,11 +2231,27 @@ private:
         }
 
         case GetTypedArrayByteOffsetAsInt52: {
+            ArrayMode arrayMode = node->arrayMode().refine(m_graph, node, node->child1()->prediction(), ArrayMode::unusedIndexSpeculatedType);
+            if (arrayMode.type() == Array::Generic)
+                arrayMode = arrayMode.withType(Array::ForceExit);
+            DFG_ASSERT(m_graph, node, arrayMode.isSomeTypedArrayView() || arrayMode.type() == Array::ForceExit);
+            node->setArrayMode(arrayMode);
+            Edge unusedEdge;
+            blessArrayOperation(node->child1(), Edge(), unusedEdge, neverNeedsStorage);
+
             fixEdge<KnownCellUse>(node->child1());
             break;
         }
 
         case GetTypedArrayByteOffset: {
+            ArrayMode arrayMode = node->arrayMode().refine(m_graph, node, node->child1()->prediction(), ArrayMode::unusedIndexSpeculatedType);
+            if (arrayMode.type() == Array::Generic)
+                arrayMode = arrayMode.withType(Array::ForceExit);
+            DFG_ASSERT(m_graph, node, arrayMode.isSomeTypedArrayView() || arrayMode.type() == Array::ForceExit);
+            node->setArrayMode(arrayMode);
+            Edge unusedEdge;
+            blessArrayOperation(node->child1(), Edge(), unusedEdge, neverNeedsStorage);
+
             fixEdge<KnownCellUse>(node->child1());
             break;
         }
@@ -2598,7 +2666,10 @@ private:
                 fixEdge<WeakSetObjectUse>(node->child1());
             else
                 RELEASE_ASSERT_NOT_REACHED();
-            fixEdge<ObjectUse>(node->child2());
+            if (node->child2()->shouldSpeculateObject())
+                fixEdge<ObjectUse>(node->child2());
+            else if (node->child2()->shouldSpeculateSymbol())
+                fixEdge<SymbolUse>(node->child2());
             fixEdge<Int32Use>(node->child3());
             break;
         }
@@ -2615,16 +2686,24 @@ private:
             break;
         }
 
+        case MapOrSetDelete: {
+            ASSERT(node->child1().useKind() == MapObjectUse || node->child1().useKind() == SetObjectUse);
+            fixEdge<Int32Use>(node->child3());
+            break;
+        }
+
         case WeakSetAdd: {
             fixEdge<WeakSetObjectUse>(node->child1());
-            fixEdge<ObjectUse>(node->child2());
+            if (node->child2()->shouldSpeculateObject())
+                fixEdge<ObjectUse>(node->child2());
             fixEdge<Int32Use>(node->child3());
             break;
         }
 
         case WeakMapSet: {
             fixEdge<WeakMapObjectUse>(m_graph.varArgChild(node, 0));
-            fixEdge<ObjectUse>(m_graph.varArgChild(node, 1));
+            if (m_graph.varArgChild(node, 1)->shouldSpeculateObject())
+                fixEdge<ObjectUse>(m_graph.varArgChild(node, 1));
             fixEdge<Int32Use>(m_graph.varArgChild(node, 3));
             break;
         }
@@ -2650,7 +2729,8 @@ private:
             break;
         }
 
-        case StringSlice: {
+        case StringSlice:
+        case StringSubstring: {
             fixEdge<StringUse>(node->child1());
             fixEdge<Int32Use>(node->child2());
             if (node->child3())
@@ -2667,6 +2747,7 @@ private:
             break;
         }
 
+        case NumberToStringWithValidRadixConstant:
         case NumberToStringWithRadix: {
             if (node->child1()->shouldSpeculateInt32())
                 fixEdge<Int32Use>(node->child1());
@@ -2674,7 +2755,13 @@ private:
                 fixEdge<Int52RepUse>(node->child1());
             else
                 fixEdge<DoubleRepUse>(node->child1());
-            fixEdge<Int32Use>(node->child2());
+
+            if (op == NumberToStringWithRadix)
+                fixEdge<Int32Use>(node->child2());
+            else if (node->validRadixConstant() == 10 && node->child1()->shouldSpeculateNumber()) {
+                node->setOp(ToString);
+                node->resetOpInfo();
+            }
             break;
         }
 
@@ -2859,13 +2946,14 @@ private:
         case Construct:
         case DirectConstruct:
         case CallVarargs:
-        case CallEval:
+        case CallDirectEval:
         case TailCallVarargsInlinedCaller:
         case ConstructVarargs:
         case CallForwardVarargs:
         case ConstructForwardVarargs:
         case TailCallForwardVarargs:
         case TailCallForwardVarargsInlinedCaller:
+        case CallWasm:
         case VarargsLength:
         case ProfileControlFlow:
         case NewObject:
@@ -2911,9 +2999,7 @@ private:
         case TypeOf:
         case PutByIdWithThis:
         case PutByValWithThis:
-        case GetByValWithThis:
         case CompareEqPtr:
-        case NumberToStringWithValidRadixConstant:
         case GetGlobalThis:
         case ExtractValueFromWeakMapGet:
         case CPUIntrinsic:
@@ -2926,6 +3012,7 @@ private:
         case FilterSetPrivateBrandStatus:
         case InvalidationPoint:
         case CreateArgumentsButterfly:
+        case GetWebAssemblyInstanceExports:
             break;
 #else // not ASSERT_ENABLED
         default:
@@ -2942,18 +3029,7 @@ private:
 
     void watchHavingABadTime(Node* node)
     {
-        JSGlobalObject* globalObject = m_graph.globalObjectFor(node->origin.semantic);
-
-        // If this global object is not having a bad time, watch it. We go down this path anytime the code
-        // does an array allocation. The types of array allocations may change if we start to have a bad
-        // time. It's easier to reason about this if we know that whenever the types change after we start
-        // optimizing, the code just gets thrown out. Doing this at FixupPhase is just early enough, since
-        // prior to this point nobody should have been doing optimizations based on the indexing type of
-        // the allocation.
-        if (!globalObject->isHavingABadTime()) {
-            m_graph.watchpoints().addLazily(globalObject->havingABadTimeWatchpoint());
-            m_graph.freeze(globalObject);
-        }
+        m_graph.isWatchingHavingABadTimeWatchpoint(node);
     }
     
     template<UseKind useKind>
@@ -3375,6 +3451,13 @@ private:
             return;
         }
 
+        if (node->child1()->shouldSpeculateString()) {
+            fixEdge<StringUse>(node->child1());
+            node->setOpAndDefaultFlags(ToNumber);
+            node->clearFlags(NodeMustGenerate);
+            return;
+        }
+
         fixEdge<UntypedUse>(node->child1());
         node->setResult(NodeResultJS);
     }
@@ -3779,16 +3862,14 @@ private:
             setSaneChainIfPossible(node, *saneChainSpeculation);
     }
 
+    bool watchSaneChain(Node* node)
+    {
+        return m_graph.isWatchingArrayPrototypeChainIsSaneWatchpoint(node);
+    }
+
     void setSaneChainIfPossible(Node* node, Array::Speculation speculation)
     {
-        JSGlobalObject* globalObject = m_graph.globalObjectFor(node->origin.semantic);
-        Structure* arrayPrototypeStructure = globalObject->arrayPrototype()->structure();
-        Structure* objectPrototypeStructure = globalObject->objectPrototype()->structure();
-        if (arrayPrototypeStructure->transitionWatchpointSetIsStillValid()
-            && objectPrototypeStructure->transitionWatchpointSetIsStillValid()
-            && globalObject->arrayPrototypeChainIsSaneConcurrently(arrayPrototypeStructure, objectPrototypeStructure)) {
-            m_graph.registerAndWatchStructureTransition(arrayPrototypeStructure);
-            m_graph.registerAndWatchStructureTransition(objectPrototypeStructure);
+        if (watchSaneChain(node)) {
             node->setArrayMode(node->arrayMode().withSpeculation(speculation));
             node->clearFlags(NodeMustGenerate);
         }
@@ -4082,23 +4163,24 @@ private:
     {
         if (!isInt32Speculation(node->prediction()))
             return false;
-        CodeBlock* profiledBlock = m_graph.baselineCodeBlockFor(node->origin.semantic);
-        ArrayProfile* arrayProfile = 
-            profiledBlock->getArrayProfile(node->origin.semantic.bytecodeIndex());
         ArrayMode arrayMode = ArrayMode(Array::SelectUsingPredictions, Array::Read);
-        if (arrayProfile) {
+        {
+            CodeBlock* profiledBlock = m_graph.baselineCodeBlockFor(node->origin.semantic);
             ConcurrentJSLocker locker(profiledBlock->m_lock);
-            arrayProfile->computeUpdatedPrediction(locker, profiledBlock);
-            arrayMode = ArrayMode::fromObserved(locker, arrayProfile, Array::Read, false);
-            if (arrayMode.type() == Array::Unprofiled) {
-                // For normal array operations, it makes sense to treat Unprofiled
-                // accesses as ForceExit and get more data rather than using
-                // predictions and then possibly ending up with a Generic. But here,
-                // we treat anything that is Unprofiled as Generic and keep the
-                // GetById. I.e. ForceExit = Generic. So, there is no harm - and only
-                // profit - from treating the Unprofiled case as
-                // SelectUsingPredictions.
-                arrayMode = ArrayMode(Array::SelectUsingPredictions, Array::Read);
+            ArrayProfile* arrayProfile = profiledBlock->getArrayProfile(locker, node->origin.semantic.bytecodeIndex());
+            if (arrayProfile) {
+                arrayProfile->computeUpdatedPrediction(locker, profiledBlock);
+                arrayMode = ArrayMode::fromObserved(locker, arrayProfile, Array::Read, false);
+                if (arrayMode.type() == Array::Unprofiled) {
+                    // For normal array operations, it makes sense to treat Unprofiled
+                    // accesses as ForceExit and get more data rather than using
+                    // predictions and then possibly ending up with a Generic. But here,
+                    // we treat anything that is Unprofiled as Generic and keep the
+                    // GetById. I.e. ForceExit = Generic. So, there is no harm - and only
+                    // profit - from treating the Unprofiled case as
+                    // SelectUsingPredictions.
+                    arrayMode = ArrayMode(Array::SelectUsingPredictions, Array::Read);
+                }
             }
         }
             
@@ -4306,28 +4388,37 @@ private:
 
         Edge& searchElement = m_graph.varArgChild(node, 1);
 
+        fixEdge<KnownCellUse>(array);
+        if (node->numChildren() == 4)
+            fixEdge<Int32Use>(m_graph.varArgChild(node, 2));
+
         // Constant folding.
         switch (node->arrayMode().type()) {
         case Array::Double:
         case Array::Int32: {
+            Node* searchElementNode = searchElement.node();
+
             if (searchElement->shouldSpeculateCell()) {
-                m_insertionSet.insertNode(m_indexInBlock, SpecNone, Check, node->origin, Edge(searchElement.node(), CellUse));
+                fixEdge<CellUse>(searchElement);
+                m_insertionSet.insertCheck(m_graph, m_indexInBlock, node);
                 m_graph.convertToConstant(node, jsNumber(-1));
-                observeUseKindOnNode<CellUse>(searchElement.node());
+                observeUseKindOnNode<CellUse>(searchElementNode);
                 return;
             }
 
             if (searchElement->shouldSpeculateOther()) {
-                m_insertionSet.insertNode(m_indexInBlock, SpecNone, Check, node->origin, Edge(searchElement.node(), OtherUse));
+                fixEdge<OtherUse>(searchElement);
+                m_insertionSet.insertCheck(m_graph, m_indexInBlock, node);
                 m_graph.convertToConstant(node, jsNumber(-1));
-                observeUseKindOnNode<OtherUse>(searchElement.node());
+                observeUseKindOnNode<OtherUse>(searchElementNode);
                 return;
             }
 
             if (searchElement->shouldSpeculateBoolean()) {
-                m_insertionSet.insertNode(m_indexInBlock, SpecNone, Check, node->origin, Edge(searchElement.node(), BooleanUse));
+                fixEdge<BooleanUse>(searchElement);
+                m_insertionSet.insertCheck(m_graph, m_indexInBlock, node);
                 m_graph.convertToConstant(node, jsNumber(-1));
-                observeUseKindOnNode<BooleanUse>(searchElement.node());
+                observeUseKindOnNode<BooleanUse>(searchElementNode);
                 return;
             }
             break;
@@ -4335,10 +4426,6 @@ private:
         default:
             break;
         }
-
-        fixEdge<KnownCellUse>(array);
-        if (node->numChildren() == 4)
-            fixEdge<Int32Use>(m_graph.varArgChild(node, 2));
 
         switch (node->arrayMode().type()) {
         case Array::Double: {

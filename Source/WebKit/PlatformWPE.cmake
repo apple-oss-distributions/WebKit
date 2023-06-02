@@ -1,5 +1,6 @@
-include(InspectorGResources.cmake)
 include(GNUInstallDirs)
+include(GLib.cmake)
+include(InspectorGResources.cmake)
 
 if (ENABLE_PDFJS)
     include(PdfJSGResources.cmake)
@@ -17,7 +18,6 @@ set(GPUProcess_OUTPUT_NAME WPEGPUProcess)
 file(MAKE_DIRECTORY ${DERIVED_SOURCES_WPE_API_DIR})
 file(MAKE_DIRECTORY ${FORWARDING_HEADERS_WPE_DIR})
 file(MAKE_DIRECTORY ${FORWARDING_HEADERS_WPE_EXTENSION_DIR})
-file(MAKE_DIRECTORY ${FORWARDING_HEADERS_WPE_DOM_DIR})
 file(MAKE_DIRECTORY ${FORWARDING_HEADERS_WPE_JSC_DIR})
 
 configure_file(Shared/glib/BuildRevision.h.in ${FORWARDING_HEADERS_WPE_DIR}/BuildRevision.h)
@@ -36,8 +36,6 @@ if (EXISTS "${TOOLS_DIR}/glib/apply-build-revision-to-files.py")
         WebKit-build-revision
     )
 endif ()
-
-add_definitions(-DWEBKIT2_COMPILATION)
 
 add_definitions(-DLIBDIR="${LIB_INSTALL_DIR}")
 add_definitions(-DPKGLIBDIR="${LIB_INSTALL_DIR}/wpe-webkit-${WPE_API_VERSION}")
@@ -63,22 +61,9 @@ add_custom_command(
 )
 
 add_custom_command(
-    OUTPUT ${DERIVED_SOURCES_WPE_API_DIR}/webkit2
-    DEPENDS ${DERIVED_SOURCES_WPE_API_DIR}/webkit
-    COMMAND ln -n -s -f ${DERIVED_SOURCES_WPE_API_DIR}/webkit ${DERIVED_SOURCES_WPE_API_DIR}/webkit2
-)
-
-add_custom_command(
     OUTPUT ${FORWARDING_HEADERS_WPE_EXTENSION_DIR}/wpe
     DEPENDS ${WEBKIT_DIR}/WebProcess/InjectedBundle/API/wpe
     COMMAND ln -n -s -f ${WEBKIT_DIR}/WebProcess/InjectedBundle/API/wpe ${FORWARDING_HEADERS_WPE_EXTENSION_DIR}/wpe
-)
-
-add_custom_command(
-    OUTPUT ${FORWARDING_HEADERS_WPE_DOM_DIR}/wpe
-    DEPENDS ${WEBKIT_DIR}/WebProcess/InjectedBundle/API/wpe/DOM
-    COMMAND ln -n -s -f ${WEBKIT_DIR}/WebProcess/InjectedBundle/API/wpe/DOM ${FORWARDING_HEADERS_WPE_DOM_DIR}/wpe
-    VERBATIM
 )
 
 add_custom_command(
@@ -86,18 +71,6 @@ add_custom_command(
     DEPENDS ${JAVASCRIPTCORE_DIR}/API/glib/
     COMMAND ln -n -s -f ${JAVASCRIPTCORE_DIR}/API/glib ${FORWARDING_HEADERS_WPE_JSC_DIR}/jsc
     VERBATIM
-)
-
-add_custom_target(webkitwpe-fake-api-headers
-    DEPENDS ${FORWARDING_HEADERS_WPE_DIR}/wpe
-            ${FORWARDING_HEADERS_WPE_EXTENSION_DIR}/wpe
-            ${FORWARDING_HEADERS_WPE_DOM_DIR}/wpe
-            ${FORWARDING_HEADERS_WPE_JSC_DIR}/jsc
-)
-
-list(APPEND WebKit_DEPENDENCIES
-    webkitwpe-fake-api-headers
-    webkitwpe-forwarding-headers
 )
 
 list(APPEND WebProcess_SOURCES
@@ -154,96 +127,138 @@ add_custom_command(
     VERBATIM
 )
 
+set(WPE_API_HEADER_TEMPLATES
+    ${WEBKIT_DIR}/UIProcess/API/glib/WebKitApplicationInfo.h.in
+    ${WEBKIT_DIR}/UIProcess/API/glib/WebKitAuthenticationRequest.h.in
+    ${WEBKIT_DIR}/UIProcess/API/glib/WebKitAutocleanups.h.in
+    ${WEBKIT_DIR}/UIProcess/API/glib/WebKitAutomationSession.h.in
+    ${WEBKIT_DIR}/UIProcess/API/glib/WebKitBackForwardList.h.in
+    ${WEBKIT_DIR}/UIProcess/API/glib/WebKitBackForwardListItem.h.in
+    ${WEBKIT_DIR}/UIProcess/API/glib/WebKitCredential.h.in
+    ${WEBKIT_DIR}/UIProcess/API/glib/WebKitContextMenu.h.in
+    ${WEBKIT_DIR}/UIProcess/API/glib/WebKitContextMenuActions.h.in
+    ${WEBKIT_DIR}/UIProcess/API/glib/WebKitContextMenuItem.h.in
+    ${WEBKIT_DIR}/UIProcess/API/glib/WebKitCookieManager.h.in
+    ${WEBKIT_DIR}/UIProcess/API/glib/WebKitDefines.h.in
+    ${WEBKIT_DIR}/UIProcess/API/glib/WebKitDeviceInfoPermissionRequest.h.in
+    ${WEBKIT_DIR}/UIProcess/API/glib/WebKitDownload.h.in
+    ${WEBKIT_DIR}/UIProcess/API/glib/WebKitEditingCommands.h.in
+    ${WEBKIT_DIR}/UIProcess/API/glib/WebKitEditorState.h.in
+    ${WEBKIT_DIR}/UIProcess/API/glib/WebKitError.h.in
+    ${WEBKIT_DIR}/UIProcess/API/glib/WebKitFaviconDatabase.h.in
+    ${WEBKIT_DIR}/UIProcess/API/glib/WebKitFileChooserRequest.h.in
+    ${WEBKIT_DIR}/UIProcess/API/glib/WebKitFindController.h.in
+    ${WEBKIT_DIR}/UIProcess/API/glib/WebKitFormSubmissionRequest.h.in
+    ${WEBKIT_DIR}/UIProcess/API/glib/WebKitGeolocationManager.h.in
+    ${WEBKIT_DIR}/UIProcess/API/glib/WebKitGeolocationPermissionRequest.h.in
+    ${WEBKIT_DIR}/UIProcess/API/glib/WebKitHitTestResult.h.in
+    ${WEBKIT_DIR}/UIProcess/API/glib/WebKitInputMethodContext.h.in
+    ${WEBKIT_DIR}/UIProcess/API/glib/WebKitInstallMissingMediaPluginsPermissionRequest.h.in
+    ${WEBKIT_DIR}/UIProcess/API/glib/WebKitJavascriptResult.h.in
+    ${WEBKIT_DIR}/UIProcess/API/glib/WebKitMediaKeySystemPermissionRequest.h.in
+    ${WEBKIT_DIR}/UIProcess/API/glib/WebKitMemoryPressureSettings.h.in
+    ${WEBKIT_DIR}/UIProcess/API/glib/WebKitNavigationAction.h.in
+    ${WEBKIT_DIR}/UIProcess/API/glib/WebKitNavigationPolicyDecision.h.in
+    ${WEBKIT_DIR}/UIProcess/API/glib/WebKitNetworkProxySettings.h.in
+    ${WEBKIT_DIR}/UIProcess/API/glib/WebKitNotificationPermissionRequest.h.in
+    ${WEBKIT_DIR}/UIProcess/API/glib/WebKitNotification.h.in
+    ${WEBKIT_DIR}/UIProcess/API/glib/WebKitOptionMenu.h.in
+    ${WEBKIT_DIR}/UIProcess/API/glib/WebKitOptionMenuItem.h.in
+    ${WEBKIT_DIR}/UIProcess/API/glib/WebKitPermissionRequest.h.in
+    ${WEBKIT_DIR}/UIProcess/API/glib/WebKitPermissionStateQuery.h.in
+    ${WEBKIT_DIR}/UIProcess/API/glib/WebKitPolicyDecision.h.in
+    ${WEBKIT_DIR}/UIProcess/API/glib/WebKitResponsePolicyDecision.h.in
+    ${WEBKIT_DIR}/UIProcess/API/glib/WebKitScriptDialog.h.in
+    ${WEBKIT_DIR}/UIProcess/API/glib/WebKitSecurityManager.h.in
+    ${WEBKIT_DIR}/UIProcess/API/glib/WebKitSecurityOrigin.h.in
+    ${WEBKIT_DIR}/UIProcess/API/glib/WebKitSettings.h.in
+    ${WEBKIT_DIR}/UIProcess/API/glib/WebKitURIRequest.h.in
+    ${WEBKIT_DIR}/UIProcess/API/glib/WebKitURIResponse.h.in
+    ${WEBKIT_DIR}/UIProcess/API/glib/WebKitURISchemeRequest.h.in
+    ${WEBKIT_DIR}/UIProcess/API/glib/WebKitURISchemeResponse.h.in
+    ${WEBKIT_DIR}/UIProcess/API/glib/WebKitURIUtilities.h.in
+    ${WEBKIT_DIR}/UIProcess/API/glib/WebKitUserContent.h.in
+    ${WEBKIT_DIR}/UIProcess/API/glib/WebKitUserContentFilterStore.h.in
+    ${WEBKIT_DIR}/UIProcess/API/glib/WebKitUserContentManager.h.in
+    ${WEBKIT_DIR}/UIProcess/API/glib/WebKitUserMediaPermissionRequest.h.in
+    ${WEBKIT_DIR}/UIProcess/API/glib/WebKitUserMessage.h.in
+    ${WEBKIT_DIR}/UIProcess/API/glib/WebKitWebContext.h.in
+    ${WEBKIT_DIR}/UIProcess/API/glib/WebKitWebResource.h.in
+    ${WEBKIT_DIR}/UIProcess/API/glib/WebKitWebView.h.in
+    ${WEBKIT_DIR}/UIProcess/API/glib/WebKitWebViewSessionState.h.in
+    ${WEBKIT_DIR}/UIProcess/API/glib/WebKitWebsiteData.h.in
+    ${WEBKIT_DIR}/UIProcess/API/glib/WebKitWebsiteDataAccessPermissionRequest.h.in
+    ${WEBKIT_DIR}/UIProcess/API/glib/WebKitWebsiteDataManager.h.in
+    ${WEBKIT_DIR}/UIProcess/API/glib/WebKitWindowProperties.h.in
+    ${WEBKIT_DIR}/UIProcess/API/glib/WebKitWebsitePolicies.h.in
+    ${WEBKIT_DIR}/UIProcess/API/glib/webkit.h.in
+)
+
+if (ENABLE_2022_GLIB_API)
+    list(APPEND WPE_API_HEADER_TEMPLATES
+        ${WEBKIT_DIR}/UIProcess/API/glib/WebKitNetworkSession.h.in
+    )
+endif ()
+
 set(WPE_API_INSTALLED_HEADERS
     ${DERIVED_SOURCES_WPE_API_DIR}/WebKitEnumTypes.h
     ${DERIVED_SOURCES_WPE_API_DIR}/WebKitVersion.h
-    ${WEBKIT_DIR}/UIProcess/API/wpe/WebKitApplicationInfo.h
-    ${WEBKIT_DIR}/UIProcess/API/wpe/WebKitAuthenticationRequest.h
-    ${WEBKIT_DIR}/UIProcess/API/wpe/WebKitAutocleanups.h
-    ${WEBKIT_DIR}/UIProcess/API/wpe/WebKitAutomationSession.h
-    ${WEBKIT_DIR}/UIProcess/API/wpe/WebKitBackForwardList.h
-    ${WEBKIT_DIR}/UIProcess/API/wpe/WebKitBackForwardListItem.h
-    ${WEBKIT_DIR}/UIProcess/API/wpe/WebKitCredential.h
     ${WEBKIT_DIR}/UIProcess/API/wpe/WebKitColor.h
-    ${WEBKIT_DIR}/UIProcess/API/wpe/WebKitContextMenu.h
-    ${WEBKIT_DIR}/UIProcess/API/wpe/WebKitContextMenuActions.h
-    ${WEBKIT_DIR}/UIProcess/API/wpe/WebKitContextMenuItem.h
-    ${WEBKIT_DIR}/UIProcess/API/wpe/WebKitCookieManager.h
-    ${WEBKIT_DIR}/UIProcess/API/wpe/WebKitDefines.h
-    ${WEBKIT_DIR}/UIProcess/API/wpe/WebKitDeviceInfoPermissionRequest.h
-    ${WEBKIT_DIR}/UIProcess/API/wpe/WebKitDownload.h
-    ${WEBKIT_DIR}/UIProcess/API/wpe/WebKitEditingCommands.h
-    ${WEBKIT_DIR}/UIProcess/API/wpe/WebKitEditorState.h
-    ${WEBKIT_DIR}/UIProcess/API/wpe/WebKitError.h
-    ${WEBKIT_DIR}/UIProcess/API/wpe/WebKitFaviconDatabase.h
-    ${WEBKIT_DIR}/UIProcess/API/wpe/WebKitFileChooserRequest.h
-    ${WEBKIT_DIR}/UIProcess/API/wpe/WebKitFindController.h
-    ${WEBKIT_DIR}/UIProcess/API/wpe/WebKitFormSubmissionRequest.h
-    ${WEBKIT_DIR}/UIProcess/API/wpe/WebKitGeolocationManager.h
-    ${WEBKIT_DIR}/UIProcess/API/wpe/WebKitGeolocationPermissionRequest.h
-    ${WEBKIT_DIR}/UIProcess/API/wpe/WebKitHitTestResult.h
-    ${WEBKIT_DIR}/UIProcess/API/wpe/WebKitInputMethodContext.h
-    ${WEBKIT_DIR}/UIProcess/API/wpe/WebKitInstallMissingMediaPluginsPermissionRequest.h
-    ${WEBKIT_DIR}/UIProcess/API/wpe/WebKitJavascriptResult.h
-    ${WEBKIT_DIR}/UIProcess/API/wpe/WebKitMediaKeySystemPermissionRequest.h
-    ${WEBKIT_DIR}/UIProcess/API/wpe/WebKitMemoryPressureSettings.h
-    ${WEBKIT_DIR}/UIProcess/API/wpe/WebKitMimeInfo.h
-    ${WEBKIT_DIR}/UIProcess/API/wpe/WebKitNavigationAction.h
-    ${WEBKIT_DIR}/UIProcess/API/wpe/WebKitNavigationPolicyDecision.h
-    ${WEBKIT_DIR}/UIProcess/API/wpe/WebKitNetworkProxySettings.h
-    ${WEBKIT_DIR}/UIProcess/API/wpe/WebKitNotificationPermissionRequest.h
-    ${WEBKIT_DIR}/UIProcess/API/wpe/WebKitNotification.h
-    ${WEBKIT_DIR}/UIProcess/API/wpe/WebKitOptionMenu.h
-    ${WEBKIT_DIR}/UIProcess/API/wpe/WebKitOptionMenuItem.h
-    ${WEBKIT_DIR}/UIProcess/API/wpe/WebKitPermissionRequest.h
-    ${WEBKIT_DIR}/UIProcess/API/wpe/WebKitPlugin.h
-    ${WEBKIT_DIR}/UIProcess/API/wpe/WebKitPolicyDecision.h
     ${WEBKIT_DIR}/UIProcess/API/wpe/WebKitRectangle.h
-    ${WEBKIT_DIR}/UIProcess/API/wpe/WebKitResponsePolicyDecision.h
-    ${WEBKIT_DIR}/UIProcess/API/wpe/WebKitScriptDialog.h
-    ${WEBKIT_DIR}/UIProcess/API/wpe/WebKitSecurityManager.h
-    ${WEBKIT_DIR}/UIProcess/API/wpe/WebKitSecurityOrigin.h
-    ${WEBKIT_DIR}/UIProcess/API/wpe/WebKitSettings.h
-    ${WEBKIT_DIR}/UIProcess/API/wpe/WebKitURIRequest.h
-    ${WEBKIT_DIR}/UIProcess/API/wpe/WebKitURIResponse.h
-    ${WEBKIT_DIR}/UIProcess/API/wpe/WebKitURISchemeRequest.h
-    ${WEBKIT_DIR}/UIProcess/API/wpe/WebKitURISchemeResponse.h
-    ${WEBKIT_DIR}/UIProcess/API/wpe/WebKitURIUtilities.h
-    ${WEBKIT_DIR}/UIProcess/API/wpe/WebKitUserContent.h
-    ${WEBKIT_DIR}/UIProcess/API/wpe/WebKitUserContentFilterStore.h
-    ${WEBKIT_DIR}/UIProcess/API/wpe/WebKitUserContentManager.h
-    ${WEBKIT_DIR}/UIProcess/API/wpe/WebKitUserMediaPermissionRequest.h
-    ${WEBKIT_DIR}/UIProcess/API/wpe/WebKitUserMessage.h
-    ${WEBKIT_DIR}/UIProcess/API/wpe/WebKitWebContext.h
-    ${WEBKIT_DIR}/UIProcess/API/wpe/WebKitWebResource.h
-    ${WEBKIT_DIR}/UIProcess/API/wpe/WebKitWebView.h
     ${WEBKIT_DIR}/UIProcess/API/wpe/WebKitWebViewBackend.h
-    ${WEBKIT_DIR}/UIProcess/API/wpe/WebKitWebViewSessionState.h
-    ${WEBKIT_DIR}/UIProcess/API/wpe/WebKitWebsiteData.h
-    ${WEBKIT_DIR}/UIProcess/API/wpe/WebKitWebsiteDataAccessPermissionRequest.h
-    ${WEBKIT_DIR}/UIProcess/API/wpe/WebKitWebsiteDataManager.h
-    ${WEBKIT_DIR}/UIProcess/API/wpe/WebKitWindowProperties.h
-    ${WEBKIT_DIR}/UIProcess/API/wpe/WebKitWebsitePolicies.h
-    ${WEBKIT_DIR}/UIProcess/API/wpe/webkit.h
 )
 
 set(WPE_WEB_EXTENSION_API_INSTALLED_HEADERS
     ${DERIVED_SOURCES_WPE_API_DIR}/WebKitWebProcessEnumTypes.h
-    ${WEBKIT_DIR}/WebProcess/InjectedBundle/API/wpe/WebKitConsoleMessage.h
-    ${WEBKIT_DIR}/WebProcess/InjectedBundle/API/wpe/WebKitFrame.h
-    ${WEBKIT_DIR}/WebProcess/InjectedBundle/API/wpe/WebKitScriptWorld.h
-    ${WEBKIT_DIR}/WebProcess/InjectedBundle/API/wpe/WebKitWebEditor.h
-    ${WEBKIT_DIR}/WebProcess/InjectedBundle/API/wpe/WebKitWebExtension.h
-    ${WEBKIT_DIR}/WebProcess/InjectedBundle/API/wpe/WebKitWebExtensionAutocleanups.h
-    ${WEBKIT_DIR}/WebProcess/InjectedBundle/API/wpe/WebKitWebHitTestResult.h
-    ${WEBKIT_DIR}/WebProcess/InjectedBundle/API/wpe/WebKitWebPage.h
-    ${WEBKIT_DIR}/WebProcess/InjectedBundle/API/wpe/webkit-web-extension.h
-    ${WEBKIT_DIR}/WebProcess/InjectedBundle/API/wpe/DOM/webkitdom.h
-    ${WEBKIT_DIR}/WebProcess/InjectedBundle/API/wpe/DOM/WebKitDOMDefines.h
-    ${WEBKIT_DIR}/WebProcess/InjectedBundle/API/wpe/DOM/WebKitDOMDocument.h
-    ${WEBKIT_DIR}/WebProcess/InjectedBundle/API/wpe/DOM/WebKitDOMElement.h
-    ${WEBKIT_DIR}/WebProcess/InjectedBundle/API/wpe/DOM/WebKitDOMNode.h
-    ${WEBKIT_DIR}/WebProcess/InjectedBundle/API/wpe/DOM/WebKitDOMObject.h
+)
+
+set(WPE_WEB_EXTENSION_API_HEADER_TEMPLATES
+    ${WEBKIT_DIR}/WebProcess/InjectedBundle/API/glib/WebKitFrame.h.in
+    ${WEBKIT_DIR}/WebProcess/InjectedBundle/API/glib/WebKitScriptWorld.h.in
+    ${WEBKIT_DIR}/WebProcess/InjectedBundle/API/glib/WebKitWebEditor.h.in
+    ${WEBKIT_DIR}/WebProcess/InjectedBundle/API/glib/WebKitWebExtension.h.in
+    ${WEBKIT_DIR}/WebProcess/InjectedBundle/API/glib/WebKitWebExtensionAutocleanups.h.in
+    ${WEBKIT_DIR}/WebProcess/InjectedBundle/API/glib/WebKitWebFormManager.h.in
+    ${WEBKIT_DIR}/WebProcess/InjectedBundle/API/glib/WebKitWebHitTestResult.h.in
+    ${WEBKIT_DIR}/WebProcess/InjectedBundle/API/glib/WebKitWebPage.h.in
+    ${WEBKIT_DIR}/WebProcess/InjectedBundle/API/glib/webkit-web-extension.h.in
+)
+
+set(WPE_FAKE_API_HEADERS
+    ${FORWARDING_HEADERS_WPE_DIR}/wpe
+    ${FORWARDING_HEADERS_WPE_EXTENSION_DIR}/wpe
+    ${FORWARDING_HEADERS_WPE_JSC_DIR}/jsc
+)
+
+if (NOT ENABLE_2022_GLIB_API)
+    include(PlatformWPEDeprecated.cmake)
+endif ()
+
+add_custom_target(webkitwpe-fake-api-headers
+    DEPENDS ${WPE_FAKE_API_HEADERS}
+)
+
+list(APPEND WebKit_DEPENDENCIES
+    webkitwpe-fake-api-headers
+    webkitwpe-forwarding-headers
+)
+
+GENERATE_API_HEADERS(WPE_API_HEADER_TEMPLATES
+    ${DERIVED_SOURCES_WPE_API_DIR}
+    WPE_API_INSTALLED_HEADERS
+    "-DWTF_PLATFORM_GTK=0"
+    "-DWTF_PLATFORM_WPE=1"
+    "-DUSE_GTK4=0"
+    "-DENABLE_2022_GLIB_API=$<BOOL:${ENABLE_2022_GLIB_API}>"
+)
+
+GENERATE_API_HEADERS(WPE_WEB_EXTENSION_API_HEADER_TEMPLATES
+    ${DERIVED_SOURCES_WPE_API_DIR}
+    WPE_WEB_EXTENSION_API_INSTALLED_HEADERS
+    "-DWTF_PLATFORM_GTK=0"
+    "-DWTF_PLATFORM_WPE=1"
+    "-DUSE_GTK4=0"
+    "-DENABLE_2022_GLIB_API=$<BOOL:${ENABLE_2022_GLIB_API}>"
 )
 
 # To generate WebKitEnumTypes.h we want to use all installed headers, except WebKitEnumTypes.h itself.
@@ -254,9 +269,9 @@ add_custom_command(
            ${DERIVED_SOURCES_WPE_API_DIR}/WebKitEnumTypes.cpp
     DEPENDS ${WPE_ENUM_GENERATION_HEADERS}
 
-    COMMAND glib-mkenums --template ${WEBKIT_DIR}/UIProcess/API/wpe/WebKitEnumTypes.h.template ${WPE_ENUM_GENERATION_HEADERS} | sed s/web_kit/webkit/ | sed s/WEBKIT_TYPE_KIT/WEBKIT_TYPE/ > ${DERIVED_SOURCES_WPE_API_DIR}/WebKitEnumTypes.h
+    COMMAND glib-mkenums --template ${WEBKIT_DIR}/UIProcess/API/wpe/WebKitEnumTypes.h.in ${WPE_ENUM_GENERATION_HEADERS} | sed s/web_kit/webkit/ | sed s/WEBKIT_TYPE_KIT/WEBKIT_TYPE/ > ${DERIVED_SOURCES_WPE_API_DIR}/WebKitEnumTypes.h
 
-    COMMAND glib-mkenums --template ${WEBKIT_DIR}/UIProcess/API/wpe/WebKitEnumTypes.cpp.template ${WPE_ENUM_GENERATION_HEADERS} | sed s/web_kit/webkit/ > ${DERIVED_SOURCES_WPE_API_DIR}/WebKitEnumTypes.cpp
+    COMMAND glib-mkenums --template ${WEBKIT_DIR}/UIProcess/API/wpe/WebKitEnumTypes.cpp.in ${WPE_ENUM_GENERATION_HEADERS} | sed s/web_kit/webkit/ > ${DERIVED_SOURCES_WPE_API_DIR}/WebKitEnumTypes.cpp
     VERBATIM
 )
 
@@ -267,9 +282,9 @@ add_custom_command(
            ${DERIVED_SOURCES_WPE_API_DIR}/WebKitWebProcessEnumTypes.cpp
     DEPENDS ${WPE_WEB_PROCESS_ENUM_GENERATION_HEADERS}
 
-    COMMAND glib-mkenums --template ${WEBKIT_DIR}/WebProcess/InjectedBundle/API/wpe/WebKitWebProcessEnumTypes.h.template ${WPE_WEB_PROCESS_ENUM_GENERATION_HEADERS} | sed s/web_kit/webkit/ | sed s/WEBKIT_TYPE_KIT/WEBKIT_TYPE/ > ${DERIVED_SOURCES_WPE_API_DIR}/WebKitWebProcessEnumTypes.h
+    COMMAND glib-mkenums --template ${WEBKIT_DIR}/WebProcess/InjectedBundle/API/wpe/WebKitWebProcessEnumTypes.h.in ${WPE_WEB_PROCESS_ENUM_GENERATION_HEADERS} | sed s/web_kit/webkit/ | sed s/WEBKIT_TYPE_KIT/WEBKIT_TYPE/ > ${DERIVED_SOURCES_WPE_API_DIR}/WebKitWebProcessEnumTypes.h
 
-    COMMAND glib-mkenums --template ${WEBKIT_DIR}/WebProcess/InjectedBundle/API/wpe/WebKitWebProcessEnumTypes.cpp.template ${WPE_WEB_PROCESS_ENUM_GENERATION_HEADERS} | sed s/web_kit/webkit/ > ${DERIVED_SOURCES_WPE_API_DIR}/WebKitWebProcessEnumTypes.cpp
+    COMMAND glib-mkenums --template ${WEBKIT_DIR}/WebProcess/InjectedBundle/API/wpe/WebKitWebProcessEnumTypes.cpp.in ${WPE_WEB_PROCESS_ENUM_GENERATION_HEADERS} | sed s/web_kit/webkit/ > ${DERIVED_SOURCES_WPE_API_DIR}/WebKitWebProcessEnumTypes.cpp
     VERBATIM
 )
 
@@ -302,7 +317,6 @@ add_custom_command(
 list(APPEND WebKit_INCLUDE_DIRECTORIES
     "${DERIVED_SOURCES_WPE_API_DIR}"
     "${FORWARDING_HEADERS_WPE_DIR}"
-    "${FORWARDING_HEADERS_WPE_DOM_DIR}"
     "${FORWARDING_HEADERS_WPE_EXTENSION_DIR}"
     "${WEBKIT_DIR}/NetworkProcess/glib"
     "${WEBKIT_DIR}/NetworkProcess/soup"
@@ -324,15 +338,16 @@ list(APPEND WebKit_INCLUDE_DIRECTORIES
     "${WEBKIT_DIR}/UIProcess/API/wpe"
     "${WEBKIT_DIR}/UIProcess/CoordinatedGraphics"
     "${WEBKIT_DIR}/UIProcess/Inspector/glib"
+    "${WEBKIT_DIR}/UIProcess/Launcher/glib"
+    "${WEBKIT_DIR}/UIProcess/Launcher/libwpe"
+    "${WEBKIT_DIR}/UIProcess/Notifications/glib/"
     "${WEBKIT_DIR}/UIProcess/geoclue"
     "${WEBKIT_DIR}/UIProcess/gstreamer"
     "${WEBKIT_DIR}/UIProcess/linux"
     "${WEBKIT_DIR}/UIProcess/soup"
     "${WEBKIT_DIR}/UIProcess/wpe"
     "${WEBKIT_DIR}/WebProcess/InjectedBundle/API/glib"
-    "${WEBKIT_DIR}/WebProcess/InjectedBundle/API/glib/DOM"
     "${WEBKIT_DIR}/WebProcess/InjectedBundle/API/wpe"
-    "${WEBKIT_DIR}/WebProcess/InjectedBundle/API/wpe/DOM"
     "${WEBKIT_DIR}/WebProcess/WebCoreSupport/soup"
     "${WEBKIT_DIR}/WebProcess/WebPage/CoordinatedGraphics"
     "${WEBKIT_DIR}/WebProcess/WebPage/libwpe"
@@ -395,6 +410,15 @@ if (ENABLE_MEDIA_STREAM)
     )
     list(APPEND WebKit_MESSAGES_IN_FILES
         WebProcess/glib/UserMediaCaptureManager
+    )
+endif ()
+
+if (ENABLE_BREAKPAD)
+    list(APPEND WebKit_SOURCES
+        Shared/unix/BreakpadExceptionHandler.cpp
+    )
+    list(APPEND WebKit_LIBRARIES
+        Breakpad::Breakpad
     )
 endif ()
 
@@ -502,7 +526,6 @@ GI_INTROSPECT(WPEJavaScriptCore ${WPE_API_VERSION} jsc/jsc.h
     SYMBOL_PREFIX jsc
     DEPENDENCIES GObject-2.0
     OPTIONS
-        -DJSC_COMPILATION
         -I${JavaScriptCoreGLib_FRAMEWORK_HEADERS_DIR}
         -I${JavaScriptCoreGLib_DERIVED_SOURCES_DIR}
     SOURCES
@@ -522,6 +545,20 @@ GI_INTROSPECT(WPEJavaScriptCore ${WPE_API_VERSION} jsc/jsc.h
 )
 GI_DOCGEN(WPEJavaScriptCore "${JAVASCRIPTCORE_DIR}/API/glib/docs/jsc.toml.in")
 
+set(WPE_SOURCES_FOR_INTROSPECTION
+    UIProcess/API/wpe/WebKitColor.cpp
+    UIProcess/API/wpe/WebKitInputMethodContextWPE.cpp
+    UIProcess/API/wpe/WebKitRectangle.cpp
+    UIProcess/API/wpe/WebKitWebViewBackend.cpp
+    UIProcess/API/wpe/WebKitWebViewWPE.cpp
+ )
+
+ if (ENABLE_2022_GLIB_API)
+     list(APPEND WPE_SOURCES_FOR_INTROSPECTION UIProcess/API/wpe/WebKitWebViewWPE2.cpp)
+ else ()
+     list(APPEND WPE_SOURCES_FOR_INTROSPECTION UIProcess/API/wpe/WebKitWebViewWPE1.cpp)
+ endif ()
+
 GI_INTROSPECT(WPEWebKit ${WPE_API_VERSION} wpe/webkit.h
     TARGET WebKit
     PACKAGE wpe-webkit
@@ -537,7 +574,6 @@ GI_INTROSPECT(WPEWebKit ${WPE_API_VERSION} wpe/webkit.h
         ${WPE_API_INSTALLED_HEADERS}
         Shared/API/glib
         UIProcess/API/glib
-        UIProcess/API/wpe
     NO_IMPLICIT_SOURCES
 )
 GI_DOCGEN(WPEWebKit wpe/wpewebkit.toml.in)
@@ -555,20 +591,20 @@ GI_INTROSPECT(WPEWebExtension ${WPE_API_VERSION} wpe/webkit-web-extension.h
         -I${JavaScriptCoreGLib_DERIVED_SOURCES_DIR}
     SOURCES
         ${WPE_WEB_EXTENSION_API_INSTALLED_HEADERS}
+        ${WPE_DOM_SOURCES_FOR_INTROSPECTION}
+        ${DERIVED_SOURCES_WPE_API_DIR}/WebKitContextMenu.h
+        ${DERIVED_SOURCES_WPE_API_DIR}/WebKitContextMenuActions.h
+        ${DERIVED_SOURCES_WPE_API_DIR}/WebKitContextMenuItem.h
+        ${DERIVED_SOURCES_WPE_API_DIR}/WebKitHitTestResult.h
+        ${DERIVED_SOURCES_WPE_API_DIR}/WebKitUserMessage.h
+        ${DERIVED_SOURCES_WPE_API_DIR}/WebKitURIRequest.h
+        ${DERIVED_SOURCES_WPE_API_DIR}/WebKitURIResponse.h
         Shared/API/glib/WebKitContextMenu.cpp
         Shared/API/glib/WebKitContextMenuItem.cpp
         Shared/API/glib/WebKitHitTestResult.cpp
         Shared/API/glib/WebKitUserMessage.cpp
         Shared/API/glib/WebKitURIRequest.cpp
         Shared/API/glib/WebKitURIResponse.cpp
-        UIProcess/API/wpe/WebKitContextMenuItem.h
-        UIProcess/API/wpe/WebKitContextMenu.h
-        UIProcess/API/wpe/WebKitContextMenuActions.h
-        UIProcess/API/wpe/WebKitHitTestResult.h
-        UIProcess/API/wpe/WebKitUserMessage.h
-        UIProcess/API/wpe/WebKitURIRequest.h
-        UIProcess/API/wpe/WebKitURIResponse.h
-        WebProcess/InjectedBundle/API/glib/DOM/WebKitDOMNode.cpp
         WebProcess/InjectedBundle/API/glib
     NO_IMPLICIT_SOURCES
 )

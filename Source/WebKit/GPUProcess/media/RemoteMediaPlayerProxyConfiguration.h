@@ -53,63 +53,13 @@ struct RemoteMediaPlayerProxyConfiguration {
     Vector<WebCore::PlatformTextTrackData> outOfBandTrackData;
 #endif
     WebCore::SecurityOriginData documentSecurityOrigin;
+    WebCore::IntSize presentationSize { };
     uint64_t logIdentifier { 0 };
     bool shouldUsePersistentCache { false };
     bool isVideo { false };
     bool renderingCanBeAccelerated { false };
     bool prefersSandboxedParsing { false };
-
-    template<class Encoder>
-    void encode(Encoder& encoder) const
-    {
-        encoder << referrer;
-        encoder << userAgent;
-        encoder << sourceApplicationIdentifier;
-        encoder << networkInterfaceName;
-        encoder << mediaContentTypesRequiringHardwareSupport;
-        encoder << allowedMediaContainerTypes;
-        encoder << allowedMediaCodecTypes;
-        encoder << allowedMediaVideoCodecIDs;
-        encoder << allowedMediaAudioCodecIDs;
-        encoder << allowedMediaCaptionFormatTypes;
-        encoder << playerContentBoxRect;
-        encoder << preferredAudioCharacteristics;
-#if ENABLE(AVF_CAPTIONS)
-        encoder << outOfBandTrackData;
-#endif
-        encoder << documentSecurityOrigin;
-        encoder << logIdentifier;
-        encoder << shouldUsePersistentCache;
-        encoder << isVideo;
-        encoder << renderingCanBeAccelerated;
-        encoder << prefersSandboxedParsing;
-    }
-
-    template <class Decoder>
-    static bool decode(Decoder& decoder, RemoteMediaPlayerProxyConfiguration& configuration)
-    {
-        return decoder.decode(configuration.referrer)
-            && decoder.decode(configuration.userAgent)
-            && decoder.decode(configuration.sourceApplicationIdentifier)
-            && decoder.decode(configuration.networkInterfaceName)
-            && decoder.decode(configuration.mediaContentTypesRequiringHardwareSupport)
-            && decoder.decode(configuration.allowedMediaContainerTypes)
-            && decoder.decode(configuration.allowedMediaCodecTypes)
-            && decoder.decode(configuration.allowedMediaVideoCodecIDs)
-            && decoder.decode(configuration.allowedMediaAudioCodecIDs)
-            && decoder.decode(configuration.allowedMediaCaptionFormatTypes)
-            && decoder.decode(configuration.playerContentBoxRect)
-            && decoder.decode(configuration.preferredAudioCharacteristics)
-#if ENABLE(AVF_CAPTIONS)
-            && decoder.decode(configuration.outOfBandTrackData)
-#endif
-            && decoder.decode(configuration.documentSecurityOrigin)
-            && decoder.decode(configuration.logIdentifier)
-            && decoder.decode(configuration.shouldUsePersistentCache)
-            && decoder.decode(configuration.isVideo)
-            && decoder.decode(configuration.renderingCanBeAccelerated)
-            && decoder.decode(configuration.prefersSandboxedParsing);
-    }
+    bool shouldDisableHDR { false };
 };
 
 } // namespace WebKit

@@ -113,8 +113,8 @@ template<> void JSTestNamedDeleterWithIdentifierDOMConstructor::initializeProper
 
 static const HashTableValue JSTestNamedDeleterWithIdentifierPrototypeTableValues[] =
 {
-    { "constructor"_s, static_cast<unsigned>(JSC::PropertyAttribute::DontEnum), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestNamedDeleterWithIdentifierConstructor), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(0) } },
-    { "namedDeleter"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestNamedDeleterWithIdentifierPrototypeFunction_namedDeleter), (intptr_t) (1) } },
+    { "constructor"_s, static_cast<unsigned>(JSC::PropertyAttribute::DontEnum), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestNamedDeleterWithIdentifierConstructor, 0 } },
+    { "namedDeleter"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestNamedDeleterWithIdentifierPrototypeFunction_namedDeleter, 1 } },
 };
 
 const ClassInfo JSTestNamedDeleterWithIdentifierPrototype::s_info = { "TestNamedDeleterWithIdentifier"_s, &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(JSTestNamedDeleterWithIdentifierPrototype) };
@@ -267,9 +267,9 @@ JSC::GCClient::IsoSubspace* JSTestNamedDeleterWithIdentifier::subspaceForImpl(JS
 {
     return WebCore::subspaceForImpl<JSTestNamedDeleterWithIdentifier, UseCustomHeapCellType::No>(vm,
         [] (auto& spaces) { return spaces.m_clientSubspaceForTestNamedDeleterWithIdentifier.get(); },
-        [] (auto& spaces, auto&& space) { spaces.m_clientSubspaceForTestNamedDeleterWithIdentifier = WTFMove(space); },
+        [] (auto& spaces, auto&& space) { spaces.m_clientSubspaceForTestNamedDeleterWithIdentifier = std::forward<decltype(space)>(space); },
         [] (auto& spaces) { return spaces.m_subspaceForTestNamedDeleterWithIdentifier.get(); },
-        [] (auto& spaces, auto&& space) { spaces.m_subspaceForTestNamedDeleterWithIdentifier = WTFMove(space); }
+        [] (auto& spaces, auto&& space) { spaces.m_subspaceForTestNamedDeleterWithIdentifier = std::forward<decltype(space)>(space); }
     );
 }
 

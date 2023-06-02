@@ -113,9 +113,9 @@ template<> void JSTestStringifierReadWriteAttributeDOMConstructor::initializePro
 
 static const HashTableValue JSTestStringifierReadWriteAttributePrototypeTableValues[] =
 {
-    { "constructor"_s, static_cast<unsigned>(JSC::PropertyAttribute::DontEnum), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestStringifierReadWriteAttributeConstructor), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(0) } },
-    { "identifier"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestStringifierReadWriteAttribute_identifier), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(setJSTestStringifierReadWriteAttribute_identifier) } },
-    { "toString"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestStringifierReadWriteAttributePrototypeFunction_toString), (intptr_t) (0) } },
+    { "constructor"_s, static_cast<unsigned>(JSC::PropertyAttribute::DontEnum), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestStringifierReadWriteAttributeConstructor, 0 } },
+    { "identifier"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestStringifierReadWriteAttribute_identifier, setJSTestStringifierReadWriteAttribute_identifier } },
+    { "toString"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestStringifierReadWriteAttributePrototypeFunction_toString, 0 } },
 };
 
 const ClassInfo JSTestStringifierReadWriteAttributePrototype::s_info = { "TestStringifierReadWriteAttribute"_s, &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(JSTestStringifierReadWriteAttributePrototype) };
@@ -190,6 +190,7 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestStringifierReadWriteAttribute_identifier, (JSGlob
 static inline bool setJSTestStringifierReadWriteAttribute_identifierSetter(JSGlobalObject& lexicalGlobalObject, JSTestStringifierReadWriteAttribute& thisObject, JSValue value)
 {
     auto& vm = JSC::getVM(&lexicalGlobalObject);
+    UNUSED_PARAM(vm);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     auto& impl = thisObject.wrapped();
     auto nativeValue = convert<IDLDOMString>(lexicalGlobalObject, value);
@@ -224,9 +225,9 @@ JSC::GCClient::IsoSubspace* JSTestStringifierReadWriteAttribute::subspaceForImpl
 {
     return WebCore::subspaceForImpl<JSTestStringifierReadWriteAttribute, UseCustomHeapCellType::No>(vm,
         [] (auto& spaces) { return spaces.m_clientSubspaceForTestStringifierReadWriteAttribute.get(); },
-        [] (auto& spaces, auto&& space) { spaces.m_clientSubspaceForTestStringifierReadWriteAttribute = WTFMove(space); },
+        [] (auto& spaces, auto&& space) { spaces.m_clientSubspaceForTestStringifierReadWriteAttribute = std::forward<decltype(space)>(space); },
         [] (auto& spaces) { return spaces.m_subspaceForTestStringifierReadWriteAttribute.get(); },
-        [] (auto& spaces, auto&& space) { spaces.m_subspaceForTestStringifierReadWriteAttribute = WTFMove(space); }
+        [] (auto& spaces, auto&& space) { spaces.m_subspaceForTestStringifierReadWriteAttribute = std::forward<decltype(space)>(space); }
     );
 }
 

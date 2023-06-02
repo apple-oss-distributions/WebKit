@@ -45,8 +45,8 @@ namespace WebCore {
 
 WTF_MAKE_ISO_ALLOCATED_IMPL(SharedWorker);
 
-#define SHARED_WORKER_RELEASE_LOG(fmt, ...) RELEASE_LOG(SharedWorker, "%p - [identifier=%{public}s] SharedWorker::" fmt, this, m_identifier.toString().utf8().data(), ##__VA_ARGS__)
-#define SHARED_WORKER_RELEASE_LOG_ERROR(fmt, ...) RELEASE_LOG_ERROR(SharedWorker, "%p - [identifier=%{public}s] SharedWorker::" fmt, this, m_identifier.toString().utf8().data(), ##__VA_ARGS__)
+#define SHARED_WORKER_RELEASE_LOG(fmt, ...) RELEASE_LOG(SharedWorker, "%p - [identifier=%" PUBLIC_LOG_STRING "] SharedWorker::" fmt, this, m_identifier.toString().utf8().data(), ##__VA_ARGS__)
+#define SHARED_WORKER_RELEASE_LOG_ERROR(fmt, ...) RELEASE_LOG_ERROR(SharedWorker, "%p - [identifier=%" PUBLIC_LOG_STRING "] SharedWorker::" fmt, this, m_identifier.toString().utf8().data(), ##__VA_ARGS__)
 
 static HashMap<SharedWorkerObjectIdentifier, SharedWorker*>& allSharedWorkers()
 {
@@ -74,14 +74,16 @@ ExceptionOr<Ref<SharedWorker>> SharedWorker::create(Document& document, String&&
     if (!url.isValid())
         return Exception { SyntaxError, "Invalid script URL"_s };
 
+    auto* contentSecurityPolicy = document.contentSecurityPolicy();
+    if (contentSecurityPolicy)
+        contentSecurityPolicy->upgradeInsecureRequestIfNeeded(url, ContentSecurityPolicy::InsecureRequestType::Load);
+
     // Per the specification, any same-origin URL (including blob: URLs) can be used. data: URLs can also be used, but they create a worker with an opaque origin.
     if (!document.securityOrigin().canRequest(url) && !url.protocolIsData())
         return Exception { SecurityError, "URL of the shared worker is cross-origin"_s };
 
-    if (auto* contentSecurityPolicy = document.contentSecurityPolicy()) {
-        if (!contentSecurityPolicy->allowWorkerFromSource(url))
-            return Exception { SecurityError };
-    }
+    if (contentSecurityPolicy && !contentSecurityPolicy->allowWorkerFromSource(url))
+        return Exception { SecurityError };
 
     WorkerOptions options;
     if (maybeOptions) {
@@ -111,13 +113,10 @@ SharedWorker::SharedWorker(Document& document, const SharedWorkerKey& key, Ref<M
     , m_identifier(SharedWorkerObjectIdentifier::generate())
     , m_port(WTFMove(port))
     , m_identifierForInspector("SharedWorker:" + Inspector::IdentifiersFactory::createIdentifier())
+    , m_blobURLExtension(m_key.url.protocolIsBlob() ? m_key.url : URL()) // Keep blob URL alive until the worker has finished loading.
 {
     SHARED_WORKER_RELEASE_LOG("SharedWorker:");
     allSharedWorkers().add(m_identifier, this);
-
-    // If the shared worker URL is a blob URL, make sure to keep it alive until the worker has finished loading.
-    if (m_key.url.protocolIsBlob())
-        m_blobURLExtension = m_key.url;
 }
 
 SharedWorker::~SharedWorker()
@@ -150,7 +149,7 @@ void SharedWorker::didFinishLoading(const ResourceError& error)
         queueTaskToDispatchEvent(*this, TaskSource::DOMManipulation, Event::create(eventNames().errorEvent, Event::CanBubble::No, Event::IsCancelable::Yes));
         m_isActive = false;
     }
-    m_blobURLExtension.clear();
+    m_blobURLExtension = URL { };
 }
 
 bool SharedWorker::virtualHasPendingActivity() const

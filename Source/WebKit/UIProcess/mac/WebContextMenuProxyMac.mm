@@ -106,7 +106,7 @@
 @end
 
 @interface WKMenuTarget : NSObject {
-    WebKit::WebContextMenuProxyMac* _menuProxy;
+    WeakPtr<WebKit::WebContextMenuProxyMac> _menuProxy;
 }
 + (WKMenuTarget *)sharedMenuTarget;
 - (WebKit::WebContextMenuProxyMac*)menuProxy;
@@ -124,7 +124,7 @@
 
 - (WebKit::WebContextMenuProxyMac*)menuProxy
 {
-    return _menuProxy;
+    return _menuProxy.get();
 }
 
 - (void)setMenuProxy:(WebKit::WebContextMenuProxyMac*)menuProxy
@@ -134,6 +134,9 @@
 
 - (void)forwardContextMenuAction:(id)sender
 {
+    if (!_menuProxy)
+        return;
+
     id representedObject = [sender representedObject];
 
     // NSMenuItems with a represented selection handler belong solely to the UI process
@@ -156,9 +159,9 @@
 @end
 
 @interface WKMenuDelegate : NSObject <NSMenuDelegate> {
-    WebKit::WebContextMenuProxyMac* _menuProxy;
+    WeakPtr<WebKit::WebContextMenuProxyMac> _menuProxy;
 }
--(instancetype)initWithMenuProxy:(WebKit::WebContextMenuProxyMac&)menuProxy;
+- (instancetype)initWithMenuProxy:(WebKit::WebContextMenuProxyMac&)menuProxy;
 @end
 
 @implementation WKMenuDelegate
@@ -419,9 +422,19 @@ void WebContextMenuProxyMac::getShareMenuItem(CompletionHandler<void(NSMenuItem 
             [items addObject:(NSURL *)downloadableMediaURL];
     }
 
-    if (hitTestData.imageSharedMemory && hitTestData.imageSize) {
-        if (auto image = adoptNS([[NSImage alloc] initWithData:[NSData dataWithBytes:(unsigned char*)hitTestData.imageSharedMemory->data() length:hitTestData.imageSize]]))
+    if (hitTestData.imageSharedMemory) {
+        if (auto image = adoptNS([[NSImage alloc] initWithData:[NSData dataWithBytes:(unsigned char*)hitTestData.imageSharedMemory->data() length:hitTestData.imageSharedMemory->size()]])) {
+#if HAVE(NSPREVIEWREPRESENTINGACTIVITYITEM)
+            NSString *title = hitTestData.imageText;
+            if (!title.length)
+                title = WEB_UI_NSSTRING(@"Image", "Fallback title for images in the share sheet");
+
+            auto activityItem = adoptNS([[NSPreviewRepresentingActivityItem alloc] initWithItem:image.get() title:title image:image.get() icon:nil]);
+            [items addObject:activityItem.get()];
+#else
             [items addObject:image.get()];
+#endif
+        }
     }
 
     if (!m_context.selectedText().isEmpty())
@@ -549,6 +562,9 @@ static NSString *menuItemIdentifier(const WebCore::ContextMenuAction action)
     case ContextMenuItemTagToggleMediaControls:
         return _WKMenuItemIdentifierShowHideMediaControls;
 
+    case ContextMenuItemTagShowMediaStats:
+        return _WKMenuItemIdentifierShowHideMediaStats;
+
     case ContextMenuItemTagToggleVideoEnhancedFullscreen:
         return _WKMenuItemIdentifierToggleEnhancedFullScreen;
 
@@ -581,6 +597,12 @@ static NSString *menuItemIdentifier(const WebCore::ContextMenuAction action)
 
     case ContextMenuItemTagCheckGrammarWithSpelling:
         return _WKMenuItemIdentifierCheckGrammarWithSpelling;
+
+    case ContextMenuItemTagPlayAllAnimations:
+        return _WKMenuItemIdentifierPlayAllAnimations;
+
+    case ContextMenuItemTagPauseAllAnimations:
+        return _WKMenuItemIdentifierPauseAllAnimations;
 
     default:
         return nil;

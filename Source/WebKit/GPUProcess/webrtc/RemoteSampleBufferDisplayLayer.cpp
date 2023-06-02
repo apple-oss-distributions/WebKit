@@ -29,7 +29,7 @@
 #if PLATFORM(COCOA) && ENABLE(GPU_PROCESS) && ENABLE(MEDIA_STREAM)
 
 #include "GPUConnectionToWebProcess.h"
-#include "IPCTester.h"
+#include "IPCUtilities.h"
 #include "RemoteVideoFrameObjectHeap.h"
 #include "SampleBufferDisplayLayerMessages.h"
 #include <WebCore/ImageTransferSessionVT.h>
@@ -143,9 +143,9 @@ void RemoteSampleBufferDisplayLayer::setSharedVideoFrameSemaphore(IPC::Semaphore
     m_sharedVideoFrameReader.setSemaphore(WTFMove(semaphore));
 }
 
-void RemoteSampleBufferDisplayLayer::setSharedVideoFrameMemory(const SharedMemory::IPCHandle& ipcHandle)
+void RemoteSampleBufferDisplayLayer::setSharedVideoFrameMemory(const SharedMemory::Handle& handle)
 {
-    m_sharedVideoFrameReader.setSharedMemory(ipcHandle);
+    m_sharedVideoFrameReader.setSharedMemory(handle);
 }
 
 }

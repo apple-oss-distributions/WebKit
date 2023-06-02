@@ -172,8 +172,8 @@ template<> void JSExposedToWorkerAndWindowDOMConstructor::initializeProperties(V
 
 static const HashTableValue JSExposedToWorkerAndWindowPrototypeTableValues[] =
 {
-    { "constructor"_s, static_cast<unsigned>(JSC::PropertyAttribute::DontEnum), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsExposedToWorkerAndWindowConstructor), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(0) } },
-    { "doSomething"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsExposedToWorkerAndWindowPrototypeFunction_doSomething), (intptr_t) (0) } },
+    { "constructor"_s, static_cast<unsigned>(JSC::PropertyAttribute::DontEnum), NoIntrinsic, { HashTableValue::GetterSetterType, jsExposedToWorkerAndWindowConstructor, 0 } },
+    { "doSomething"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsExposedToWorkerAndWindowPrototypeFunction_doSomething, 0 } },
 };
 
 const ClassInfo JSExposedToWorkerAndWindowPrototype::s_info = { "ExposedToWorkerAndWindow"_s, &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(JSExposedToWorkerAndWindowPrototype) };
@@ -251,9 +251,9 @@ JSC::GCClient::IsoSubspace* JSExposedToWorkerAndWindow::subspaceForImpl(JSC::VM&
 {
     return WebCore::subspaceForImpl<JSExposedToWorkerAndWindow, UseCustomHeapCellType::No>(vm,
         [] (auto& spaces) { return spaces.m_clientSubspaceForExposedToWorkerAndWindow.get(); },
-        [] (auto& spaces, auto&& space) { spaces.m_clientSubspaceForExposedToWorkerAndWindow = WTFMove(space); },
+        [] (auto& spaces, auto&& space) { spaces.m_clientSubspaceForExposedToWorkerAndWindow = std::forward<decltype(space)>(space); },
         [] (auto& spaces) { return spaces.m_subspaceForExposedToWorkerAndWindow.get(); },
-        [] (auto& spaces, auto&& space) { spaces.m_subspaceForExposedToWorkerAndWindow = WTFMove(space); }
+        [] (auto& spaces, auto&& space) { spaces.m_subspaceForExposedToWorkerAndWindow = std::forward<decltype(space)>(space); }
     );
 }
 

@@ -107,14 +107,14 @@ STATIC_ASSERT_ISO_SUBSPACE_SHARABLE(JSTestLegacyNoInterfaceObjectPrototype, JSTe
 
 static const HashTableValue JSTestLegacyNoInterfaceObjectPrototypeTableValues[] =
 {
-    { "readonlyStringAttribute"_s, static_cast<unsigned>(JSC::PropertyAttribute::ReadOnly | JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestLegacyNoInterfaceObject_readonlyStringAttribute), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(0) } },
-    { "readWriteStringAttribute"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestLegacyNoInterfaceObject_readWriteStringAttribute), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(setJSTestLegacyNoInterfaceObject_readWriteStringAttribute) } },
-    { "customGetterSetterStringAttribute"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestLegacyNoInterfaceObject_customGetterSetterStringAttribute), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(setJSTestLegacyNoInterfaceObject_customGetterSetterStringAttribute) } },
-    { "nodeAttribute"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestLegacyNoInterfaceObject_nodeAttribute), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(setJSTestLegacyNoInterfaceObject_nodeAttribute) } },
-    { "voidOperation"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestLegacyNoInterfaceObjectPrototypeFunction_voidOperation), (intptr_t) (0) } },
-    { "customOperation"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { (intptr_t)static_cast<RawNativeFunction>(jsTestLegacyNoInterfaceObjectPrototypeFunction_customOperation), (intptr_t) (0) } },
-    { "CONSTANT1"_s, JSC::PropertyAttribute::DontDelete | JSC::PropertyAttribute::ReadOnly | JSC::PropertyAttribute::ConstantInteger, NoIntrinsic, { (long long)(1) } },
-    { "CONSTANT2"_s, JSC::PropertyAttribute::DontDelete | JSC::PropertyAttribute::ReadOnly | JSC::PropertyAttribute::ConstantInteger, NoIntrinsic, { (long long)(2) } },
+    { "readonlyStringAttribute"_s, static_cast<unsigned>(JSC::PropertyAttribute::ReadOnly | JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestLegacyNoInterfaceObject_readonlyStringAttribute, 0 } },
+    { "readWriteStringAttribute"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestLegacyNoInterfaceObject_readWriteStringAttribute, setJSTestLegacyNoInterfaceObject_readWriteStringAttribute } },
+    { "customGetterSetterStringAttribute"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestLegacyNoInterfaceObject_customGetterSetterStringAttribute, setJSTestLegacyNoInterfaceObject_customGetterSetterStringAttribute } },
+    { "nodeAttribute"_s, static_cast<unsigned>(JSC::PropertyAttribute::CustomAccessor | JSC::PropertyAttribute::DOMAttribute), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestLegacyNoInterfaceObject_nodeAttribute, setJSTestLegacyNoInterfaceObject_nodeAttribute } },
+    { "voidOperation"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestLegacyNoInterfaceObjectPrototypeFunction_voidOperation, 0 } },
+    { "customOperation"_s, static_cast<unsigned>(JSC::PropertyAttribute::Function), NoIntrinsic, { HashTableValue::NativeFunctionType, jsTestLegacyNoInterfaceObjectPrototypeFunction_customOperation, 0 } },
+    { "CONSTANT1"_s, JSC::PropertyAttribute::DontDelete | JSC::PropertyAttribute::ReadOnly | JSC::PropertyAttribute::ConstantInteger, NoIntrinsic, { HashTableValue::ConstantType, 1 } },
+    { "CONSTANT2"_s, JSC::PropertyAttribute::DontDelete | JSC::PropertyAttribute::ReadOnly | JSC::PropertyAttribute::ConstantInteger, NoIntrinsic, { HashTableValue::ConstantType, 2 } },
 };
 
 const ClassInfo JSTestLegacyNoInterfaceObjectPrototype::s_info = { "TestLegacyNoInterfaceObject"_s, &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(JSTestLegacyNoInterfaceObjectPrototype) };
@@ -187,6 +187,7 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestLegacyNoInterfaceObject_readWriteStringAttribute,
 static inline bool setJSTestLegacyNoInterfaceObject_readWriteStringAttributeSetter(JSGlobalObject& lexicalGlobalObject, JSTestLegacyNoInterfaceObject& thisObject, JSValue value)
 {
     auto& vm = JSC::getVM(&lexicalGlobalObject);
+    UNUSED_PARAM(vm);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     auto& impl = thisObject.wrapped();
     auto nativeValue = convert<IDLDOMString>(lexicalGlobalObject, value);
@@ -216,6 +217,7 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestLegacyNoInterfaceObject_customGetterSetterStringA
 static inline bool setJSTestLegacyNoInterfaceObject_customGetterSetterStringAttributeSetter(JSGlobalObject& lexicalGlobalObject, JSTestLegacyNoInterfaceObject& thisObject, JSValue value)
 {
     auto& vm = JSC::getVM(&lexicalGlobalObject);
+    UNUSED_PARAM(vm);
     thisObject.setCustomGetterSetterStringAttribute(lexicalGlobalObject, value);
     return true;
 }
@@ -241,6 +243,7 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestLegacyNoInterfaceObject_nodeAttribute, (JSGlobalO
 static inline bool setJSTestLegacyNoInterfaceObject_nodeAttributeSetter(JSGlobalObject& lexicalGlobalObject, JSTestLegacyNoInterfaceObject& thisObject, JSValue value)
 {
     auto& vm = JSC::getVM(&lexicalGlobalObject);
+    UNUSED_PARAM(vm);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     auto& impl = thisObject.wrapped();
     auto nativeValue = convert<IDLInterface<Node>>(lexicalGlobalObject, value, [](JSC::JSGlobalObject& lexicalGlobalObject, JSC::ThrowScope& scope) { throwAttributeTypeError(lexicalGlobalObject, scope, "TestLegacyNoInterfaceObject", "nodeAttribute", "Node"); });
@@ -271,6 +274,7 @@ JSC_DEFINE_CUSTOM_GETTER(jsTestLegacyNoInterfaceObjectConstructor_staticStringAt
 static inline bool setJSTestLegacyNoInterfaceObjectConstructor_staticStringAttributeSetter(JSGlobalObject& lexicalGlobalObject, JSValue value)
 {
     auto& vm = JSC::getVM(&lexicalGlobalObject);
+    UNUSED_PARAM(vm);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
     auto nativeValue = convert<IDLDOMString>(lexicalGlobalObject, value);
     RETURN_IF_EXCEPTION(throwScope, false);
@@ -332,9 +336,9 @@ JSC::GCClient::IsoSubspace* JSTestLegacyNoInterfaceObject::subspaceForImpl(JSC::
 {
     return WebCore::subspaceForImpl<JSTestLegacyNoInterfaceObject, UseCustomHeapCellType::No>(vm,
         [] (auto& spaces) { return spaces.m_clientSubspaceForTestLegacyNoInterfaceObject.get(); },
-        [] (auto& spaces, auto&& space) { spaces.m_clientSubspaceForTestLegacyNoInterfaceObject = WTFMove(space); },
+        [] (auto& spaces, auto&& space) { spaces.m_clientSubspaceForTestLegacyNoInterfaceObject = std::forward<decltype(space)>(space); },
         [] (auto& spaces) { return spaces.m_subspaceForTestLegacyNoInterfaceObject.get(); },
-        [] (auto& spaces, auto&& space) { spaces.m_subspaceForTestLegacyNoInterfaceObject = WTFMove(space); }
+        [] (auto& spaces, auto&& space) { spaces.m_subspaceForTestLegacyNoInterfaceObject = std::forward<decltype(space)>(space); }
     );
 }
 

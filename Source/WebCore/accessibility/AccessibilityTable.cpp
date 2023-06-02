@@ -29,6 +29,7 @@
 #include "config.h"
 #include "AccessibilityTable.h"
 
+#include "AXLogger.h"
 #include "AXObjectCache.h"
 #include "AccessibilityTableCell.h"
 #include "AccessibilityTableColumn.h"
@@ -70,24 +71,22 @@ Ref<AccessibilityTable> AccessibilityTable::create(RenderObject* renderer)
     return adoptRef(*new AccessibilityTable(renderer));
 }
 
-bool AccessibilityTable::hasARIARole() const
+bool AccessibilityTable::hasNonTableARIARole() const
 {
-    if (!m_renderer)
+    switch (ariaRoleAttribute()) {
+    case AccessibilityRole::Unknown: // No role attribute specified.
+    case AccessibilityRole::Table:
+    case AccessibilityRole::Grid:
+    case AccessibilityRole::TreeGrid:
         return false;
-    
-    AccessibilityRole ariaRole = ariaRoleAttribute();
-    if (ariaRole != AccessibilityRole::Unknown)
+    default:
         return true;
-
-    return false;
+    }
 }
 
 bool AccessibilityTable::isExposable() const
 {
-    if (!m_renderer)
-        return false;
-    
-    return m_isExposable;
+    return m_renderer && m_isExposable;
 }
 
 HTMLTableElement* AccessibilityTable::tableElement() const
@@ -107,14 +106,18 @@ HTMLTableElement* AccessibilityTable::tableElement() const
     // FIXME: This might find an unrelated parent table element.
     return ancestorsOfType<HTMLTableElement>(*(firstChild->node())).first();
 }
-    
+
 bool AccessibilityTable::isDataTable() const
 {
     if (!m_renderer)
         return false;
 
-    // Do not consider it a data table is it has an ARIA role.
-    if (hasARIARole())
+    auto* objectCache = axObjectCache();
+    if (!objectCache)
+        return false;
+
+    // Do not consider it a data table if it has a non-table ARIA role.
+    if (hasNonTableARIARole())
         return false;
 
     // When a section of the document is contentEditable, all tables should be
@@ -132,7 +135,10 @@ bool AccessibilityTable::isDataTable() const
     // between a "layout" table and a "data" table.
     if (HTMLTableElement* tableElement = this->tableElement()) {
         // If there is a caption element, summary, THEAD, or TFOOT section, it's most certainly a data table.
-        if (!tableElement->summary().isEmpty() || tableElement->tHead() || tableElement->tFoot() || tableElement->caption())
+        if (!tableElement->summary().isEmpty()
+            || (tableElement->tHead() && tableElement->tHead()->renderer())
+            || (tableElement->tFoot() && tableElement->tFoot()->renderer())
+            || tableElement->caption())
             return true;
         
         // If someone used "rules" attribute than the table should appear.
@@ -167,7 +173,14 @@ bool AccessibilityTable::isDataTable() const
     RenderTableSection* firstBody = table.firstBody();
     if (!firstBody)
         return false;
-    
+
+    // If the tbody has any non-group role, then don't make this a data table. The author probably wants to use the role inside the <tbody>.
+    if (auto* topSection = objectCache->getOrCreate(table.topSection())) {
+        auto role = topSection->roleValue();
+        if (!topSection->isGroup() && role != AccessibilityRole::Unknown && role != AccessibilityRole::Ignored)
+            return false;
+    }
+
     int numCols = firstBody->numColumns();
     int numRows = firstBody->numRows();
     
@@ -343,7 +356,7 @@ bool AccessibilityTable::isDataTable() const
     
     return false;
 }
-    
+
 bool AccessibilityTable::computeIsTableExposableThroughAccessibility() const
 {
     // The following is a heuristic used to determine if a
@@ -353,10 +366,8 @@ bool AccessibilityTable::computeIsTableExposableThroughAccessibility() const
     if (!m_renderer)
         return false;
 
-    // If the developer assigned an aria role to this, then we
-    // shouldn't expose it as a table, unless, of course, the aria
-    // role is a table.
-    if (hasARIARole())
+    // If it has a non-table ARIA role, it shouldn't be exposed as a table.
+    if (hasNonTableARIARole())
         return false;
 
     return isDataTable();
@@ -370,7 +381,7 @@ void AccessibilityTable::recomputeIsExposable()
     if (previouslyExposable != m_isExposable) {
         // A table's role value is dependent on whether it's exposed, so notify the cache this has changed.
         if (auto* cache = axObjectCache())
-            cache->handleRoleChange(this);
+            cache->handleRoleChanged(this);
 
         // Before resetting our existing children, possibly losing references to them, ensure we update their role (since a table cell's role is dependent on whether its parent table is exposable).
         updateChildrenRoles();
@@ -382,6 +393,7 @@ void AccessibilityTable::recomputeIsExposable()
 void AccessibilityTable::updateChildrenRoles()
 {
     for (const auto& row : m_rows) {
+        downcast<AccessibilityObject>(*row).updateRole();
         for (const auto& cell : row->children())
             downcast<AccessibilityObject>(*cell).updateRole();
     }
@@ -668,7 +680,7 @@ AccessibilityRole AccessibilityTable::roleValue() const
 {
     if (!isExposable())
         return AccessibilityRenderObject::roleValue();
-    
+
     AccessibilityRole ariaRole = ariaRoleAttribute();
     if (ariaRole == AccessibilityRole::Grid || ariaRole == AccessibilityRole::TreeGrid)
         return ariaRole;

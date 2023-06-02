@@ -31,6 +31,7 @@
 #include "JSDOMConvertInterface.h"
 #include "JSDOMConvertNumbers.h"
 #include "JSDOMConvertStrings.h"
+#include "JSDOMConvertUnion.h"
 #include "JSDOMConvertVariadic.h"
 #include "JSDOMExceptionHandling.h"
 #include "JSDOMGlobalObjectInlines.h"
@@ -239,7 +240,7 @@ template<> void JSTestOverloadedConstructorsDOMConstructor::initializeProperties
 
 static const HashTableValue JSTestOverloadedConstructorsPrototypeTableValues[] =
 {
-    { "constructor"_s, static_cast<unsigned>(JSC::PropertyAttribute::DontEnum), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestOverloadedConstructorsConstructor), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(0) } },
+    { "constructor"_s, static_cast<unsigned>(JSC::PropertyAttribute::DontEnum), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestOverloadedConstructorsConstructor, 0 } },
 };
 
 const ClassInfo JSTestOverloadedConstructorsPrototype::s_info = { "TestOverloadedConstructors"_s, &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(JSTestOverloadedConstructorsPrototype) };
@@ -302,9 +303,9 @@ JSC::GCClient::IsoSubspace* JSTestOverloadedConstructors::subspaceForImpl(JSC::V
 {
     return WebCore::subspaceForImpl<JSTestOverloadedConstructors, UseCustomHeapCellType::No>(vm,
         [] (auto& spaces) { return spaces.m_clientSubspaceForTestOverloadedConstructors.get(); },
-        [] (auto& spaces, auto&& space) { spaces.m_clientSubspaceForTestOverloadedConstructors = WTFMove(space); },
+        [] (auto& spaces, auto&& space) { spaces.m_clientSubspaceForTestOverloadedConstructors = std::forward<decltype(space)>(space); },
         [] (auto& spaces) { return spaces.m_subspaceForTestOverloadedConstructors.get(); },
-        [] (auto& spaces, auto&& space) { spaces.m_subspaceForTestOverloadedConstructors = WTFMove(space); }
+        [] (auto& spaces, auto&& space) { spaces.m_subspaceForTestOverloadedConstructors = std::forward<decltype(space)>(space); }
     );
 }
 

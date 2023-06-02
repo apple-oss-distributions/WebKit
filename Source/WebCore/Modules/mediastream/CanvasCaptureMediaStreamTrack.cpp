@@ -77,7 +77,7 @@ const char* CanvasCaptureMediaStreamTrack::activeDOMObjectName() const
 
 // FIXME: Give source id and name
 CanvasCaptureMediaStreamTrack::Source::Source(HTMLCanvasElement& canvas, std::optional<double>&& frameRequestRate)
-    : RealtimeMediaSource(Type::Video, "CanvasCaptureMediaStreamTrack"_s)
+    : RealtimeMediaSource(CaptureDevice { { }, CaptureDevice::DeviceType::Camera, "CanvasCaptureMediaStreamTrack"_s })
     , m_frameRequestRate(WTFMove(frameRequestRate))
     , m_requestFrameTimer(*this, &Source::requestFrameTimerFired)
     , m_captureCanvasTimer(*this, &Source::captureCanvas)
@@ -155,8 +155,10 @@ void CanvasCaptureMediaStreamTrack::Source::canvasResized(CanvasBase& canvas)
 void CanvasCaptureMediaStreamTrack::Source::canvasChanged(CanvasBase& canvas, const std::optional<FloatRect>&)
 {
     ASSERT_UNUSED(canvas, m_canvas == &canvas);
+#if ENABLE(WEBGL)
     if (m_canvas->renderingContext() && m_canvas->renderingContext()->needsPreparationForDisplay())
         return;
+#endif
     scheduleCaptureCanvas();
 }
 

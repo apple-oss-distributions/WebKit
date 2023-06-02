@@ -66,7 +66,6 @@ protected:
     HTMLElement* innerBlockElement() const final;
     RefPtr<TextControlInnerTextElement> innerTextElement() const final;
     HTMLElement* innerSpinButtonElement() const final;
-    HTMLElement* capsLockIndicatorElement() const final;
     HTMLElement* autoFillButtonElement() const final;
 #if ENABLE(DATALIST_ELEMENT)
     HTMLElement* dataListButtonElement() const final;
@@ -121,7 +120,8 @@ private:
     bool shouldDrawCapsLockIndicator() const;
     bool shouldDrawAutoFillButton() const;
 
-    void createContainer();
+    enum class PreserveSelectionRange : bool { No, Yes };
+    void createContainer(PreserveSelectionRange = PreserveSelectionRange::Yes);
     void createAutoFillButton(AutoFillButtonType);
 
 #if ENABLE(DATALIST_ELEMENT)

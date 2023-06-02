@@ -90,12 +90,12 @@ static const struct CompactHashIndex JSWorkerGlobalScopeTableIndex[18] = {
 
 static const HashTableValue JSWorkerGlobalScopeTableValues[] =
 {
-    { "ExposedToWorkerAndWindow"_s, static_cast<unsigned>(JSC::PropertyAttribute::DontEnum), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsWorkerGlobalScope_ExposedToWorkerAndWindowConstructor), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(0) } },
-    { "TestDefaultToJSONFilteredByExposed"_s, static_cast<unsigned>(JSC::PropertyAttribute::DontEnum), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsWorkerGlobalScope_TestDefaultToJSONFilteredByExposedConstructor), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(0) } },
-    { "TestNode"_s, static_cast<unsigned>(JSC::PropertyAttribute::DontEnum), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsWorkerGlobalScope_TestNodeConstructor), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(0) } },
-    { "TestObject"_s, static_cast<unsigned>(JSC::PropertyAttribute::DontEnum), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsWorkerGlobalScope_TestObjectConstructor), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(0) } },
-    { "TestPromiseRejectionEvent"_s, static_cast<unsigned>(JSC::PropertyAttribute::DontEnum), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsWorkerGlobalScope_TestPromiseRejectionEventConstructor), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(0) } },
-    { "WorkerGlobalScope"_s, static_cast<unsigned>(JSC::PropertyAttribute::DontEnum), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsWorkerGlobalScope_WorkerGlobalScopeConstructor), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(0) } },
+    { "ExposedToWorkerAndWindow"_s, static_cast<unsigned>(JSC::PropertyAttribute::DontEnum), NoIntrinsic, { HashTableValue::GetterSetterType, jsWorkerGlobalScope_ExposedToWorkerAndWindowConstructor, 0 } },
+    { "TestDefaultToJSONFilteredByExposed"_s, static_cast<unsigned>(JSC::PropertyAttribute::DontEnum), NoIntrinsic, { HashTableValue::GetterSetterType, jsWorkerGlobalScope_TestDefaultToJSONFilteredByExposedConstructor, 0 } },
+    { "TestNode"_s, static_cast<unsigned>(JSC::PropertyAttribute::DontEnum), NoIntrinsic, { HashTableValue::GetterSetterType, jsWorkerGlobalScope_TestNodeConstructor, 0 } },
+    { "TestObject"_s, static_cast<unsigned>(JSC::PropertyAttribute::DontEnum), NoIntrinsic, { HashTableValue::GetterSetterType, jsWorkerGlobalScope_TestObjectConstructor, 0 } },
+    { "TestPromiseRejectionEvent"_s, static_cast<unsigned>(JSC::PropertyAttribute::DontEnum), NoIntrinsic, { HashTableValue::GetterSetterType, jsWorkerGlobalScope_TestPromiseRejectionEventConstructor, 0 } },
+    { "WorkerGlobalScope"_s, static_cast<unsigned>(JSC::PropertyAttribute::DontEnum), NoIntrinsic, { HashTableValue::GetterSetterType, jsWorkerGlobalScope_WorkerGlobalScopeConstructor, 0 } },
 };
 
 static const HashTable JSWorkerGlobalScopeTable = { 6, 15, true, JSWorkerGlobalScope::info(), JSWorkerGlobalScopeTableValues, JSWorkerGlobalScopeTableIndex };
@@ -125,7 +125,7 @@ static const struct CompactHashIndex JSWorkerGlobalScopePrototypeTableIndex[2] =
 
 static const HashTableValue JSWorkerGlobalScopePrototypeTableValues[] =
 {
-    { "constructor"_s, static_cast<unsigned>(JSC::PropertyAttribute::DontEnum), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsWorkerGlobalScopeConstructor), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(0) } },
+    { "constructor"_s, static_cast<unsigned>(JSC::PropertyAttribute::DontEnum), NoIntrinsic, { HashTableValue::GetterSetterType, jsWorkerGlobalScopeConstructor, 0 } },
 };
 
 static const HashTable JSWorkerGlobalScopePrototypeTable = { 1, 1, true, JSWorkerGlobalScope::info(), JSWorkerGlobalScopePrototypeTableValues, JSWorkerGlobalScopePrototypeTableIndex };
@@ -248,9 +248,9 @@ JSC::GCClient::IsoSubspace* JSWorkerGlobalScope::subspaceForImpl(JSC::VM& vm)
 {
     return WebCore::subspaceForImpl<JSWorkerGlobalScope, UseCustomHeapCellType::Yes>(vm,
         [] (auto& spaces) { return spaces.m_clientSubspaceForWorkerGlobalScope.get(); },
-        [] (auto& spaces, auto&& space) { spaces.m_clientSubspaceForWorkerGlobalScope = WTFMove(space); },
+        [] (auto& spaces, auto&& space) { spaces.m_clientSubspaceForWorkerGlobalScope = std::forward<decltype(space)>(space); },
         [] (auto& spaces) { return spaces.m_subspaceForWorkerGlobalScope.get(); },
-        [] (auto& spaces, auto&& space) { spaces.m_subspaceForWorkerGlobalScope = WTFMove(space); },
+        [] (auto& spaces, auto&& space) { spaces.m_subspaceForWorkerGlobalScope = std::forward<decltype(space)>(space); },
         [] (auto& server) -> JSC::HeapCellType& { return server.m_heapCellTypeForJSWorkerGlobalScope; }
     );
 }

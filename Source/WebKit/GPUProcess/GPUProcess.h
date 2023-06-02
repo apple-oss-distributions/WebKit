@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019-2021 Apple Inc. All rights reserved.
+ * Copyright (C) 2019-2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -95,8 +95,9 @@ public:
 
 #if ENABLE(MEDIA_STREAM) && PLATFORM(COCOA)
     WorkQueue& videoMediaStreamTrackRendererQueue();
-    void sandboxWasUpatedForCapture();
+    void ensureAVCaptureServerConnection();
 #endif
+
 #if USE(LIBWEBRTC) && PLATFORM(COCOA)
     WorkQueue& libWebRTCCodecsQueue();
 #endif
@@ -119,7 +120,7 @@ public:
     void processIsStartingToCaptureAudio(GPUConnectionToWebProcess&);
 #endif
 
-    void requestBitmapImageForCurrentTime(WebCore::ProcessIdentifier, WebCore::MediaPlayerIdentifier, CompletionHandler<void(const ShareableBitmap::Handle&)>&&);
+    void requestBitmapImageForCurrentTime(WebCore::ProcessIdentifier, WebCore::MediaPlayerIdentifier, CompletionHandler<void(const ShareableBitmapHandle&)>&&);
 
 private:
     void lowMemoryHandler(Critical, Synchronous);
@@ -140,7 +141,7 @@ private:
     // Message Handlers
     void initializeGPUProcess(GPUProcessCreationParameters&&);
     void updateGPUProcessPreferences(GPUProcessPreferences&&);
-    void createGPUConnectionToWebProcess(WebCore::ProcessIdentifier, PAL::SessionID, IPC::Attachment&&, GPUProcessConnectionParameters&&, CompletionHandler<void()>&&);
+    void createGPUConnectionToWebProcess(WebCore::ProcessIdentifier, PAL::SessionID, IPC::Connection::Handle&&, GPUProcessConnectionParameters&&, CompletionHandler<void()>&&);
     void addSession(PAL::SessionID, GPUProcessSessionParameters&&);
     void removeSession(PAL::SessionID);
     
@@ -154,10 +155,11 @@ private:
     void updateSandboxAccess(const Vector<SandboxExtension::Handle>&);
     void addMockMediaDevice(const WebCore::MockMediaDevice&);
     void clearMockMediaDevices();
-    void removeMockMediaDevice(const String& persistentId);
+    void removeMockMediaDevice(const String&);
+    void setMockMediaDeviceIsEphemeral(const String&, bool);
     void resetMockMediaDevices();
     void setMockCaptureDevicesInterrupted(bool isCameraInterrupted, bool isMicrophoneInterrupted);
-    bool setCaptureAttributionString(const String&);
+    void triggerMockMicrophoneConfigurationChange();
 #endif
 #if HAVE(SC_CONTENT_SHARING_SESSION)
     void showWindowPicker(CompletionHandler<void(std::optional<WebCore::CaptureDevice>)>&&);

@@ -176,7 +176,7 @@ template<> void JSTestOverloadedConstructorsWithSequenceDOMConstructor::initiali
 
 static const HashTableValue JSTestOverloadedConstructorsWithSequencePrototypeTableValues[] =
 {
-    { "constructor"_s, static_cast<unsigned>(JSC::PropertyAttribute::DontEnum), NoIntrinsic, { (intptr_t)static_cast<PropertySlot::GetValueFunc>(jsTestOverloadedConstructorsWithSequenceConstructor), (intptr_t) static_cast<PutPropertySlot::PutValueFunc>(0) } },
+    { "constructor"_s, static_cast<unsigned>(JSC::PropertyAttribute::DontEnum), NoIntrinsic, { HashTableValue::GetterSetterType, jsTestOverloadedConstructorsWithSequenceConstructor, 0 } },
 };
 
 const ClassInfo JSTestOverloadedConstructorsWithSequencePrototype::s_info = { "TestOverloadedConstructorsWithSequence"_s, &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(JSTestOverloadedConstructorsWithSequencePrototype) };
@@ -239,9 +239,9 @@ JSC::GCClient::IsoSubspace* JSTestOverloadedConstructorsWithSequence::subspaceFo
 {
     return WebCore::subspaceForImpl<JSTestOverloadedConstructorsWithSequence, UseCustomHeapCellType::No>(vm,
         [] (auto& spaces) { return spaces.m_clientSubspaceForTestOverloadedConstructorsWithSequence.get(); },
-        [] (auto& spaces, auto&& space) { spaces.m_clientSubspaceForTestOverloadedConstructorsWithSequence = WTFMove(space); },
+        [] (auto& spaces, auto&& space) { spaces.m_clientSubspaceForTestOverloadedConstructorsWithSequence = std::forward<decltype(space)>(space); },
         [] (auto& spaces) { return spaces.m_subspaceForTestOverloadedConstructorsWithSequence.get(); },
-        [] (auto& spaces, auto&& space) { spaces.m_subspaceForTestOverloadedConstructorsWithSequence = WTFMove(space); }
+        [] (auto& spaces, auto&& space) { spaces.m_subspaceForTestOverloadedConstructorsWithSequence = std::forward<decltype(space)>(space); }
     );
 }
 

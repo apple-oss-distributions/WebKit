@@ -152,12 +152,17 @@ typedef void (*WKWebsiteDataStoreSetResourceLoadStatisticsThirdPartyCNAMEDomainF
 WK_EXPORT void WKWebsiteDataStoreSetResourceLoadStatisticsThirdPartyCNAMEDomainForTesting(WKWebsiteDataStoreRef dataStoreRef, WKStringRef cnameURLString, void* context, WKWebsiteDataStoreSetResourceLoadStatisticsThirdPartyCNAMEDomainForTestingFunction completionHandler);
 typedef void (*WKWebsiteDataStoreSetAppBoundDomainsForTestingFunction)(void* functionContext);
 WK_EXPORT void WKWebsiteDataStoreSetAppBoundDomainsForTesting(WKArrayRef originURLsRef, void* context, WKWebsiteDataStoreSetAppBoundDomainsForTestingFunction completionHandler);
+typedef void (*WKWebsiteDataStoreSetManagedDomainsForTestingFunction)(void* functionContext);
+WK_EXPORT void WKWebsiteDataStoreSetManagedDomainsForTesting(WKArrayRef originURLsRef, void* context, WKWebsiteDataStoreSetManagedDomainsForTestingFunction completionHandler);
 typedef void (*WKWebsiteDataStoreStatisticsResetToConsistentStateFunction)(void* functionContext);
 WK_EXPORT void WKWebsiteDataStoreStatisticsResetToConsistentState(WKWebsiteDataStoreRef dataStoreRef, void* context, WKWebsiteDataStoreStatisticsResetToConsistentStateFunction completionHandler);
 
 typedef void (*WKWebsiteDataStoreRemoveFetchCacheRemovalFunction)(void* functionContext);
 WK_EXPORT void WKWebsiteDataStoreRemoveFetchCacheForOrigin(WKWebsiteDataStoreRef dataStoreRef, WKSecurityOriginRef origin, void* context, WKWebsiteDataStoreRemoveFetchCacheRemovalFunction callback);
 WK_EXPORT void WKWebsiteDataStoreRemoveAllFetchCaches(WKWebsiteDataStoreRef dataStoreRef, void* context, WKWebsiteDataStoreRemoveFetchCacheRemovalFunction callback);
+
+typedef void (*WKWebsiteDataStoreRemoveNetworkCacheCallback)(void* functionContext);
+WK_EXPORT void WKWebsiteDataStoreRemoveNetworkCache(WKWebsiteDataStoreRef dataStoreRef, void* context, WKWebsiteDataStoreRemoveNetworkCacheCallback callback);
 
 typedef void (*WKWebsiteDataStoreRemoveMemoryCachesRemovalFunction)(void* functionContext);
 WK_EXPORT void WKWebsiteDataStoreRemoveMemoryCaches(WKWebsiteDataStoreRef dataStoreRef, void* context, WKWebsiteDataStoreRemoveMemoryCachesRemovalFunction callback);
@@ -197,8 +202,11 @@ WK_EXPORT void WKWebsiteDataStoreSetCacheModelSynchronouslyForTesting(WKWebsiteD
 typedef void (*WKWebsiteDataStoreResetQuotaCallback)(void* functionContext);
 WK_EXPORT void WKWebsiteDataStoreResetQuota(WKWebsiteDataStoreRef dataStoreRef, void* context, WKWebsiteDataStoreResetQuotaCallback callback);
 
+typedef void (*WKWebsiteDataStoreResetStoragePersistedStateCallback)(void* functionContext);
+WK_EXPORT void WKWebsiteDataStoreResetStoragePersistedState(WKWebsiteDataStoreRef dataStoreRef, void* context, WKWebsiteDataStoreResetQuotaCallback callback);
+
 typedef void (*WKWebsiteDataStoreClearStorageCallback)(void* functionContext);
-WK_EXPORT void WKWebsiteDataStoreClearStorage(WKWebsiteDataStoreRef dataStoreRef, void* context, WKWebsiteDataStoreResetQuotaCallback callback);
+WK_EXPORT void WKWebsiteDataStoreClearStorage(WKWebsiteDataStoreRef dataStoreRef, void* context, WKWebsiteDataStoreClearStorageCallback callback);
 
 typedef void (*WKWebsiteDataStoreClearAppBoundSessionFunction)(void* functionContext);
 WK_EXPORT void WKWebsiteDataStoreClearAppBoundSession(WKWebsiteDataStoreRef dataStoreRef, void* context, WKWebsiteDataStoreClearAppBoundSessionFunction completionHandler);

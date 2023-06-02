@@ -32,6 +32,7 @@
 #include "FrameView.h"
 #include "HTMLNames.h"
 #include "HitTestResult.h"
+#include "InlineIteratorLineBox.h"
 #include "LocalizedStrings.h"
 #include "RenderLayer.h"
 #include "RenderLayerScrollableArea.h"
@@ -197,8 +198,15 @@ void RenderTextControlSingleLine::layout()
         // Here the container box indicates the renderer that the placeholder content is aligned with (no parent and/or containing block relationship).
         auto* containerBox = innerTextRenderer ? innerTextRenderer : innerBlockRenderer ? innerBlockRenderer : containerRenderer;
         if (containerBox) {
+            auto placeholderHeight = [&] {
+                if (auto* blockFlow = dynamicDowncast<RenderBlockFlow>(*placeholderBox)) {
+                    if (auto placeholderLineBox = InlineIterator::firstLineBoxFor(*blockFlow))
+                        return LayoutUnit { std::max(placeholderLineBox->logicalHeight(), placeholderLineBox->contentLogicalHeight()) };
+                }
+                return placeholderBox->logicalHeight();
+            };
             // Center vertical align the placeholder content.
-            auto logicalTop = placeholderTopLeft.y() + (containerBox->logicalHeight() / 2 - placeholderBox->logicalHeight() / 2);
+            auto logicalTop = placeholderTopLeft.y() + (containerBox->logicalHeight() / 2 - placeholderHeight() / 2);
             placeholderBox->setLogicalTop(logicalTop);
         }
         if (!placeholderBoxHadLayout && placeholderBox->checkForRepaintDuringLayout()) {

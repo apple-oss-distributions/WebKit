@@ -58,6 +58,8 @@ SOFT_LINK_FUNCTION_FOR_HEADER(PAL, CoreMedia, CMFormatDescriptionGetExtensions, 
 #define CMFormatDescriptionGetExtensions softLink_CoreMedia_CMFormatDescriptionGetExtensions
 SOFT_LINK_FUNCTION_FOR_HEADER(PAL, CoreMedia, CMFormatDescriptionGetExtension, CFPropertyListRef, (CMFormatDescriptionRef desc, CFStringRef extensionKey), (desc, extensionKey))
 #define CMFormatDescriptionGetExtension softLink_CoreMedia_CMFormatDescriptionGetExtension
+SOFT_LINK_FUNCTION_FOR_HEADER(PAL, CoreMedia, CMFormatDescriptionEqual, Boolean, (CMFormatDescriptionRef desc, CMFormatDescriptionRef other), (desc, other))
+#define CMFormatDescriptionEqual softLink_CoreMedia_CMFormatDescriptionEqual
 SOFT_LINK_FUNCTION_FOR_HEADER(PAL, CoreMedia, CMSampleBufferGetTypeID, CFTypeID, (void), ())
 #define CMSampleBufferGetTypeID softLink_CoreMedia_CMSampleBufferGetTypeID
 SOFT_LINK_FUNCTION_FOR_HEADER(PAL, CoreMedia, CMSampleBufferGetDataBuffer, CMBlockBufferRef, (CMSampleBufferRef sbuf), (sbuf))
@@ -330,6 +332,8 @@ SOFT_LINK_CONSTANT_FOR_HEADER(PAL, CoreMedia, kCMSampleBufferAttachmentKey_Gradu
 #define kCMSampleBufferAttachmentKey_GradualDecoderRefresh get_CoreMedia_kCMSampleBufferAttachmentKey_GradualDecoderRefresh()
 SOFT_LINK_CONSTANT_FOR_HEADER(PAL, CoreMedia, kCMSampleBufferAttachmentKey_TrimDurationAtStart, CFStringRef)
 #define kCMSampleBufferAttachmentKey_TrimDurationAtStart get_CoreMedia_kCMSampleBufferAttachmentKey_TrimDurationAtStart()
+SOFT_LINK_CONSTANT_FOR_HEADER(PAL, CoreMedia, kCMSampleBufferAttachmentKey_FillDiscontinuitiesWithSilence, CFStringRef)
+#define kCMSampleBufferAttachmentKey_FillDiscontinuitiesWithSilence get_CoreMedia_kCMSampleBufferAttachmentKey_FillDiscontinuitiesWithSilence()
 
 SOFT_LINK_CONSTANT_FOR_HEADER(PAL, CoreMedia, kCMTimebaseNotification_EffectiveRateChanged, CFStringRef)
 #define kCMTimebaseNotification_EffectiveRateChanged get_CoreMedia_kCMTimebaseNotification_EffectiveRateChanged()

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2007-2021 Apple Inc. All rights reserved.
+ * Copyright (C) 2007-2022 Apple Inc. All rights reserved.
  * Copyright (C) 2011 Google Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or
@@ -144,7 +144,7 @@ bool jsDOMWindowGetOwnPropertySlotRestrictedAccess(JSDOMGlobalObject* thisObject
         || propertyName == builtinNames.openerPublicName()
         || propertyName == builtinNames.parentPublicName()) {
         auto* entry = classInfo->staticPropHashTable->entry(propertyName);
-        auto* setter = propertyName == builtinNames.locationPublicName() ? entry->propertyPutter() : nullptr;
+        auto setter = propertyName == builtinNames.locationPublicName() ? entry->propertyPutter() : nullptr;
         auto* getterSetter = thisObject->createCrossOriginGetterSetter(&lexicalGlobalObject, propertyName, entry->propertyGetter(), setter);
         slot.setGetterSlot(thisObject, PropertyAttribute::Accessor | PropertyAttribute::DontEnum, getterSetter);
         return true;
@@ -157,7 +157,7 @@ bool jsDOMWindowGetOwnPropertySlotRestrictedAccess(JSDOMGlobalObject* thisObject
     // FIXME: Add support to named attributes on RemoteFrames.
     auto* frame = window.frame();
     if (frame && is<Frame>(*frame)) {
-        if (auto* scopedChild = downcast<Frame>(*frame).tree().scopedChild(propertyNameToAtomString(propertyName))) {
+        if (auto* scopedChild = dynamicDowncast<LocalFrame>(downcast<Frame>(*frame).tree().scopedChild(propertyNameToAtomString(propertyName)))) {
             slot.setValue(thisObject, PropertyAttribute::ReadOnly | PropertyAttribute::DontEnum, toJS(&lexicalGlobalObject, scopedChild->document()->domWindow()));
             return true;
         }
@@ -196,6 +196,16 @@ bool JSDOMWindow::getOwnPropertySlot(JSObject* object, JSGlobalObject* lexicalGl
         return getOwnPropertySlotByIndex(object, lexicalGlobalObject, index.value(), slot);
 
     auto* thisObject = jsCast<JSDOMWindow*>(object);
+
+    // Construct3 assumes that the presence of OffscreenCanvas implies
+    // that WebGL will always be available, which isn't true yet.
+    // Disable OffscreenCanvas when the Construct3 library is present
+    // rdar://106341361
+    if (UNLIKELY(propertyName == builtinNames(lexicalGlobalObject->vm()).OffscreenCanvasPublicName()) && lexicalGlobalObject->needsSiteSpecificQuirks()) {
+        auto c3SupportedProperty = JSC::Identifier::fromString(lexicalGlobalObject->vm(), "C3_IsSupported"_s);
+        if (object->hasProperty(lexicalGlobalObject, c3SupportedProperty))
+            return false;
+    }
 
     // Hand off all cross-domain access to jsDOMWindowGetOwnPropertySlotRestrictedAccess.
     String errorMessage;
@@ -236,8 +246,10 @@ bool JSDOMWindow::getOwnPropertySlotByIndex(JSObject* object, JSGlobalObject* le
 
     // These are also allowed cross-origin, so come before the access check.
     if (frame && index < frame->tree().scopedChildCount()) {
-        slot.setValue(thisObject, static_cast<unsigned>(JSC::PropertyAttribute::ReadOnly), toJS(lexicalGlobalObject, frame->tree().scopedChild(index)->document()->domWindow()));
-        return true;
+        if (auto* scopedChild = dynamicDowncast<LocalFrame>(frame->tree().scopedChild(index))) {
+            slot.setValue(thisObject, static_cast<unsigned>(JSC::PropertyAttribute::ReadOnly), toJS(lexicalGlobalObject, scopedChild->document()->domWindow()));
+            return true;
+        }
     }
 
     if (!BindingSecurity::shouldAllowAccessToDOMWindow(lexicalGlobalObject, window, ThrowSecurityError))
@@ -258,7 +270,7 @@ bool JSDOMWindow::put(JSCell* cell, JSGlobalObject* lexicalGlobalObject, Propert
     if (!BindingSecurity::shouldAllowAccessToDOMWindow(*lexicalGlobalObject, thisObject->wrapped(), errorMessage)) {
         // We only allow setting "location" attribute cross-origin.
         if (propertyName == builtinNames(vm).locationPublicName()) {
-            auto* setter = s_info.staticPropHashTable->entry(propertyName)->propertyPutter();
+            auto setter = s_info.staticPropHashTable->entry(propertyName)->propertyPutter();
             scope.release();
             setter(lexicalGlobalObject, JSValue::encode(slot.thisValue()), JSValue::encode(value), propertyName);
             return true;
@@ -501,9 +513,12 @@ JSC_DEFINE_CUSTOM_GETTER(showModalDialogGetter, (JSGlobalObject* lexicalGlobalOb
     if (UNLIKELY(!thisObject))
         return throwVMDOMAttributeGetterTypeError(lexicalGlobalObject, scope, JSDOMWindow::info(), propertyName);
 
+    if (auto* document = thisObject->wrapped().document())
+        document->addConsoleMessage(MessageSource::JS, MessageLevel::Warning, "Window 'showModalDialog' function is deprecated and will be removed soon."_s);
+
     if (auto* frame = thisObject->wrapped().frame()) {
-        if (DOMWindow::canShowModalDialog(*frame)) {
-            auto* jsFunction = JSFunction::create(vm, lexicalGlobalObject, 1, "showModalDialog"_s, showModalDialog);
+        if (frame->settings().showModalDialogEnabled() && DOMWindow::canShowModalDialog(*frame)) {
+            auto* jsFunction = JSFunction::create(vm, lexicalGlobalObject, 1, "showModalDialog"_s, showModalDialog, ImplementationVisibility::Public);
             thisObject->putDirect(vm, propertyName, jsFunction);
             return JSValue::encode(jsFunction);
         }
@@ -648,7 +663,7 @@ JSValue JSDOMWindow::openDatabase(JSC::JSGlobalObject& lexicalGlobalObject) cons
     VM& vm = lexicalGlobalObject.vm();
     StringImpl* name = PropertyName(builtinNames(vm).openDatabasePublicName()).publicName();
     if (DeprecatedGlobalSettings::webSQLEnabled())
-        return JSFunction::create(vm, &lexicalGlobalObject, 4, name, jsDOMWindowInstanceFunction_openDatabase, NoIntrinsic);
+        return JSFunction::create(vm, &lexicalGlobalObject, 4, name, jsDOMWindowInstanceFunction_openDatabase, ImplementationVisibility::Public);
 
     return InternalFunction::createFunctionThatMasqueradesAsUndefined(vm, &lexicalGlobalObject, 4, name, jsDOMWindowInstanceFunction_openDatabase);
 }

@@ -4,7 +4,8 @@
  *           (C) 1998 Waldo Bastian (bastian@kde.org)
  *           (C) 1999 Lars Knoll (knoll@kde.org)
  *           (C) 1999 Antti Koivisto (koivisto@kde.org)
- * Copyright (C) 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2014 Apple Inc. All rights reserved.
+ * Copyright (C) 2003-2022 Apple Inc. All rights reserved.
+ * Copyright (C) 2015 Google Inc. All rights reserved.
  * Copyright (C) 2006 Alexey Proskuryakov (ap@nypop.com)
  *
  * This library is free software; you can redistribute it and/or
@@ -27,6 +28,8 @@
 #include "RenderTable.h"
 
 #include "AutoTableLayout.h"
+#include "BackgroundPainter.h"
+#include "BorderPainter.h"
 #include "CollapsedBorderValue.h"
 #include "Document.h"
 #include "FixedTableLayout.h"
@@ -316,7 +319,7 @@ void RenderTable::updateLogicalWidth()
             containerLogicalWidthForAutoMargins = containingBlockAvailableLineWidthInFragment(0); // FIXME: Work with regions someday.
         ComputedMarginValues marginValues;
         bool hasInvertedDirection =  cb.style().isLeftToRightDirection() == style().isLeftToRightDirection();
-        computeInlineDirectionMargins(cb, containerLogicalWidthForAutoMargins, logicalWidth(),
+        computeInlineDirectionMargins(cb, availableLogicalWidth, containerLogicalWidthForAutoMargins, logicalWidth(),
             hasInvertedDirection ? marginValues.m_start : marginValues.m_end,
             hasInvertedDirection ? marginValues.m_end : marginValues.m_start);
         setMarginStart(marginValues.m_start);
@@ -417,7 +420,9 @@ void RenderTable::simplifiedNormalFlowLayout()
         caption->layoutIfNeeded();
     for (RenderTableSection* section = topSection(); section; section = sectionBelow(section)) {
         section->layoutIfNeeded();
+        section->layoutRows();
         section->computeOverflowFromCells();
+        section->addVisualEffectOverflow();
     }
 }
 
@@ -448,7 +453,7 @@ void RenderTable::layout()
 
     LayoutRepainter repainter(*this, checkForRepaintDuringLayout());
     {
-        LayoutStateMaintainer statePusher(*this, locationOffset(), hasTransform() || hasReflection() || style().isFlippedBlocksWritingMode());
+        LayoutStateMaintainer statePusher(*this, locationOffset(), isTransformed() || hasReflection() || style().isFlippedBlocksWritingMode());
 
         LayoutUnit oldLogicalWidth = logicalWidth();
         LayoutUnit oldLogicalHeight = logicalHeight();
@@ -557,6 +562,8 @@ void RenderTable::layout()
             section->setLogicalLocation(LayoutPoint(sectionLogicalLeft, logicalHeight()));
 
             setLogicalHeight(logicalHeight() + section->logicalHeight());
+            section->addVisualEffectOverflow();
+            
             section = sectionBelow(section);
         }
 
@@ -792,15 +799,31 @@ void RenderTable::paintBoxDecorations(PaintInfo& paintInfo, const LayoutPoint& p
 
     LayoutRect rect(paintOffset, size());
     adjustBorderBoxRectForPainting(rect);
-    
+
+    BackgroundPainter backgroundPainter { *this, paintInfo };
+
     BackgroundBleedAvoidance bleedAvoidance = determineBackgroundBleedAvoidance(paintInfo.context());
-    if (!boxShadowShouldBeAppliedToBackground(rect.location(), bleedAvoidance, { }))
-        paintBoxShadow(paintInfo, rect, style(), ShadowStyle::Normal);
-    paintBackground(paintInfo, rect, bleedAvoidance);
-    paintBoxShadow(paintInfo, rect, style(), ShadowStyle::Inset);
+    if (!BackgroundPainter::boxShadowShouldBeAppliedToBackground(*this, rect.location(), bleedAvoidance, { }))
+        backgroundPainter.paintBoxShadow(rect, style(), ShadowStyle::Normal);
+
+    GraphicsContextStateSaver stateSaver(paintInfo.context(), false);
+    if (bleedAvoidance == BackgroundBleedUseTransparencyLayer) {
+        // To avoid the background color bleeding out behind the border, we'll render background and border
+        // into a transparency layer, and then clip that in one go (which requires setting up the clip before
+        // beginning the layer).
+        stateSaver.save();
+        paintInfo.context().clipRoundedRect(style().getRoundedBorderFor(rect).pixelSnappedRoundedRectForPainting(document().deviceScaleFactor()));
+        paintInfo.context().beginTransparencyLayer(1);
+    }
+
+    backgroundPainter.paintBackground(rect, bleedAvoidance);
+    backgroundPainter.paintBoxShadow(rect, style(), ShadowStyle::Inset);
 
     if (style().hasVisibleBorderDecoration() && !collapseBorders())
-        paintBorder(paintInfo, rect, style());
+        BorderPainter { *this, paintInfo }.paintBorder(rect, style());
+
+    if (bleedAvoidance == BackgroundBleedUseTransparencyLayer)
+        paintInfo.context().endTransparencyLayer();
 }
 
 void RenderTable::paintMask(PaintInfo& paintInfo, const LayoutPoint& paintOffset)
@@ -880,6 +903,14 @@ RenderTableSection* RenderTable::topNonEmptySection() const
     RenderTableSection* section = topSection();
     if (section && !section->numRows())
         section = sectionBelow(section, SkipEmptySections);
+    return section;
+}
+
+RenderTableSection* RenderTable::bottomNonEmptySection() const
+{
+    auto* section = bottomSection();
+    if (section && !section->numRows())
+        section = sectionAbove(section, SkipEmptySections);
     return section;
 }
 
@@ -1490,9 +1521,9 @@ RenderTableCell* RenderTable::cellAfter(const RenderTableCell* cell) const
 
 LayoutUnit RenderTable::baselinePosition(FontBaseline baselineType, bool firstLine, LineDirectionMode direction, LinePositionMode linePositionMode) const
 {
-    return valueOrCompute(firstLineBaseline(), [&] {
-        return RenderBox::baselinePosition(baselineType, firstLine, direction, linePositionMode);
-    });
+    if (auto baselinePos = firstLineBaseline())
+        return (direction == HorizontalLine ? marginTop() : marginRight()) + baselinePos.value();
+    return RenderBox::baselinePosition(baselineType, firstLine, direction, linePositionMode);
 }
 
 std::optional<LayoutUnit> RenderTable::inlineBlockBaseline(LineDirectionMode) const
@@ -1521,6 +1552,22 @@ std::optional<LayoutUnit> RenderTable::firstLineBaseline() const
 
     // FIXME: A table row always has a baseline per CSS 2.1. Will this return the right value?
     return std::optional<LayoutUnit>();
+}
+
+std::optional<LayoutUnit> RenderTable::lastLineBaseline() const
+{
+    if (isWritingModeRoot() || shouldApplyLayoutContainment())
+        return { };
+
+    recalcSectionsIfNeeded();
+
+    auto* tableSection = bottomNonEmptySection();
+    if (!tableSection)
+        return { };
+
+    if (auto baseline = tableSection->lastLineBaseline())
+        return LayoutUnit { baseline.value() + tableSection->logicalTop() };
+    return { };
 }
 
 LayoutRect RenderTable::overflowClipRect(const LayoutPoint& location, RenderFragmentContainer* fragment, OverlayScrollbarSizeRelevancy relevancy, PaintPhase phase) const
