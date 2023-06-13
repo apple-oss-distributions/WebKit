@@ -6659,6 +6659,10 @@ void HTMLMediaElement::enterFullscreen(VideoFullscreenMode mode)
     ALWAYS_LOG(LOGIDENTIFIER, ", m_videoFullscreenMode = ", m_videoFullscreenMode, ", mode = ", mode);
     ASSERT(mode != VideoFullscreenModeNone);
 
+    auto* window = document().domWindow();
+    if (!window)
+        return;
+
     if (m_videoFullscreenMode == mode)
         return;
 
@@ -6675,6 +6679,9 @@ void HTMLMediaElement::enterFullscreen(VideoFullscreenMode mode)
         return;
     }
 #endif
+
+    if (mediaSession().hasBehaviorRestriction(MediaElementSession::RequireUserGestureForFullscreen))
+        window->consumeTransientActivation();
 
     queueTaskKeepingObjectAlive(*this, TaskSource::MediaElement, [this, mode, logIdentifier = LOGIDENTIFIER] {
         if (isContextStopped())
