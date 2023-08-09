@@ -374,7 +374,7 @@ void WebEditorClient::respondToChangedSelection(Frame* frame)
 #endif
 }
 
-void WebEditorClient::discardedComposition(const Document&)
+void WebEditorClient::discardedComposition(Frame*)
 {
     // The effects of this function are currently achieved via -[WebHTMLView _updateSelectionForInputManager].
 }

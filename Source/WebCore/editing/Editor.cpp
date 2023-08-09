@@ -1274,7 +1274,7 @@ void Editor::clear()
     if (m_compositionNode) {
         m_compositionNode = nullptr;
         if (EditorClient* client = this->client())
-            client->discardedComposition(m_document);
+            client->discardedComposition(m_document.frame());
     }
     m_customCompositionUnderlines.clear();
     m_customCompositionHighlights.clear();
@@ -2051,7 +2051,7 @@ void Editor::confirmOrCancelCompositionAndNotifyClient()
 
     if (auto editorClient = client()) {
         editorClient->respondToChangedSelection(frame.get());
-        editorClient->discardedComposition(m_document);
+        editorClient->discardedComposition(frame.get());
     }
 }
 

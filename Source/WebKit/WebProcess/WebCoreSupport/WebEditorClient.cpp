@@ -239,9 +239,9 @@ void WebEditorClient::didUpdateComposition()
     m_page->didUpdateComposition();
 }
 
-void WebEditorClient::discardedComposition(const Document& document)
+void WebEditorClient::discardedComposition(Frame*)
 {
-    m_page->discardedComposition(document);
+    m_page->discardedComposition();
 }
 
 void WebEditorClient::canceledComposition()

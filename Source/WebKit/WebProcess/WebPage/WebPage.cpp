@@ -6419,8 +6419,7 @@ void WebPage::didChangeSelectionOrOverflowScrollPosition()
     // FIXME: We can't cancel composition when selection changes to NoSelection, but we probably should.
     if (frame->editor().hasComposition() && !frame->editor().ignoreSelectionChanges() && !frame->selection().isNone()) {
         frame->editor().cancelComposition();
-        if (RefPtr document = frame->document())
-            discardedComposition(*document);
+        discardedComposition();
         return;
     }
 #endif // HAVE(TOUCH_BAR)
@@ -6564,12 +6563,9 @@ void WebPage::didEndUserTriggeredSelectionChanges()
         sendEditorStateUpdate();
 }
 
-void WebPage::discardedComposition(const Document& document)
+void WebPage::discardedComposition()
 {
     send(Messages::WebPageProxy::CompositionWasCanceled());
-    if (!document.hasLivingRenderTree())
-        return;
-
     sendEditorStateUpdate();
 }
 
