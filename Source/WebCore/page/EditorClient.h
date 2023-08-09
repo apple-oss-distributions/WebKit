@@ -33,6 +33,7 @@
 #include "UndoStep.h"
 #include <wtf/Forward.h>
 #include <wtf/Vector.h>
+#include <wtf/WeakPtr.h>
 
 namespace WebCore {
 
@@ -40,6 +41,7 @@ enum class DOMPasteAccessCategory : uint8_t;
 enum class DOMPasteAccessResponse : uint8_t;
 
 class SharedBuffer;
+class Document;
 class DocumentFragment;
 class Element;
 class Frame;
@@ -54,7 +56,7 @@ struct GapRects;
 struct GrammarDetail;
 struct SimpleRange;
 
-class EditorClient {
+class EditorClient : public CanMakeWeakPtr<EditorClient> {
 public:
     virtual ~EditorClient() = default;
 
@@ -107,7 +109,7 @@ public:
 
     // Notify an input method that a composition was voluntarily discarded by WebCore, so that it could clean up too.
     // This function is not called when a composition is closed per a request from an input method.
-    virtual void discardedComposition(Frame*) = 0;
+    virtual void discardedComposition(const Document&) = 0;
     virtual void canceledComposition() = 0;
     virtual void didUpdateComposition() = 0;
 

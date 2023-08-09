@@ -316,9 +316,8 @@ EditingBehavior Editor::behavior() const
 
 EditorClient* Editor::client() const
 {
-    if (Page* page = m_document.page())
-        return &page->editorClient();
-    return nullptr;
+    ASSERT(!m_client || !m_document.page() || m_client == &m_document.page()->editorClient());
+    return m_client.get();
 }
 
 TextCheckerClient* Editor::textChecker() const
@@ -1255,7 +1254,8 @@ void Editor::reappliedEditing(EditCommandComposition& composition)
 }
 
 Editor::Editor(Document& document)
-    : m_document(document)
+    : m_client(document.page() ? &document.page()->editorClient() : nullptr)
+    , m_document(document)
     , m_killRing(makeUnique<PAL::KillRing>())
     , m_spellChecker(makeUnique<SpellChecker>(document))
     , m_alternativeTextController(makeUnique<AlternativeTextController>(document))
@@ -1274,7 +1274,7 @@ void Editor::clear()
     if (m_compositionNode) {
         m_compositionNode = nullptr;
         if (EditorClient* client = this->client())
-            client->discardedComposition(m_document.frame());
+            client->discardedComposition(m_document);
     }
     m_customCompositionUnderlines.clear();
     m_customCompositionHighlights.clear();
@@ -2051,7 +2051,7 @@ void Editor::confirmOrCancelCompositionAndNotifyClient()
 
     if (auto editorClient = client()) {
         editorClient->respondToChangedSelection(frame.get());
-        editorClient->discardedComposition(frame.get());
+        editorClient->discardedComposition(m_document);
     }
 }
 

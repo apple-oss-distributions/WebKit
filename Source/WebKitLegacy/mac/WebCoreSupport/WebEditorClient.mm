@@ -345,7 +345,7 @@ void WebEditorClient::respondToChangedContents()
 
 void WebEditorClient::respondToChangedSelection(Frame* frame)
 {
-    if (frame->editor().isGettingDictionaryPopupInfo())
+    if (!frame || frame->editor().isGettingDictionaryPopupInfo())
         return;
 
     NSView<WebDocumentView> *documentView = [[kit(frame) frameView] documentView];
@@ -374,7 +374,7 @@ void WebEditorClient::respondToChangedSelection(Frame* frame)
 #endif
 }
 
-void WebEditorClient::discardedComposition(Frame*)
+void WebEditorClient::discardedComposition(const Document&)
 {
     // The effects of this function are currently achieved via -[WebHTMLView _updateSelectionForInputManager].
 }

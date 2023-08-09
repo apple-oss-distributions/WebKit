@@ -4177,10 +4177,6 @@ static void adjustSettingsForLockdownMode(Settings& settings, const WebPreferenc
     settings.setFileReaderAPIEnabled(false);
     settings.setFileSystemAccessEnabled(false);
     settings.setIndexedDBAPIEnabled(false);
-#if ENABLE(SERVICE_WORKER)
-    settings.setServiceWorkersEnabled(false);
-    settings.setServiceWorkerNavigationPreloadEnabled(false);
-#endif
     settings.setWebLocksAPIEnabled(false);
     settings.setCacheAPIEnabled(false);
 
@@ -5719,13 +5715,15 @@ void WebPage::beginPrinting(FrameIdentifier frameID, const PrintInfo& printInfo)
 #endif
 }
 
-void WebPage::endPrinting()
+void WebPage::endPrinting(CompletionHandler<void()>&& completionHandler)
 {
     if (m_inActivePrintContextAccessScope) {
         m_shouldEndPrintingImmediately = true;
+        completionHandler();
         return;
     }
     endPrintingImmediately();
+    completionHandler();
 }
 
 void WebPage::endPrintingImmediately()
@@ -6421,7 +6419,8 @@ void WebPage::didChangeSelectionOrOverflowScrollPosition()
     // FIXME: We can't cancel composition when selection changes to NoSelection, but we probably should.
     if (frame->editor().hasComposition() && !frame->editor().ignoreSelectionChanges() && !frame->selection().isNone()) {
         frame->editor().cancelComposition();
-        discardedComposition();
+        if (RefPtr document = frame->document())
+            discardedComposition(*document);
         return;
     }
 #endif // HAVE(TOUCH_BAR)
@@ -6565,9 +6564,12 @@ void WebPage::didEndUserTriggeredSelectionChanges()
         sendEditorStateUpdate();
 }
 
-void WebPage::discardedComposition()
+void WebPage::discardedComposition(const Document& document)
 {
     send(Messages::WebPageProxy::CompositionWasCanceled());
+    if (!document.hasLivingRenderTree())
+        return;
+
     sendEditorStateUpdate();
 }
 
