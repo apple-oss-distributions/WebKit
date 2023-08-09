@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -23,21 +23,16 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#pragma once
-
-namespace WebCore {
-
-enum class PDFImageCachingPolicy : uint8_t {
-    Enabled,
-    BelowMemoryLimit,
-    Disabled,
-    ClipBoundsOnly,
+[
+    Conditional=APPLE_PAY_DEFERRED_PAYMENTS,
+    ExportMacro=WEBCORE_EXPORT,
+    JSGenerateToJSObject,
+] dictionary ApplePayDeferredPaymentRequest {
+    DOMString billingAgreement;
+    required ApplePayLineItem deferredBilling; // must be `paymentTiming: "deferred"
+    Date freeCancellationDate;
+    DOMString freeCancellationDateTimeZone;
+    required DOMString managementURL;
+    required DOMString paymentDescription;
+    DOMString tokenNotificationURL;
 };
-
-#if PLATFORM(IOS_FAMILY)
-constexpr PDFImageCachingPolicy defaultPDFImageCachingPolicy = PDFImageCachingPolicy::BelowMemoryLimit;
-#else
-constexpr PDFImageCachingPolicy defaultPDFImageCachingPolicy = PDFImageCachingPolicy::Enabled;
-#endif
-
-}

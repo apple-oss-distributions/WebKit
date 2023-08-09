@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017 Apple Inc. All rights reserved.
+ * Copyright (C) 2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -23,25 +23,21 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#import <wtf/Noncopyable.h>
-#import <wtf/WeakObjCPtr.h>
+#pragma once
 
-#if PLATFORM(IOS_FAMILY)
+#include "MessageWithMessagePorts.h"
+#include "ServiceWorkerData.h"
 
-OBJC_CLASS UIView;
+#if ENABLE(SERVICE_WORKER)
 
-namespace WebKit {
+namespace WebCore {
 
-class InputViewUpdateDeferrer {
-    WTF_MAKE_FAST_ALLOCATED;
-    WTF_MAKE_NONCOPYABLE(InputViewUpdateDeferrer);
-public:
-    explicit InputViewUpdateDeferrer(UIView *);
-    ~InputViewUpdateDeferrer();
-
-    WeakObjCPtr<UIView> m_view;
+struct ServiceWorkerClientPendingMessage {
+    MessageWithMessagePorts message;
+    ServiceWorkerData sourceData;
+    String sourceOrigin;
 };
 
-}
+} // namespace WebCore
 
-#endif // PLATFORM(IOS_FAMILY)
+#endif // ENABLE(SERVICE_WORKER)

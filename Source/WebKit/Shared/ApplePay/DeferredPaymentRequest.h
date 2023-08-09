@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017 Apple Inc. All rights reserved.
+ * Copyright (C) 2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -23,26 +23,22 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#import "config.h"
-#import "InputViewUpdateDeferrer.h"
+#pragma once
 
-#if PLATFORM(IOS_FAMILY)
+#if HAVE(PASSKIT_DEFERRED_PAYMENTS)
 
-#import "UIKitSPI.h"
+#include <wtf/Forward.h>
+
+OBJC_CLASS PKDeferredPaymentRequest;
+
+namespace WebCore {
+struct ApplePayDeferredPaymentRequest;
+}
 
 namespace WebKit {
 
-InputViewUpdateDeferrer::InputViewUpdateDeferrer(UIView *view)
-    : m_view(view)
-{
-    [m_view _beginPinningInputViews];
-}
+RetainPtr<PKDeferredPaymentRequest> platformDeferredPaymentRequest(const WebCore::ApplePayDeferredPaymentRequest&);
 
-InputViewUpdateDeferrer::~InputViewUpdateDeferrer()
-{
-    [m_view _endPinningInputViews];
-}
-    
-}
+} // namespace WebKit
 
-#endif // PLATFORM(IOS_FAMILY)
+#endif // HAVE(PASSKIT_DEFERRED_PAYMENTS)
