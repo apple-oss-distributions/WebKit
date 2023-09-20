@@ -39,8 +39,9 @@
 #include "JSCellInlines.h"
 #include "JSDataView.h"
 #include "JSFunction.h"
-#include "JSGenericTypedArrayView.h"
+#include "JSGenericTypedArrayViewInlines.h"
 #include "JSMap.h"
+#include "JSPromise.h"
 #include "JSSet.h"
 #include "JSWeakMap.h"
 #include "JSWeakSet.h"
@@ -48,8 +49,13 @@
 #include "RegExpObject.h"
 #include "ScopedArguments.h"
 #include "StringObject.h"
+#include "TypedArrayInlines.h"
 #include <wtf/CommaPrinter.h>
 #include <wtf/StringPrintStream.h>
+
+#if !USE(SYSTEM_MALLOC)
+#include <bmalloc/Gigacage.h>
+#endif
 
 namespace JSC {
 
@@ -649,6 +655,12 @@ SpeculatedType speculationFromCell(JSCell* cell)
         ASSERT_NOT_REACHED();
         return SpecNone;
     }
+#if !USE(SYSTEM_MALLOC)
+    if (UNLIKELY(Gigacage::contains(structure))) {
+        ASSERT_NOT_REACHED();
+        return SpecNone;
+    }
+#endif
     return speculationFromStructure(structure);
 }
 

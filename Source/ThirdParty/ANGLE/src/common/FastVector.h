@@ -96,6 +96,9 @@ class FastVector final
     using iterator        = WrapIter<T *>;
     using const_iterator  = WrapIter<const T *>;
 
+    // This class does not call destructors when resizing down (for performance reasons).
+    static_assert(std::is_trivially_destructible_v<value_type>);
+
     FastVector();
     FastVector(size_type count, const value_type &value);
     FastVector(size_type count);
@@ -152,6 +155,15 @@ class FastVector final
     void resize(size_type count);
     void resize(size_type count, const value_type &value);
 
+    // Only for use with non trivially constructible types.
+    // When increasing size, new elements may have previous values. Use with caution in cases when
+    // initialization of new elements is not required (will be explicitly initialized later), or
+    // is never resizing down (not possible to reuse previous values).
+    void resize_maybe_value_reuse(size_type count);
+    // Only for use with non trivially constructible types.
+    // No new elements added, so this function is safe to use. Generates ASSERT() if try resize up.
+    void resize_down(size_type count);
+
     void reserve(size_type count);
 
     // Specialty function that removes a known element and might shuffle the list.
@@ -162,6 +174,7 @@ class FastVector final
     void assign_from_initializer_list(std::initializer_list<value_type> init);
     void ensure_capacity(size_t capacity);
     bool uses_fixed_storage() const;
+    void resize_impl(size_type count);
 
     Storage mFixedStorage;
     pointer mData           = mFixedStorage.data();
@@ -353,7 +366,7 @@ ANGLE_INLINE typename FastVector<T, N, Storage>::size_type FastVector<T, N, Stor
 template <class T, size_t N, class Storage>
 void FastVector<T, N, Storage>::clear()
 {
-    resize(0);
+    resize_impl(0);
 }
 
 template <class T, size_t N, class Storage>
@@ -437,7 +450,37 @@ void FastVector<T, N, Storage>::swap(FastVector<T, N, Storage> &other)
 }
 
 template <class T, size_t N, class Storage>
-void FastVector<T, N, Storage>::resize(size_type count)
+ANGLE_INLINE void FastVector<T, N, Storage>::resize(size_type count)
+{
+    // Trivially constructible types will have undefined values when created therefore reusing
+    // previous values after resize should not be a problem..
+    static_assert(std::is_trivially_constructible_v<value_type>,
+                  "For non trivially constructible types please use: resize(count, value), "
+                  "resize_maybe_value_reuse(count), or resize_down(count) methods.");
+    resize_impl(count);
+}
+
+template <class T, size_t N, class Storage>
+ANGLE_INLINE void FastVector<T, N, Storage>::resize_maybe_value_reuse(size_type count)
+{
+    static_assert(!std::is_trivially_constructible_v<value_type>,
+                  "This is a special method for non trivially constructible types. "
+                  "Please use regular resize(count) method.");
+    resize_impl(count);
+}
+
+template <class T, size_t N, class Storage>
+ANGLE_INLINE void FastVector<T, N, Storage>::resize_down(size_type count)
+{
+    static_assert(!std::is_trivially_constructible_v<value_type>,
+                  "This is a special method for non trivially constructible types. "
+                  "Please use regular resize(count) method.");
+    ASSERT(count <= mSize);
+    resize_impl(count);
+}
+
+template <class T, size_t N, class Storage>
+void FastVector<T, N, Storage>::resize_impl(size_type count)
 {
     if (count > mSize)
     {
@@ -530,10 +573,19 @@ void FastVector<T, N, Storage>::ensure_capacity(size_t capacity)
     }
 }
 
-template <class Value, size_t N>
+template <class Value, size_t N, class Storage = FastVector<Value, N>>
 class FastMap final
 {
   public:
+    using value_type      = typename Storage::value_type;
+    using size_type       = typename Storage::size_type;
+    using reference       = typename Storage::reference;
+    using const_reference = typename Storage::const_reference;
+    using pointer         = typename Storage::pointer;
+    using const_pointer   = typename Storage::const_pointer;
+    using iterator        = typename Storage::iterator;
+    using const_iterator  = typename Storage::const_iterator;
+
     FastMap() {}
     ~FastMap() {}
 
@@ -543,10 +595,18 @@ class FastMap final
         {
             mData.resize(key + 1, {});
         }
+        return at(key);
+    }
+
+    const Value &operator[](uint32_t key) const { return at(key); }
+
+    Value &at(uint32_t key)
+    {
+        ASSERT(key < mData.size());
         return mData[key];
     }
 
-    const Value &operator[](uint32_t key) const
+    const Value &at(uint32_t key) const
     {
         ASSERT(key < mData.size());
         return mData[key];
@@ -564,6 +624,12 @@ class FastMap final
         return (size() == other.size()) &&
                (memcmp(data(), other.data(), size() * sizeof(Value)) == 0);
     }
+
+    iterator begin() { return mData.begin(); }
+    const_iterator begin() const { return mData.begin(); }
+
+    iterator end() { return mData.end(); }
+    const_iterator end() const { return mData.end(); }
 
   private:
     FastVector<Value, N> mData;
@@ -718,169 +784,6 @@ class FlatUnorderedSet final
 
   private:
     Storage mData;
-};
-
-class FastIntegerSet final
-{
-  public:
-    static constexpr size_t kWindowSize             = 64;
-    static constexpr size_t kOneLessThanKWindowSize = kWindowSize - 1;
-    static constexpr size_t kShiftForDivision =
-        static_cast<size_t>(rx::Log2(static_cast<unsigned int>(kWindowSize)));
-    using KeyBitSet = angle::BitSet64<kWindowSize>;
-
-    ANGLE_INLINE FastIntegerSet();
-    ANGLE_INLINE ~FastIntegerSet();
-
-    ANGLE_INLINE void ensureCapacity(size_t size)
-    {
-        if (capacity() <= size)
-        {
-            reserve(size * 2);
-        }
-    }
-
-    ANGLE_INLINE void insert(uint64_t key)
-    {
-        size_t sizedKey = static_cast<size_t>(key);
-
-        ASSERT(!contains(sizedKey));
-        ensureCapacity(sizedKey);
-        ASSERT(capacity() > sizedKey);
-
-        size_t index  = sizedKey >> kShiftForDivision;
-        size_t offset = sizedKey & kOneLessThanKWindowSize;
-
-        mKeyData[index].set(offset, true);
-    }
-
-    ANGLE_INLINE bool contains(uint64_t key) const
-    {
-        size_t sizedKey = static_cast<size_t>(key);
-
-        size_t index  = sizedKey >> kShiftForDivision;
-        size_t offset = sizedKey & kOneLessThanKWindowSize;
-
-        return (sizedKey < capacity()) && (mKeyData[index].test(offset));
-    }
-
-    ANGLE_INLINE void clear()
-    {
-        for (KeyBitSet &it : mKeyData)
-        {
-            it.reset();
-        }
-    }
-
-    ANGLE_INLINE bool empty() const
-    {
-        for (const KeyBitSet &it : mKeyData)
-        {
-            if (it.any())
-            {
-                return false;
-            }
-        }
-        return true;
-    }
-
-    ANGLE_INLINE size_t size() const
-    {
-        size_t valid_entries = 0;
-        for (const KeyBitSet &it : mKeyData)
-        {
-            valid_entries += it.count();
-        }
-        return valid_entries;
-    }
-
-  private:
-    ANGLE_INLINE size_t capacity() const { return kWindowSize * mKeyData.size(); }
-
-    ANGLE_INLINE void reserve(size_t newSize)
-    {
-        size_t alignedSize = rx::roundUpPow2(newSize, kWindowSize);
-        size_t count       = alignedSize >> kShiftForDivision;
-
-        mKeyData.resize(count, KeyBitSet::Zero());
-    }
-
-    std::vector<KeyBitSet> mKeyData;
-};
-
-// This is needed to accommodate the chromium style guide error -
-//      [chromium-style] Complex constructor has an inlined body.
-ANGLE_INLINE FastIntegerSet::FastIntegerSet() {}
-ANGLE_INLINE FastIntegerSet::~FastIntegerSet() {}
-
-template <typename Value>
-class FastIntegerMap final
-{
-  public:
-    FastIntegerMap() {}
-    ~FastIntegerMap() {}
-
-    ANGLE_INLINE void ensureCapacity(size_t size)
-    {
-        // Ensure key set has capacity
-        mKeySet.ensureCapacity(size);
-
-        // Ensure value vector has capacity
-        ensureCapacityImpl(size);
-    }
-
-    ANGLE_INLINE void insert(uint64_t key, Value value)
-    {
-        // Insert key
-        ASSERT(!mKeySet.contains(key));
-        mKeySet.insert(key);
-
-        // Insert value
-        size_t sizedKey = static_cast<size_t>(key);
-        ensureCapacityImpl(sizedKey);
-        ASSERT(capacity() > sizedKey);
-        mValueData[sizedKey] = value;
-    }
-
-    ANGLE_INLINE bool contains(uint64_t key) const { return mKeySet.contains(key); }
-
-    ANGLE_INLINE bool get(uint64_t key, Value *out) const
-    {
-        if (!mKeySet.contains(key))
-        {
-            return false;
-        }
-
-        size_t sizedKey = static_cast<size_t>(key);
-        *out            = mValueData[sizedKey];
-        return true;
-    }
-
-    ANGLE_INLINE void clear() { mKeySet.clear(); }
-
-    ANGLE_INLINE bool empty() const { return mKeySet.empty(); }
-
-    ANGLE_INLINE size_t size() const { return mKeySet.size(); }
-
-  private:
-    ANGLE_INLINE size_t capacity() const { return mValueData.size(); }
-
-    ANGLE_INLINE void ensureCapacityImpl(size_t size)
-    {
-        if (capacity() <= size)
-        {
-            reserve(size * 2);
-        }
-    }
-
-    ANGLE_INLINE void reserve(size_t newSize)
-    {
-        size_t alignedSize = rx::roundUpPow2(newSize, FastIntegerSet::kWindowSize);
-        mValueData.resize(alignedSize);
-    }
-
-    FastIntegerSet mKeySet;
-    std::vector<Value> mValueData;
 };
 }  // namespace angle
 

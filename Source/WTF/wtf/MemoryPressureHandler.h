@@ -93,6 +93,16 @@ public:
         m_lowMemoryHandler = WTFMove(handler);
     }
 
+    bool isUnderMemoryWarning() const
+    {
+        auto memoryPressureStatus = m_memoryPressureStatus.load();
+        return memoryPressureStatus == MemoryPressureStatus::SystemWarning
+#if PLATFORM(MAC)
+            || m_memoryUsagePolicy == MemoryUsagePolicy::Conservative
+#endif
+            || memoryPressureStatus == MemoryPressureStatus::ProcessLimitWarning;
+    }
+
     bool isUnderMemoryPressure() const
     {
         auto memoryPressureStatus = m_memoryPressureStatus.load();
@@ -109,7 +119,11 @@ public:
     WTF_EXPORT_PRIVATE MemoryUsagePolicy currentMemoryUsagePolicy();
 
 #if PLATFORM(COCOA)
-    WTF_EXPORT_PRIVATE void setDispatchQueue(OSObjectPtr<dispatch_queue_t>&&);
+    void setDispatchQueue(OSObjectPtr<dispatch_queue_t>&& queue)
+    {
+        RELEASE_ASSERT(!m_installed);
+        m_dispatchQueue = WTFMove(queue);
+    }
 #endif
 
     class ReliefLogger {

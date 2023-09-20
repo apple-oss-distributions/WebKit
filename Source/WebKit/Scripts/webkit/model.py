@@ -26,6 +26,7 @@ from collections import Counter, defaultdict
 
 BUILTIN_ATTRIBUTE = "Builtin"
 MAINTHREADCALLBACK_ATTRIBUTE = "MainThreadCallback"
+CALL_WITH_REPLY_ID_ATTRIBUTE = "CallWithReplyID"
 ALLOWEDWHENWAITINGFORSYNCREPLY_ATTRIBUTE = "AllowedWhenWaitingForSyncReply"
 ALLOWEDWHENWAITINGFORSYNCREPLYDURINGUNBOUNDEDIPC_ATTRIBUTE = "AllowedWhenWaitingForSyncReplyDuringUnboundedIPC"
 SYNCHRONOUS_ATTRIBUTE = 'Synchronous'
@@ -78,7 +79,6 @@ ipc_receiver = MessageReceiver(name="IPC", superclass=None, attributes=[BUILTIN_
     Message('LegacySessionState', [], [], attributes=[BUILTIN_ATTRIBUTE], condition=None),
     Message('SetStreamDestinationID', [], [], attributes=[BUILTIN_ATTRIBUTE], condition=None),
     Message('ProcessOutOfStreamMessage', [], [], attributes=[BUILTIN_ATTRIBUTE], condition=None),
-    Message('Terminate', [], [], attributes=[BUILTIN_ATTRIBUTE], condition=None),
 ], condition=None)
 
 

@@ -13,6 +13,14 @@ Pixel 6 (ARM based) specific script that measures the following for each restric
 - CPU power per frame
 - GPU memory per frame
 
+Setup:
+
+  autoninja -C out/<config> angle_trace_perf_tests angle_apks
+  adb install -r --force-queryable ./out/<config>/apks/AngleLibraries.apk
+  adb install -r out/<config>/angle_trace_tests_apk/angle_trace_tests-debug.apk
+  (cd out/<config>; ../../src/tests/run_angle_android_test.py angle_trace_tests \
+   --verbose --local-output --verbose-logging --max-steps-performed 1 --log=debug)
+
 Recommended command to run:
 
   python3 restricted_trace_perf.py --fixedtime 10 --power --output-tag android.$(date '+%Y%m%d') --loop-count 5
@@ -179,8 +187,6 @@ def get_trace_width(mode):
 
 def run_trace(trace, args):
     mode = get_mode(args)
-    if mode != '':
-        mode = '_' + mode
 
     # Kick off a subprocess that collects peak gpu memory periodically
     # Note the 0.25 below is the delay (in seconds) between memory checks
@@ -192,6 +198,8 @@ def run_trace(trace, args):
     adb_command += '-e org.chromium.native_test.NativeTestInstrumentationTestRunner.StdoutFile /sdcard/Download/out.txt '
     adb_command += '-e org.chromium.native_test.NativeTest.CommandLineFlags "--gtest_filter=TraceTest.' + trace + '\ '
     adb_command += '--use-gl=native\ '
+    if mode != '':
+        adb_command += '--{}\ '.format(mode)
     if args.maxsteps != '':
         adb_command += '--max-steps-performed\ ' + args.maxsteps + '\ '
     if args.fixedtime != '':
@@ -570,7 +578,10 @@ def main():
     parser.add_argument('-f', '--filter', help='Trace filter. Defaults to all.', default='*')
     parser.add_argument('-l', '--log', help='Logging level.', default=DEFAULT_LOG_LEVEL)
     parser.add_argument(
-        '--renderer', help='Which renderer to use: native, vulkan, or both.', default='both')
+        '--renderer',
+        help='Which renderer to use: native, vulkan (via ANGLE), or default (' +
+        'GLES driver selected by system). Providing no option will run twice, native and vulkan',
+        default='both')
     parser.add_argument(
         '--walltimeonly',
         help='Limit output to just wall time',
@@ -701,12 +712,21 @@ def main():
             run_adb_command(
                 'shell settings put global angle_gl_driver_selection_pkgs com.android.angle.test')
             run_adb_command('shell settings put global angle_gl_driver_selection_values native')
-        else:
+        elif renderer == "vulkan":
             # Force the settings to ANGLE
             run_adb_command('shell settings put global angle_debug_package org.chromium.angle')
             run_adb_command(
                 'shell settings put global angle_gl_driver_selection_pkgs com.android.angle.test')
             run_adb_command('shell settings put global angle_gl_driver_selection_values angle')
+        elif renderer == "default":
+            logging.info('Deleting Android settings for forcing selection of GLES driver, ' +
+                         'allowing system to load the default')
+            run_adb_command('shell settings delete global angle_debug_package')
+            run_adb_command('shell settings delete global angle_gl_driver_selection_pkgs')
+            run_adb_command('shell settings delete global angle_gl_driver_selection_values')
+        else:
+            logging.error('Unsupported renderer {}'.format(renderer))
+            exit()
 
         for i in range(int(args.loop_count)):
             print("\nStarting run %i with %s at %s\n" %

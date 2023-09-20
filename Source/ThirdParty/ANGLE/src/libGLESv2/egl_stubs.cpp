@@ -91,7 +91,7 @@ EGLBoolean ChooseConfig(Thread *thread,
 
 EGLint ClientWaitSync(Thread *thread,
                       Display *display,
-                      Sync *syncObject,
+                      SyncID syncID,
                       EGLint flags,
                       EGLTime timeout)
 {
@@ -99,9 +99,10 @@ EGLint ClientWaitSync(Thread *thread,
                          GetDisplayIfValid(display), EGL_FALSE);
     gl::Context *currentContext = thread->getContext();
     EGLint syncStatus           = EGL_FALSE;
+    Sync *syncObject            = display->getSync(syncID);
     ANGLE_EGL_TRY_RETURN(
         thread, syncObject->clientWait(display, currentContext, flags, timeout, &syncStatus),
-        "eglClientWaitSync", GetSyncIfValid(display, syncObject), EGL_FALSE);
+        "eglClientWaitSync", GetSyncIfValid(display, syncID), EGL_FALSE);
 
     thread->setSuccess();
     return syncStatus;
@@ -243,7 +244,7 @@ EGLSurface CreatePlatformWindowSurface(Thread *thread,
     EGLNativeWindowType nativeWindow = reinterpret_cast<EGLNativeWindowType>(win);
     ANGLE_EGL_TRY_RETURN(
         thread, display->createWindowSurface(configuration, nativeWindow, attributes, &surface),
-        "eglPlatformCreateWindowSurface", GetDisplayIfValid(display), EGL_NO_SURFACE);
+        "eglCreatePlatformWindowSurface", GetDisplayIfValid(display), EGL_NO_SURFACE);
 
     return reinterpret_cast<EGLSurface>(static_cast<uintptr_t>(surface->id().value));
 }
@@ -259,7 +260,7 @@ EGLSync CreateSync(Thread *thread, Display *display, EGLenum type, const Attribu
                          "eglCreateSync", GetDisplayIfValid(display), EGL_NO_SYNC);
 
     thread->setSuccess();
-    return static_cast<EGLSync>(syncObject);
+    return reinterpret_cast<EGLSync>(static_cast<uintptr_t>(syncObject->id().value));
 }
 
 EGLSurface CreateWindowSurface(Thread *thread,
@@ -319,11 +320,12 @@ EGLBoolean DestroySurface(Thread *thread, Display *display, egl::SurfaceID surfa
     return EGL_TRUE;
 }
 
-EGLBoolean DestroySync(Thread *thread, Display *display, Sync *syncObject)
+EGLBoolean DestroySync(Thread *thread, Display *display, SyncID syncID)
 {
+    Sync *sync = display->getSync(syncID);
     ANGLE_EGL_TRY_RETURN(thread, display->prepareForCall(), "eglDestroySync",
                          GetDisplayIfValid(display), EGL_FALSE);
-    display->destroySync(syncObject);
+    display->destroySync(sync);
 
     thread->setSuccess();
     return EGL_TRUE;
@@ -443,13 +445,13 @@ __eglMustCastToProperFunctionPointerType GetProcAddress(Thread *thread, const ch
 
 EGLBoolean GetSyncAttrib(Thread *thread,
                          Display *display,
-                         Sync *syncObject,
+                         SyncID syncID,
                          EGLint attribute,
                          EGLAttrib *value)
 {
     EGLint valueExt;
-    ANGLE_EGL_TRY_RETURN(thread, GetSyncAttrib(display, syncObject, attribute, &valueExt),
-                         "eglGetSyncAttrib", GetSyncIfValid(display, syncObject), EGL_FALSE);
+    ANGLE_EGL_TRY_RETURN(thread, GetSyncAttrib(display, syncID, attribute, &valueExt),
+                         "eglGetSyncAttrib", GetSyncIfValid(display, syncID), EGL_FALSE);
     *value = valueExt;
 
     thread->setSuccess();
@@ -582,9 +584,24 @@ EGLBoolean QuerySurface(Thread *thread,
 
     ANGLE_EGL_TRY_RETURN(thread, display->prepareForCall(), "eglQuerySurface",
                          GetDisplayIfValid(display), EGL_FALSE);
-    ANGLE_EGL_TRY_RETURN(
-        thread, QuerySurfaceAttrib(display, thread->getContext(), eglSurface, attribute, value),
-        "eglQuerySurface", GetSurfaceIfValid(display, surfaceID), EGL_FALSE);
+
+    // Update GetContextLock_QuerySurface() switch accordingly to take a ContextMutex lock for
+    // attributes that require current Context.
+    const gl::Context *context;
+    switch (attribute)
+    {
+        // EGL_BUFFER_AGE_EXT uses Context, so lock was taken in GetContextLock_QuerySurface().
+        case EGL_BUFFER_AGE_EXT:
+            context = thread->getContext();
+            break;
+        // Other attributes are not using Context, pass nullptr to be explicit about that.
+        default:
+            context = nullptr;
+            break;
+    }
+
+    ANGLE_EGL_TRY_RETURN(thread, QuerySurfaceAttrib(display, context, eglSurface, attribute, value),
+                         "eglQuerySurface", GetSurfaceIfValid(display, surfaceID), EGL_FALSE);
 
     thread->setSuccess();
     return EGL_TRUE;
@@ -770,13 +787,14 @@ EGLBoolean WaitNative(Thread *thread, EGLint engine)
     return EGL_TRUE;
 }
 
-EGLBoolean WaitSync(Thread *thread, Display *display, Sync *syncObject, EGLint flags)
+EGLBoolean WaitSync(Thread *thread, Display *display, SyncID syncID, EGLint flags)
 {
     ANGLE_EGL_TRY_RETURN(thread, display->prepareForCall(), "eglWaitSync",
                          GetDisplayIfValid(display), EGL_FALSE);
     gl::Context *currentContext = thread->getContext();
+    Sync *syncObject            = display->getSync(syncID);
     ANGLE_EGL_TRY_RETURN(thread, syncObject->serverWait(display, currentContext, flags),
-                         "eglWaitSync", GetSyncIfValid(display, syncObject), EGL_FALSE);
+                         "eglWaitSync", GetSyncIfValid(display, syncID), EGL_FALSE);
 
     thread->setSuccess();
     return EGL_TRUE;

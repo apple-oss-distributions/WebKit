@@ -25,10 +25,12 @@ typedef unsigned int GLenum;
 enum InterpolationType
 {
     INTERPOLATION_SMOOTH,
+    INTERPOLATION_FLAT,
+    INTERPOLATION_NOPERSPECTIVE,
     INTERPOLATION_CENTROID,
     INTERPOLATION_SAMPLE,
-    INTERPOLATION_FLAT,
-    INTERPOLATION_NOPERSPECTIVE
+    INTERPOLATION_NOPERSPECTIVE_CENTROID,
+    INTERPOLATION_NOPERSPECTIVE_SAMPLE
 };
 
 const char *InterpolationTypeToString(InterpolationType type);
@@ -238,6 +240,11 @@ struct ShaderVariable
     // If the variable is a sampler that has ever been statically used with texelFetch
     bool texelFetchStaticUse;
 
+    // Id of the variable in the shader.  Currently used by the SPIR-V output to communicate the
+    // SPIR-V id of the variable.  This value is only set for variables that the SPIR-V transformer
+    // needs to know about, i.e. active variables, excluding non-zero array elements etc.
+    uint32_t id;
+
   protected:
     bool isSameVariableAtLinkTime(const ShaderVariable &other,
                                   bool matchPrecision,
@@ -290,8 +297,13 @@ struct InterfaceBlock
     int binding;
     bool staticUse;
     bool active;
+    // Only applied to SSBOs, |isReadOnly| tells if the readonly qualifier is specified.
+    bool isReadOnly;
     BlockType blockType;
     std::vector<ShaderVariable> fields;
+
+    // Id of the interface block in the shader.  Similar to |ShaderVariable::id|.
+    uint32_t id;
 };
 
 struct WorkGroupSize

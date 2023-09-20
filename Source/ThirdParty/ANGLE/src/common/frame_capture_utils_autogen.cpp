@@ -48,6 +48,13 @@ void WriteParamCaptureReplay(std::ostream &os, const CallCapture &call, const Pa
             WriteParamValueReplay<ParamType::TClientVertexArrayType>(
                 os, call, param.value.ClientVertexArrayTypeVal);
             break;
+        case ParamType::TClipDepthMode:
+            WriteParamValueReplay<ParamType::TClipDepthMode>(os, call,
+                                                             param.value.ClipDepthModeVal);
+            break;
+        case ParamType::TClipOrigin:
+            WriteParamValueReplay<ParamType::TClipOrigin>(os, call, param.value.ClipOriginVal);
+            break;
         case ParamType::TCompositorTiming:
             WriteParamValueReplay<ParamType::TCompositorTiming>(os, call,
                                                                 param.value.CompositorTimingVal);
@@ -395,14 +402,6 @@ void WriteParamCaptureReplay(std::ostream &os, const CallCapture &call, const Pa
             WriteParamValueReplay<ParamType::TGLushortPointer>(os, call,
                                                                param.value.GLushortPointerVal);
             break;
-        case ParamType::TGLvoidConstPointer:
-            WriteParamValueReplay<ParamType::TGLvoidConstPointer>(
-                os, call, param.value.GLvoidConstPointerVal);
-            break;
-        case ParamType::TGLvoidConstPointerPointer:
-            WriteParamValueReplay<ParamType::TGLvoidConstPointerPointer>(
-                os, call, param.value.GLvoidConstPointerPointerVal);
-            break;
         case ParamType::TGraphicsResetStatus:
             WriteParamValueReplay<ParamType::TGraphicsResetStatus>(
                 os, call, param.value.GraphicsResetStatusVal);
@@ -446,6 +445,9 @@ void WriteParamCaptureReplay(std::ostream &os, const CallCapture &call, const Pa
         case ParamType::TPointParameter:
             WriteParamValueReplay<ParamType::TPointParameter>(os, call,
                                                               param.value.PointParameterVal);
+            break;
+        case ParamType::TPolygonMode:
+            WriteParamValueReplay<ParamType::TPolygonMode>(os, call, param.value.PolygonModeVal);
             break;
         case ParamType::TPrimitiveMode:
             WriteParamValueReplay<ParamType::TPrimitiveMode>(os, call,
@@ -624,9 +626,8 @@ void WriteParamCaptureReplay(std::ostream &os, const CallCapture &call, const Pa
             WriteParamValueReplay<ParamType::Tegl_StreamPointer>(os, call,
                                                                  param.value.egl_StreamPointerVal);
             break;
-        case ParamType::Tegl_SyncPointer:
-            WriteParamValueReplay<ParamType::Tegl_SyncPointer>(os, call,
-                                                               param.value.egl_SyncPointerVal);
+        case ParamType::Tegl_SyncID:
+            WriteParamValueReplay<ParamType::Tegl_SyncID>(os, call, param.value.egl_SyncIDVal);
             break;
         case ParamType::TvoidConstPointer:
             WriteParamValueReplay<ParamType::TvoidConstPointer>(os, call,
@@ -668,6 +669,10 @@ const char *ParamTypeToString(ParamType paramType)
         case ParamType::TBufferUsage:
             return "GLenum";
         case ParamType::TClientVertexArrayType:
+            return "GLenum";
+        case ParamType::TClipDepthMode:
+            return "GLenum";
+        case ParamType::TClipOrigin:
             return "GLenum";
         case ParamType::TCompositorTiming:
             return "GLenum";
@@ -863,10 +868,6 @@ const char *ParamTypeToString(ParamType paramType)
             return "const GLushort *";
         case ParamType::TGLushortPointer:
             return "GLushort *";
-        case ParamType::TGLvoidConstPointer:
-            return "const GLvoid *";
-        case ParamType::TGLvoidConstPointerPointer:
-            return "const GLvoid * const *";
         case ParamType::TGraphicsResetStatus:
             return "GLenum";
         case ParamType::THandleType:
@@ -890,6 +891,8 @@ const char *ParamTypeToString(ParamType paramType)
         case ParamType::TObjectType:
             return "GLenum";
         case ParamType::TPointParameter:
+            return "GLenum";
+        case ParamType::TPolygonMode:
             return "GLenum";
         case ParamType::TPrimitiveMode:
             return "GLenum";
@@ -985,8 +988,8 @@ const char *ParamTypeToString(ParamType paramType)
             return "GLenum *";
         case ParamType::Tegl_StreamPointer:
             return "GLenum *";
-        case ParamType::Tegl_SyncPointer:
-            return "GLenum *";
+        case ParamType::Tegl_SyncID:
+            return "GLuint";
         case ParamType::TvoidConstPointer:
             return "const void *";
         case ParamType::TvoidConstPointerPointer:
@@ -1091,6 +1094,8 @@ ResourceIDType GetResourceIDTypeFromParamType(ParamType paramType)
             return ResourceIDType::VertexArray;
         case ParamType::TVertexArrayIDPointer:
             return ResourceIDType::VertexArray;
+        case ParamType::Tegl_SyncID:
+            return ResourceIDType::egl_Sync;
         default:
             return ResourceIDType::InvalidEnum;
     }
@@ -1134,6 +1139,8 @@ const char *GetResourceIDTypeName(ResourceIDType resourceIDType)
             return "TransformFeedback";
         case ResourceIDType::VertexArray:
             return "VertexArray";
+        case ResourceIDType::egl_Sync:
+            return "egl_Sync";
         default:
             UNREACHABLE();
             return "GetResourceIDTypeName error";

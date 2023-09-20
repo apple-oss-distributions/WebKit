@@ -183,7 +183,7 @@ void ExternalImageSibling::onDestroy(const egl::Display *display)
     mImplementation->onDestroy(display);
 }
 
-Error ExternalImageSibling::initialize(const egl::Display *display)
+Error ExternalImageSibling::initialize(const egl::Display *display, const gl::Context *context)
 {
     return mImplementation->initialize(display);
 }
@@ -315,6 +315,17 @@ Image::Image(rx::EGLImplFactory *factory,
     ASSERT(mImplementation != nullptr);
     ASSERT(buffer != nullptr);
 
+    if (kIsSharedContextMutexEnabled && context != nullptr)
+    {
+        ASSERT(context->isSharedContextMutexActive());
+        mSharedContextMutex = context->getContextMutex();
+        mSharedContextMutex->addRef();
+    }
+    else
+    {
+        mSharedContextMutex = nullptr;
+    }
+
     mState.source->addImageSource(this);
 }
 
@@ -350,6 +361,12 @@ void Image::onDestroy(const Display *display)
 Image::~Image()
 {
     SafeDelete(mImplementation);
+
+    if (mSharedContextMutex != nullptr)
+    {
+        mSharedContextMutex->release();
+        mSharedContextMutex = nullptr;
+    }
 }
 
 void Image::setLabel(EGLLabelKHR label)
@@ -405,45 +422,12 @@ const gl::Format &Image::getFormat() const
 
 bool Image::isRenderable(const gl::Context *context) const
 {
-    if (IsTextureTarget(mState.target))
-    {
-        return mState.format.info->textureAttachmentSupport(context->getClientVersion(),
-                                                            context->getExtensions());
-    }
-    else if (IsRenderbufferTarget(mState.target))
-    {
-        return mState.format.info->renderbufferSupport(context->getClientVersion(),
-                                                       context->getExtensions());
-    }
-    else if (IsExternalImageTarget(mState.target))
-    {
-        ASSERT(mState.source != nullptr);
-        return mState.source->isRenderable(context, GL_NONE, gl::ImageIndex());
-    }
-
-    UNREACHABLE();
-    return false;
+    return mIsRenderable;
 }
 
 bool Image::isTexturable(const gl::Context *context) const
 {
-    if (IsTextureTarget(mState.target))
-    {
-        return mState.format.info->textureSupport(context->getClientVersion(),
-                                                  context->getExtensions());
-    }
-    else if (IsRenderbufferTarget(mState.target))
-    {
-        return true;
-    }
-    else if (IsExternalImageTarget(mState.target))
-    {
-        ASSERT(mState.source != nullptr);
-        return rx::GetAs<ExternalImageSibling>(mState.source)->isTextureable(context);
-    }
-
-    UNREACHABLE();
-    return false;
+    return mIsTexturable;
 }
 
 bool Image::isYUV() const
@@ -513,12 +497,12 @@ rx::ImageImpl *Image::getImplementation() const
     return mImplementation;
 }
 
-Error Image::initialize(const Display *display)
+Error Image::initialize(const Display *display, const gl::Context *context)
 {
     if (IsExternalImageTarget(mState.target))
     {
         ExternalImageSibling *externalSibling = rx::GetAs<ExternalImageSibling>(mState.source);
-        ANGLE_TRY(externalSibling->initialize(display));
+        ANGLE_TRY(externalSibling->initialize(display, context));
 
         mState.hasProtectedContent = externalSibling->hasProtectedContent();
         mState.levelCount          = externalSibling->getLevelCount();
@@ -556,7 +540,37 @@ Error Image::initialize(const Display *display)
         mState.size.depth = 1;
     }
 
-    return mImplementation->initialize(display);
+    Error error = mImplementation->initialize(display);
+    if (error.isError())
+    {
+        return error;
+    }
+
+    if (IsTextureTarget(mState.target))
+    {
+        mIsTexturable = true;
+        mIsRenderable = mState.format.info->textureAttachmentSupport(context->getClientVersion(),
+                                                                     context->getExtensions());
+    }
+    else if (IsRenderbufferTarget(mState.target))
+    {
+        mIsTexturable = true;
+        mIsRenderable = mState.format.info->renderbufferSupport(context->getClientVersion(),
+                                                                context->getExtensions());
+    }
+    else if (IsExternalImageTarget(mState.target))
+    {
+        ASSERT(mState.source != nullptr);
+        mIsTexturable = rx::GetAs<ExternalImageSibling>(mState.source)->isTextureable(context);
+        mIsRenderable = rx::GetAs<ExternalImageSibling>(mState.source)
+                            ->isRenderable(context, GL_NONE, gl::ImageIndex());
+    }
+    else
+    {
+        UNREACHABLE();
+    }
+
+    return NoError();
 }
 
 bool Image::orphaned() const

@@ -24,6 +24,7 @@ extern const char *gTraceFile;
 extern const char *gScreenshotDir;
 extern bool gSaveScreenshots;
 extern int gScreenshotFrame;
+extern bool gRunToKeyFrame;
 extern bool gVerboseLogging;
 extern int gWarmupTrials;
 extern int gWarmupSteps;
@@ -34,7 +35,7 @@ extern bool gNoFinish;
 extern bool gRetraceMode;
 extern bool gMinimizeGPUWork;
 extern bool gTraceTestValidation;
-extern bool gTraceInterpreter;
+extern const char *gTraceInterpreter;
 extern const char *gPerfCounters;
 extern const char *gUseANGLE;
 extern const char *gUseGL;
@@ -45,6 +46,9 @@ extern const char *gRequestedExtensions;
 
 // Use this flag as an indicator that a trace's frame count should be used for warmup steps
 constexpr int kAllFrames = -1;
+
+constexpr int kDefaultScreenshotFrame   = 1;
+constexpr int kDefaultMaxStepsPerformed = 0;
 
 inline bool OneFrame()
 {

@@ -276,8 +276,12 @@ ALWAYS_INLINE EncodedJSValue genericTypedArrayViewProtoFuncCopyWithin(VM& vm, JS
         // https://tc39.es/proposal-resizablearraybuffer/#sec-%typedarray%.prototype.copywithin
         if (updatedLength.value() != length) {
             length = updatedLength.value();
-            if (std::max(to, from) + count > length)
+            if (std::max(to, from) + count > length) {
+                // Either to or from index is larger than the updated length. In this case, we do not need to copy anything and finish copyWithin.
+                if (std::max(to, from) > length)
+                    return JSValue::encode(callFrame->thisValue());
                 count = length - std::max(to, from);
+            }
         }
 
         typename ViewClass::ElementType* array = thisObject->typedVector();
@@ -457,14 +461,16 @@ ALWAYS_INLINE EncodedJSValue genericTypedArrayViewProtoFuncJoin(VM& vm, JSGlobal
         IdempotentArrayBufferByteLengthGetter<std::memory_order_seq_cst> getter;
         auto updatedLength = integerIndexedObjectLength(thisObject, getter);
         if (UNLIKELY(!updatedLength)) {
-            JSStringJoiner joiner(globalObject, separator, length);
+            JSStringJoiner joiner(separator);
+            joiner.reserveCapacity(globalObject, length);
             RETURN_IF_EXCEPTION(scope, { });
             for (size_t i = 0; i < length; i++)
                 joiner.appendEmptyString();
             RELEASE_AND_RETURN(scope, JSValue::encode(joiner.join(globalObject)));
         }
 
-        JSStringJoiner joiner(globalObject, separator, length);
+        JSStringJoiner joiner(separator);
+        joiner.reserveCapacity(globalObject, length);
         RETURN_IF_EXCEPTION(scope, { });
 
         size_t accessibleLength = std::min(length, updatedLength.value());
@@ -489,10 +495,8 @@ ALWAYS_INLINE EncodedJSValue genericTypedArrayViewProtoFuncJoin(VM& vm, JSGlobal
     };
 
     JSValue separatorValue = callFrame->argument(0);
-    if (separatorValue.isUndefined()) {
-        const LChar* comma = reinterpret_cast<const LChar*>(",");
-        return joinWithSeparator({ comma, 1 });
-    }
+    if (separatorValue.isUndefined())
+        return joinWithSeparator(","_s);
 
     JSString* separatorString = separatorValue.toString(globalObject);
     RETURN_IF_EXCEPTION(scope, { });

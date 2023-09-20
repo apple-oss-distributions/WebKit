@@ -25,9 +25,10 @@
 #include "libANGLE/angletypes.h"
 #include "libANGLE/renderer/serial_utils.h"
 #include "libANGLE/renderer/vulkan/SecondaryCommandBuffer.h"
+#include "libANGLE/renderer/vulkan/SecondaryCommandPool.h"
 #include "libANGLE/renderer/vulkan/VulkanSecondaryCommandBuffer.h"
 #include "libANGLE/renderer/vulkan/vk_wrapper.h"
-#include "platform/FeaturesVk_autogen.h"
+#include "platform/autogen/FeaturesVk_autogen.h"
 #include "vulkan/vulkan_fuchsia_ext.h"
 
 #define ANGLE_GL_OBJECTS_X(PROC) \
@@ -83,7 +84,7 @@ class ShareGroupVk;
 
 namespace angle
 {
-egl::Error ToEGL(Result result, rx::DisplayVk *displayVk, EGLint errorCode);
+egl::Error ToEGL(Result result, EGLint errorCode);
 }  // namespace angle
 
 namespace rx
@@ -106,6 +107,14 @@ enum class TextureDimension
     TEX_CUBE,
     TEX_3D,
     TEX_2D_ARRAY,
+};
+
+enum class BufferUsageType
+{
+    Static      = 0,
+    Dynamic     = 1,
+    InvalidEnum = 2,
+    EnumCount   = InvalidEnum,
 };
 
 // A maximum offset of 4096 covers almost every Vulkan driver on desktop (80%) and mobile (99%). The
@@ -182,14 +191,6 @@ void AppendToPNextChain(VulkanStruct1 *chainStart, VulkanStruct2 *ptr)
     endPtr->pNext = reinterpret_cast<VkBaseOutStructure *>(ptr);
 }
 
-struct Error
-{
-    VkResult errorCode;
-    const char *file;
-    const char *function;
-    uint32_t line;
-};
-
 class QueueSerialIndexAllocator final
 {
   public:
@@ -238,6 +239,35 @@ class QueueSerialIndexAllocator final
     std::mutex mMutex;
 };
 
+class [[nodiscard]] ScopedQueueSerialIndex final : angle::NonCopyable
+{
+  public:
+    ScopedQueueSerialIndex() : mIndex(kInvalidQueueSerialIndex), mIndexAllocator(nullptr) {}
+    ~ScopedQueueSerialIndex()
+    {
+        if (mIndex != kInvalidQueueSerialIndex)
+        {
+            ASSERT(mIndexAllocator != nullptr);
+            mIndexAllocator->release(mIndex);
+        }
+    }
+
+    void init(SerialIndex index, QueueSerialIndexAllocator *indexAllocator)
+    {
+        ASSERT(mIndex == kInvalidQueueSerialIndex);
+        ASSERT(index != kInvalidQueueSerialIndex);
+        ASSERT(indexAllocator != nullptr);
+        mIndex          = index;
+        mIndexAllocator = indexAllocator;
+    }
+
+    SerialIndex get() const { return mIndex; }
+
+  private:
+    SerialIndex mIndex;
+    QueueSerialIndexAllocator *mIndexAllocator;
+};
+
 // Abstracts error handling. Implemented by both ContextVk for GL and DisplayVk for EGL errors.
 class Context : angle::NonCopyable
 {
@@ -274,16 +304,10 @@ using RenderPassCommandBuffer = priv::SecondaryCommandBuffer;
 using RenderPassCommandBuffer                = VulkanSecondaryCommandBuffer;
 #endif
 
-struct SecondaryCommandBufferList
-{
-    std::vector<OutsideRenderPassCommandBuffer> outsideRenderPassCommandBuffers;
-    std::vector<RenderPassCommandBuffer> renderPassCommandBuffers;
-};
-
 struct SecondaryCommandPools
 {
-    CommandPool outsideRenderPassPool;
-    CommandPool renderPassPool;
+    SecondaryCommandPool outsideRenderPassPool;
+    SecondaryCommandPool renderPassPool;
 };
 
 VkImageAspectFlags GetDepthStencilAspectFlags(const angle::Format &format);
@@ -490,12 +514,6 @@ angle::Result InitMappableAllocation(Context *context,
                                      int value,
                                      VkMemoryPropertyFlags memoryPropertyFlags);
 
-angle::Result InitMappableDeviceMemory(Context *context,
-                                       DeviceMemory *deviceMemory,
-                                       VkDeviceSize size,
-                                       int value,
-                                       VkMemoryPropertyFlags memoryPropertyFlags);
-
 angle::Result AllocateBufferMemory(Context *context,
                                    vk::MemoryAllocationType memoryAllocationType,
                                    VkMemoryPropertyFlags requestedMemoryPropertyFlags,
@@ -677,10 +695,8 @@ class BindingPointer final : angle::NonCopyable
     BindingPointer() = default;
     ~BindingPointer() { reset(); }
 
-    BindingPointer(BindingPointer &&other)
+    BindingPointer(BindingPointer &&other) : mRefCounted(other.mRefCounted)
     {
-        // Just grab other's mRefCounted
-        mRefCounted       = other.mRefCounted;
         other.mRefCounted = nullptr;
     }
 
@@ -833,7 +849,12 @@ class Recycler final : angle::NonCopyable
   public:
     Recycler() = default;
 
-    void recycle(T &&garbageObject) { mObjectFreeList.emplace_back(std::move(garbageObject)); }
+    void recycle(T &&garbageObject)
+    {
+        // Recycling invalid objects is pointless and potentially a bug.
+        ASSERT(garbageObject.valid());
+        mObjectFreeList.emplace_back(std::move(garbageObject));
+    }
 
     void fetch(T *outObject)
     {
@@ -875,6 +896,8 @@ void MakeDebugUtilsLabel(GLenum source, const char *marker, VkDebugUtilsLabelEXT
 
 constexpr size_t kUnpackedDepthIndex   = gl::IMPLEMENTATION_MAX_DRAW_BUFFERS;
 constexpr size_t kUnpackedStencilIndex = gl::IMPLEMENTATION_MAX_DRAW_BUFFERS + 1;
+constexpr uint32_t kUnpackedColorBuffersMask =
+    angle::BitMask<uint32_t>(gl::IMPLEMENTATION_MAX_DRAW_BUFFERS);
 
 class ClearValuesArray final
 {
@@ -1033,34 +1056,6 @@ angle::Result SetDebugUtilsObjectName(ContextVk *contextVk,
                                       uint64_t handle,
                                       const std::string &label);
 
-// Used to store memory allocation information for tracking purposes.
-struct MemoryAllocationInfo
-{
-    MemoryAllocationInfo() = default;
-    uint64_t id;
-    MemoryAllocationType allocType;
-    uint32_t memoryHeapIndex;
-    void *handle;
-    VkDeviceSize size;
-};
-
-class MemoryAllocInfoMapKey
-{
-  public:
-    MemoryAllocInfoMapKey() : handle(nullptr) {}
-    MemoryAllocInfoMapKey(void *handle) : handle(handle) {}
-
-    bool operator==(const MemoryAllocInfoMapKey &rhs) const
-    {
-        return reinterpret_cast<uint64_t>(handle) == reinterpret_cast<uint64_t>(rhs.handle);
-    }
-
-    size_t hash() const;
-
-  private:
-    void *handle;
-};
-
 }  // namespace vk
 
 #if !defined(ANGLE_SHARED_LIBVULKAN)
@@ -1088,9 +1083,6 @@ void InitGGPStreamDescriptorSurfaceFunctions(VkInstance instance);
 
 // VK_KHR_external_semaphore_fd
 void InitExternalSemaphoreFdFunctions(VkInstance instance);
-
-// VK_EXT_external_memory_host
-void InitExternalMemoryHostFunctions(VkInstance instance);
 
 // VK_EXT_host_query_reset
 void InitHostQueryResetFunctions(VkDevice instance);
@@ -1146,9 +1138,10 @@ VkFilter GetFilter(const GLenum filter);
 VkSamplerMipmapMode GetSamplerMipmapMode(const GLenum filter);
 VkSamplerAddressMode GetSamplerAddressMode(const GLenum wrap);
 VkPrimitiveTopology GetPrimitiveTopology(gl::PrimitiveMode mode);
+VkPolygonMode GetPolygonMode(const gl::PolygonMode polygonMode);
 VkCullModeFlagBits GetCullMode(const gl::RasterizerState &rasterState);
 VkFrontFace GetFrontFace(GLenum frontFace, bool invertCullFace);
-VkSampleCountFlagBits GetSamples(GLint sampleCount);
+VkSampleCountFlagBits GetSamples(GLint sampleCount, bool limitSampleCountTo2);
 VkComponentSwizzle GetSwizzle(const GLenum swizzle);
 VkCompareOp GetCompareOp(const GLenum compareFunc);
 VkStencilOp GetStencilOp(const GLenum compareOp);
@@ -1225,6 +1218,7 @@ enum class RenderPassClosureReason
     GLFinish,
     EGLSwapBuffers,
     EGLWaitClient,
+    SurfaceUnMakeCurrent,
 
     // Closure due to switching rendering to another framebuffer.
     FramebufferBindingChange,
@@ -1261,7 +1255,6 @@ enum class RenderPassClosureReason
     BufferUseThenReleaseToExternal,
     ImageUseThenReleaseToExternal,
     BufferInUseWhenSynchronizedMap,
-    ImageOrphan,
     GLMemoryBarrierThenStorageResource,
     StorageResourceUseThenGLMemoryBarrier,
     ExternalSemaphoreSignal,
@@ -1294,16 +1287,6 @@ enum class RenderPassClosureReason
 };
 
 }  // namespace rx
-
-// Introduce std::hash for MemoryAllocInfoMapKey.
-namespace std
-{
-template <>
-struct hash<rx::vk::MemoryAllocInfoMapKey>
-{
-    size_t operator()(const rx::vk::MemoryAllocInfoMapKey &key) const { return key.hash(); }
-};
-}  // namespace std
 
 #define ANGLE_VK_TRY(context, command)                                                   \
     do                                                                                   \

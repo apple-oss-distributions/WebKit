@@ -301,12 +301,12 @@ class Renderer11 : public RendererD3D
                                                        const egl::AttributeMap &attribs) override;
 
     // D3D11-renderer specific methods
-    ID3D11Device *getDevice() { return mDevice; }
-    ID3D11Device1 *getDevice1() { return mDevice1; }
+    ID3D11Device *getDevice() { return mDevice.Get(); }
+    ID3D11Device1 *getDevice1() { return mDevice1.Get(); }
     void *getD3DDevice() override;
-    ID3D11DeviceContext *getDeviceContext() { return mDeviceContext; }
-    ID3D11DeviceContext1 *getDeviceContext1IfSupported() { return mDeviceContext1; }
-    IDXGIFactory *getDxgiFactory() { return mDxgiFactory; }
+    ID3D11DeviceContext *getDeviceContext() { return mDeviceContext.Get(); }
+    ID3D11DeviceContext1 *getDeviceContext1IfSupported() { return mDeviceContext1.Get(); }
+    IDXGIFactory *getDxgiFactory() { return mDxgiFactory.Get(); }
 
     angle::Result getBlendState(const gl::Context *context,
                                 const d3d11::BlendStateKey &key,
@@ -552,8 +552,10 @@ class Renderer11 : public RendererD3D
     HRESULT callD3D11On12CreateDevice(PFN_D3D12_CREATE_DEVICE createDevice12,
                                       PFN_D3D11ON12_CREATE_DEVICE createDevice11on12,
                                       bool debug);
+    egl::Error initializeDXGIAdapter();
     egl::Error initializeD3DDevice();
     egl::Error initializeDevice();
+    egl::Error initializeAdapterFromDevice();
     void releaseDeviceResources();
     void release();
 
@@ -570,7 +572,6 @@ class Renderer11 : public RendererD3D
 
     HMODULE mD3d11Module;
     HMODULE mD3d12Module;
-    HMODULE mDxgiModule;
     HMODULE mDCompModule;
     std::vector<D3D_FEATURE_LEVEL> mAvailableFeatureLevels;
     D3D_DRIVER_TYPE mRequestedDriverType;
@@ -607,17 +608,17 @@ class Renderer11 : public RendererD3D
     angle::ComPtr<ID3D12Device> mDevice12;
     angle::ComPtr<ID3D12CommandQueue> mCommandQueue;
 
-    ID3D11Device *mDevice;
-    ID3D11Device1 *mDevice1;
+    angle::ComPtr<ID3D11Device> mDevice;
+    angle::ComPtr<ID3D11Device1> mDevice1;
     Renderer11DeviceCaps mRenderer11DeviceCaps;
-    ID3D11DeviceContext *mDeviceContext;
-    ID3D11DeviceContext1 *mDeviceContext1;
-    ID3D11DeviceContext3 *mDeviceContext3;
-    IDXGIAdapter *mDxgiAdapter;
+    angle::ComPtr<ID3D11DeviceContext> mDeviceContext;
+    angle::ComPtr<ID3D11DeviceContext1> mDeviceContext1;
+    angle::ComPtr<ID3D11DeviceContext3> mDeviceContext3;
+    angle::ComPtr<IDXGIAdapter> mDxgiAdapter;
     DXGI_ADAPTER_DESC mAdapterDescription;
     char mDescription[128];
-    IDXGIFactory *mDxgiFactory;
-    ID3D11Debug *mDebug;
+    angle::ComPtr<IDXGIFactory> mDxgiFactory;
+    angle::ComPtr<ID3D11Debug> mDebug;
 
     std::vector<GLuint> mScratchIndexDataBuffer;
 

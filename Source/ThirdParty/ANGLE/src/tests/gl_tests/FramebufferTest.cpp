@@ -8,7 +8,7 @@
 //
 
 #include "common/mathutil.h"
-#include "platform/FeaturesD3D_autogen.h"
+#include "platform/autogen/FeaturesD3D_autogen.h"
 #include "test_utils/ANGLETest.h"
 #include "test_utils/gl_raii.h"
 #include "util/OSWindow.h"
@@ -909,7 +909,7 @@ TEST_P(FramebufferTest_ES3, ClearDeletedAttachment)
 {
     // An INVALID_FRAMEBUFFER_OPERATION error was seen in this test on Mac, not sure where it might
     // be originating from. http://anglebug.com/2834
-    ANGLE_SKIP_TEST_IF(IsOSX() && IsOpenGL());
+    ANGLE_SKIP_TEST_IF(IsMac() && IsOpenGL());
 
     GLFramebuffer fbo;
     glBindFramebuffer(GL_FRAMEBUFFER, fbo);
@@ -1175,6 +1175,136 @@ void main()
     // Draw with simple program.
     drawQuad(program, essl3_shaders::PositionAttrib(), 0.5f, 1.0f, true);
     ASSERT_GL_NO_ERROR();
+}
+
+// Test that GL_RGB9_E5 is renderable with the extension.
+TEST_P(FramebufferTest_ES3, RenderSharedExponent)
+{
+    ANGLE_SKIP_TEST_IF(!IsGLExtensionEnabled("GL_QCOM_render_shared_exponent"));
+
+    GLTexture tex;
+    glBindTexture(GL_TEXTURE_2D, tex);
+    const uint32_t data = 0x80000100;  // Red
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB9_E5, 1, 1, 0, GL_RGB, GL_UNSIGNED_INT_5_9_9_9_REV, &data);
+    ASSERT_GL_NO_ERROR();
+
+    GLFramebuffer readFbo;
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, readFbo);
+    glFramebufferTexture2D(GL_READ_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, tex, 0);
+    ASSERT_GL_NO_ERROR();
+
+    EXPECT_PIXEL_COLOR32F_EQ(0, 0, kFloatRed);
+
+    GLRenderbuffer rbo;
+    glBindRenderbuffer(GL_RENDERBUFFER, rbo);
+    glRenderbufferStorage(GL_RENDERBUFFER, GL_RGB9_E5, 1, 1);
+    ASSERT_GL_NO_ERROR();
+
+    GLFramebuffer drawFbo;
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, drawFbo);
+    glFramebufferRenderbuffer(GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_RENDERBUFFER, rbo);
+    ASSERT_GL_NO_ERROR();
+
+    glClearColor(0.0, 1.0, 0.0, 1.0);
+    glClear(GL_COLOR_BUFFER_BIT);
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, drawFbo);
+    EXPECT_PIXEL_COLOR32F_EQ(0, 0, kFloatGreen);
+
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, readFbo);
+    glBlitFramebuffer(0, 0, 1, 1, 0, 0, 1, 1, GL_COLOR_BUFFER_BIT, GL_NEAREST);
+    ASSERT_GL_NO_ERROR();
+
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, drawFbo);
+    EXPECT_PIXEL_COLOR32F_EQ(0, 0, kFloatRed);
+}
+
+// Test that R8_SNORM, RG8_SNORM, and RGBA8_SNORM are renderable with the extension.
+TEST_P(FramebufferTest_ES3, RenderSnorm8)
+{
+    ANGLE_SKIP_TEST_IF(!IsGLExtensionEnabled("GL_EXT_render_snorm"));
+
+    auto test = [&](GLenum format) {
+        GLRenderbuffer rbo;
+        glBindRenderbuffer(GL_RENDERBUFFER, rbo);
+        glRenderbufferStorage(GL_RENDERBUFFER, format, 4, 4);
+        ASSERT_GL_NO_ERROR();
+
+        GLFramebuffer fbo;
+        glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+        glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_RENDERBUFFER, rbo);
+        ASSERT_GL_NO_ERROR();
+
+        ASSERT_GL_FRAMEBUFFER_COMPLETE(GL_FRAMEBUFFER);
+
+        ANGLE_GL_PROGRAM(program, essl1_shaders::vs::Simple(), essl1_shaders::fs::UniformColor());
+        glUseProgram(program);
+        GLint colorLocation = glGetUniformLocation(program, angle::essl1_shaders::ColorUniform());
+        glUniform4f(colorLocation, -1.0f, -0.5f, -0.25f, -0.125f);
+        drawQuad(program, essl1_shaders::PositionAttrib(), 0.0f);
+        ASSERT_GL_NO_ERROR();
+
+        if (format == GL_R8_SNORM)
+        {
+            EXPECT_PIXEL_8S_NEAR(0, 0, -127, 0, 0, 127, 2);
+        }
+        else if (format == GL_RG8_SNORM)
+        {
+            EXPECT_PIXEL_8S_NEAR(0, 0, -127, -64, 0, 127, 2);
+        }
+        else if (format == GL_RGBA8_SNORM)
+        {
+            EXPECT_PIXEL_8S_NEAR(0, 0, -127, -64, -32, -16, 2);
+        }
+    };
+
+    test(GL_R8_SNORM);
+    test(GL_RG8_SNORM);
+    test(GL_RGBA8_SNORM);
+}
+
+// Test that R16_SNORM, RG16_SNORM, and RGBA16_SNORM are renderable with the extension.
+TEST_P(FramebufferTest_ES3, RenderSnorm16)
+{
+    ANGLE_SKIP_TEST_IF(!IsGLExtensionEnabled("GL_EXT_render_snorm"));
+    ANGLE_SKIP_TEST_IF(!IsGLExtensionEnabled("GL_EXT_texture_norm16"));
+
+    auto test = [&](GLenum format) {
+        GLRenderbuffer rbo;
+        glBindRenderbuffer(GL_RENDERBUFFER, rbo);
+        glRenderbufferStorage(GL_RENDERBUFFER, format, 4, 4);
+        ASSERT_GL_NO_ERROR();
+
+        GLFramebuffer fbo;
+        glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+        glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_RENDERBUFFER, rbo);
+        ASSERT_GL_NO_ERROR();
+
+        ASSERT_GL_FRAMEBUFFER_COMPLETE(GL_FRAMEBUFFER);
+
+        ANGLE_GL_PROGRAM(program, essl1_shaders::vs::Simple(), essl1_shaders::fs::UniformColor());
+        glUseProgram(program);
+        GLint colorLocation = glGetUniformLocation(program, angle::essl1_shaders::ColorUniform());
+        glUniform4f(colorLocation, -1.0f, -0.5f, -0.25f, -0.125f);
+        drawQuad(program, essl1_shaders::PositionAttrib(), 0.0f);
+        ASSERT_GL_NO_ERROR();
+
+        if (format == GL_R16_SNORM_EXT)
+        {
+            EXPECT_PIXEL_16S_NEAR(0, 0, -32767, 0, 0, 32767, 2);
+        }
+        else if (format == GL_RG16_SNORM_EXT)
+        {
+            EXPECT_PIXEL_16S_NEAR(0, 0, -32767, -16383, 0, 32767, 2);
+        }
+        else if (format == GL_RGBA16_SNORM_EXT)
+        {
+            EXPECT_PIXEL_16S_NEAR(0, 0, -32767, -16383, -8191, -4095, 2);
+        }
+    };
+
+    test(GL_R16_SNORM_EXT);
+    test(GL_RG16_SNORM_EXT);
+    test(GL_RGBA16_SNORM_EXT);
 }
 
 class FramebufferTest_ES3Metal : public FramebufferTest_ES3
@@ -4895,6 +5025,65 @@ void main()
 
     // This draw triggers the issue.
     glDrawArrays(GL_TRIANGLES, 0, 6);
+    ASSERT_GL_NO_ERROR();
+}
+
+// Regression test for a bug in the Vulkan backend where sampling from a
+// texture previously involved in a framebuffer feedback loop would produce
+// VUID-VkDescriptorImageInfo-imageLayout-00344 and VUID-vkCmdDraw-None-02699
+// because of an incorrect cached descriptor set.
+TEST_P(FramebufferTest_ES3, FeedbackLoopTextureBindings)
+{
+    constexpr char kVS[] = R"(#version 300 es
+precision highp float;
+out vec2 texCoord;
+const vec2 kVertices[4] = vec2[4](vec2(-1, -1), vec2(1, -1), vec2(-1, 1), vec2(1, 1));
+void main()
+{
+    gl_Position = vec4(kVertices[gl_VertexID], 0.0, 1.0);
+    texCoord = (kVertices[gl_VertexID] * 0.5) + 0.5;
+})";
+
+    constexpr char kFS[] = R"(#version 300 es
+precision highp float;
+uniform sampler2D sampler;
+uniform int sampleCondition;
+in vec2 texCoord;
+out vec4 colorOut;
+const vec4 kGreen = vec4(0, 1, 0, 1);
+void main()
+{
+    if (sampleCondition == 0) {
+        colorOut = kGreen;
+    } else {
+        colorOut = texture(sampler, texCoord);
+    }
+})";
+
+    ANGLE_GL_PROGRAM(program, kVS, kFS);
+    GLint sampleCondition = glGetUniformLocation(program, "sampleCondition");
+    glUseProgram(program);
+
+    GLTexture tex;
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, tex);
+    glTexStorage2D(GL_TEXTURE_2D, 1, GL_RGBA8, 1, 1);
+    glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, &GLColor::red);
+
+    // Render to tex with tex bound but not sampled
+    GLFramebuffer framebuffer;
+    glBindFramebuffer(GL_FRAMEBUFFER, framebuffer);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, tex, 0);
+    const GLenum buffers[]{GL_COLOR_ATTACHMENT0};
+    glDrawBuffers(1, buffers);
+    glUniform1i(sampleCondition, 0);
+    glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+    ASSERT_GL_NO_ERROR();
+
+    // Render to default framebuffer with tex bound and sampled
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    glUniform1i(sampleCondition, 1);
+    glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
     ASSERT_GL_NO_ERROR();
 }
 

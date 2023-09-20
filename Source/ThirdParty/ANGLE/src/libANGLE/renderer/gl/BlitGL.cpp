@@ -25,7 +25,7 @@
 #include "libANGLE/renderer/gl/formatutilsgl.h"
 #include "libANGLE/renderer/gl/renderergl_utils.h"
 #include "libANGLE/renderer/renderer_utils.h"
-#include "platform/FeaturesGL_autogen.h"
+#include "platform/autogen/FeaturesGL_autogen.h"
 
 using angle::Vector2;
 
@@ -85,6 +85,10 @@ class [[nodiscard]] ScopedGLState : angle::NonCopyable
         }
         stateManager->setViewport(viewport);
         stateManager->setDepthRange(0.0f, 1.0f);
+        stateManager->setClipControl(gl::ClipOrigin::LowerLeft,
+                                     gl::ClipDepthMode::NegativeOneToOne);
+        stateManager->setClipDistancesEnable(gl::State::ClipDistanceEnableBits());
+        stateManager->setDepthClampEnabled(false);
         stateManager->setBlendEnabled(false);
         stateManager->setColorMask(true, true, true, true);
         stateManager->setSampleAlphaToCoverageEnabled(false);
@@ -92,8 +96,12 @@ class [[nodiscard]] ScopedGLState : angle::NonCopyable
         stateManager->setDepthTestEnabled(false);
         stateManager->setStencilTestEnabled(false);
         stateManager->setCullFaceEnabled(false);
+        stateManager->setPolygonMode(gl::PolygonMode::Fill);
+        stateManager->setPolygonOffsetPointEnabled(false);
+        stateManager->setPolygonOffsetLineEnabled(false);
         stateManager->setPolygonOffsetFillEnabled(false);
         stateManager->setRasterizerDiscardEnabled(false);
+        stateManager->setLogicOpEnabled(false);
 
         stateManager->pauseTransformFeedback();
         return stateManager->pauseAllQueries(context);

@@ -41,6 +41,14 @@ struct CompilerWorkaroundsD3D
     bool enableIEEEStrictness = false;
 };
 
+enum class FragDepthUsage
+{
+    Unused,
+    Any,
+    Greater,
+    Less
+};
+
 class ShaderD3D : public ShaderImpl
 {
   public:
@@ -83,10 +91,14 @@ class ShaderD3D : public ShaderImpl
     bool usesPointSize() const { return mUsesPointSize; }
     bool usesPointCoord() const { return mUsesPointCoord; }
     bool usesDepthRange() const { return mUsesDepthRange; }
-    bool usesFragDepth() const { return mUsesFragDepth; }
     bool usesVertexID() const { return mUsesVertexID; }
     bool usesViewID() const { return mUsesViewID; }
+    bool usesSampleID() const { return mUsesSampleID; }
+    bool usesSamplePosition() const { return mUsesSamplePosition; }
+    bool usesSampleMaskIn() const { return mUsesSampleMaskIn; }
+    bool usesSampleMask() const { return mUsesSampleMask; }
     bool hasANGLEMultiviewEnabled() const { return mHasANGLEMultiviewEnabled; }
+    FragDepthUsage getFragDepthUsage() const { return mFragDepthUsage; }
     uint8_t getClipDistanceArraySize() const { return mClipDistanceSize; }
     uint8_t getCullDistanceArraySize() const { return mCullDistanceSize; }
 
@@ -103,13 +115,17 @@ class ShaderD3D : public ShaderImpl
     bool mUsesPointSize;
     bool mUsesPointCoord;
     bool mUsesDepthRange;
-    bool mUsesFragDepth;
+    bool mUsesSampleID;
+    bool mUsesSamplePosition;
+    bool mUsesSampleMaskIn;
+    bool mUsesSampleMask;
     bool mHasANGLEMultiviewEnabled;
     bool mUsesVertexID;
     bool mUsesViewID;
     bool mUsesDiscardRewriting;
     bool mUsesNestedBreak;
     bool mRequiresIEEEStrictCompiling;
+    FragDepthUsage mFragDepthUsage;
     uint8_t mClipDistanceSize;
     uint8_t mCullDistanceSize;
 

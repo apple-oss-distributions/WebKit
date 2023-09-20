@@ -1,7 +1,8 @@
 /*
  * Copyright (C) 1999 Lars Knoll (knoll@kde.org)
  *           (C) 1999 Antti Koivisto (koivisto@kde.org)
- * Copyright (C) 2003-2022 Apple Inc. All rights reserved.
+ * Copyright (C) 2003-2023 Apple Inc. All rights reserved.
+ * Copyright (C) 2014 Google Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -29,13 +30,17 @@
 #include "FrameSelection.h"
 #include "GraphicsContext.h"
 #include "HitTestResult.h"
+#include "InlineIteratorBoxInlines.h"
 #include "InlineIteratorInlineBox.h"
 #include "InlineIteratorLineBox.h"
 #include "LayoutIntegrationLineLayout.h"
 #include "LegacyInlineElementBox.h"
+#include "LegacyInlineFlowBoxInlines.h"
 #include "LegacyInlineTextBox.h"
 #include "RenderBlock.h"
+#include "RenderBoxInlines.h"
 #include "RenderChildIterator.h"
+#include "RenderElementInlines.h"
 #include "RenderFragmentedFlow.h"
 #include "RenderGeometryMap.h"
 #include "RenderIterator.h"
@@ -51,6 +56,7 @@
 #include "StyleInheritedData.h"
 #include "TransformState.h"
 #include "VisiblePosition.h"
+#include "WillChangeData.h"
 #include <wtf/IsoMallocInlines.h>
 #include <wtf/SetForScope.h>
 
@@ -528,8 +534,14 @@ IntRect RenderInline::linesBoundingBox() const
 
 LayoutRect RenderInline::linesVisualOverflowBoundingBox() const
 {
-    if (auto* layout = LayoutIntegration::LineLayout::containing(*this))
+    if (auto* layout = LayoutIntegration::LineLayout::containing(*this)) {
+        if (!layoutBox()) {
+            // Repaint may be issued on subtrees during content mutation with newly inserted renderers. 
+            ASSERT(needsLayout());
+            return { };
+        }
         return layout->visualOverflowBoundingBoxRectFor(*this);
+    }
 
     if (!firstLineBox() || !lastLineBox())
         return LayoutRect();
@@ -882,6 +894,11 @@ LayoutSize RenderInline::offsetForInFlowPositionedInline(const RenderBox* child)
         inlinePosition = LayoutUnit::fromFloatRound(firstLineBox()->logicalLeft());
         blockPosition = firstLineBox()->logicalTop();
     } else if (LayoutIntegration::LineLayout::containing(*this)) {
+        if (!layoutBox()) {
+            // Repaint may be issued on subtrees during content mutation with newly inserted renderers.
+            ASSERT(needsLayout());
+            return LayoutSize();
+        }
         if (auto inlineBox = InlineIterator::firstInlineBoxFor(*this)) {
             inlinePosition = LayoutUnit::fromFloatRound(inlineBox->logicalLeftIgnoringInlineDirection());
             blockPosition = inlineBox->logicalTop();
@@ -909,9 +926,23 @@ void RenderInline::imageChanged(WrappedImagePtr, const IntRect*)
     repaint();
 }
 
+namespace {
+    class AbsoluteRectsIgnoringEmptyGeneratorContext : public AbsoluteRectsGeneratorContext {
+        public:
+            AbsoluteRectsIgnoringEmptyGeneratorContext(Vector<LayoutRect>& rects, const LayoutPoint& accumulatedOffset)
+                : AbsoluteRectsGeneratorContext(rects, accumulatedOffset) { }
+
+                void addRect(const FloatRect& rect)
+                {
+                    if (!rect.isEmpty())
+                        AbsoluteRectsGeneratorContext::addRect(rect);
+                }
+    };
+} // unnamed namespace
+
 void RenderInline::addFocusRingRects(Vector<LayoutRect>& rects, const LayoutPoint& additionalOffset, const RenderLayerModelObject* paintContainer) const
 {
-    AbsoluteRectsGeneratorContext context(rects, additionalOffset);
+    AbsoluteRectsIgnoringEmptyGeneratorContext context(rects, additionalOffset);
     generateLineBoxRects(context);
 
     for (auto& child : childrenOfType<RenderElement>(*this)) {
@@ -974,7 +1005,7 @@ bool isEmptyInline(const RenderInline& renderer)
         if (current.isFloatingOrOutOfFlowPositioned())
             continue;
         if (is<RenderText>(current)) {
-            if (!downcast<RenderText>(current).isAllCollapsibleWhitespace())
+            if (!downcast<RenderText>(current).containsOnlyCollapsibleWhitespace())
                 return false;
             continue;
         }
@@ -982,6 +1013,16 @@ bool isEmptyInline(const RenderInline& renderer)
             return false;
     }
     return true;
+}
+
+inline bool RenderInline::willChangeCreatesStackingContext() const
+{
+    return style().willChange() && style().willChange()->canCreateStackingContext();
+}
+
+bool RenderInline::requiresLayer() const
+{
+    return isInFlowPositioned() || createsGroup() || hasClipPath() || shouldApplyPaintContainment() || willChangeCreatesStackingContext() || hasRunningAcceleratedAnimations();
 }
 
 } // namespace WebCore

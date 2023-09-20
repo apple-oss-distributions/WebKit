@@ -31,6 +31,9 @@ declare_args() {
 
   # Enable shared ring buffer command buffer allocator
   angle_enable_vulkan_shared_ring_buffer_cmd_alloc = false
+
+  # Enable using CRC for pipeline cache data
+  angle_enable_crc_for_pipeline_cache = true
 }
 
 angle_source_set("angle_vk_mem_alloc_wrapper") {
@@ -75,17 +78,19 @@ config("angle_vulkan_backend_config") {
   if (angle_enable_memory_alloc_logging) {
     defines += [ "ANGLE_ENABLE_MEMORY_ALLOC_LOGGING=1" ]
   }
+
+  if (angle_enable_crc_for_pipeline_cache) {
+    defines += [ "ANGLE_ENABLE_CRC_FOR_PIPELINE_CACHE" ]
+  }
 }
 
 template("angle_vulkan_backend_template") {
   config("${target_name}_internal_config") {
     defines = []
-    if (invoker.enable_custom_outside_render_pass_cmd_buffers ||
-        angle_enable_vulkan_shared_ring_buffer_cmd_alloc) {
+    if (invoker.enable_custom_outside_render_pass_cmd_buffers) {
       defines += [ "ANGLE_USE_CUSTOM_VULKAN_OUTSIDE_RENDER_PASS_CMD_BUFFERS=1" ]
     }
-    if (invoker.enable_custom_render_pass_cmd_buffers ||
-        angle_enable_vulkan_shared_ring_buffer_cmd_alloc) {
+    if (invoker.enable_custom_render_pass_cmd_buffers) {
       defines += [ "ANGLE_USE_CUSTOM_VULKAN_RENDER_PASS_CMD_BUFFERS=1" ]
     }
   }

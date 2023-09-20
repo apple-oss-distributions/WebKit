@@ -29,6 +29,7 @@
 #if PLATFORM(IOS_FAMILY)
 
 #import "UIKitSPI.h"
+#import "UIKitUtilities.h"
 #import "WKWebViewPrivateForTesting.h"
 #import <CoreLocation/CoreLocation.h>
 #import <WebCore/LocalizedStrings.h>
@@ -36,6 +37,7 @@
 #import <pal/spi/cocoa/NSFileManagerSPI.h>
 #import <wtf/Deque.h>
 #import <wtf/SoftLinking.h>
+#import <wtf/WeakObjCPtr.h>
 #import <wtf/spi/cf/CFBundleSPI.h>
 
 SOFT_LINK_FRAMEWORK(CoreLocation)
@@ -79,7 +81,7 @@ static NSString *getToken(const WebCore::SecurityOriginData& securityOrigin, NSU
 {
     if ([requestingURL isFileURL])
         return [requestingURL path];
-    return securityOrigin.host;
+    return securityOrigin.host();
 }
 
 struct PermissionRequest {
@@ -181,27 +183,29 @@ struct PermissionRequest {
         NSString *allowActionTitle = WEB_UI_STRING("Allow", "Action authorizing a webpage to access the user’s location.");
         NSString *denyActionTitle = WEB_UI_STRING_KEY("Don’t Allow", "Don’t Allow (website location dialog)", "Action denying a webpage access to the user’s location.");
 
-        UIAlertController *alert = [UIAlertController alertControllerWithTitle:title message:message preferredStyle:UIAlertControllerStyleAlert];
-        [alert _setTitleMaximumLineCount:0]; // No limit, we need to make sure the title doesn't get truncated.
-        UIAlertAction *denyAction = [UIAlertAction actionWithTitle:denyActionTitle style:UIAlertActionStyleDefault handler:^(UIAlertAction *) {
-            [self _addChallengeCount:-1 forToken:_activeChallenge->token.get() requestingURL:_activeChallenge->requestingURL.get()];
-            [self _finishActiveChallenge:NO];
+        auto alert = WebKit::createUIAlertController(title, message);
+        UIAlertAction *denyAction = [UIAlertAction actionWithTitle:denyActionTitle style:UIAlertActionStyleDefault handler:[weakSelf = WeakObjCPtr<WKWebGeolocationPolicyDecider>(self)](UIAlertAction *) mutable {
+            if (auto strongSelf = weakSelf.get())
+                [strongSelf _finishActiveChallenge:NO];
         }];
-        UIAlertAction *allowAction = [UIAlertAction actionWithTitle:allowActionTitle style:UIAlertActionStyleDefault handler:^(UIAlertAction *) {
-            [self _addChallengeCount:1 forToken:_activeChallenge->token.get() requestingURL:_activeChallenge->requestingURL.get()];
-            [self _finishActiveChallenge:YES];
+        UIAlertAction *allowAction = [UIAlertAction actionWithTitle:allowActionTitle style:UIAlertActionStyleDefault handler:[weakSelf = WeakObjCPtr<WKWebGeolocationPolicyDecider>(self)](UIAlertAction *) mutable {
+            if (auto strongSelf = weakSelf.get())
+                [strongSelf _finishActiveChallenge:YES];
         }];
 
         [alert addAction:denyAction];
         [alert addAction:allowAction];
 
-        [[_activeChallenge->view window].rootViewController presentViewController:alert animated:YES completion:nil];
+        [[UIViewController _viewControllerForFullScreenPresentationFromView:_activeChallenge->view.get()] presentViewController:alert.get() animated:YES completion:nil];
     }];
 }
 
 - (void)_finishActiveChallenge:(BOOL)allow
 {
-    ASSERT(_activeChallenge);
+    if (!_activeChallenge)
+        return;
+
+    [self _addChallengeCount:allow ? 1 : -1 forToken:_activeChallenge->token.get() requestingURL:_activeChallenge->requestingURL.get()];
     if (allow)
         [_activeChallenge->listener allow];
     else

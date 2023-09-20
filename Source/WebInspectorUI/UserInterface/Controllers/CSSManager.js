@@ -47,7 +47,7 @@ WI.CSSManager = class CSSManager extends WI.Object
         this._nodeStylesMap = {};
         this._modifiedStyles = new Map;
         this._defaultUserPreferences = new Map;
-        this._overridenUserPreferences = new Map;
+        this._overriddenUserPreferences = new Map;
         this._propertyNameCompletions = null;
     }
 
@@ -290,11 +290,11 @@ WI.CSSManager = class CSSManager extends WI.Object
 
     get propertyNameCompletions() { return this._propertyNameCompletions; }
 
-    get overridenUserPreferences() { return this._overridenUserPreferences; }
+    get overriddenUserPreferences() { return this._overriddenUserPreferences; }
 
     get defaultUserPreferences() { return this._defaultUserPreferences; }
 
-    get overridenUserPreferences() { return this._overridenUserPreferences; }
+    get overriddenUserPreferences() { return this._overriddenUserPreferences; }
 
     get preferredColorFormat()
     {
@@ -400,13 +400,13 @@ WI.CSSManager = class CSSManager extends WI.Object
         }
 
         if (value)
-            this._overridenUserPreferences.set(preference, value);
+            this._overriddenUserPreferences.set(preference, value);
         else
-            this._overridenUserPreferences.delete(preference);
+            this._overriddenUserPreferences.delete(preference);
 
         Promise.allSettled(promises).then(() => {
             this.mediaQueryResultChanged();
-            this.dispatchEventToListeners(WI.CSSManager.Event.OverridenUserPreferencesDidChange);
+            this.dispatchEventToListeners(WI.CSSManager.Event.OverriddenUserPreferencesDidChange);
         })
     }
 
@@ -648,6 +648,14 @@ WI.CSSManager = class CSSManager extends WI.Object
         this._styleSheetFrameURLMap.clear();
         this._modifiedStyles.clear();
 
+        // COMPATIBILITY (macOS X.0, iOS X.0): the `PrefersColorScheme` override used to be cleared on main frame navigation
+        // Since support can't be tested directly, check for the `reason` parameter of `Console.messagesCleared`.
+        // FIXME: Use explicit version checking once <https://webkit.org/b/148680> is fixed.
+        if (!InspectorBackend.hasEvent("Console.messagesCleared", "reason")) {
+            this._overriddenUserPreferences.delete(InspectorBackend.Enum.Page.UserPreferenceName.PrefersColorScheme);
+            this.dispatchEventToListeners(WI.CSSManager.Event.OverriddenUserPreferencesDidChange);
+        }
+
         this._nodeStylesMap = {};
     }
 
@@ -844,7 +852,7 @@ WI.CSSManager.Event = {
     StyleSheetRemoved: "css-manager-style-sheet-removed",
     ModifiedStylesChanged: "css-manager-modified-styles-changed",
     DefaultUserPreferencesDidChange: "css-manager-default-user-preferences-did-change",
-    OverridenUserPreferencesDidChange: "css-manager-overriden-user-preferences-did-change",
+    OverriddenUserPreferencesDidChange: "css-manager-overriden-user-preferences-did-change",
 };
 
 WI.CSSManager.UserPreferenceDefaultValue = "System";

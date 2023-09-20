@@ -191,7 +191,8 @@ angle::Result SemaphoreVk::signal(gl::Context *context,
         ANGLE_TRY(contextVk->syncExternalMemory());
     }
 
-    ANGLE_TRY(contextVk->flushImpl(&mSemaphore, RenderPassClosureReason::ExternalSemaphoreSignal));
+    ANGLE_TRY(contextVk->flushImpl(&mSemaphore, nullptr,
+                                   RenderPassClosureReason::ExternalSemaphoreSignal));
 
     // The external has asked for the semaphore to be signaled.  It will wait on this semaphore and
     // so we must ensure that the above flush (resulting in vkQueueSubmit) has actually been
@@ -203,8 +204,8 @@ angle::Result SemaphoreVk::signal(gl::Context *context,
     // > - A binary semaphore must be signaled, or have an associated semaphore signal operation
     // >   that is pending execution.
     //
-    return renderer->waitForQueueSerialToBeSubmitted(contextVk,
-                                                     contextVk->getLastSubmittedQueueSerial());
+    return renderer->waitForQueueSerialToBeSubmittedToDevice(
+        contextVk, contextVk->getLastSubmittedQueueSerial());
 }
 
 angle::Result SemaphoreVk::importOpaqueFd(ContextVk *contextVk, GLint fd)

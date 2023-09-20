@@ -68,7 +68,7 @@ def _CheckCommitMessageFormatting(input_api, output_api):
     def _CheckTabInCommit(lines):
         return all([line.find("\t") == -1 for line in lines])
 
-    allowlist_strings = ['Revert "', 'Roll ', 'Manual roll ', 'Reland ', 'Re-land ']
+    allowlist_strings = ['Revert', 'Roll', 'Manual roll', 'Reland', 'Re-land']
     summary_linelength_warning_lower_limit = 65
     summary_linelength_warning_upper_limit = 70
     description_linelength_limit = 72
@@ -170,9 +170,9 @@ def _CheckCommitMessageFormatting(input_api, output_api):
         # loop through description body
         while len(commit_msg_lines) > 0:
             line = commit_msg_lines.pop(0)
-            # lines starting with 4 spaces or lines without space(urls)
+            # lines starting with 4 spaces, quotes or lines without space(urls)
             # are exempt from length check
-            if line.startswith("    ") or " " not in line:
+            if line.startswith("    ") or line.startswith("> ") or " " not in line:
                 continue
             if len(line) > description_linelength_limit:
                 errors.append(
@@ -233,7 +233,7 @@ def _CheckCodeGeneration(input_api, output_api):
     class Msg(output_api.PresubmitError):
         """Specialized error message"""
 
-        def __init__(self, message):
+        def __init__(self, message, **kwargs):
             super(output_api.PresubmitError, self).__init__(
                 message,
                 long_text='Please ensure your ANGLE repositiory is synced to tip-of-tree\n'
@@ -242,7 +242,8 @@ def _CheckCodeGeneration(input_api, output_api):
                 'If that fails, run scripts/run_code_generation.py to refresh generated hashes.\n'
                 '\n'
                 'If you are building ANGLE inside Chromium you must bootstrap ANGLE\n'
-                'before gclient sync. See the DevSetup documentation for more details.\n')
+                'before gclient sync. See the DevSetup documentation for more details.\n',
+                **kwargs)
 
     code_gen_path = input_api.os_path.join(input_api.PresubmitLocalPath(),
                                            'scripts/run_code_generation.py')

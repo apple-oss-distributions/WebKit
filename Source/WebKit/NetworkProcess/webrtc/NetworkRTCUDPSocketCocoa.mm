@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2021 Apple Inc. All rights reserved.
+ * Copyright (C) 2021-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -40,10 +40,8 @@
 #include <wtf/SoftLinking.h>
 #include <wtf/ThreadSafeRefCounted.h>
 
-#if HAVE(NWPARAMETERS_TRACKER_API)
 SOFT_LINK_LIBRARY_OPTIONAL(libnetwork)
 SOFT_LINK_OPTIONAL(libnetwork, nw_parameters_allow_sharing_port_with_listener, void, __cdecl, (nw_parameters_t, nw_listener_t))
-#endif
 
 namespace WebKit {
 
@@ -90,6 +88,7 @@ private:
     Lock m_nwConnectionsLock;
     bool m_isClosed WTF_GUARDED_BY_LOCK(m_nwConnectionsLock) { false };
     HashMap<rtc::SocketAddress, std::pair<RetainPtr<nw_connection_t>, RefPtr<ConnectionStateTracker>>> m_nwConnections WTF_GUARDED_BY_LOCK(m_nwConnectionsLock);
+    std::optional<uint32_t> m_trafficClass;
 };
 
 static dispatch_queue_t udpSocketQueue()
@@ -240,6 +239,8 @@ NetworkRTCUDPSocketCocoaConnections::NetworkRTCUDPSocketCocoaConnections(WebCore
 
         auto connectionStateTracker = ConnectionStateTracker::create();
         protectedThis->setupNWConnection(nwConnection, connectionStateTracker.get(), remoteAddress);
+        if (protectedThis->m_trafficClass)
+            nw_connection_reset_traffic_class(nwConnection, *protectedThis->m_trafficClass);
 
         protectedThis->m_nwConnections.set(remoteAddress, std::make_pair(nwConnection, WTFMove(connectionStateTracker)));
     }).get());
@@ -280,9 +281,22 @@ void NetworkRTCUDPSocketCocoaConnections::close()
     m_nwListener = nullptr;
 }
 
-void NetworkRTCUDPSocketCocoaConnections::setOption(int, int)
+void NetworkRTCUDPSocketCocoaConnections::setOption(int option, int value)
 {
-    // FIXME: Validate this is not needed.
+    if (option != rtc::Socket::OPT_DSCP)
+        return;
+
+    auto trafficClass = trafficClassFromDSCP(static_cast<rtc::DiffServCodePoint>(value));
+    if (!trafficClass) {
+        RELEASE_LOG_ERROR(WebRTC, "NetworkRTCUDPSocketCocoaConnections has an unexpected DSCP value %d", value);
+        return;
+    }
+
+    m_trafficClass = trafficClass;
+
+    Locker locker { m_nwConnectionsLock };
+    for (auto& nwConnection : m_nwConnections.values())
+        nw_connection_reset_traffic_class(nwConnection.first.get(), *m_trafficClass);
 }
 
 static inline void processUDPData(RetainPtr<nw_connection_t>&& nwConnection, Ref<NetworkRTCUDPSocketCocoaConnections::ConnectionStateTracker> connectionStateTracker, int errorCode, Function<void(const uint8_t*, size_t)>&& processData)
@@ -316,16 +330,17 @@ std::pair<RetainPtr<nw_connection_t>, Ref<NetworkRTCUDPSocketCocoaConnections::C
 
         // rdar://80176676: we workaround local loop port reuse by using 0 instead of m_address.port() when nw_parameters_allow_sharing_port_with_listener is not available.
         uint16_t port = 0;
-#if HAVE(NWPARAMETERS_TRACKER_API)
         if (nw_parameters_allow_sharing_port_with_listenerPtr()) {
             nw_parameters_allow_sharing_port_with_listenerPtr()(parameters.get(), m_nwListener.get());
             port = m_address.port();
         }
-#endif
         auto localEndpoint = adoptNS(nw_endpoint_create_host_with_numeric_port(hostAddress.c_str(), port));
         nw_parameters_set_local_endpoint(parameters.get(), localEndpoint.get());
     }
     configureParameters(parameters.get(), remoteAddress.family() == AF_INET ? nw_ip_version_4 : nw_ip_version_6);
+
+    if (m_trafficClass)
+        nw_parameters_set_traffic_class(parameters.get(), *m_trafficClass);
 
     auto remoteHostAddress = remoteAddress.ipaddr().ToString();
     if (remoteAddress.ipaddr().IsNil())

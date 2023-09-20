@@ -40,7 +40,7 @@ namespace Style {
 
 StyleColor colorFromPrimitiveValue(const Document& document, RenderStyle& style, const CSSPrimitiveValue& value, ForVisitedLink forVisitedLink)
 {
-    if (value.isRGBColor())
+    if (value.isColor())
         return value.color();
     if (value.isUnresolvedColor())
         return value.unresolvedColor().createStyleColor(document, style, forVisitedLink);
@@ -65,14 +65,14 @@ StyleColor colorFromPrimitiveValue(const Document& document, RenderStyle& style,
 Color colorFromPrimitiveValueWithResolvedCurrentColor(const Document& document, RenderStyle& style, const CSSPrimitiveValue& value)
 {
     // FIXME: 'currentcolor' should be resolved at use time to make it inherit correctly. https://bugs.webkit.org/show_bug.cgi?id=210005
-    if (StyleColor::isCurrentColor(value)) {
+    if (StyleColor::containsCurrentColor(value)) {
         // Color is an inherited property so depending on it effectively makes the property inherited.
         style.setHasExplicitlyInheritedProperties();
         style.setDisallowsFastPathInheritance();
-        return style.color();
     }
 
-    return colorFromPrimitiveValue(document, style, value, ForVisitedLink::No).absoluteColor();
+    auto color = colorFromPrimitiveValue(document, style, value, ForVisitedLink::No);
+    return style.colorResolvingCurrentColor(color);
 }
 
 } // namespace Style

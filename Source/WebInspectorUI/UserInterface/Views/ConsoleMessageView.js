@@ -93,7 +93,7 @@ WI.ConsoleMessageView = class ConsoleMessageView extends WI.Object
         // FIXME: The location link should include stack trace information.
         this._appendLocationLink();
 
-        this._messageBodyElement = this._element.appendChild(document.createElement("div"));
+        this._messageBodyElement = this._element.appendChild(document.createElement("span"));
         this._messageBodyElement.classList.add("console-top-level-message", "console-message-body");
         this._appendMessageTextAndArguments(this._messageBodyElement);
         this._appendSavedResultIndex();
@@ -185,9 +185,9 @@ WI.ConsoleMessageView = class ConsoleMessageView extends WI.Object
         }
 
         if (!this._timestampElement) {
-            this._timestampElement = document.createElement("div");
+            this._timestampElement = document.createElement("span");
             this._timestampElement.classList.add("timestamp");
-            this._messageBodyElement.insertBefore(this._timestampElement, this._messageBodyElement.firstChild);
+            this._element.insertBefore(this._timestampElement, this._element.firstChild);
         }
     
         let date = new Date(this._timestamp * 1000);
@@ -567,7 +567,7 @@ WI.ConsoleMessageView = class ConsoleMessageView extends WI.Object
         for (let i = 0; i < parameters.length; ++i)
             parameters[i] = this._createRemoteObjectIfNeeded(parameters[i]);
 
-        let builderElement = element.appendChild(document.createElement("div"));
+        let builderElement = element.appendChild(document.createElement("span"));
         let shouldFormatWithStringSubstitution = parameters[0].type === "string" && this._message.type !== WI.ConsoleMessage.MessageType.Result;
 
         // Single object (e.g. console result or logging a non-string object).
@@ -720,6 +720,7 @@ WI.ConsoleMessageView = class ConsoleMessageView extends WI.Object
             "iterator": this._formatParameterAsObject,
             "class": this._formatParameterAsObject,
             "proxy": this._formatParameterAsObject,
+            "weakref": this._formatParameterAsObject,
             "array": this._formatParameterAsArray,
             "node": this._formatParameterAsNode,
             "string": this._formatParameterAsString,

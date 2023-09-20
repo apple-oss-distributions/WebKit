@@ -25,6 +25,26 @@
 import re
 import sys
 
+# Supported type attributes:
+#
+# AdditionalEncoder - generate serializers for StreamConnectionEncoder in addition to IPC::Encoder.
+# CreateUsing - use a custom function to call instead of the constructor or create.
+# CustomHeader - don't include a header based on the struct/class name. Only needed for non-enum types.
+# Alias - this type is not a struct or class, but a typedef.
+# Nested - this type is only serialized as a member of its parent, so work around the need for http://wg21.link/P0289 and don't forward declare it in the header.
+# RefCounted - deserializer returns a std::optional<Ref<T>> instead of a std::optional<T>.
+# CustomMemberLayout - member memory layout doesn't match serialization layout, so don't static_assert that the members are in order.
+# LegacyPopulateFromEmptyConstructor - instead of calling a constructor with the members, call the empty constructor then insert the members one at a time.
+# OptionSet - for enum classes, instead of only allowing deserialization of the exact values, allow deserialization of any bit combination of the values.
+# RValue - serializer takes an rvalue reference, instead of an lvalue.
+# WebKitPlatform - put serializer into a file built as part of WebKitPlatform
+#
+# Supported member attributes:
+#
+# BitField - work around the need for http://wg21.link/P0572 and don't check that the serialization order matches the memory layout.
+# Nullable - check if the member is truthy before serializing.
+# Validator - additional C++ to validate the value when decoding
+# NotSerialized - member is present in structure but intentionally not serialized.
 
 class SerializedType(object):
     def __init__(self, struct_or_class, namespace, name, parent_class_name, members, condition, attributes, other_metadata=None):
@@ -42,19 +62,18 @@ class SerializedType(object):
         self.create_using = False
         self.populate_from_empty_constructor = False
         self.nested = False
+        self.rvalue = False
+        self.webkit_platform = False
         self.members_are_subclasses = False
+        self.custom_member_layout = False
         if attributes is not None:
             for attribute in attributes.split(', '):
                 if '=' in attribute:
                     key, value = attribute.split('=')
                     if key == 'AdditionalEncoder':
                         self.encoders.append(value)
-                    if key == 'Return' and value == 'Ref':
-                        self.return_ref = True
                     if key == 'CreateUsing':
                         self.create_using = value
-                    if key == 'LegacyPopulateFrom' and value == 'EmptyConstructor':
-                        self.populate_from_empty_constructor = True
                     if key == 'Alias':
                         self.alias = value
                 else:
@@ -62,6 +81,14 @@ class SerializedType(object):
                         self.nested = True
                     elif attribute == 'RefCounted':
                         self.return_ref = True
+                    elif attribute == 'RValue':
+                        self.rvalue = True
+                    elif attribute == 'WebKitPlatform':
+                        self.webkit_platform = True
+                    elif attribute == 'CustomMemberLayout':
+                        self.custom_member_layout = True
+                    elif attribute == 'LegacyPopulateFromEmptyConstructor':
+                        self.populate_from_empty_constructor = True
         if other_metadata:
             if other_metadata == 'subclasses':
                 self.members_are_subclasses = True
@@ -84,6 +111,20 @@ class SerializedType(object):
 
     def function_name_for_enum(self):
         return 'isValidEnum'
+
+    def can_assert_member_order_is_correct(self):
+        if self.custom_member_layout:
+            return False
+        for member in self.members:
+            if '()' in member.name:
+                return False
+            if '.' in member.name:
+                return False
+        return True
+
+    def serialized_members(self):
+        return list(filter(lambda member: 'NotSerialized' not in member.attributes, self.members))
+
 
 class SerializedEnum(object):
     def __init__(self, namespace, name, underlying_type, valid_values, condition, attributes):
@@ -137,13 +178,23 @@ class EnumMember(object):
         self.condition = condition
 
 class ConditionalHeader(object):
-    def __init__(self, header, condition):
+    def __init__(self, header, condition, webkit_platform=False):
         self.header = header
         self.condition = condition
+        self.webkit_platform = webkit_platform
 
     def __lt__(self, other):
-        return self.header < other.header
+        if self.header != other.header:
+            return self.header < other.header
+        def condition_str(condition):
+            return "" if condition is None else condition
+        return condition_str(self.condition) < condition_str(other.condition)
 
+    def __eq__(self, other):
+        return other and self.header == other.header and self.condition == other.condition and self.webkit_platform == other.webkit_platform
+
+    def __hash__(self):
+        return hash((self.header, self.condition))
 
 def sanitize_string_for_variable_name(string):
     return string.replace('()', '').replace('.', '')
@@ -184,7 +235,10 @@ def argument_coder_declarations(serialized_types, skip_nested):
             result.append('#if ' + type.condition)
         result.append('template<> struct ArgumentCoder<' + type.namespace_and_name() + '> {')
         for encoder in type.encoders:
-            result.append('    static void encode(' + encoder + '&, const ' + type.namespace_and_name() + '&);')
+            if type.rvalue:
+                result.append('    static void encode(' + encoder + '&, ' + type.namespace_and_name() + '&&);')
+            else:
+                result.append('    static void encode(' + encoder + '&, const ' + type.namespace_and_name() + '&);')
         if type.return_ref:
             result.append('    static std::optional<Ref<' + type.namespace_and_name() + '>> decode(Decoder&);')
         else:
@@ -222,9 +276,9 @@ def generate_header(serialized_types, serialized_enums):
     result.append(_license_header)
     result.append('#pragma once')
     result.append('')
-    result.append('#include <wtf/ArgumentCoder.h>')
-    result.append('#include <wtf/OptionSet.h>')
-    result.append('#include <wtf/Ref.h>')
+    for header in ['<wtf/ArgumentCoder.h>', '<wtf/OptionSet.h>', '<wtf/Ref.h>']:
+        result.append('#include ' + header)
+
     result.append('')
     for enum in serialized_enums:
         if enum.is_nested():
@@ -294,16 +348,38 @@ def resolve_inheritance(serialized_types):
     return result
 
 
-def check_type_members(type):
+def check_type_members(type, checking_parent_class):
     result = []
     if type.parent_class is not None:
-        result = result + check_type_members(type.parent_class)
+        result = check_type_members(type.parent_class, True)
     for member in type.members:
         if member.condition is not None:
             result.append('#if ' + member.condition)
         result.append('    static_assert(std::is_same_v<std::remove_cvref_t<decltype(instance.' + member.name + ')>, ' + member.type + '>);')
         if member.condition is not None:
             result.append('#endif')
+    if type.can_assert_member_order_is_correct():
+        # FIXME: Add this check for types with parent classes, too.
+        if type.parent_class is None and not checking_parent_class:
+            result.append('    struct ShouldBeSameSizeAs' + type.name + ' : public VirtualTableAndRefCountOverhead<std::is_polymorphic_v<' + type.namespace_and_name() + '>, ' + ('true' if type.return_ref else 'false') + '> {')
+            for member in type.members:
+                if member.condition is not None:
+                    result.append('#if ' + member.condition)
+                result.append('        ' + member.type + ' ' + member.name + (' : 1' if 'BitField' in member.attributes else '') + ';')
+                if member.condition is not None:
+                    result.append('#endif')
+            result.append('    };')
+            result.append('    static_assert(sizeof(ShouldBeSameSizeAs' + type.name + ') == sizeof(' + type.namespace_and_name() + '));')
+        result.append('    static_assert(MembersInCorrectOrder<0')
+        for member in type.members:
+            if 'BitField' in member.attributes:
+                continue
+            if member.condition is not None:
+                result.append('#if ' + member.condition)
+            result.append('        , offsetof(' + type.namespace_and_name() + ', ' + member.name + ')')
+            if member.condition is not None:
+                result.append('#endif')
+        result.append('    >::value);')
     return result
 
 
@@ -311,23 +387,30 @@ def encode_type(type):
     result = []
     if type.parent_class is not None:
         result = result + encode_type(type.parent_class)
-    for member in type.members:
+    for member in type.serialized_members():
         if member.condition is not None:
             result.append('#if ' + member.condition)
         if 'Nullable' in member.attributes:
             result.append('    encoder << !!instance.' + member.name + ';')
             result.append('    if (!!instance.' + member.name + ')')
-            result.append('        encoder << instance.' + member.name + ';')
+            if type.rvalue:
+                result.append('        encoder << WTFMove(instance.' + member.name + ');')
+            else:
+                result.append('        encoder << instance.' + member.name + ';')
         elif member.is_subclass:
             result.append('    if (auto* subclass = dynamicDowncast<' + member.namespace + "::" + member.name + '>(instance)) {')
             result.append('        encoder << ' + type.subclass_enum_name() + "::" + member.name + ";")
-            result.append('        encoder << *subclass;')
+            if type.rvalue:
+                result.append('        encoder << WTFMove(*subclass);')
+            else:
+                result.append('        encoder << *subclass;')
+            result.append('        return;')
             result.append('    }')
         else:
-            result.append('    encoder << instance.' + member.name + ('()' if type.serialize_with_function_calls else '') + ';')
-            if 'ReturnEarlyIfTrue' in member.attributes:
-                result.append('    if (instance.' + member.name + ')')
-                result.append('        return;')
+            if type.rvalue and not type.serialize_with_function_calls:
+                result.append('    encoder << WTFMove(instance.' + member.name + ('()' if type.serialize_with_function_calls else '') + ');')
+            else:
+                result.append('    encoder << instance.' + member.name + ('()' if type.serialize_with_function_calls else '') + ';')
         if member.condition is not None:
             result.append('#endif')
 
@@ -340,13 +423,12 @@ def decode_type(type):
         result = result + decode_type(type.parent_class)
 
     if type.members_are_subclasses:
-        result.append('    std::optional<' + type.subclass_enum_name() + '> type;')
-        result.append('    decoder >> type;')
-        result.append('    if (!type)')
+        result.append('    auto type = decoder.decode<' + type.subclass_enum_name() + '>();')
+        result.append('    if (UNLIKELY(!decoder.isValid()))')
         result.append('        return std::nullopt;')
         result.append('')
 
-    for member in type.members:
+    for member in type.serialized_members():
         if member.condition is not None:
             result.append('#if ' + member.condition)
         sanitized_variable_name = sanitize_string_for_variable_name(member.name)
@@ -356,17 +438,11 @@ def decode_type(type):
             match = re.search("RetainPtr<(.*)>", member.type)
             assert match
             result.append('    auto ' + sanitized_variable_name + ' = IPC::decode<' + match.groups()[0] + '>(decoder, @[ ' + decodable_classes[0] + ' ]);')
-            result.append('    if (!' + sanitized_variable_name + ')')
-            result.append('        return std::nullopt;')
-            if 'ReturnEarlyIfTrue' in member.attributes:
-                result.append('    if (*' + sanitized_variable_name + ')')
-                result.append('        return { ' + type.namespace_and_name() + ' { } };')
         elif member.is_subclass:
             result.append('    if (type == ' + type.subclass_enum_name() + "::" + member.name + ') {')
             typename = member.namespace + "::" + member.name
-            result.append('        std::optional<Ref<' + typename + '>> result;')
-            result.append('        decoder >> result;')
-            result.append('        if (!result)')
+            result.append('        auto result = decoder.decode<Ref<' + typename + '>>();')
+            result.append('        if (UNLIKELY(!decoder.isValid()))')
             result.append('            return std::nullopt;')
             result.append('        return WTFMove(*result);')
             result.append('    }')
@@ -381,44 +457,34 @@ def decode_type(type):
                 if 'Nullable' in member.attributes:
                     indentation = 2
                     result.append('    auto has' + sanitized_variable_name + ' = decoder.decode<bool>();')
-                    result.append('    if (!has' + sanitized_variable_name + ')')
+                    result.append('    if (UNLIKELY(!decoder.isValid()))')
                     result.append('        return std::nullopt;')
                     result.append('    std::optional<' + member.type + '> ' + sanitized_variable_name + ';')
                     result.append('    if (*has' + sanitized_variable_name + ') {')
                 auto_specifier = '' if 'Nullable' in member.attributes else 'auto '
                 result.append(indent(indentation) + auto_specifier + sanitized_variable_name + ' = IPC::decode<' + match.groups()[0] + '>(decoder, ' + soft_linked_classes[0] + ');')
-                result.append(indent(indentation) + 'if (!' + sanitized_variable_name + ')')
-                result.append(indent(indentation) + '    return std::nullopt;')
                 if 'Nullable' in member.attributes:
                     result.append('    } else')
                     result.append('        ' + sanitized_variable_name + ' = std::optional<' + member.type + '> { ' + member.type + ' { } };')
-                elif 'ReturnEarlyIfTrue' in member.attributes:
-                    result.append('    if (*' + sanitized_variable_name + ')')
-                    result.append('        return { ' + type.namespace_and_name() + ' { } };')
             elif 'Nullable' in member.attributes:
                 result.append('    auto has' + sanitized_variable_name + ' = decoder.decode<bool>();')
-                result.append('    if (!has' + sanitized_variable_name + ')')
+                result.append('    if (UNLIKELY(!decoder.isValid()))')
                 result.append('        return std::nullopt;')
                 result.append('    std::optional<' + member.type + '> ' + sanitized_variable_name + ';')
                 result.append('    if (*has' + sanitized_variable_name + ') {')
                 # FIXME: This should be below
                 result.append('        ' + sanitized_variable_name + ' = decoder.decode<' + member.type + '>();')
-                result.append('        if (!' + sanitized_variable_name + ')')
-                result.append('            return std::nullopt;')
                 result.append('    } else')
                 result.append('        ' + sanitized_variable_name + ' = std::optional<' + member.type + '> { ' + member.type + ' { } };')
             else:
                 assert len(soft_linked_classes) == 0
                 result.append('    auto ' + sanitized_variable_name + ' = decoder.decode<' + member.type + '>();')
-                result.append('    if (!' + sanitized_variable_name + ')')
-                result.append('        return std::nullopt;')
-                if 'ReturnEarlyIfTrue' in member.attributes:
-                    result.append('    if (*' + sanitized_variable_name + ')')
-                    result.append('        return { ' + type.namespace_and_name() + ' { } };')
         for attribute in member.attributes:
             match = re.search(r'Validator=\'(.*)\'', attribute)
             if match:
                 validator, = match.groups()
+                result.append('    if (UNLIKELY(!decoder.isValid()))')
+                result.append('        return std::nullopt;')
                 result.append('')
                 result.append('    if (!(' + validator + '))')
                 result.append('        return std::nullopt;')
@@ -428,7 +494,6 @@ def decode_type(type):
                 assert not match
         if member.condition is not None:
             result.append('#endif')
-        result.append('')
     return result
 
 
@@ -448,11 +513,12 @@ def construct_type(type, indentation):
         result = result + construct_type(type.parent_class, indentation + 1)
         if len(type.members) != 0:
             result[-1] += ','
-    for i in range(len(type.members)):
-        member = type.members[i]
-        if type.members[i].condition is not None:
+    serialized_members = type.serialized_members()
+    for i in range(len(serialized_members)):
+        member = serialized_members[i]
+        if member.condition is not None:
             result.append('#if ' + member.condition)
-        result.append(indent(indentation + 1) + 'WTFMove(*' + sanitize_string_for_variable_name(member.name) + ')' + ('' if i == len(type.members) - 1 else ','))
+        result.append(indent(indentation + 1) + 'WTFMove(*' + sanitize_string_for_variable_name(member.name) + ')' + ('' if i == len(serialized_members) - 1 else ','))
         if member.condition is not None:
             result.append('#endif')
     if type.create_using or type.return_ref:
@@ -462,7 +528,7 @@ def construct_type(type, indentation):
     return result
 
 
-def generate_impl(serialized_types, serialized_enums, headers):
+def generate_impl(serialized_types, serialized_enums, headers, generating_webkit_platform_impl):
     serialized_types = resolve_inheritance(serialized_types)
     result = []
     result.append(_license_header)
@@ -470,23 +536,68 @@ def generate_impl(serialized_types, serialized_enums, headers):
     result.append('#include "GeneratedSerializers.h"')
     result.append('')
     for header in headers:
+        if header.webkit_platform != generating_webkit_platform_impl:
+            continue
         if header.condition is not None:
             result.append('#if ' + header.condition)
         result.append('#include ' + header.header)
         if header.condition is not None:
             result.append('#endif')
     result.append('')
+    result.append('template<size_t...> struct MembersInCorrectOrder;')
+    result.append('template<size_t onlyOffset> struct MembersInCorrectOrder<onlyOffset> { static constexpr bool value = true; };')
+    result.append('template<size_t firstOffset, size_t secondOffset, size_t... remainingOffsets> struct MembersInCorrectOrder<firstOffset, secondOffset, remainingOffsets...> {')
+    result.append('    static constexpr bool value = firstOffset > secondOffset ? false : MembersInCorrectOrder<secondOffset, remainingOffsets...>::value;')
+    result.append('};')
+    result.append('')
+    result.append('template<bool, bool> struct VirtualTableAndRefCountOverhead;')
+    result.append('template<> struct VirtualTableAndRefCountOverhead<true, true> {')
+    result.append('    virtual ~VirtualTableAndRefCountOverhead() { }')
+    result.append('    unsigned refCount;')
+    result.append('#if ASSERT_ENABLED')
+    result.append('    bool m_isOwnedByMainThread;')
+    result.append('    bool m_areThreadingChecksEnabled;')
+    result.append('#endif')
+    result.append('#if CHECK_REF_COUNTED_LIFECYCLE')
+    result.append('    bool m_deletionHasBegun;')
+    result.append('    bool m_adoptionIsRequired;')
+    result.append('#endif')
+    result.append('};')
+    result.append('template<> struct VirtualTableAndRefCountOverhead<false, true> {')
+    result.append('    unsigned refCount;')
+    result.append('#if ASSERT_ENABLED')
+    result.append('    bool m_isOwnedByMainThread;')
+    result.append('    bool m_areThreadingChecksEnabled;')
+    result.append('#endif')
+    result.append('#if CHECK_REF_COUNTED_LIFECYCLE')
+    result.append('    bool m_deletionHasBegun;')
+    result.append('    bool m_adoptionIsRequired;')
+    result.append('#endif')
+    result.append('};')
+    result.append('template<> struct VirtualTableAndRefCountOverhead<true, false> {')
+    result.append('    virtual ~VirtualTableAndRefCountOverhead() { }')
+    result.append('};')
+    result.append('template<> struct VirtualTableAndRefCountOverhead<false, false> { };')
+    result.append('')
+    # GCC is less generous with its interpretation of "Use of the offsetof macro with a
+    # type other than a standard-layout class is conditionally-supported".
+    result.append('#if COMPILER(GCC)')
+    result.append('IGNORE_WARNINGS_BEGIN("invalid-offsetof")')
+    result.append('#endif')
+    result.append('')
     result.append('namespace IPC {')
     result.append('')
-    result = result + argument_coder_declarations(serialized_types, False)
-    result.append('')
-    for type in serialized_types:
+    if not generating_webkit_platform_impl:
+        result = result + argument_coder_declarations(serialized_types, False)
         result.append('')
+    for type in serialized_types:
+        if type.webkit_platform != generating_webkit_platform_impl:
+            continue
         if type.condition is not None:
             result.append('#if ' + type.condition)
 
         if type.members_are_subclasses:
-            result.append('enum class ' + type.subclass_enum_name() + " : uint8_t {")
+            result.append('enum class ' + type.subclass_enum_name() + " : IPC::EncodedVariantIndex {")
             for idx in range(0, len(type.members)):
                 member = type.members[idx]
                 if idx == len(type.members) - 1:
@@ -494,15 +605,20 @@ def generate_impl(serialized_types, serialized_enums, headers):
                 else:
                     result.append('    ' + member.name + ',')
             result.append('};')
-        for encoder in type.encoders:
             result.append('')
-            result.append('void ArgumentCoder<' + type.namespace_and_name() + '>::encode(' + encoder + '& encoder, const ' + type.namespace_and_name() + '& instance)')
+        for encoder in type.encoders:
+            if type.rvalue:
+                result.append('void ArgumentCoder<' + type.namespace_and_name() + '>::encode(' + encoder + '& encoder, ' + type.namespace_and_name() + '&& instance)')
+            else:
+                result.append('void ArgumentCoder<' + type.namespace_and_name() + '>::encode(' + encoder + '& encoder, const ' + type.namespace_and_name() + '& instance)')
             result.append('{')
             if not type.members_are_subclasses:
-                result = result + check_type_members(type)
+                result = result + check_type_members(type, False)
             result = result + encode_type(type)
+            if type.members_are_subclasses:
+                result.append('    ASSERT_NOT_REACHED();')
             result.append('}')
-        result.append('')
+            result.append('')
         if type.return_ref:
             result.append('std::optional<Ref<' + type.namespace_and_name() + '>> ArgumentCoder<' + type.namespace_and_name() + '>::decode(Decoder& decoder)')
         else:
@@ -510,9 +626,11 @@ def generate_impl(serialized_types, serialized_enums, headers):
         result.append('{')
         result = result + decode_type(type)
         if not type.members_are_subclasses:
+            result.append('    if (UNLIKELY(!decoder.isValid()))')
+            result.append('        return std::nullopt;')
             if type.populate_from_empty_constructor:
                 result.append('    ' + type.namespace_and_name() + ' result;')
-                for member in type.members:
+                for member in type.serialized_members():
                     if member.condition is not None:
                         result.append('#if ' + member.condition)
                     result.append('    result.' + member.name + ' = WTFMove(*' + member.name + ');')
@@ -527,20 +645,22 @@ def generate_impl(serialized_types, serialized_enums, headers):
             result.append('    ASSERT_NOT_REACHED();')
             result.append('    return std::nullopt;')
         result.append('}')
+        result.append('')
         if type.condition is not None:
-            result.append('')
             result.append('#endif')
-    result.append('')
+            result.append('')
     result.append('} // namespace IPC')
     result.append('')
     result.append('namespace WTF {')
     for type in serialized_types:
+        if generating_webkit_platform_impl:
+            continue
         if not type.members_are_subclasses:
             continue
         result.append('')
         if type.condition is not None:
             result.append('#if ' + type.condition)
-        result.append('template<> bool ' + type.function_name_for_enum() + '<IPC::' + type.subclass_enum_name() + ', void>(uint8_t value)')
+        result.append('template<> bool ' + type.function_name_for_enum() + '<IPC::' + type.subclass_enum_name() + ', void>(IPC::EncodedVariantIndex value)')
         result.append('{')
         result.append('    switch (static_cast<IPC::' + type.subclass_enum_name() + '>(value)) {')
         for member in type.members:
@@ -558,6 +678,8 @@ def generate_impl(serialized_types, serialized_enums, headers):
             result.append('#endif')
 
     for enum in serialized_enums:
+        if generating_webkit_platform_impl:
+            continue
         if enum.underlying_type == 'bool':
             continue
         result.append('')
@@ -566,14 +688,15 @@ def generate_impl(serialized_types, serialized_enums, headers):
         result.append('template<> bool ' + enum.function_name() + '<' + enum.namespace_and_name() + enum.additional_template_parameter() + '>(' + enum.parameter() + ' value)')
         result.append('{')
         if enum.is_option_set():
-            result.append('    constexpr ' + enum.underlying_type + ' allValidBitsValue =')
+            result.append('    constexpr ' + enum.underlying_type + ' allValidBitsValue = 0')
             for i in range(0, len(enum.valid_values)):
                 valid_value = enum.valid_values[i]
                 if valid_value.condition is not None:
                     result.append('#if ' + valid_value.condition)
-                result.append('        ' + ('' if i == 0 else '| ') + 'static_cast<' + enum.underlying_type + '>(' + enum.namespace_and_name() + '::' + valid_value.name + ')' + (';' if i == len(enum.valid_values) - 1 else ''))
+                result.append('        | static_cast<' + enum.underlying_type + '>(' + enum.namespace_and_name() + '::' + valid_value.name + ')')
                 if valid_value.condition is not None:
                     result.append('#endif')
+            result.append('        | 0;')
             result.append('    return (value.toRaw() | allValidBitsValue) == allValidBitsValue;')
         else:
             result.append('    switch (static_cast<' + enum.namespace_and_name() + '>(value)) {')
@@ -592,6 +715,10 @@ def generate_impl(serialized_types, serialized_enums, headers):
             result.append('#endif')
     result.append('')
     result.append('} // namespace WTF')
+    result.append('')
+    result.append('#if COMPILER(GCC)')
+    result.append('IGNORE_WARNINGS_END')
+    result.append('#endif')
     result.append('')
     return '\n'.join(result)
 
@@ -617,15 +744,23 @@ def generate_serialized_type_info(serialized_types, serialized_enums, headers, t
     result.append('{')
     result.append('    return {')
     for type in serialized_types:
-        if type.members_are_subclasses:
-            continue
         result.append('        { "' + type.namespace_unless_wtf_and_name() + '"_s, {')
-        for i in range(len(type.members)):
+        if type.members_are_subclasses:
+            result.append('            { "std::variant<' + ', '.join([member.namespace + '::' + member.name for member in type.members]) + '>"_s, "subclasses"_s }')
+            result.append('        } },')
+            continue
+
+        serialized_members = type.serialized_members()
+        for i in range(len(serialized_members)):
+            member = type.members[i]
             if i == 0:
                 result.append('            {')
-            result.append('                "' + type.members[i].type + '"_s,')
-            result.append('                "' + type.members[i].name + '"_s')
-            if i == len(type.members) - 1:
+            if 'Nullable' in member.attributes:
+                result.append('                "std::optional<' + member.type + '>"_s,')
+            else:
+                result.append('                "' + member.type + '"_s,')
+            result.append('                "' + member.name + '"_s')
+            if i == len(serialized_members) - 1:
                 result.append('            }')
             else:
                 result.append('            }, {')
@@ -701,8 +836,9 @@ def parse_serialized_types(file, file_name):
             if underlying_type is not None:
                 serialized_enums.append(SerializedEnum(namespace, name, underlying_type, members, type_condition, attributes))
             else:
-                serialized_types.append(SerializedType(struct_or_class, namespace, name, parent_class_name, members, type_condition, attributes, metadata))
-                if namespace is not None and (attributes is None or 'CustomHeader' not in attributes and 'Nested' not in attributes):
+                type = SerializedType(struct_or_class, namespace, name, parent_class_name, members, type_condition, attributes, metadata)
+                serialized_types.append(type)
+                if namespace is not None and (attributes is None or ('CustomHeader' not in attributes and 'Nested' not in attributes)):
                     if namespace == 'WebKit':
                         headers.append(ConditionalHeader('"' + name + '.h"', type_condition))
                     elif namespace == 'WTF':
@@ -722,10 +858,15 @@ def parse_serialized_types(file, file_name):
             metadata = None
             continue
 
-        match = re.search(r'headers?: (.*)', line)
+        match = re.search(r'^headers?: (.*)', line)
         if match:
             for header in match.group(1).split():
                 headers.append(ConditionalHeader(header, type_condition))
+            continue
+        match = re.search(r'webkit_platform_headers?: (.*)', line)
+        if match:
+            for header in match.group(1).split():
+                headers.append(ConditionalHeader(header, type_condition, True))
             continue
 
         match = re.search(r'(.*)enum class (.*)::(.*) : (.*) {', line)
@@ -821,6 +962,7 @@ def main(argv):
     serialized_enums = []
     typedefs = []
     headers = []
+    header_set = set()
     file_extension = argv[1]
     for i in range(3, len(argv)):
         with open(argv[2] + argv[i]) as file:
@@ -832,13 +974,15 @@ def main(argv):
             for typedef in new_typedefs:
                 typedefs.append(typedef)
             for header in new_headers:
-                headers.append(header)
-    headers.sort()
+                header_set.add(header)
+    headers = sorted(header_set)
 
     with open('GeneratedSerializers.h', "w+") as output:
         output.write(generate_header(serialized_types, serialized_enums))
     with open('GeneratedSerializers.%s' % file_extension, "w+") as output:
-        output.write(generate_impl(serialized_types, serialized_enums, headers))
+        output.write(generate_impl(serialized_types, serialized_enums, headers, False))
+    with open('WebKitPlatformGeneratedSerializers.%s' % file_extension, "w+") as output:
+        output.write(generate_impl(serialized_types, serialized_enums, headers, True))
     with open('SerializedTypeInfo.%s' % file_extension, "w+") as output:
         output.write(generate_serialized_type_info(serialized_types, serialized_enums, headers, typedefs))
     return 0

@@ -39,7 +39,7 @@ TranslateTransformOperation::TranslateTransformOperation(const Length& tx, const
     , m_y(ty)
     , m_z(tz)
 {
-    ASSERT(isTranslateTransformOperationType());
+    RELEASE_ASSERT(isTranslateTransformOperationType(type));
 }
 
 bool TranslateTransformOperation::operator==(const TransformOperation& other) const
@@ -70,6 +70,16 @@ Ref<TransformOperation> TranslateTransformOperation::blend(const TransformOperat
 void TranslateTransformOperation::dump(TextStream& ts) const
 {
     ts << type() << "(" << m_x << ", " << m_y << ", " << m_z << ")";
+}
+
+Ref<TransformOperation> TranslateTransformOperation::selfOrCopyWithResolvedCalculatedValues(const FloatSize& borderBoxSize)
+{
+    if (!m_x.isCalculated() && !m_y.isCalculated() && !m_z.isCalculated())
+        return TransformOperation::selfOrCopyWithResolvedCalculatedValues(borderBoxSize);
+
+    Length x = { xAsFloat(borderBoxSize), LengthType::Fixed };
+    Length y = { yAsFloat(borderBoxSize), LengthType::Fixed };
+    return create(x, y, m_z, type());
 }
 
 } // namespace WebCore

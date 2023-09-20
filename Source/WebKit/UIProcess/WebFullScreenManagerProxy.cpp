@@ -29,6 +29,7 @@
 #if ENABLE(FULLSCREEN_API)
 
 #include "APIFullscreenClient.h"
+#include "MessageSenderInlines.h"
 #include "WebAutomationSession.h"
 #include "WebFullScreenManagerMessages.h"
 #include "WebFullScreenManagerProxyMessages.h"
@@ -37,6 +38,7 @@
 #include "WebProcessProxy.h"
 #include <WebCore/IntRect.h>
 #include <WebCore/ScreenOrientationType.h>
+#include <wtf/LoggerHelper.h>
 
 namespace WebKit {
 using namespace WebCore;
@@ -44,6 +46,10 @@ using namespace WebCore;
 WebFullScreenManagerProxy::WebFullScreenManagerProxy(WebPageProxy& page, WebFullScreenManagerProxyClient& client)
     : m_page(page)
     , m_client(client)
+#if !RELEASE_LOG_DISABLED
+    , m_logger(page.logger())
+    , m_logIdentifier(page.logIdentifier())
+#endif
 {
     m_page.process().addMessageReceiver(Messages::WebFullScreenManagerProxy::messageReceiverName(), m_page.webPageID(), *this);
 }
@@ -57,6 +63,7 @@ WebFullScreenManagerProxy::~WebFullScreenManagerProxy()
 
 void WebFullScreenManagerProxy::willEnterFullScreen()
 {
+    ALWAYS_LOG(LOGIDENTIFIER);
     m_fullscreenState = FullscreenState::EnteringFullscreen;
     m_page.fullscreenClient().willEnterFullscreen(&m_page);
     m_page.send(Messages::WebFullScreenManager::WillEnterFullScreen());
@@ -64,6 +71,7 @@ void WebFullScreenManagerProxy::willEnterFullScreen()
 
 void WebFullScreenManagerProxy::didEnterFullScreen()
 {
+    ALWAYS_LOG(LOGIDENTIFIER);
     m_fullscreenState = FullscreenState::InFullscreen;
     m_page.fullscreenClient().didEnterFullscreen(&m_page);
     m_page.send(Messages::WebFullScreenManager::DidEnterFullScreen());
@@ -76,6 +84,7 @@ void WebFullScreenManagerProxy::didEnterFullScreen()
 
 void WebFullScreenManagerProxy::willExitFullScreen()
 {
+    ALWAYS_LOG(LOGIDENTIFIER);
     m_fullscreenState = FullscreenState::ExitingFullscreen;
     m_page.fullscreenClient().willExitFullscreen(&m_page);
     m_page.send(Messages::WebFullScreenManager::WillExitFullScreen());
@@ -96,6 +105,7 @@ void WebFullScreenManagerProxy::closeWithCallback(CompletionHandler<void()>&& co
 
 void WebFullScreenManagerProxy::didExitFullScreen()
 {
+    ALWAYS_LOG(LOGIDENTIFIER);
     m_fullscreenState = FullscreenState::NotInFullscreen;
     m_page.fullscreenClient().didExitFullscreen(&m_page);
     m_page.send(Messages::WebFullScreenManager::DidExitFullScreen());
@@ -114,11 +124,13 @@ void WebFullScreenManagerProxy::setAnimatingFullScreen(bool animating)
 
 void WebFullScreenManagerProxy::requestRestoreFullScreen()
 {
+    ALWAYS_LOG(LOGIDENTIFIER);
     m_page.send(Messages::WebFullScreenManager::RequestRestoreFullScreen());
 }
 
 void WebFullScreenManagerProxy::requestExitFullScreen()
 {
+    ALWAYS_LOG(LOGIDENTIFIER);
     m_page.send(Messages::WebFullScreenManager::RequestExitFullScreen());
 }
 
@@ -171,20 +183,20 @@ bool WebFullScreenManagerProxy::blocksReturnToFullscreenFromPictureInPicture() c
     return m_blocksReturnToFullscreenFromPictureInPicture;
 }
 
-#if HAVE(UIKIT_WEBKIT_INTERNALS)
-bool WebFullScreenManagerProxy::isVideoElementWithControls() const
+#if PLATFORM(VISION)
+bool WebFullScreenManagerProxy::isVideoElement() const
 {
-    return m_isVideoElementWithControls;
+    return m_isVideoElement;
 }
 #endif
 
-void WebFullScreenManagerProxy::enterFullScreen(bool blocksReturnToFullscreenFromPictureInPicture, bool isVideoElementWithControls, FloatSize videoDimensions)
+void WebFullScreenManagerProxy::enterFullScreen(bool blocksReturnToFullscreenFromPictureInPicture, bool isVideoElement, FloatSize videoDimensions)
 {
     m_blocksReturnToFullscreenFromPictureInPicture = blocksReturnToFullscreenFromPictureInPicture;
-#if HAVE(UIKIT_WEBKIT_INTERNALS)
-    m_isVideoElementWithControls = isVideoElementWithControls;
+#if PLATFORM(VISION)
+    m_isVideoElement = isVideoElement;
 #else
-    UNUSED_PARAM(isVideoElementWithControls);
+    UNUSED_PARAM(isVideoElement);
 #endif
 #if PLATFORM(IOS_FAMILY)
     m_client.enterFullScreen(videoDimensions);
@@ -201,7 +213,7 @@ void WebFullScreenManagerProxy::exitFullScreen()
 
 void WebFullScreenManagerProxy::beganEnterFullScreen(const IntRect& initialFrame, const IntRect& finalFrame)
 {
-    m_page.callAfterNextPresentationUpdate([weakThis = WeakPtr { *this }, initialFrame = initialFrame, finalFrame = finalFrame](CallbackBase::Error) {
+    m_page.callAfterNextPresentationUpdate([weakThis = WeakPtr { *this }, initialFrame = initialFrame, finalFrame = finalFrame] {
         if (weakThis)
             weakThis->m_client.beganEnterFullScreen(initialFrame, finalFrame);
     });
@@ -221,6 +233,13 @@ void WebFullScreenManagerProxy::unlockFullscreenOrientation()
 {
     m_client.unlockFullscreenOrientation();
 }
+
+#if !RELEASE_LOG_DISABLED
+WTFLogChannel& WebFullScreenManagerProxy::logChannel() const
+{
+    return WebKit2LogFullscreen;
+}
+#endif
 
 } // namespace WebKit
 

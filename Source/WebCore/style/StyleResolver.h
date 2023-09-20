@@ -26,11 +26,10 @@
 #include "InspectorCSSOMWrappers.h"
 #include "MatchedDeclarationsCache.h"
 #include "MediaQueryEvaluator.h"
-#include "RenderStyle.h"
 #include "RuleSet.h"
-#include "StyleBuilderState.h"
 #include "StyleScopeRuleSets.h"
 #include <memory>
+#include <wtf/CheckedRef.h>
 #include <wtf/HashMap.h>
 #include <wtf/RefPtr.h>
 #include <wtf/Vector.h>
@@ -44,6 +43,7 @@ class Document;
 class Element;
 class KeyframeList;
 class KeyframeValue;
+class RenderStyle;
 class RuleData;
 class RuleSet;
 class SelectorFilter;
@@ -69,13 +69,8 @@ enum class RuleMatchingBehavior: uint8_t {
 
 namespace Style {
 
+struct ResolvedStyle;
 struct SelectorMatchingState;
-
-struct ResolvedStyle {
-    std::unique_ptr<RenderStyle> style;
-    std::unique_ptr<Relations> relations { };
-    std::unique_ptr<MatchResult> matchResult { };
-};
 
 struct ResolutionContext {
     const RenderStyle* parentStyle;
@@ -83,9 +78,10 @@ struct ResolutionContext {
     // This needs to be provided during style resolution when up-to-date document element style is not available via DOM.
     const RenderStyle* documentElementStyle { nullptr };
     SelectorMatchingState* selectorMatchingState { nullptr };
+    bool isSVGUseTreeRoot { false };
 };
 
-class Resolver : public RefCounted<Resolver> {
+class Resolver : public RefCounted<Resolver>, public CanMakeCheckedPtr {
     WTF_MAKE_ISO_ALLOCATED(Resolver);
 public:
     // Style resolvers are shared between shadow trees with identical styles. That's why we don't simply provide a Style::Scope.
@@ -181,20 +177,6 @@ private:
     bool m_matchAuthorAndUserStyles { true };
     bool m_isSharedBetweenShadowTrees { false };
 };
-
-inline bool Resolver::hasSelectorForAttribute(const Element& element, const AtomString &attributeName) const
-{
-    ASSERT(!attributeName.isEmpty());
-    if (element.isHTMLElement())
-        return m_ruleSets.features().attributeCanonicalLocalNamesInRules.contains(attributeName);
-    return m_ruleSets.features().attributeLocalNamesInRules.contains(attributeName);
-}
-
-inline bool Resolver::hasSelectorForId(const AtomString& idValue) const
-{
-    ASSERT(!idValue.isEmpty());
-    return m_ruleSets.features().idsInRules.contains(idValue);
-}
 
 } // namespace Style
 } // namespace WebCore

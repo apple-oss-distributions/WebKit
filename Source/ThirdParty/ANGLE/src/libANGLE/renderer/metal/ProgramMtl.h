@@ -112,7 +112,7 @@ struct ProgramShaderObjVariantMtl
     const mtl::TranslatedShaderInfo *translatedSrcInfo;
 };
 
-class ProgramMtl : public ProgramImpl, public mtl::RenderPipelineCacheSpecializeShaderFactory
+class ProgramMtl : public ProgramImpl
 {
   public:
     ProgramMtl(const gl::ProgramState &state);
@@ -186,20 +186,11 @@ class ProgramMtl : public ProgramImpl, public mtl::RenderPipelineCacheSpecialize
     void getUniformiv(const gl::Context *context, GLint location, GLint *params) const override;
     void getUniformuiv(const gl::Context *context, GLint location, GLuint *params) const override;
 
-    // Override mtl::RenderPipelineCacheSpecializeShaderFactory
     angle::Result getSpecializedShader(ContextMtl *context,
                                        gl::ShaderType shaderType,
                                        const mtl::RenderPipelineDesc &renderPipelineDesc,
-                                       id<MTLFunction> *shaderOut) override;
-    bool hasSpecializedShader(gl::ShaderType shaderType,
-                              const mtl::RenderPipelineDesc &renderPipelineDesc) override;
+                                       id<MTLFunction> *shaderOut);
 
-    angle::Result createMslShaderLib(
-        ContextMtl *context,
-        gl::ShaderType shaderType,
-        gl::InfoLog &infoLog,
-        mtl::TranslatedShaderInfo *translatedMslInfo,
-        const std::map<std::string, std::string> &substitutionMacros = {});
     // Calls this before drawing, changedPipelineDesc is passed when vertex attributes desc and/or
     // shader program changed.
     angle::Result setupDraw(const gl::Context *glContext,
@@ -209,19 +200,12 @@ class ProgramMtl : public ProgramImpl, public mtl::RenderPipelineCacheSpecialize
                             bool forceTexturesSetting,
                             bool uniformBuffersDirty);
 
-    std::string getTranslatedShaderSource(const gl::ShaderType shaderType) const
-    {
-        return mMslShaderTranslateInfo[shaderType].metalShaderSource;
-    }
-
-    mtl::TranslatedShaderInfo getTranslatedShaderInfo(const gl::ShaderType shaderType) const
-    {
-        return mMslShaderTranslateInfo[shaderType];
-    }
-
     bool hasFlatAttribute() const { return mProgramHasFlatAttributes; }
 
   private:
+    class ProgramLinkEvent;
+    class CompileMslTask;
+
     template <int cols, int rows>
     void setUniformMatrixfv(GLint location,
                             GLsizei count,
@@ -281,18 +265,9 @@ class ProgramMtl : public ProgramImpl, public mtl::RenderPipelineCacheSpecialize
 
     void linkUpdateHasFlatAttributes(const gl::Context *context);
 
-    angle::Result linkImplDirect(const gl::Context *glContext,
-                                 const gl::ProgramLinkedResources &resources,
-                                 gl::InfoLog &infoLog);
-
     void linkResources(const gl::Context *context, const gl::ProgramLinkedResources &resources);
-    angle::Result linkImpl(const gl::Context *glContext,
-                           const gl::ProgramLinkedResources &resources,
-                           gl::InfoLog &infoLog);
-
-    angle::Result linkTranslatedShaders(const gl::Context *glContext,
-                                        gl::BinaryInputStream *stream,
-                                        gl::InfoLog &infoLog);
+    std::unique_ptr<LinkEvent> compileMslShaderLibs(const gl::Context *context,
+                                                    gl::InfoLog &infoLog);
 
     mtl::BufferPool *getBufferPool(ContextMtl *context);
 
@@ -345,7 +320,6 @@ class ProgramMtl : public ProgramImpl, public mtl::RenderPipelineCacheSpecialize
 
     uint32_t mShadowCompareModes[mtl::kMaxShaderSamplers];
 
-    mtl::RenderPipelineCache mMetalRenderPipelineCache;
     mtl::BufferPool *mAuxBufferPool;
 };
 

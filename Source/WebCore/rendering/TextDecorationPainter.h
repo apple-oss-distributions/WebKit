@@ -44,7 +44,6 @@ public:
 
     struct Styles {
         bool operator==(const Styles&) const;
-        bool operator!=(const Styles& other) const { return !(*this == other); }
 
         struct DecorationStyleAndColor {
             Color color;
@@ -67,7 +66,7 @@ public:
         float clippingOffset { 0.f };
         WavyStrokeParameters wavyStrokeParameters;
     };
-    void paintBackgroundDecorations(const TextRun&, const BackgroundDecorationGeometry&, OptionSet<TextDecorationLine>, const Styles&);
+    void paintBackgroundDecorations(const RenderStyle&, const TextRun&, const BackgroundDecorationGeometry&, OptionSet<TextDecorationLine>, const Styles&);
 
     struct ForegroundDecorationGeometry {
         FloatPoint boxOrigin;
@@ -78,8 +77,8 @@ public:
     };
     void paintForegroundDecorations(const ForegroundDecorationGeometry&, const Styles&);
 
-    static Color decorationColor(const RenderStyle&);
-    static Styles stylesForRenderer(const RenderObject&, OptionSet<TextDecorationLine> requestedDecorations, bool firstLineStyle = false, PseudoId = PseudoId::None);
+    static Color decorationColor(const RenderStyle&, OptionSet<PaintBehavior> paintBehavior = { });
+    static Styles stylesForRenderer(const RenderObject&, OptionSet<TextDecorationLine> requestedDecorations, bool firstLineStyle = false, OptionSet<PaintBehavior> paintBehavior = { }, PseudoId = PseudoId::None);
     static OptionSet<TextDecorationLine> textDecorationsInEffectForStyle(const TextDecorationPainter::Styles&);
 
 private:

@@ -66,7 +66,7 @@ enum JSType : uint8_t {
     BooleanObjectType,
     NumberObjectType,
     ErrorInstanceType,
-    PureForwardingProxyType,
+    GlobalProxyType,
     DirectArgumentsType,
     ScopedArgumentsType,
     ClonedArgumentsType,
@@ -127,6 +127,7 @@ enum JSType : uint8_t {
     JSWeakSetType,
     WebAssemblyModuleType,
     WebAssemblyInstanceType,
+    WebAssemblyGCObjectType,
     // Start StringObjectType types.
     StringObjectType,
     DerivedStringObjectType,
@@ -143,6 +144,9 @@ static constexpr uint32_t LastTypedArrayTypeExcludingDataView = LastTypedArrayTy
 // LastObjectType should be MaxJSType (not LastJSCObjectType) since embedders can add their extended object types after the enums listed in JSType.
 static constexpr uint32_t FirstObjectType = ObjectType;
 static constexpr uint32_t LastObjectType = MaxJSType;
+
+static constexpr uint32_t FirstScopeType = GlobalObjectType;
+static constexpr uint32_t LastScopeType = WithScopeType;
 
 static constexpr uint32_t NumberOfTypedArrayTypes = LastTypedArrayType - FirstTypedArrayType + 1;
 static constexpr uint32_t NumberOfTypedArrayTypesExcludingDataView = NumberOfTypedArrayTypes - 1;

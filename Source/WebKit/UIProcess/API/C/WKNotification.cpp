@@ -89,6 +89,12 @@ uint64_t WKNotificationGetID(WKNotificationRef notification)
     return toImpl(notification)->notificationID();
 }
 
+WKStringRef WKNotificationCopyDataStoreIdentifier(WKNotificationRef notification)
+{
+    auto identifier = toImpl(notification)->dataStoreIdentifier();
+    return identifier ? toCopiedAPI(identifier->toString()) : nullptr;
+}
+
 WKDataRef WKNotificationCopyCoreIDForTesting(WKNotificationRef notification)
 {
     auto identifier = toImpl(notification)->coreNotificationID();
@@ -99,4 +105,12 @@ WKDataRef WKNotificationCopyCoreIDForTesting(WKNotificationRef notification)
 bool WKNotificationGetIsPersistent(WKNotificationRef notification)
 {
     return toImpl(notification)->isPersistentNotification();
+}
+
+WKNotificationAlert WKNotificationGetAlert(WKNotificationRef notification)
+{
+    auto silent = toImpl(notification)->data().silent;
+    if (silent == std::nullopt)
+        return kWKNotificationAlertDefault;
+    return *silent ? kWKNotificationAlertSilent : kWKNotificationAlertEnabled;
 }

@@ -503,6 +503,29 @@ class GLSLTest : public ANGLETest<>
         EXPECT_PIXEL_COLOR_EQ(getWindowWidth() / 2, getWindowHeight() / 2, color)
             << "index " << index;
     }
+
+    std::string ExpectedExtensionMacros(std::vector<std::string> expected)
+    {
+        std::string shader;
+        for (const auto &ext : expected)
+        {
+            if (IsGLExtensionEnabled(ext))
+            {
+                shader += "\n#ifndef " + ext + "\n#error !defined(" + ext + ")\n#endif\n";
+            }
+        }
+        return shader;
+    }
+
+    std::string UnexpectedExtensionMacros(std::vector<std::string> unexpected)
+    {
+        std::string shader;
+        for (const auto &ext : unexpected)
+        {
+            shader += "\n#ifdef " + ext + "\n#error defined(" + ext + ")\n#endif\n";
+        }
+        return shader;
+    }
 };
 
 class GLSLTestNoValidation : public GLSLTest
@@ -1013,6 +1036,21 @@ void main()
 })";
 
     ANGLE_GL_PROGRAM(program, essl1_shaders::vs::Simple(), kFS);
+}
+
+// Test that inactive uniforms of struct type don't cause any errors.
+TEST_P(GLSLTest, InactiveStructUniform)
+{
+    constexpr char kVS[] = R"(
+uniform struct
+{
+    vec4 c;
+} s;
+void main()
+{
+})";
+
+    ANGLE_GL_PROGRAM(program, kVS, essl1_shaders::fs::Red());
 }
 
 // Test that struct with same name can be declared in inner scope.
@@ -2213,7 +2251,7 @@ TEST_P(GLSLTest, MaxVaryingVec4)
 {
     // TODO(geofflang): Find out why this doesn't compile on Apple AMD OpenGL drivers
     // (http://anglebug.com/1291)
-    ANGLE_SKIP_TEST_IF(IsOSX() && IsAMD() && IsOpenGL());
+    ANGLE_SKIP_TEST_IF(IsMac() && IsAMD() && IsOpenGL());
 
     GLint maxVaryings = 0;
     glGetIntegerv(GL_MAX_VARYING_VECTORS, &maxVaryings);
@@ -2322,7 +2360,7 @@ TEST_P(GLSLTest, TwiceMaxVaryingVec2)
 
     // TODO(geofflang): Find out why this doesn't compile on Apple AMD OpenGL drivers
     // (http://anglebug.com/1291)
-    ANGLE_SKIP_TEST_IF(IsOSX() && IsAMD() && IsOpenGL());
+    ANGLE_SKIP_TEST_IF(IsMac() && IsAMD() && IsOpenGL());
 
     GLint maxVaryings = 0;
     glGetIntegerv(GL_MAX_VARYING_VECTORS, &maxVaryings);
@@ -2340,7 +2378,7 @@ TEST_P(GLSLTest, MaxVaryingVec2Arrays)
 
     // TODO(geofflang): Find out why this doesn't compile on Apple AMD OpenGL drivers
     // (http://anglebug.com/1291)
-    ANGLE_SKIP_TEST_IF(IsOSX() && IsAMD() && IsOpenGL());
+    ANGLE_SKIP_TEST_IF(IsMac() && IsAMD() && IsOpenGL());
 
     GLint maxVaryings = 0;
     glGetIntegerv(GL_MAX_VARYING_VECTORS, &maxVaryings);
@@ -2360,7 +2398,7 @@ TEST_P(GLSLTest_ES3, MaxVaryingWithFeedbackAndGLline)
     ANGLE_SKIP_TEST_IF(IsAMD() && IsWindows() && IsVulkan());
 
     // http://anglebug.com/4446
-    ANGLE_SKIP_TEST_IF(IsOSX() && IsOpenGL());
+    ANGLE_SKIP_TEST_IF(IsMac() && IsOpenGL());
 
     GLint maxVaryings = 0;
     glGetIntegerv(GL_MAX_VARYING_VECTORS, &maxVaryings);
@@ -6462,6 +6500,50 @@ TEST_P(WebGLGLSLTest, UninitializedNamelessStructInGlobalScope)
     EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::green);
 }
 
+// Test that uninitialized output arguments are initialized to 0.
+TEST_P(WebGL2GLSLTest, InitOutputParams)
+{
+    constexpr char kFS[] = R"(#version 300 es
+precision mediump float;
+
+struct S { float a; };
+
+out vec4 color;
+
+float f(out vec2 o1, out S o2[2], out float o3[3])
+{
+    float uninitialized_local;
+
+    // leave o1 uninitialized
+    // leave o2 partially uninitialized
+    o2[0].a = 1.0;
+
+    // leave o3 partially uninitialized
+    o3[1] = 0.5;
+
+    return uninitialized_local;
+}
+
+void main()
+{
+    vec2 v1 = vec2(123., 234.);
+    S v2[2] = S[2](S(-1111.), S(55.));
+    float v3[3] = float[3](20., 30., 40.);
+    float v4 = f(v1, v2, v3);
+
+    // Everything should be 0 now except for v2[0].a and v3[1] which should be 1.0 and 0.5
+    // respectively.
+    color = vec4(v1.x + v2[0].a + v3[0],  // 1.0
+                 v1.y + v2[1].a + v3[1],  // 0.5
+                 v3[2] + v4,              // 0
+                 1.0);
+})";
+
+    ANGLE_GL_PROGRAM(program, essl3_shaders::vs::Simple(), kFS);
+    drawQuad(program.get(), essl3_shaders::PositionAttrib(), 0.5f, 1.0f, true);
+    EXPECT_PIXEL_NEAR(0, 0, 255, 127, 0, 255, 1);
+}
+
 // Tests nameless struct uniforms.
 TEST_P(GLSLTest, EmbeddedStructUniform)
 {
@@ -6510,6 +6592,50 @@ void main()
     EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::green);
 }
 
+// Test that samplers in structs can be extracted if the first reference to the struct does not
+// select an attribute.
+TEST_P(GLSLTest, SamplerInStructNoMemberIndexing)
+{
+    constexpr char kVS[] = R"(
+uniform struct {
+    sampler2D n;
+    vec2 c;
+} s;
+void main()
+{
+    s;
+})";
+
+    constexpr char kFS[] = R"(void main()
+{
+    gl_FragColor = vec4(1);
+})";
+
+    ANGLE_GL_PROGRAM(program, kVS, kFS);
+}
+
+// Similar test to SamplerInStructNoMemberIndexing, but the struct variable is an array.
+TEST_P(GLSLTest, SamplerInStructArrayNoMemberIndexing)
+{
+    constexpr char kVS[] = R"(
+uniform struct
+{
+    sampler2D K;
+    vec4 c;
+} s[6];
+void main()
+{
+    s[0];
+})";
+
+    constexpr char kFS[] = R"(void main()
+{
+    gl_FragColor = vec4(1);
+})";
+
+    ANGLE_GL_PROGRAM(program, kVS, kFS);
+}
+
 // Tests that rewriting samplers in structs doesn't mess up indexing.
 TEST_P(GLSLTest, SamplerInStructMemberIndexing)
 {
@@ -6527,6 +6653,7 @@ uniform S uni;
 varying vec2 texCoord;
 void main()
 {
+    uni;
     if (uni.b)
     {
         gl_FragColor = texture2D(uni.samp, texCoord);
@@ -6704,7 +6831,7 @@ TEST_P(GLSLTest, StructsWithSameMembersDisambiguatedByName)
 TEST_P(GLSLTest, InactiveVaryingInVertexActiveInFragment)
 {
     // http://anglebug.com/4820
-    ANGLE_SKIP_TEST_IF((IsOSX() && IsOpenGL()) || (IsIOS() && IsOpenGLES()));
+    ANGLE_SKIP_TEST_IF((IsMac() && IsOpenGL()) || (IsIOS() && IsOpenGLES()));
 
     constexpr char kVS[] =
         "attribute vec4 inputAttribute;\n"
@@ -6757,6 +6884,50 @@ TEST_P(GLSLTest_ES3, VaryingStructNotStaticallyUsedInFragmentShader)
         "}\n";
 
     ANGLE_GL_PROGRAM(program, kVS, kFS);
+}
+
+// Test that inactive shader IO block varying are ok.
+TEST_P(GLSLTest_ES31, InactiveVaryingIOBlock)
+{
+    ANGLE_SKIP_TEST_IF(!IsGLExtensionEnabled("GL_EXT_shader_io_blocks"));
+
+    constexpr char kVS[] =
+        R"(#version 310 es
+        #extension GL_EXT_shader_io_blocks : require
+
+        precision highp float;
+        in vec4 inputAttribute;
+        out Block { vec4 v; };
+        out Inactive1 { vec4 value; };
+        out Inactive2 { vec4 value; } named;
+
+        void main()
+        {
+            gl_Position    = inputAttribute;
+            v = vec4(0);
+        })";
+
+    constexpr char kFS[] =
+        R"(#version 310 es
+        #extension GL_EXT_shader_io_blocks : require
+
+        precision highp float;
+
+        in Block { vec4 v; };
+        in Inactive3 { vec4 value; };
+        in Inactive4 { vec4 value; } named2;
+
+        layout(location = 0) out mediump vec4 color;
+        void main()
+        {
+            color = vec4(1, v.xy, 1);
+        })";
+
+    ANGLE_GL_PROGRAM(program, kVS, kFS);
+    drawQuad(program.get(), "inputAttribute", 0.5f);
+    ASSERT_GL_NO_ERROR();
+
+    EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::red);
 }
 
 // Test that a shader IO block varying that's not declared in the fragment shader links
@@ -6906,6 +7077,102 @@ TEST_P(GLSLTest_ES31, VaryingTessellationSampleInAndOut)
     ANGLE_GL_PROGRAM_WITH_TESS(program, kVS, kTCS, kTES, kFS);
     drawPatches(program.get(), "inputAttribute", 0.5f, 1.0f, GL_FALSE);
     ASSERT_GL_NO_ERROR();
+}
+
+// Test that `smooth sample` and `flat sample` pass the validation.
+TEST_P(GLSLTest_ES3, AliasedSampleQualifiers)
+{
+    ANGLE_SKIP_TEST_IF(!IsGLExtensionEnabled("GL_OES_shader_multisample_interpolation"));
+
+    constexpr char kVS[] =
+        R"(#version 300 es
+        #extension GL_OES_shader_multisample_interpolation : require
+
+        smooth sample out mediump float f;
+        flat sample out mediump int i;
+        void main()
+        {
+            f = 1.0;
+            i = 1;
+            gl_Position = vec4(0.0, 0.0, 0.0, 1.0);
+        })";
+
+    constexpr char kFS[] =
+        R"(#version 300 es
+        #extension GL_OES_shader_multisample_interpolation : require
+
+        smooth sample in mediump float f;
+        flat sample in mediump int i;
+        out mediump vec4 color;
+        void main()
+        {
+            color = vec4(f, float(i), 0, 1);
+        })";
+
+    ANGLE_GL_PROGRAM(program, kVS, kFS);
+}
+
+// Test that `noperspective centroid` passes the validation and compiles.
+TEST_P(GLSLTest_ES3, NoPerspectiveCentroid)
+{
+    ANGLE_SKIP_TEST_IF(!IsGLExtensionEnabled("GL_NV_shader_noperspective_interpolation"));
+
+    constexpr char kVS[] =
+        R"(#version 300 es
+        #extension GL_NV_shader_noperspective_interpolation : require
+
+        noperspective centroid out mediump float f;
+        void main()
+        {
+            f = 1.0;
+            gl_Position = vec4(0.0, 0.0, 0.0, 1.0);
+        })";
+
+    constexpr char kFS[] =
+        R"(#version 300 es
+        #extension GL_NV_shader_noperspective_interpolation : require
+
+        noperspective centroid in mediump float f;
+        out mediump vec4 color;
+        void main()
+        {
+            color = vec4(f, 0.0, 0.0, 1.0);
+        })";
+
+    ANGLE_GL_PROGRAM(program, kVS, kFS);
+}
+
+// Test that `noperspective sample` passes the validation and compiles.
+TEST_P(GLSLTest_ES3, NoPerspectiveSample)
+{
+    ANGLE_SKIP_TEST_IF(!IsGLExtensionEnabled("GL_OES_shader_multisample_interpolation"));
+    ANGLE_SKIP_TEST_IF(!IsGLExtensionEnabled("GL_NV_shader_noperspective_interpolation"));
+
+    constexpr char kVS[] =
+        R"(#version 300 es
+        #extension GL_OES_shader_multisample_interpolation : require
+        #extension GL_NV_shader_noperspective_interpolation : require
+
+        noperspective sample out mediump float f;
+        void main()
+        {
+            f = 1.0;
+            gl_Position = vec4(f, 0.0, 0.0, 1.0);
+        })";
+
+    constexpr char kFS[] =
+        R"(#version 300 es
+        #extension GL_OES_shader_multisample_interpolation : require
+        #extension GL_NV_shader_noperspective_interpolation : require
+
+        noperspective sample in mediump float f;
+        out mediump vec4 color;
+        void main()
+        {
+            color = vec4(f, 0.0, 0.0, 1.0);
+        })";
+
+    ANGLE_GL_PROGRAM(program, kVS, kFS);
 }
 
 // Test that a shader with sample in / sample out can be used successfully when the varying
@@ -7185,7 +7452,7 @@ TEST_P(WebGL2GLSLTest, VaryingStructNotInitializedInVertexShader)
     // > Input of fragment shader 'varStruct' not written by vertex shader
     //
     // http://anglebug.com/3413
-    ANGLE_SKIP_TEST_IF(IsDesktopOpenGL() && (IsOSX() || (IsWindows() && !IsNVIDIA())));
+    ANGLE_SKIP_TEST_IF(IsDesktopOpenGL() && (IsMac() || (IsWindows() && !IsNVIDIA())));
     // TODO(anglebug.com/5491): iOS thinks that the precision qualifiers don't match on the
     // struct member. Not sure if it's being overly strict.
     ANGLE_SKIP_TEST_IF(IsIOS() && IsOpenGLES());
@@ -7751,7 +8018,7 @@ TEST_P(GLSLTest, NestedStructsWithSamplersAsFunctionArg)
     ANGLE_SKIP_TEST_IF(IsNexus5X() && IsAdreno() && IsOpenGLES());
 
     // TODO(anglebug.com/5360): Failing on ARM-based Apple DTKs.
-    ANGLE_SKIP_TEST_IF(IsOSX() && IsARM64() && IsDesktopOpenGL());
+    ANGLE_SKIP_TEST_IF(IsMac() && IsARM64() && IsDesktopOpenGL());
 
     const char kFragmentShader[] = R"(precision mediump float;
 struct S { sampler2D samplerMember; };
@@ -7857,7 +8124,7 @@ TEST_P(GLSLTest, NestedCompoundStructsWithSamplersAsFunctionArg)
     ANGLE_SKIP_TEST_IF(IsNexus5X() && IsAdreno() && IsOpenGLES());
 
     // TODO(anglebug.com/5360): Failing on ARM-based Apple DTKs.
-    ANGLE_SKIP_TEST_IF(IsOSX() && IsARM64() && IsDesktopOpenGL());
+    ANGLE_SKIP_TEST_IF(IsMac() && IsARM64() && IsDesktopOpenGL());
 
     const char kFragmentShader[] = R"(precision mediump float;
 struct S { sampler2D samplerMember; bool b; };
@@ -7925,7 +8192,7 @@ TEST_P(GLSLTest, MoreNestedCompoundStructsWithSamplersAsFunctionArg)
     ANGLE_SKIP_TEST_IF(IsNexus5X() && IsAdreno() && IsOpenGLES());
 
     // TODO(anglebug.com/5360): Failing on ARM-based Apple DTKs.
-    ANGLE_SKIP_TEST_IF(IsOSX() && IsARM64() && IsDesktopOpenGL());
+    ANGLE_SKIP_TEST_IF(IsMac() && IsARM64() && IsDesktopOpenGL());
 
     const char kFragmentShader[] = R"(precision mediump float;
 struct S { bool b; sampler2D samplerMember; };
@@ -9382,7 +9649,7 @@ TEST_P(GLSLTest_ES31, ExceedCombinedShaderOutputResourcesInVSAndFS)
 
 // Test that assigning an assignment expression to a swizzled vector field in a user-defined
 // function works correctly.
-TEST_P(GLSLTest_ES3, AssignAssignmentToSwizzled)
+TEST_P(GLSLTest_ES3, AssignToSwizzled)
 {
     constexpr char kFS[] = R"(#version 300 es
 precision highp float;
@@ -9409,6 +9676,36 @@ void main()
     ANGLE_GL_PROGRAM(program, essl3_shaders::vs::Simple(), kFS);
     drawQuad(program.get(), essl3_shaders::PositionAttrib(), 0.5f);
     EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::white);
+}
+
+// Similar to AssignToSwizzled, but uses other assignment operators than `=`.
+TEST_P(GLSLTest_ES3, AssignToSwizzled2)
+{
+    constexpr char kFS[] = R"(#version 300 es
+precision highp float;
+out vec4 my_FragColor;
+
+uniform float uzero;
+
+vec3 fun(float s, float v)
+{
+    vec3 r = vec3(0.125, 0.5, 0.);
+    if (s < 1.0) {
+        r.x /= r.y *= r.z += v;
+        return r;
+    }
+    return r;
+}
+
+void main()
+{
+    my_FragColor.a = 1.0;
+    my_FragColor.rgb = fun(uzero, 1.0);
+})";
+
+    ANGLE_GL_PROGRAM(program, essl3_shaders::vs::Simple(), kFS);
+    drawQuad(program.get(), essl3_shaders::PositionAttrib(), 0.5f);
+    EXPECT_PIXEL_NEAR(0, 0, 63, 127, 255, 255, 1);
 }
 
 // Test a fragment shader that returns inside if (that being the only branch that actually gets
@@ -10574,7 +10871,7 @@ void main()
 TEST_P(GLSLTest_ES3, RowMajorMatrix_NestedExpression)
 {
     // Many OpenGL drivers seem to fail this
-    ANGLE_SKIP_TEST_IF((IsLinux() || IsOSX()) && IsOpenGL());
+    ANGLE_SKIP_TEST_IF((IsLinux() || IsMac()) && IsOpenGL());
 
     constexpr char kFS[] = R"(#version 300 es
 precision mediump float;
@@ -10660,7 +10957,7 @@ TEST_P(GLSLTest_ES3, MixedRowAndColumnMajorMatrices_ArrayBufferDeclaration)
     ANGLE_SKIP_TEST_IF(IsLinux() && IsIntel() && IsOpenGL());
 
     // Fails on Mac on Intel and AMD: http://anglebug.com/3842
-    ANGLE_SKIP_TEST_IF(IsOSX() && IsOpenGL() && (IsIntel() || IsAMD()));
+    ANGLE_SKIP_TEST_IF(IsMac() && IsOpenGL() && (IsIntel() || IsAMD()));
 
     // Fails on windows AMD on GL: http://anglebug.com/3838
     ANGLE_SKIP_TEST_IF(IsWindows() && IsOpenGL() && IsAMD());
@@ -10739,7 +11036,7 @@ void main()
 TEST_P(GLSLTest_ES3, MixedRowAndColumnMajorMatrices_ReadSideEffect)
 {
     // Fails on Mac on Intel and AMD: http://anglebug.com/3842
-    ANGLE_SKIP_TEST_IF(IsOSX() && IsOpenGL() && (IsIntel() || IsAMD()));
+    ANGLE_SKIP_TEST_IF(IsMac() && IsOpenGL() && (IsIntel() || IsAMD()));
 
     // Fails on D3D due to mistranslation: http://anglebug.com/3841
     ANGLE_SKIP_TEST_IF(IsD3D11());
@@ -10839,7 +11136,7 @@ TEST_P(GLSLTest_ES3, MixedRowAndColumnMajorMatrices_ReadSideEffectOrder)
 
     // IntermTraverser::insertStatementsInParentBlock that's used to move side effects does not
     // respect the order of evaluation of logical expressions.  http://anglebug.com/3829.
-    ANGLE_SKIP_TEST_IF(IsOSX() && IsOpenGL());
+    ANGLE_SKIP_TEST_IF(IsMac() && IsOpenGL());
 
     constexpr char kFS[] = R"(#version 300 es
 precision highp float;
@@ -10900,7 +11197,7 @@ TEST_P(GLSLTest_ES3, MixedRowAndColumnMajorMatrices_ReadSideEffectOrderSurrounde
 
     // IntermTraverser::insertStatementsInParentBlock that's used to move side effects does not
     // respect the order of evaluation of logical expressions.  http://anglebug.com/3829.
-    ANGLE_SKIP_TEST_IF(IsOSX() && IsOpenGL());
+    ANGLE_SKIP_TEST_IF(IsMac() && IsOpenGL());
 
     constexpr char kFS[] = R"(#version 300 es
 precision highp float;
@@ -10957,7 +11254,7 @@ TEST_P(GLSLTest_ES3, MixedRowAndColumnMajorMatrices_ReadSideEffectOrderInALoop)
 
     // IntermTraverser::insertStatementsInParentBlock that's used to move side effects does not
     // respect the order of evaluation of logical expressions.  http://anglebug.com/3829.
-    ANGLE_SKIP_TEST_IF(IsOSX() && IsOpenGL());
+    ANGLE_SKIP_TEST_IF(IsMac() && IsOpenGL());
 
     constexpr char kFS[] = R"(#version 300 es
 precision highp float;
@@ -11013,7 +11310,7 @@ TEST_P(GLSLTest_ES3, MixedRowAndColumnMajorMatrices_ReadSideEffectShortCircuit)
 
     // IntermTraverser::insertStatementsInParentBlock that's used to move side effects does not
     // respect the order of evaluation of logical expressions.  http://anglebug.com/3829.
-    ANGLE_SKIP_TEST_IF(IsOSX() && IsOpenGL());
+    ANGLE_SKIP_TEST_IF(IsMac() && IsOpenGL());
 
     constexpr char kFS[] = R"(#version 300 es
 precision highp float;
@@ -16101,6 +16398,24 @@ void main()
     ANGLE_GL_PROGRAM(testProgram, kVS, kFS);
 }
 
+// Test that sample variables compile.
+TEST_P(GLSLTest_ES3, SampleVariables)
+{
+    ANGLE_SKIP_TEST_IF(!IsGLExtensionEnabled("GL_OES_sample_variables"));
+
+    const char kFS[] = R"(#version 300 es
+#extension GL_OES_sample_variables : require
+precision highp float;
+out vec4 color;
+void main()
+{
+    gl_SampleMask[0] = gl_SampleMaskIn[0] & 0x55555555;
+    color = vec4(gl_SamplePosition.yx, float(gl_SampleID), float(gl_MaxSamples + gl_NumSamples));
+})";
+
+    ANGLE_GL_PROGRAM(testProgram, essl3_shaders::vs::Simple(), kFS);
+}
+
 // Test that shader caching maintains uniforms across compute shader compilations.
 TEST_P(GLSLTest_ES31, ShaderCacheComputeWithUniform)
 {
@@ -17350,6 +17665,183 @@ void main()
     ASSERT_GL_NO_ERROR();
 
     EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::red);
+}
+
+// Test that only macros for ESSL 1.0 compatible extensions are defined
+TEST_P(GLSLTest, ESSL1ExtensionMacros)
+{
+    std::string fs = essl1_shaders::fs::Red();
+    fs += ExpectedExtensionMacros({
+        "GL_ANGLE_multi_draw",
+        "GL_APPLE_clip_distance",
+        "GL_ARB_texture_rectangle",
+        "GL_ARM_shader_framebuffer_fetch",
+        "GL_EXT_blend_func_extended",
+        "GL_EXT_draw_buffers",
+        "GL_EXT_frag_depth",
+        "GL_EXT_separate_shader_objects",
+        "GL_EXT_shader_framebuffer_fetch_non_coherent",
+        "GL_EXT_shader_framebuffer_fetch",
+        "GL_EXT_shader_non_constant_global_initializers",
+        "GL_EXT_shader_texture_lod",
+        "GL_EXT_shadow_samplers",
+        "GL_KHR_blend_equation_advanced",
+        "GL_NV_EGL_stream_consumer_external",
+        "GL_NV_shader_framebuffer_fetch",
+        "GL_OES_EGL_image_external",
+        "GL_OES_standard_derivatives",
+        "GL_OES_texture_3D",
+        "GL_WEBGL_video_texture",
+    });
+    fs += UnexpectedExtensionMacros({
+        "GL_ANDROID_extension_pack_es31a",
+        "GL_ANGLE_base_vertex_base_instance_shader_builtin",
+        "GL_ANGLE_clip_cull_distance",
+        "GL_ANGLE_shader_pixel_local_storage",
+        "GL_ANGLE_texture_multisample",
+        "GL_EXT_clip_cull_distance",
+        "GL_EXT_geometry_shader",
+        "GL_EXT_gpu_shader5",
+        "GL_EXT_primitive_bounding_box",
+        "GL_EXT_shader_io_blocks",
+        "GL_EXT_tessellation_shader",
+        "GL_EXT_texture_buffer",
+        "GL_EXT_texture_cube_map_array",
+        "GL_EXT_YUV_target",
+        "GL_NV_shader_noperspective_interpolation",
+        "GL_OES_EGL_image_external_essl3",
+        "GL_OES_geometry_shader",
+        "GL_OES_primitive_bounding_box",
+        "GL_OES_sample_variables",
+        "GL_OES_shader_image_atomic",
+        "GL_OES_shader_io_blocks",
+        "GL_OES_shader_multisample_interpolation",
+        "GL_OES_texture_buffer",
+        "GL_OES_texture_cube_map_array",
+        "GL_OES_texture_storage_multisample_2d_array",
+        "GL_OVR_multiview",
+        "GL_OVR_multiview2",
+    });
+    ANGLE_GL_PROGRAM(program, essl1_shaders::vs::Simple(), fs.c_str());
+    ASSERT_GL_NO_ERROR();
+}
+
+// Test that only macros for ESSL 3.0 compatible extensions are defined
+TEST_P(GLSLTest_ES3, ESSL3ExtensionMacros)
+{
+    std::string fs = essl3_shaders::fs::Red();
+    fs += ExpectedExtensionMacros({
+        "GL_ANGLE_base_vertex_base_instance_shader_builtin",
+        "GL_ANGLE_clip_cull_distance",
+        "GL_ANGLE_multi_draw",
+        "GL_ANGLE_shader_pixel_local_storage",
+        "GL_ANGLE_texture_multisample",
+        "GL_APPLE_clip_distance",
+        "GL_ARB_texture_rectangle",
+        "GL_ARM_shader_framebuffer_fetch",
+        "GL_EXT_blend_func_extended",
+        "GL_EXT_clip_cull_distance",
+        "GL_EXT_separate_shader_objects",
+        "GL_EXT_shader_framebuffer_fetch_non_coherent",
+        "GL_EXT_shader_framebuffer_fetch",
+        "GL_EXT_shader_non_constant_global_initializers",
+        "GL_EXT_YUV_target",
+        "GL_KHR_blend_equation_advanced",
+        "GL_NV_EGL_stream_consumer_external",
+        "GL_NV_shader_noperspective_interpolation",
+        "GL_OES_EGL_image_external_essl3",
+        "GL_OES_sample_variables",
+        "GL_OES_shader_multisample_interpolation",
+        "GL_OVR_multiview",
+        "GL_OVR_multiview2",
+        "GL_WEBGL_video_texture",
+    });
+    fs += UnexpectedExtensionMacros({
+        "GL_ANDROID_extension_pack_es31a",
+        "GL_EXT_draw_buffers",
+        "GL_EXT_frag_depth",
+        "GL_EXT_geometry_shader",
+        "GL_EXT_gpu_shader5",
+        "GL_EXT_primitive_bounding_box",
+        "GL_EXT_shader_io_blocks",
+        "GL_EXT_shader_texture_lod",
+        "GL_EXT_shadow_samplers",
+        "GL_EXT_tessellation_shader",
+        "GL_EXT_texture_buffer",
+        "GL_EXT_texture_cube_map_array",
+        "GL_NV_shader_framebuffer_fetch",
+        "GL_OES_EGL_image_external",
+        "GL_OES_geometry_shader",
+        "GL_OES_primitive_bounding_box",
+        "GL_OES_shader_image_atomic",
+        "GL_OES_shader_io_blocks",
+        "GL_OES_standard_derivatives",
+        "GL_OES_texture_3D",
+        "GL_OES_texture_buffer",
+        "GL_OES_texture_cube_map_array",
+        "GL_OES_texture_storage_multisample_2d_array",
+    });
+    ANGLE_GL_PROGRAM(program, essl3_shaders::vs::Simple(), fs.c_str());
+    ASSERT_GL_NO_ERROR();
+}
+
+// Test that only macros for ESSL 3.1 compatible extensions are defined
+TEST_P(GLSLTest_ES31, ESSL31ExtensionMacros)
+{
+    std::string fs = essl31_shaders::fs::Red();
+    fs += ExpectedExtensionMacros({
+        "GL_ANDROID_extension_pack_es31a",
+        "GL_ANGLE_base_vertex_base_instance_shader_builtin",
+        "GL_ANGLE_clip_cull_distance",
+        "GL_ANGLE_multi_draw",
+        "GL_ANGLE_shader_pixel_local_storage",
+        "GL_ANGLE_texture_multisample",
+        "GL_APPLE_clip_distance",
+        "GL_ARB_texture_rectangle",
+        "GL_ARM_shader_framebuffer_fetch",
+        "GL_EXT_blend_func_extended",
+        "GL_EXT_clip_cull_distance",
+        "GL_EXT_geometry_shader",
+        "GL_EXT_gpu_shader5",
+        "GL_EXT_primitive_bounding_box",
+        "GL_EXT_separate_shader_objects",
+        "GL_EXT_shader_framebuffer_fetch_non_coherent",
+        "GL_EXT_shader_framebuffer_fetch",
+        "GL_EXT_shader_io_blocks",
+        "GL_EXT_shader_non_constant_global_initializers",
+        "GL_EXT_tessellation_shader",
+        "GL_EXT_texture_buffer",
+        "GL_EXT_texture_cube_map_array",
+        "GL_EXT_YUV_target",
+        "GL_KHR_blend_equation_advanced",
+        "GL_NV_EGL_stream_consumer_external",
+        "GL_NV_shader_noperspective_interpolation",
+        "GL_OES_EGL_image_external_essl3",
+        "GL_OES_geometry_shader",
+        "GL_OES_primitive_bounding_box",
+        "GL_OES_sample_variables",
+        "GL_OES_shader_image_atomic",
+        "GL_OES_shader_io_blocks",
+        "GL_OES_shader_multisample_interpolation",
+        "GL_OES_texture_buffer",
+        "GL_OES_texture_cube_map_array",
+        "GL_OES_texture_storage_multisample_2d_array",
+        "GL_OVR_multiview",
+        "GL_OVR_multiview2",
+        "GL_WEBGL_video_texture",
+    });
+    fs += UnexpectedExtensionMacros({
+        "GL_EXT_draw_buffers",
+        "GL_EXT_frag_depth",
+        "GL_EXT_shader_texture_lod",
+        "GL_EXT_shadow_samplers",
+        "GL_NV_shader_framebuffer_fetch",
+        "GL_OES_EGL_image_external",
+        "GL_OES_standard_derivatives",
+        "GL_OES_texture_3D",
+    });
+    ANGLE_GL_PROGRAM(program, essl31_shaders::vs::Simple(), fs.c_str());
+    ASSERT_GL_NO_ERROR();
 }
 
 }  // anonymous namespace

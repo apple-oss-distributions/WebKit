@@ -26,7 +26,7 @@
 #include "config.h"
 #include "RemoteMediaPlayerManagerProxy.h"
 
-#if ENABLE(GPU_PROCESS)
+#if ENABLE(GPU_PROCESS) && ENABLE(VIDEO)
 
 #include "GPUConnectionToWebProcess.h"
 #include "GPUProcess.h"
@@ -55,6 +55,11 @@ RemoteMediaPlayerManagerProxy::RemoteMediaPlayerManagerProxy(GPUConnectionToWebP
 }
 
 RemoteMediaPlayerManagerProxy::~RemoteMediaPlayerManagerProxy()
+{
+    clear();
+}
+
+void RemoteMediaPlayerManagerProxy::clear()
 {
     auto proxies = std::exchange(m_proxies, { });
 
@@ -115,39 +120,6 @@ void RemoteMediaPlayerManagerProxy::supportsTypeAndCodecs(MediaPlayerEnums::Medi
     completionHandler(result);
 }
 
-void RemoteMediaPlayerManagerProxy::originsInMediaCache(MediaPlayerEnums::MediaEngineIdentifier engineIdentifier, const String&& path, CompletionHandler<void(HashSet<WebCore::SecurityOriginData>&&)>&& completionHandler)
-{
-    auto engine = MediaPlayer::mediaEngine(engineIdentifier);
-    if (!engine) {
-        WTFLogAlways("Failed to find media engine.");
-        completionHandler({ });
-        return;
-    }
-
-    completionHandler(engine->originsInMediaCache(path));
-}
-
-void RemoteMediaPlayerManagerProxy::clearMediaCache(MediaPlayerEnums::MediaEngineIdentifier engineIdentifier, const String&&path, WallTime modifiedSince)
-{
-    auto engine = MediaPlayer::mediaEngine(engineIdentifier);
-    if (!engine) {
-        WTFLogAlways("Failed to find media engine.");
-        return;
-    }
-
-    engine->clearMediaCache(path, modifiedSince);
-}
-
-void RemoteMediaPlayerManagerProxy::clearMediaCacheForOrigins(MediaPlayerEnums::MediaEngineIdentifier engineIdentifier, const String&& path, HashSet<WebCore::SecurityOriginData>&& origins)
-{
-    auto engine = MediaPlayer::mediaEngine(engineIdentifier);
-    if (!engine) {
-        WTFLogAlways("Failed to find media engine.");
-        return;
-    }
-    engine->clearMediaCacheForOrigins(path, origins);
-}
-
 void RemoteMediaPlayerManagerProxy::supportsKeySystem(MediaPlayerEnums::MediaEngineIdentifier engineIdentifier, const String&& keySystem, const String&& mimeType, CompletionHandler<void(bool)>&& completionHandler)
 {
     auto engine = MediaPlayer::mediaEngine(engineIdentifier);
@@ -163,14 +135,14 @@ void RemoteMediaPlayerManagerProxy::supportsKeySystem(MediaPlayerEnums::MediaEng
 void RemoteMediaPlayerManagerProxy::didReceivePlayerMessage(IPC::Connection& connection, IPC::Decoder& decoder)
 {
     ASSERT(RunLoop::isMain());
-    if (auto* player = m_proxies.get(makeObjectIdentifier<MediaPlayerIdentifierType>(decoder.destinationID())))
+    if (auto* player = m_proxies.get(ObjectIdentifier<MediaPlayerIdentifierType>(decoder.destinationID())))
         player->didReceiveMessage(connection, decoder);
 }
 
 bool RemoteMediaPlayerManagerProxy::didReceiveSyncPlayerMessage(IPC::Connection& connection, IPC::Decoder& decoder, UniqueRef<IPC::Encoder>& encoder)
 {
     ASSERT(RunLoop::isMain());
-    if (auto* player = m_proxies.get(makeObjectIdentifier<MediaPlayerIdentifierType>(decoder.destinationID())))
+    if (auto* player = m_proxies.get(ObjectIdentifier<MediaPlayerIdentifierType>(decoder.destinationID())))
         return player->didReceiveSyncMessage(connection, decoder, encoder);
     return false;
 }
@@ -196,7 +168,7 @@ Logger& RemoteMediaPlayerManagerProxy::logger()
 }
 #endif
 
-ShareableBitmapHandle RemoteMediaPlayerManagerProxy::bitmapImageForCurrentTime(WebCore::MediaPlayerIdentifier identifier)
+ShareableBitmap::Handle RemoteMediaPlayerManagerProxy::bitmapImageForCurrentTime(WebCore::MediaPlayerIdentifier identifier)
 {
     auto player = mediaPlayer(identifier);
     if (!player)
@@ -207,7 +179,7 @@ ShareableBitmapHandle RemoteMediaPlayerManagerProxy::bitmapImageForCurrentTime(W
         return { };
 
     auto imageSize = image->size();
-    auto bitmap = ShareableBitmap::create(imageSize, { player->colorSpace() });
+    auto bitmap = ShareableBitmap::create({ imageSize, player->colorSpace() });
     if (!bitmap)
         return { };
 
@@ -225,4 +197,4 @@ ShareableBitmapHandle RemoteMediaPlayerManagerProxy::bitmapImageForCurrentTime(W
 
 } // namespace WebKit
 
-#endif
+#endif // ENABLE(GPU_PROCESS) && ENABLE(VIDEO)

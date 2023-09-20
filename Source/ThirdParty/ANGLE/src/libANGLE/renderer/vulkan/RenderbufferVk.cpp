@@ -73,8 +73,9 @@ angle::Result RenderbufferVk::setStorageImpl(const gl::Context *context,
 
     if (mImage == nullptr)
     {
-        mImage     = new vk::ImageHelper();
-        mOwnsImage = true;
+        mImage              = new vk::ImageHelper();
+        mOwnsImage          = true;
+        mImageSiblingSerial = {};
         mImageObserverBinding.bind(mImage);
         mImageViews.init(renderer);
     }
@@ -115,6 +116,11 @@ angle::Result RenderbufferVk::setStorageImpl(const gl::Context *context,
         createFlags |= VK_IMAGE_CREATE_MULTISAMPLED_RENDER_TO_SINGLE_SAMPLED_BIT_EXT;
     }
 
+    if (contextVk->getFeatures().limitSampleCountTo2.enabled)
+    {
+        samples = std::min(samples, 2);
+    }
+
     const uint32_t imageSamples = isRenderToTexture ? 1 : samples;
 
     bool robustInit = contextVk->isRobustResourceInitEnabled();
@@ -141,12 +147,13 @@ angle::Result RenderbufferVk::setStorageImpl(const gl::Context *context,
             *mImage, robustInit));
 
         mRenderTarget.init(&mMultisampledImage, &mMultisampledImageViews, mImage, &mImageViews,
-                           gl::LevelIndex(0), 0, 1, RenderTargetTransience::MultisampledTransient);
+                           mImageSiblingSerial, gl::LevelIndex(0), 0, 1,
+                           RenderTargetTransience::MultisampledTransient);
     }
     else
     {
-        mRenderTarget.init(mImage, &mImageViews, nullptr, nullptr, gl::LevelIndex(0), 0, 1,
-                           RenderTargetTransience::Default);
+        mRenderTarget.init(mImage, &mImageViews, nullptr, nullptr, mImageSiblingSerial,
+                           gl::LevelIndex(0), 0, 1, RenderTargetTransience::Default);
     }
 
     return angle::Result::Continue;
@@ -179,11 +186,14 @@ angle::Result RenderbufferVk::setStorageEGLImageTarget(const gl::Context *contex
     ContextVk *contextVk = vk::GetImpl(context);
     RendererVk *renderer = contextVk->getRenderer();
 
+    ANGLE_TRY(contextVk->getShareGroup()->lockDefaultContextsPriority(contextVk));
+
     releaseAndDeleteImage(contextVk);
 
-    ImageVk *imageVk = vk::GetImpl(image);
-    mImage           = imageVk->getImage();
-    mOwnsImage       = false;
+    ImageVk *imageVk    = vk::GetImpl(image);
+    mImage              = imageVk->getImage();
+    mOwnsImage          = false;
+    mImageSiblingSerial = imageVk->generateSiblingSerial();
     mImageObserverBinding.bind(mImage);
     mImageViews.init(renderer);
 
@@ -206,8 +216,9 @@ angle::Result RenderbufferVk::setStorageEGLImageTarget(const gl::Context *contex
         ANGLE_TRY(contextVk->onEGLImageQueueChange());
     }
 
-    mRenderTarget.init(mImage, &mImageViews, nullptr, nullptr, imageVk->getImageLevel(),
-                       imageVk->getImageLayer(), 1, RenderTargetTransience::Default);
+    mRenderTarget.init(mImage, &mImageViews, nullptr, nullptr, mImageSiblingSerial,
+                       imageVk->getImageLevel(), imageVk->getImageLayer(), 1,
+                       RenderTargetTransience::Default);
 
     return angle::Result::Continue;
 }
@@ -287,6 +298,8 @@ void RenderbufferVk::releaseOwnershipOfImage(const gl::Context *context)
 {
     ContextVk *contextVk = vk::GetImpl(context);
 
+    ASSERT(!mImageSiblingSerial.valid());
+
     mOwnsImage = false;
     releaseAndDeleteImage(contextVk);
 }
@@ -315,18 +328,22 @@ void RenderbufferVk::releaseImage(ContextVk *contextVk)
 
     if (mImage && mOwnsImage)
     {
-        mImage->releaseImageFromShareContexts(renderer, contextVk);
+        mImage->releaseImageFromShareContexts(renderer, contextVk, mImageSiblingSerial);
         mImage->releaseStagedUpdates(renderer);
     }
     else
     {
+        if (mImage)
+        {
+            mImage->finalizeImageLayoutInShareContexts(renderer, contextVk, mImageSiblingSerial);
+        }
         mImage = nullptr;
         mImageObserverBinding.bind(nullptr);
     }
 
     if (mMultisampledImage.valid())
     {
-        mMultisampledImage.releaseImageFromShareContexts(renderer, contextVk);
+        mMultisampledImage.releaseImageFromShareContexts(renderer, contextVk, mImageSiblingSerial);
     }
 }
 

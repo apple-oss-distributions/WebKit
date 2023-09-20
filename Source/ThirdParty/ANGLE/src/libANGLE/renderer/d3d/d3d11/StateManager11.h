@@ -140,14 +140,11 @@ class ShaderConstants11 : angle::NonCopyable
 
     struct SamplerMetadata
     {
-        SamplerMetadata()
-            : baseLevel(0), internalFormatBits(0), wrapModes(0), padding(0), intBorderColor{0}
-        {}
+        SamplerMetadata() : baseLevel(0), wrapModes(0), padding{0}, intBorderColor{0} {}
 
         int baseLevel;
-        int internalFormatBits;
         int wrapModes;
-        int padding;  // This just pads the struct to 32 bytes
+        int padding[2];  // This just pads the struct to 32 bytes
         int intBorderColor[4];
     };
 
@@ -197,7 +194,8 @@ class StateManager11 final : angle::NonCopyable
     void deinitialize();
 
     void syncState(const gl::Context *context,
-                   const gl::State::DirtyBits &dirtyBits,
+                   const gl::state::DirtyBits &dirtyBits,
+                   const gl::state::ExtendedDirtyBits &extendedDirtyBits,
                    gl::Command command);
 
     angle::Result updateStateForCompute(const gl::Context *context,
@@ -340,6 +338,10 @@ class StateManager11 final : angle::NonCopyable
                               gl::ShaderType shaderType,
                               uintptr_t resource,
                               const gl::ImageIndex *index);
+
+    template <typename CacheType>
+    void unsetConflictingRTVs(uintptr_t resource, CacheType &viewCache);
+
     void unsetConflictingRTVs(uintptr_t resource);
 
     void unsetConflictingAttachmentResources(const gl::FramebufferAttachment &attachment,
@@ -591,9 +593,11 @@ class StateManager11 final : angle::NonCopyable
     using SRVCache = ViewCache<ID3D11ShaderResourceView, D3D11_SHADER_RESOURCE_VIEW_DESC>;
     using UAVCache = ViewCache<ID3D11UnorderedAccessView, D3D11_UNORDERED_ACCESS_VIEW_DESC>;
     using RTVCache = ViewCache<ID3D11RenderTargetView, D3D11_RENDER_TARGET_VIEW_DESC>;
+    using DSVCache = ViewCache<ID3D11DepthStencilView, D3D11_DEPTH_STENCIL_VIEW_DESC>;
     gl::ShaderMap<SRVCache> mCurShaderSRVs;
     UAVCache mCurComputeUAVs;
     RTVCache mCurRTVs;
+    DSVCache mCurrentDSV;
 
     SRVCache *getSRVCache(gl::ShaderType shaderType);
 

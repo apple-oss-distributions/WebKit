@@ -73,8 +73,10 @@ ScrollingEffectsController::~ScrollingEffectsController()
 
 void ScrollingEffectsController::stopAllTimers()
 {
-    if (m_statelessSnapTransitionTimer)
-        m_statelessSnapTransitionTimer->stop();
+    if (m_discreteSnapTransitionTimer) {
+        m_discreteSnapTransitionTimer->stop();
+        m_client.didStopScrollSnapAnimation();
+    }
 
 #if ASSERT_ENABLED
     m_timersWereStopped = true;
@@ -83,7 +85,7 @@ void ScrollingEffectsController::stopAllTimers()
 
 static ScrollEventAxis dominantAxisFavoringVertical(FloatSize delta)
 {
-    if (fabsf(delta.height()) >= fabsf(delta.width()))
+    if (std::abs(delta.height()) >= std::abs(delta.width()))
         return ScrollEventAxis::Vertical;
 
     return ScrollEventAxis::Horizontal;
@@ -248,9 +250,9 @@ bool ScrollingEffectsController::modifyScrollDeltaForStretching(const PlatformWh
     if (isVerticallyStretched) {
         if (!isHorizontallyStretched && affectedSide && m_client.isPinnedOnSide(*affectedSide)) {
             // Stretching only in the vertical.
-            if (delta.height() && (fabsf(delta.width() / delta.height()) < rubberbandDirectionLockStretchRatio))
+            if (delta.height() && (std::abs(delta.width() / delta.height()) < rubberbandDirectionLockStretchRatio))
                 delta.setWidth(0);
-            else if (fabsf(delta.width()) < rubberbandMinimumRequiredDeltaBeforeStretch) {
+            else if (std::abs(delta.width()) < rubberbandMinimumRequiredDeltaBeforeStretch) {
                 m_unappliedOverscrollDelta.expand(delta.width(), 0);
                 delta.setWidth(0);
             } else
@@ -263,9 +265,9 @@ bool ScrollingEffectsController::modifyScrollDeltaForStretching(const PlatformWh
     if (isHorizontallyStretched) {
         // Stretching only in the horizontal.
         if (affectedSide && m_client.isPinnedOnSide(*affectedSide)) {
-            if (delta.width() && (fabsf(delta.height() / delta.width()) < rubberbandDirectionLockStretchRatio))
+            if (delta.width() && (std::abs(delta.height() / delta.width()) < rubberbandDirectionLockStretchRatio))
                 delta.setHeight(0);
-            else if (fabsf(delta.height()) < rubberbandMinimumRequiredDeltaBeforeStretch) {
+            else if (std::abs(delta.height()) < rubberbandMinimumRequiredDeltaBeforeStretch) {
                 m_unappliedOverscrollDelta.expand(0, delta.height());
                 delta.setHeight(0);
             } else
@@ -277,8 +279,8 @@ bool ScrollingEffectsController::modifyScrollDeltaForStretching(const PlatformWh
 
     // Not stretching at all yet.
     if (affectedSide && m_client.isPinnedOnSide(*affectedSide)) {
-        if (fabsf(delta.height()) >= fabsf(delta.width())) {
-            if (fabsf(delta.width()) < rubberbandMinimumRequiredDeltaBeforeStretch) {
+        if (std::abs(delta.height()) >= std::abs(delta.width())) {
+            if (std::abs(delta.width()) < rubberbandMinimumRequiredDeltaBeforeStretch) {
                 m_unappliedOverscrollDelta.expand(delta.width(), 0);
                 delta.setWidth(0);
             } else
@@ -395,6 +397,9 @@ bool ScrollingEffectsController::isScrollSnapInProgress() const
     if (m_inScrollGesture || m_momentumScrollInProgress || m_isAnimatingScrollSnap)
         return true;
 
+    if (m_discreteSnapTransitionTimer && m_discreteSnapTransitionTimer->isActive())
+        return true;
+
     return false;
 }
 
@@ -458,7 +463,7 @@ void ScrollingEffectsController::startRubberBandAnimationIfNecessary()
     auto initialVelocity = m_momentumVelocity;
 
     // Just like normal scrolling, prefer vertical rubberbanding
-    if (fabsf(initialVelocity.height()) >= fabsf(initialVelocity.width()))
+    if (std::abs(initialVelocity.height()) >= std::abs(initialVelocity.width()))
         initialVelocity.setWidth(0);
 
     // Don't rubber-band horizontally if it's not possible to scroll horizontally
@@ -519,7 +524,7 @@ enum class WheelEventStatus {
     MomentumScrollBegin,
     MomentumScrolling,
     MomentumScrollEnd,
-    StatelessScrollEvent,
+    DiscreteScrollEvent,
     Unknown
 };
 
@@ -537,7 +542,7 @@ static inline WheelEventStatus toWheelEventStatus(PlatformWheelEventPhase phase,
             return WheelEventStatus::MomentumScrollEnd;
 
         case PlatformWheelEventPhase::None:
-            return WheelEventStatus::StatelessScrollEvent;
+            return WheelEventStatus::DiscreteScrollEvent;
 
         default:
             return WheelEventStatus::Unknown;
@@ -573,7 +578,7 @@ static TextStream& operator<<(TextStream& ts, WheelEventStatus status)
     case WheelEventStatus::MomentumScrollBegin: ts << "MomentumScrollBegin"; break;
     case WheelEventStatus::MomentumScrolling: ts << "MomentumScrolling"; break;
     case WheelEventStatus::MomentumScrollEnd: ts << "MomentumScrollEnd"; break;
-    case WheelEventStatus::StatelessScrollEvent: ts << "StatelessScrollEvent"; break;
+    case WheelEventStatus::DiscreteScrollEvent: ts << "DiscreteScrollEvent"; break;
     case WheelEventStatus::Unknown: ts << "Unknown"; break;
     }
     return ts;
@@ -589,35 +594,61 @@ bool ScrollingEffectsController::shouldOverrideMomentumScrolling() const
     return scrollSnapState == ScrollSnapState::Gliding || scrollSnapState == ScrollSnapState::DestinationReached;
 }
 
-void ScrollingEffectsController::scheduleStatelessScrollSnap()
+void ScrollingEffectsController::scheduleDiscreteScrollSnap(const FloatSize& delta)
 {
     stopScrollSnapAnimation();
-    if (m_statelessSnapTransitionTimer) {
-        m_statelessSnapTransitionTimer->stop();
-        m_statelessSnapTransitionTimer = nullptr;
-    }
+    if (m_discreteSnapTransitionTimer) {
+        m_discreteSnapTransitionTimer->stop();
+        m_discreteSnapTransitionTimer = nullptr;
+        m_recentDiscreteWheelDeltas.append(delta);
+        static constexpr auto numberOfDeltasToStoreForDiscreteScrollSnap = 3;
+        if (m_recentDiscreteWheelDeltas.size() > numberOfDeltasToStoreForDiscreteScrollSnap)
+            m_recentDiscreteWheelDeltas.removeFirst();
+    } else
+        m_recentDiscreteWheelDeltas = { delta };
+
     if (!usesScrollSnap())
         return;
 
-    static const Seconds statelessScrollSnapDelay = 750_ms;
-    m_statelessSnapTransitionTimer = m_client.createTimer([this] {
-        statelessSnapTransitionTimerFired();
+    static const Seconds discreteScrollSnapDelay = 100_ms;
+    m_discreteSnapTransitionTimer = m_client.createTimer([this] {
+        discreteSnapTransitionTimerFired();
     });
-    m_statelessSnapTransitionTimer->startOneShot(statelessScrollSnapDelay);
+    m_discreteSnapTransitionTimer->startOneShot(discreteScrollSnapDelay);
     startDeferringWheelEventTestCompletion(WheelEventTestMonitor::ScrollSnapInProgress);
 }
 
-void ScrollingEffectsController::statelessSnapTransitionTimerFired()
+void ScrollingEffectsController::discreteSnapTransitionTimerFired()
 {
-    m_statelessSnapTransitionTimer = nullptr;
+    auto recentDiscreteWheelDeltas = std::exchange(m_recentDiscreteWheelDeltas, { });
+    m_discreteSnapTransitionTimer = nullptr;
 
     if (!usesScrollSnap())
         return;
 
-    if (m_scrollSnapState->transitionToSnapAnimationState(m_client.scrollExtents(), m_client.pageScaleFactor(), m_client.scrollOffset()))
+    FloatSize wheelDeltaForGlideAnimation;
+    if (!recentDiscreteWheelDeltas.isEmpty()) {
+        for (auto delta : recentDiscreteWheelDeltas)
+            wheelDeltaForGlideAnimation += delta;
+        auto signOf = [](float value) {
+            return value > 0 ? 1 : (value < 0 ? -1 : 0);
+        };
+        wheelDeltaForGlideAnimation.setWidth(signOf(wheelDeltaForGlideAnimation.width()));
+        wheelDeltaForGlideAnimation.setHeight(signOf(wheelDeltaForGlideAnimation.height()));
+    }
+
+    bool shouldStartScrollSnapAnimation = [&] {
+        if (wheelDeltaForGlideAnimation.isZero())
+            return m_scrollSnapState->transitionToSnapAnimationState(m_client.scrollExtents(), m_client.pageScaleFactor(), m_client.scrollOffset());
+        return m_scrollSnapState->transitionToGlideAnimationState(m_client.scrollExtents(), m_client.pageScaleFactor(), m_client.scrollOffset(), -wheelDeltaForGlideAnimation, -wheelDeltaForGlideAnimation);
+    }();
+
+    if (shouldStartScrollSnapAnimation)
         startScrollSnapAnimation();
-    else
+    else {
         stopDeferringWheelEventTestCompletion(WheelEventTestMonitor::ScrollSnapInProgress);
+        m_client.didStopScrollSnapAnimation();
+    }
 }
 
 bool ScrollingEffectsController::processWheelEventForScrollSnap(const PlatformWheelEvent& wheelEvent)
@@ -655,9 +686,9 @@ bool ScrollingEffectsController::processWheelEventForScrollSnap(const PlatformWh
     case WheelEventStatus::MomentumScrollEnd:
         isMomentumScrolling = true;
         break;
-    case WheelEventStatus::StatelessScrollEvent:
+    case WheelEventStatus::DiscreteScrollEvent:
         m_scrollSnapState->transitionToUserInteractionState();
-        scheduleStatelessScrollSnap();
+        scheduleDiscreteScrollSnap(wheelEvent.delta());
         break;
     case WheelEventStatus::Unknown:
         ASSERT_NOT_REACHED();

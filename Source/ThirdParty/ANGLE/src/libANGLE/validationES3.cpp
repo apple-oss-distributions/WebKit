@@ -1085,9 +1085,8 @@ static bool IsValidES3CopyTexImageCombination(const InternalFormat &textureForma
         return false;
     }
 
-    // SNORM is not supported (e.g. is not in the tables of "effective internal format" that
-    // correspond to internal formats.
-    if (textureFormatInfo.componentType == GL_SIGNED_NORMALIZED)
+    if ((textureFormatInfo.componentType == GL_SIGNED_NORMALIZED) !=
+        (framebufferFormatInfo.componentType == GL_SIGNED_NORMALIZED))
     {
         return false;
     }
@@ -1493,7 +1492,8 @@ bool ValidateES3TexStorageParametersFormat(const Context *context,
     {
         if (!context->getExtensions().yuvInternalFormatANGLE)
         {
-            context->validationError(entryPoint, GL_INVALID_ENUM, kInvalidFormat);
+            context->validationErrorF(entryPoint, GL_INVALID_ENUM, kInvalidInternalFormat,
+                                      internalformat);
             return false;
         }
 
@@ -1513,13 +1513,15 @@ bool ValidateES3TexStorageParametersFormat(const Context *context,
     const InternalFormat &formatInfo = GetSizedInternalFormatInfo(internalformat);
     if (!formatInfo.textureSupport(context->getClientVersion(), context->getExtensions()))
     {
-        context->validationError(entryPoint, GL_INVALID_ENUM, kInvalidFormat);
+        context->validationErrorF(entryPoint, GL_INVALID_ENUM, kInvalidInternalFormat,
+                                  internalformat);
         return false;
     }
 
     if (!formatInfo.sized)
     {
-        context->validationError(entryPoint, GL_INVALID_ENUM, kInvalidFormat);
+        context->validationErrorF(entryPoint, GL_INVALID_ENUM, kInvalidInternalFormat,
+                                  internalformat);
         return false;
     }
 
@@ -5293,6 +5295,12 @@ bool ValidateDrawBufferIndexIfActivePLS(const Context *context,
     int numPLSPlanes = context->getState().getPixelLocalStorageActivePlanes();
     if (numPLSPlanes != 0)
     {
+        // INVALID_OPERATION is generated ... if any of the following are true:
+        //
+        //   <drawBufferIdx> >= MAX_COLOR_ATTACHMENTS_WITH_ACTIVE_PIXEL_LOCAL_STORAGE_ANGLE
+        //   <drawBufferIdx> >= (MAX_COMBINED_DRAW_BUFFERS_AND_PIXEL_LOCAL_STORAGE_PLANES_ANGLE -
+        //                       ACTIVE_PIXEL_LOCAL_STORAGE_PLANES_ANGLE)
+        //
         if (drawBufferIdx >= context->getCaps().maxColorAttachmentsWithActivePixelLocalStorage)
         {
             context->validationErrorF(entryPoint, GL_INVALID_OPERATION,

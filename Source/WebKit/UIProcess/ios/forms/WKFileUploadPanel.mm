@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014-2017 Apple Inc. All rights reserved.
+ * Copyright (C) 2014-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -67,8 +67,9 @@ SOFT_LINK_CLASS(PhotosUIPrivate, PUActivityProgressController)
 #if HAVE(PHOTOS_UI)
 SOFT_LINK_FRAMEWORK(PhotosUI)
 SOFT_LINK_CLASS(PhotosUI, PHPickerConfiguration)
-SOFT_LINK_CLASS(PhotosUI, PHPickerViewController)
+SOFT_LINK_CLASS(PhotosUI, PHPickerFilter)
 SOFT_LINK_CLASS(PhotosUI, PHPickerResult)
+SOFT_LINK_CLASS(PhotosUI, PHPickerViewController)
 #endif
 
 enum class WKFileUploadPanelImagePickerType : uint8_t {
@@ -387,9 +388,9 @@ static NSString * firstUTIThatConformsTo(NSArray<NSString *> *typeIdentifiers, U
     RetainPtr<PHPickerViewController> _photoPicker;
 #endif
     RetainPtr<UIViewController> _presentationViewController;
-    ALLOW_DEPRECATED_DECLARATIONS_BEGIN
+ALLOW_DEPRECATED_DECLARATIONS_BEGIN
     BOOL _isPresentingSubMenu;
-    ALLOW_DEPRECATED_DECLARATIONS_END
+ALLOW_DEPRECATED_DECLARATIONS_END
 #if USE(UICONTEXTMENU)
     BOOL _isRepositioningContextMenu;
     RetainPtr<UIContextMenuInteraction> _documentContextMenuInteraction;
@@ -869,6 +870,13 @@ static NSSet<NSString *> *UTIsForMIMETypes(NSArray *mimeTypes)
     [configuration setSelectionLimit:_allowMultipleFiles ? 0 : 1];
     [configuration setPreferredAssetRepresentationMode:PHPickerConfigurationAssetRepresentationModeCompatible];
     [configuration _setAllowsDownscaling:YES];
+
+    if (auto allowedImagePickerType = _allowedImagePickerTypes.toSingleValue()) {
+        if (*allowedImagePickerType == WKFileUploadPanelImagePickerType::Image)
+            [configuration setFilter:[getPHPickerFilterClass() imagesFilter]];
+        else
+            [configuration setFilter:[getPHPickerFilterClass() videosFilter]];
+    }
 
     _uploadFileManager = adoptNS([[NSFileManager alloc] init]);
     _uploadFileCoordinator = adoptNS([[NSFileCoordinator alloc] init]);

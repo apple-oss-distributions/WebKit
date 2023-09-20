@@ -311,6 +311,7 @@ class TextureVk : public TextureImpl, public angle::ObserverInterface
     {
         return mState.getBuffer();
     }
+    vk::BufferHelper *getPossiblyEmulatedTextureBuffer(vk::Context *context) const;
 
     bool isSRGBOverrideEnabled() const
     {
@@ -358,7 +359,8 @@ class TextureVk : public TextureImpl, public angle::ObserverInterface
                         const vk::Format &format,
                         uint32_t imageLevelOffset,
                         uint32_t imageLayerOffset,
-                        bool selfOwned);
+                        bool selfOwned,
+                        UniqueSerial siblingSerial);
 
     vk::ImageViewHelper &getImageViews()
     {
@@ -511,6 +513,8 @@ class TextureVk : public TextureImpl, public angle::ObserverInterface
     // Flush image's staged updates for all levels and layers.
     angle::Result flushImageStagedUpdates(ContextVk *contextVk);
 
+    angle::Result performImageQueueTransferIfNecessary(ContextVk *contextVk);
+
     // For various reasons, the underlying image may need to be respecified.  For example because
     // base/max level changed, usage/create flags have changed, the format needs modification to
     // become renderable, generate mipmap is adding levels, etc.  This function is called by
@@ -562,7 +566,14 @@ class TextureVk : public TextureImpl, public angle::ObserverInterface
 
     angle::Result updateTextureLabel(ContextVk *contextVk);
 
+    vk::BufferHelper *getRGBAConversionBufferHelper(RendererVk *renderer,
+                                                    angle::FormatID formatID) const;
+    angle::Result convertBufferToRGBA(ContextVk *contextVk, size_t &conversionBufferSize);
+
     bool mOwnsImage;
+    // Generated from ImageVk if EGLImage target, or from throw-away generator if Surface target.
+    UniqueSerial mImageSiblingSerial;
+
     bool mRequiresMutableStorage;
     vk::ImageAccess mRequiredImageAccess;
     bool mImmutableSamplerDirty;

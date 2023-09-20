@@ -488,7 +488,8 @@ bool JSArray::appendMemcpy(JSGlobalObject* globalObject, VM& vm, unsigned startI
 
     IndexingType type = indexingType();
     IndexingType otherType = otherArray->indexingType();
-    IndexingType copyType = mergeIndexingTypeForCopying(otherType);
+    bool allowPromotion = false;
+    IndexingType copyType = mergeIndexingTypeForCopying(otherType, allowPromotion);
     if (type == ArrayWithUndecided && copyType != NonArray) {
         if (copyType == ArrayWithInt32)
             convertUndecidedToInt32(vm);
@@ -1033,6 +1034,7 @@ bool JSArray::unshiftCountWithArrayStorage(JSGlobalObject* globalObject, unsigne
         Structure* structure = this->structure();
         ConcurrentJSLocker structureLock(structure->lock());
         Butterfly* newButterfly = storage->butterfly()->unshift(structure, count);
+
         storage = newButterfly->arrayStorage();
         storage->m_indexBias -= count;
         storage->setVectorLength(vectorLength + count);

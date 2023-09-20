@@ -196,7 +196,6 @@ class ClearUtils final : angle::NonCopyable
   public:
     ClearUtils() = delete;
     ClearUtils(const std::string &fragmentShaderName);
-    ClearUtils(const ClearUtils &src);
 
     void onDestroy();
 
@@ -220,7 +219,7 @@ class ClearUtils final : angle::NonCopyable
     const std::string mFragmentShaderName;
 
     // Render pipeline cache for clear with draw:
-    std::array<RenderPipelineCache, kMaxRenderTargets + 1> mClearRenderPipelineCache;
+    std::array<RenderPipelineCache, kMaxRenderTargets + 1> mClearRenderPipelineCache { };
 };
 
 class ColorBlitUtils final : angle::NonCopyable
@@ -228,7 +227,6 @@ class ColorBlitUtils final : angle::NonCopyable
   public:
     ColorBlitUtils() = delete;
     ColorBlitUtils(const std::string &fragmentShaderName);
-    ColorBlitUtils(const ColorBlitUtils &src);
 
     void onDestroy();
 
@@ -260,9 +258,9 @@ class ColorBlitUtils final : angle::NonCopyable
     using ColorBlitRenderPipelineCacheArray =
         std::array<std::array<RenderPipelineCache, mtl_shader::kTextureTypeCount>,
                    kMaxRenderTargets>;
-    ColorBlitRenderPipelineCacheArray mBlitRenderPipelineCache;
-    ColorBlitRenderPipelineCacheArray mBlitPremultiplyAlphaRenderPipelineCache;
-    ColorBlitRenderPipelineCacheArray mBlitUnmultiplyAlphaRenderPipelineCache;
+    ColorBlitRenderPipelineCacheArray mBlitRenderPipelineCache {{}};
+    ColorBlitRenderPipelineCacheArray mBlitPremultiplyAlphaRenderPipelineCache {{}};
+    ColorBlitRenderPipelineCacheArray mBlitUnmultiplyAlphaRenderPipelineCache {{}};
 };
 
 class DepthStencilBlitUtils final : angle::NonCopyable
@@ -283,32 +281,33 @@ class DepthStencilBlitUtils final : angle::NonCopyable
                                            const StencilBlitViaBufferParams &params);
 
   private:
-    void ensureRenderPipelineStateCacheInitialized(ContextMtl *ctx,
-                                                   int sourceDepthTextureType,
-                                                   int sourceStencilTextureType,
-                                                   RenderPipelineCache *cacheOut);
+    angle::Result ensureRenderPipelineStateCacheInitialized(ContextMtl *ctx,
+                                                            int sourceDepthTextureType,
+                                                            int sourceStencilTextureType,
+                                                            RenderPipelineCache *cacheOut);
 
     angle::Result setupDepthStencilBlitWithDraw(const gl::Context *context,
                                                 RenderCommandEncoder *cmdEncoder,
                                                 const DepthStencilBlitParams &params);
 
-    id<MTLRenderPipelineState> getDepthStencilBlitRenderPipelineState(
+    angle::Result getDepthStencilBlitRenderPipelineState(
         const gl::Context *context,
         RenderCommandEncoder *cmdEncoder,
-        const DepthStencilBlitParams &params);
+        const DepthStencilBlitParams &params,
+        id<MTLRenderPipelineState> *outRenderPipelineState);
 
     id<MTLComputePipelineState> getStencilToBufferComputePipelineState(
         ContextMtl *ctx,
         const StencilBlitViaBufferParams &params);
 
-    std::array<RenderPipelineCache, mtl_shader::kTextureTypeCount> mDepthBlitRenderPipelineCache;
-    std::array<RenderPipelineCache, mtl_shader::kTextureTypeCount> mStencilBlitRenderPipelineCache;
+    std::array<RenderPipelineCache, mtl_shader::kTextureTypeCount> mDepthBlitRenderPipelineCache {};
+    std::array<RenderPipelineCache, mtl_shader::kTextureTypeCount> mStencilBlitRenderPipelineCache {};
     std::array<std::array<RenderPipelineCache, mtl_shader::kTextureTypeCount>,
                mtl_shader::kTextureTypeCount>
-        mDepthStencilBlitRenderPipelineCache;
+        mDepthStencilBlitRenderPipelineCache {{}};
 
     std::array<AutoObjCPtr<id<MTLComputePipelineState>>, mtl_shader::kTextureTypeCount>
-        mStencilBlitToBufferComPipelineCache;
+        mStencilBlitToBufferComPipelineCache {};
 
     // Intermediate buffer for storing copied stencil data. Used when device doesn't support
     // writing stencil in shader.
@@ -418,12 +417,12 @@ class IndexGeneratorUtils final : angle::NonCopyable
                                                  const IndexGenerationParams &params,
                                                  size_t *indicesGenerated);
 
-    IndexConversionPipelineArray mIndexConversionPipelineCaches;
+    IndexConversionPipelineArray mIndexConversionPipelineCaches {{}};
 
-    IndexConversionPipelineArray mTriFanFromElemArrayGeneratorPipelineCaches;
+    IndexConversionPipelineArray mTriFanFromElemArrayGeneratorPipelineCaches {{}};
     AutoObjCPtr<id<MTLComputePipelineState>> mTriFanFromArraysGeneratorPipeline;
 
-    IndexConversionPipelineArray mLineLoopFromElemArrayGeneratorPipelineCaches;
+    IndexConversionPipelineArray mLineLoopFromElemArrayGeneratorPipelineCaches {{}};
     AutoObjCPtr<id<MTLComputePipelineState>> mLineLoopFromArraysGeneratorPipeline;
 };
 
@@ -445,7 +444,7 @@ class VisibilityResultUtils final : angle::NonCopyable
     // Visibility combination compute pipeline:
     // - 0: This compute pipeline only combine the new values and discard old value.
     // - 1: This compute pipeline keep the old value and combine with new values.
-    std::array<AutoObjCPtr<id<MTLComputePipelineState>>, 2> mVisibilityResultCombPipelines;
+    std::array<AutoObjCPtr<id<MTLComputePipelineState>>, 2> mVisibilityResultCombPipelines {};
 };
 
 // Util class for handling mipmap generation
@@ -479,7 +478,6 @@ class CopyPixelsUtils final : angle::NonCopyable
   public:
     CopyPixelsUtils() = default;
     CopyPixelsUtils(const std::string &readShaderName, const std::string &writeShaderName);
-    CopyPixelsUtils(const CopyPixelsUtils &src);
 
     void onDestroy();
 
@@ -501,7 +499,7 @@ class CopyPixelsUtils final : angle::NonCopyable
     using PixelsCopyPipelineArray = std::array<
         std::array<AutoObjCPtr<id<MTLComputePipelineState>>, mtl_shader::kTextureTypeCount * 2>,
         angle::kNumANGLEFormats>;
-    PixelsCopyPipelineArray mPixelsCopyPipelineCaches;
+    PixelsCopyPipelineArray mPixelsCopyPipelineCaches {{}};
 
     const std::string mReadShaderName;
     const std::string mWriteShaderName;
@@ -567,8 +565,8 @@ class VertexFormatConversionUtils final : angle::NonCopyable
     using ConvertToFloatRenderPipelineArray =
         std::array<RenderPipelineCache, angle::kNumANGLEFormats>;
 
-    ConvertToFloatCompPipelineArray mConvertToFloatCompPipelineCaches;
-    ConvertToFloatRenderPipelineArray mConvertToFloatRenderPipelineCaches;
+    ConvertToFloatCompPipelineArray mConvertToFloatCompPipelineCaches {};
+    ConvertToFloatRenderPipelineArray mConvertToFloatRenderPipelineCaches {};
 
     AutoObjCPtr<id<MTLComputePipelineState>> mComponentsExpandCompPipeline;
     RenderPipelineCache mComponentsExpandRenderPipelineCache;

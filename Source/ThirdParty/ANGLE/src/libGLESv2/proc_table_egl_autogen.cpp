@@ -516,6 +516,8 @@ const ProcEntry g_procTable[] = {
     {"glFramebufferPixelLocalClearValuefvANGLE", P(GL_FramebufferPixelLocalClearValuefvANGLE)},
     {"glFramebufferPixelLocalClearValueivANGLE", P(GL_FramebufferPixelLocalClearValueivANGLE)},
     {"glFramebufferPixelLocalClearValueuivANGLE", P(GL_FramebufferPixelLocalClearValueuivANGLE)},
+    {"glFramebufferPixelLocalStorageInterruptANGLE", P(GL_FramebufferPixelLocalStorageInterruptANGLE)},
+    {"glFramebufferPixelLocalStorageRestoreANGLE", P(GL_FramebufferPixelLocalStorageRestoreANGLE)},
     {"glFramebufferRenderbuffer", P(GL_FramebufferRenderbuffer)},
     {"glFramebufferRenderbufferOES", P(GL_FramebufferRenderbufferOES)},
     {"glFramebufferTexture", P(GL_FramebufferTexture)},
@@ -607,7 +609,9 @@ const ProcEntry g_procTable[] = {
     {"glGetFramebufferParameterivMESA", P(GL_GetFramebufferParameterivMESA)},
     {"glGetFramebufferParameterivRobustANGLE", P(GL_GetFramebufferParameterivRobustANGLE)},
     {"glGetFramebufferPixelLocalStorageParameterfvANGLE", P(GL_GetFramebufferPixelLocalStorageParameterfvANGLE)},
+    {"glGetFramebufferPixelLocalStorageParameterfvRobustANGLE", P(GL_GetFramebufferPixelLocalStorageParameterfvRobustANGLE)},
     {"glGetFramebufferPixelLocalStorageParameterivANGLE", P(GL_GetFramebufferPixelLocalStorageParameterivANGLE)},
+    {"glGetFramebufferPixelLocalStorageParameterivRobustANGLE", P(GL_GetFramebufferPixelLocalStorageParameterivRobustANGLE)},
     {"glGetGraphicsResetStatus", P(GL_GetGraphicsResetStatus)},
     {"glGetGraphicsResetStatusEXT", P(GL_GetGraphicsResetStatusEXT)},
     {"glGetInteger64i_v", P(GL_GetInteger64i_v)},
@@ -1051,6 +1055,8 @@ const ProcEntry g_procTable[] = {
     {"glPointSizePointerOES", P(GL_PointSizePointerOES)},
     {"glPointSizex", P(GL_PointSizex)},
     DESKTOP_ONLY("glPolygonMode", GL_PolygonMode)
+    {"glPolygonModeANGLE", P(GL_PolygonModeANGLE)},
+    {"glPolygonModeNV", P(GL_PolygonModeNV)},
     {"glPolygonOffset", P(GL_PolygonOffset)},
     DESKTOP_ONLY("glPolygonOffsetClamp", GL_PolygonOffsetClamp)
     {"glPolygonOffsetClampEXT", P(GL_PolygonOffsetClampEXT)},

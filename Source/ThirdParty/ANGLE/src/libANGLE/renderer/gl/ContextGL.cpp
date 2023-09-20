@@ -884,11 +884,14 @@ angle::Result ContextGL::popDebugGroup(const gl::Context *context)
 }
 
 angle::Result ContextGL::syncState(const gl::Context *context,
-                                   const gl::State::DirtyBits &dirtyBits,
-                                   const gl::State::DirtyBits &bitMask,
+                                   const gl::state::DirtyBits &dirtyBits,
+                                   const gl::state::DirtyBits &bitMask,
+                                   const gl::state::ExtendedDirtyBits &extendedDirtyBits,
+                                   const gl::state::ExtendedDirtyBits &extendedBitMask,
                                    gl::Command command)
 {
-    return mRenderer->getStateManager()->syncState(context, dirtyBits, bitMask);
+    return mRenderer->getStateManager()->syncState(context, dirtyBits, bitMask, extendedDirtyBits,
+                                                   extendedBitMask);
 }
 
 GLint ContextGL::getGPUDisjoint()
@@ -1029,6 +1032,9 @@ void ContextGL::resetDrawStateForPixelLocalStorageEXT(const gl::Context *context
     stateMgr->setCullFaceEnabled(false);
     stateMgr->setDepthTestEnabled(false);
     stateMgr->setFramebufferSRGBEnabled(context, false);
+    stateMgr->setPolygonMode(gl::PolygonMode::Fill);
+    stateMgr->setPolygonOffsetPointEnabled(false);
+    stateMgr->setPolygonOffsetLineEnabled(false);
     stateMgr->setPolygonOffsetFillEnabled(false);
     stateMgr->setRasterizerDiscardEnabled(false);
     stateMgr->setSampleAlphaToCoverageEnabled(false);
@@ -1057,8 +1063,7 @@ angle::Result ContextGL::drawPixelLocalStorageEXTEnable(gl::Context *context,
         const gl::PixelLocalStoragePlane &plane = planes[i];
         GLenum loadop                           = loadops[i];
         bool preserved                          = loadop == GL_LOAD_OP_LOAD_ANGLE;
-        b.prependPlane(loadop != GL_LOAD_OP_DISABLE_ANGLE ? plane.getInternalformat() : GL_NONE,
-                       preserved);
+        b.prependPlane(plane.getInternalformat(), preserved);
         if (preserved)
         {
             const gl::ImageIndex &idx = plane.getTextureImageIndex();

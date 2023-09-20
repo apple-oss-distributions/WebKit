@@ -18,7 +18,7 @@
 #include "libANGLE/renderer/ProgramImpl.h"
 #include "libANGLE/renderer/d3d/DynamicHLSL.h"
 #include "libANGLE/renderer/d3d/RendererD3D.h"
-#include "platform/FeaturesD3D_autogen.h"
+#include "platform/autogen/FeaturesD3D_autogen.h"
 
 namespace rx
 {
@@ -153,7 +153,6 @@ class ProgramD3DMetadata final : angle::NonCopyable
     int getRendererMajorShaderModel() const;
     bool usesBroadcast(const gl::State &data) const;
     bool usesSecondaryColor() const;
-    bool usesFragDepth() const;
     bool usesPointCoord() const;
     bool usesFragCoord() const;
     bool usesPointSize() const;
@@ -168,7 +167,9 @@ class ProgramD3DMetadata final : angle::NonCopyable
     bool usesSystemValuePointSize() const;
     bool usesMultipleFragmentOuts() const;
     bool usesCustomOutVars() const;
+    bool usesSampleMask() const;
     const ShaderD3D *getFragmentShader() const;
+    FragDepthUsage getFragDepthUsage() const;
     uint8_t getClipDistanceArraySize() const;
     uint8_t getCullDistanceArraySize() const;
 
@@ -411,20 +412,24 @@ class ProgramD3D : public ProgramImpl
     class PixelExecutable
     {
       public:
-        PixelExecutable(const std::vector<GLenum> &outputSignature,
+        PixelExecutable(const std::pair<bool, const std::vector<GLenum>> &outputSignature,
                         ShaderExecutableD3D *shaderExecutable);
         ~PixelExecutable();
 
-        bool matchesSignature(const std::vector<GLenum> &signature) const
+        bool matchesSignature(const std::pair<bool, const std::vector<GLenum>> &signature) const
         {
             return mOutputSignature == signature;
         }
 
-        const std::vector<GLenum> &outputSignature() const { return mOutputSignature; }
+        const std::pair<bool, const std::vector<GLenum>> &outputSignature() const
+        {
+            return mOutputSignature;
+        }
+
         ShaderExecutableD3D *shaderExecutable() const { return mShaderExecutable; }
 
       private:
-        std::vector<GLenum> mOutputSignature;
+        const std::pair<bool, const std::vector<GLenum>> mOutputSignature;
         ShaderExecutableD3D *mShaderExecutable;
     };
 
@@ -549,7 +554,8 @@ class ProgramD3D : public ProgramImpl
     gl::ShaderMap<std::string> mShaderHLSL;
     gl::ShaderMap<CompilerWorkaroundsD3D> mShaderWorkarounds;
 
-    bool mUsesFragDepth;
+    FragDepthUsage mFragDepthUsage;
+    bool mUsesSampleMask;
     bool mHasANGLEMultiviewEnabled;
     bool mUsesVertexID;
     bool mUsesViewID;
@@ -576,7 +582,7 @@ class ProgramD3D : public ProgramImpl
     gl::ShaderMap<gl::RangeUI> mUsedAtomicCounterRange;
 
     // Cache for pixel shader output layout to save reallocations.
-    std::vector<GLenum> mPixelShaderOutputLayoutCache;
+    std::pair<bool, std::vector<GLenum>> mPixelShaderOutputLayoutCache;
     Optional<size_t> mCachedPixelExecutableIndex;
 
     AttribIndexArray mAttribLocationToD3DSemantic;

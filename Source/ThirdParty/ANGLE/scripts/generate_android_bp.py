@@ -24,7 +24,8 @@ CODEGEN_TARGETS = [
     "//:libEGL",
 ]
 
-SDK_VERSION = '28'
+MIN_SDK_VERSION = '28'
+TARGET_SDK_VERSION = '33'
 STL = 'libc++_static'
 
 ABI_ARM = 'arm'
@@ -196,19 +197,21 @@ def gn_sources_to_blueprint_sources(sources):
 target_blockist = [
     '//build/config:shared_library_deps',
     '//third_party/vulkan-validation-layers/src:vulkan_clean_old_validation_layer_objects',
+    '//third_party/zlib:zlib',
+    '//third_party/zlib/google:compression_utils_portable',
 ]
 
 third_party_target_allowlist = [
     '//third_party/abseil-cpp',
     '//third_party/vulkan-deps',
     '//third_party/vulkan_memory_allocator',
-    '//third_party/zlib',
 ]
 
 include_blocklist = [
     '//buildtools/third_party/libc++/',
     '//out/Android/gen/third_party/vulkan-deps/glslang/src/include/',
-    '//third_party/android_ndk/sources/android/cpufeatures/',
+    '//third_party/zlib/',
+    '//third_party/zlib/google/',
 ]
 
 
@@ -255,13 +258,10 @@ def gn_deps_to_blueprint_deps(abi, target, build_info):
             # target depends on another's genrule, it wont find the outputs. Propogate generated
             # headers up the dependency stack.
             generated_headers += child_generated_headers
-        elif dep == '//third_party/android_ndk:cpu_features':
-            # chrome_zlib needs cpufeatures from the Android NDK. Rather than including the
-            # entire NDK is a dep in the ANGLE checkout, use the library that's already part
-            # of Android.
-            dep_info = build_info[abi][dep]
-            blueprint_dep_name = gn_target_to_blueprint_target(dep, dep_info)
-            static_libs.append('cpufeatures')
+        elif dep == '//third_party/zlib/google:compression_utils_portable':
+            # Replace zlib by Android's zlib, compression_utils_portable is the root dependency
+            static_libs.extend(
+                ['zlib_google_compression_utils_portable', 'libz_static', 'cpufeatures'])
 
     return static_libs, shared_libs, defaults, generated_headers, header_libs
 
@@ -380,7 +380,7 @@ def library_target_to_blueprint(target, build_info):
 
         bp['defaults'].append('angle_common_library_cflags')
 
-        bp['sdk_version'] = SDK_VERSION
+        bp['sdk_version'] = MIN_SDK_VERSION
         bp['stl'] = STL
         if target in ROOT_TARGETS:
             bp['vendor'] = True
@@ -521,7 +521,7 @@ def action_target_to_blueprint(abi, target, build_info):
 
     bp['cmd'] = ' '.join(cmd)
 
-    bp['sdk_version'] = SDK_VERSION
+    bp['sdk_version'] = MIN_SDK_VERSION
 
     return blueprint_type, bp
 
@@ -660,7 +660,6 @@ def main():
             'third_party/vulkan-deps/vulkan-headers/LICENSE.txt',
             'third_party/vulkan-deps/vulkan-headers/src/LICENSE.txt',
             'third_party/vulkan_memory_allocator/LICENSE.txt',
-            'third_party/zlib/LICENSE',
             'tools/flex-bison/third_party/m4sugar/LICENSE',
             'tools/flex-bison/third_party/skeletons/LICENSE',
             'util/windows/third_party/StackWalker/LICENSE',
@@ -689,7 +688,8 @@ def main():
         {
             'name': 'ANGLE_java_defaults',
             'sdk_version': 'system_current',
-            'min_sdk_version': SDK_VERSION,
+            'target_sdk_version': TARGET_SDK_VERSION,
+            'min_sdk_version': MIN_SDK_VERSION,
             'compile_multilib': 'both',
             'use_embedded_native_libs': True,
             'jni_libs': [
@@ -710,7 +710,8 @@ def main():
     blueprint_targets.append(('android_library', {
         'name': 'ANGLE_library',
         'sdk_version': 'system_current',
-        'min_sdk_version': SDK_VERSION,
+        'target_sdk_version': TARGET_SDK_VERSION,
+        'min_sdk_version': MIN_SDK_VERSION,
         'resource_dirs': ['src/android_system_settings/res',],
         'asset_dirs': ['src/android_system_settings/assets',],
         'aaptflags': ['-0 .json',],

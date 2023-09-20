@@ -67,8 +67,6 @@ bool TranslatorGLSL::translate(TIntermBlock *root,
     if (compileOptions.flattenPragmaSTDGLInvariantAll && getPragma().stdgl.invariantAll &&
         !sh::RemoveInvariant(getShaderType(), getShaderVersion(), getOutputType(), compileOptions))
     {
-        ASSERT(wereVariablesCollected());
-
         switch (getShaderType())
         {
             case GL_VERTEX_SHADER:
@@ -180,7 +178,10 @@ bool TranslatorGLSL::translate(TIntermBlock *root,
         }
         if (hasGLFragData)
         {
-            sink << "out vec4 webgl_FragData[gl_MaxDrawBuffers];\n";
+            sink << "out vec4 webgl_FragData["
+                 << (hasGLSecondaryFragData ? getResources().MaxDualSourceDrawBuffers
+                                            : getResources().MaxDrawBuffers)
+                 << "];\n";
         }
         if (hasGLSecondaryFragColor)
         {
@@ -220,12 +221,6 @@ bool TranslatorGLSL::shouldFlattenPragmaStdglInvariantAll()
     // Required when outputting to any GLSL version greater than 1.20, but since ANGLE doesn't
     // translate to that version, return true for the next higher version.
     return IsGLSL130OrNewer(getOutputType());
-}
-
-bool TranslatorGLSL::shouldCollectVariables(const ShCompileOptions &compileOptions)
-{
-    return compileOptions.flattenPragmaSTDGLInvariantAll ||
-           TCompiler::shouldCollectVariables(compileOptions);
 }
 
 void TranslatorGLSL::writeVersion(TIntermNode *root)
@@ -308,6 +303,13 @@ void TranslatorGLSL::writeExtensionBehavior(TIntermNode *root,
             getOutputType() < SH_GLSL_450_CORE_OUTPUT)
         {
             sink << "#extension GL_ARB_cull_distance : " << GetBehaviorString(iter.second) << "\n";
+        }
+
+        if (getOutputType() != SH_ESSL_OUTPUT && iter.first == TExtension::EXT_conservative_depth &&
+            getOutputType() < SH_GLSL_420_CORE_OUTPUT)
+        {
+            sink << "#extension GL_ARB_conservative_depth : " << GetBehaviorString(iter.second)
+                 << "\n";
         }
 
         if ((iter.first == TExtension::OES_texture_cube_map_array ||

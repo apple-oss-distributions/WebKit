@@ -12,8 +12,9 @@
 namespace sh
 {
 
-constexpr const char kUniformsVar[]               = "angleUniforms";
-constexpr const char kUnassignedAttributeString[] = " __unassigned_attribute__";
+constexpr const char kUniformsVar[]                    = "angleUniforms";
+constexpr const char kUnassignedAttributeString[]      = " __unassigned_attribute__";
+constexpr const char kUnassignedFragmentOutputString[] = "__unassigned_output__";
 
 class DriverUniform;
 class DriverUniformMetal;
@@ -191,10 +192,7 @@ class TranslatorMetalDirect : public TCompiler
 
     // The sample mask can't be in our fragment output struct if we read the framebuffer. Luckily,
     // pixel local storage bans gl_SampleMask, so we can just not use it when PLS is active.
-    bool usesSampleMask() const { return !hasPixelLocalStorageUniforms(); }
-
-    // Need to collect variables so that RemoveInactiveInterfaceVariables works.
-    bool shouldCollectVariables(const ShCompileOptions &compileOptions) override { return true; }
+    bool isSampleMaskAllowed() const { return !hasPixelLocalStorageUniforms(); }
 
     [[nodiscard]] bool translateImpl(TInfoSinkBase &sink,
                                      TIntermBlock *root,
@@ -208,7 +206,9 @@ class TranslatorMetalDirect : public TCompiler
     [[nodiscard]] bool transformDepthBeforeCorrection(TIntermBlock *root,
                                                       const DriverUniformMetal *driverUniforms);
 
-    [[nodiscard]] bool appendVertexShaderDepthCorrectionToMain(TIntermBlock *root);
+    [[nodiscard]] bool appendVertexShaderDepthCorrectionToMain(
+        TIntermBlock *root,
+        const DriverUniformMetal *driverUniforms);
 
     [[nodiscard]] bool insertSampleMaskWritingLogic(TIntermBlock &root,
                                                     DriverUniformMetal &driverUniforms);

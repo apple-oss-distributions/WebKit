@@ -190,15 +190,16 @@ angle::Result RenderStateCache::getRasterizerState(const gl::Context *context,
     }
 
     D3D11_RASTERIZER_DESC rasterDesc;
-    rasterDesc.FillMode              = D3D11_FILL_SOLID;
+    rasterDesc.FillMode =
+        rasterState.polygonMode == gl::PolygonMode::Fill ? D3D11_FILL_SOLID : D3D11_FILL_WIREFRAME;
     rasterDesc.CullMode              = cullMode;
     rasterDesc.FrontCounterClockwise = (rasterState.frontFace == GL_CCW) ? FALSE : TRUE;
-    rasterDesc.DepthClipEnable       = TRUE;
+    rasterDesc.DepthClipEnable       = !rasterState.depthClamp;
     rasterDesc.ScissorEnable         = scissorEnabled ? TRUE : FALSE;
     rasterDesc.MultisampleEnable     = rasterState.multiSample;
     rasterDesc.AntialiasedLineEnable = FALSE;
 
-    if (rasterState.polygonOffsetFill)
+    if (rasterState.isPolygonOffsetEnabled())
     {
         rasterDesc.DepthBias            = (INT)rasterState.polygonOffsetUnits;
         rasterDesc.DepthBiasClamp       = rasterState.polygonOffsetClamp;
@@ -287,15 +288,10 @@ angle::Result RenderStateCache::getSamplerState(const gl::Context *context,
     samplerDesc.MaxAnisotropy =
         gl_d3d11::ConvertMaxAnisotropy(samplerState.getMaxAnisotropy(), featureLevel);
     samplerDesc.ComparisonFunc = gl_d3d11::ConvertComparison(samplerState.getCompareFunc());
-    angle::ColorF borderColor;
-    if (samplerState.getBorderColor().type == angle::ColorGeneric::Type::Float)
-    {
-        borderColor = samplerState.getBorderColor().colorF;
-    }
-    samplerDesc.BorderColor[0] = borderColor.red;
-    samplerDesc.BorderColor[1] = borderColor.green;
-    samplerDesc.BorderColor[2] = borderColor.blue;
-    samplerDesc.BorderColor[3] = borderColor.alpha;
+    samplerDesc.BorderColor[0] = samplerState.getBorderColor().colorF.red;
+    samplerDesc.BorderColor[1] = samplerState.getBorderColor().colorF.green;
+    samplerDesc.BorderColor[2] = samplerState.getBorderColor().colorF.blue;
+    samplerDesc.BorderColor[3] = samplerState.getBorderColor().colorF.alpha;
     samplerDesc.MinLOD         = samplerState.getMinLod();
     samplerDesc.MaxLOD         = samplerState.getMaxLod();
 

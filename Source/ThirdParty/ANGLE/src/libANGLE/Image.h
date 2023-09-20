@@ -33,6 +33,7 @@ namespace egl
 {
 class Image;
 class Display;
+class ContextMutex;
 
 // Only currently Renderbuffers and Textures can be bound with images. This makes the relationship
 // explicit, and also ensures that an image sibling can determine if it's been initialized or not,
@@ -93,7 +94,7 @@ class ExternalImageSibling : public ImageSibling
 
     void onDestroy(const egl::Display *display);
 
-    Error initialize(const Display *display);
+    Error initialize(const Display *display, const gl::Context *context);
 
     gl::Extents getAttachmentSize(const gl::ImageIndex &imageIndex) const override;
     gl::Format getAttachmentFormat(GLenum binding, const gl::ImageIndex &imageIndex) const override;
@@ -191,7 +192,7 @@ class Image final : public RefCountObject, public LabeledObject
     GLuint getLevelCount() const;
     bool hasProtectedContent() const;
 
-    Error initialize(const Display *display);
+    Error initialize(const Display *display, const gl::Context *context);
 
     rx::ImageImpl *getImplementation() const;
 
@@ -200,6 +201,8 @@ class Image final : public RefCountObject, public LabeledObject
     void setInitState(gl::InitState initState);
 
     Error exportVkImage(void *vkImage, void *vkImageCreateInfo);
+
+    ContextMutex *getSharedContextMutex() const { return mSharedContextMutex; }
 
   private:
     friend class ImageSibling;
@@ -217,6 +220,10 @@ class Image final : public RefCountObject, public LabeledObject
     ImageState mState;
     rx::ImageImpl *mImplementation;
     bool mOrphanedAndNeedsInit;
+    bool mIsTexturable = false;
+    bool mIsRenderable = false;
+
+    ContextMutex *mSharedContextMutex;  // Reference counted
 };
 }  // namespace egl
 
