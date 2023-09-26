@@ -110,7 +110,6 @@ enum class SDKAlignedBehavior {
     LiveRangeSelectionEnabledForAllApps,
     DoesNotOverrideUAFromNSUserDefault,
     EvaluateJavaScriptWithoutTransientActivation,
-    ResettingTransitionCancelsRunningTransitionQuirk,
 
     NumberOfBehaviors
 };

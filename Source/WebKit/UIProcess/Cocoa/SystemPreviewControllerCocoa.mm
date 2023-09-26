@@ -279,8 +279,7 @@ static NSString * const _WKARQLWebsiteURLParameterKey = @"ARQLWebsiteURLParamete
 
 - (BOOL)isValidMIMEType:(NSString *)MIMEType
 {
-    // We need to be liberal in which MIME types we accept, because some servers are not configured for USD.
-    return WebCore::MIMETypeRegistry::isUSDMIMEType(MIMEType) || [MIMEType isEqualToString:@"application/octet-stream"];
+    return WebCore::MIMETypeRegistry::isUSDMIMEType(MIMEType);
 }
 
 - (BOOL)isValidFileExtension:(NSString *)extension

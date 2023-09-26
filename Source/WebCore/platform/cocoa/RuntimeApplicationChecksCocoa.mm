@@ -451,12 +451,6 @@ bool IOSApplication::isLutron()
     return isLutronApp;
 }
 
-bool IOSApplication::isDOFUSTouch()
-{
-    static bool isDOFUSTouch = applicationBundleIsEqualTo("com.ankama.dofustouch"_s);
-    return isDOFUSTouch;
-}
-
 #endif
 
 } // namespace WebCore

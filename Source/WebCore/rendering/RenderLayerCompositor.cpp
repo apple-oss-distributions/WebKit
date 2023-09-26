@@ -593,18 +593,14 @@ bool RenderLayerCompositor::updateCompositingPolicy()
         m_compositingPolicy = page().compositingPolicyOverride().value();
         return m_compositingPolicy != currentPolicy;
     }
-
-    const auto isCurrentlyUnderMemoryPressureOrWarning = [] {
-        return MemoryPressureHandler::singleton().isUnderMemoryPressure() || MemoryPressureHandler::singleton().isUnderMemoryWarning();
-    };
-
+    
     static auto cachedMemoryPolicy = WTF::MemoryUsagePolicy::Unrestricted;
-    bool nowUnderMemoryPressure = isCurrentlyUnderMemoryPressureOrWarning();
-    static bool cachedIsUnderMemoryPressureOrWarning = nowUnderMemoryPressure;
-
-    if (cachedIsUnderMemoryPressureOrWarning != nowUnderMemoryPressure) {
+    static MonotonicTime cachedMemoryPolicyTime;
+    static constexpr auto memoryPolicyCachingDuration = 2_s;
+    auto now = MonotonicTime::now();
+    if (now - cachedMemoryPolicyTime > memoryPolicyCachingDuration) {
         cachedMemoryPolicy = MemoryPressureHandler::singleton().currentMemoryUsagePolicy();
-        cachedIsUnderMemoryPressureOrWarning = nowUnderMemoryPressure;
+        cachedMemoryPolicyTime = now;
     }
 
     m_compositingPolicy = cachedMemoryPolicy == WTF::MemoryUsagePolicy::Unrestricted ? CompositingPolicy::Normal : CompositingPolicy::Conservative;
@@ -3250,8 +3246,18 @@ bool RenderLayerCompositor::requiresCompositingForTransform(RenderLayerModelObje
     // but the renderer may be an inline that doesn't suppport them.
     if (!renderer.isTransformed())
         return false;
+
+    auto compositingPolicy = m_compositingPolicy;
+#if !USE(COMPOSITING_FOR_SMALL_CANVASES)
+    if (is<HTMLCanvasElement>(renderer.element())) {
+        auto* canvas = downcast<HTMLCanvasElement>(renderer.element());
+        auto canvasArea = canvas->size().area<RecordOverflow>();
+        if (!canvasArea.hasOverflowed() && canvasArea < canvasAreaThresholdRequiringCompositing)
+            compositingPolicy = CompositingPolicy::Conservative;
+    }
+#endif
     
-    switch (m_compositingPolicy) {
+    switch (compositingPolicy) {
     case CompositingPolicy::Normal:
         return styleHas3DTransformOperation(renderer.style());
     case CompositingPolicy::Conservative:

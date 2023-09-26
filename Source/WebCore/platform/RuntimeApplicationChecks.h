@@ -142,7 +142,6 @@ bool isMoviStarPlus();
 bool isSpringBoard();
 bool isUNIQLOApp();
 bool isWechat();
-bool isDOFUSTouch();
 
 } // IOSApplication
 
