@@ -27,21 +27,23 @@
 
 #if PLATFORM(IOS_FAMILY)
 
-namespace WebKit {
+namespace PAL {
 
 enum class UserInterfaceIdiom : uint8_t {
     Default,
     SmallScreen,
-    Reality
+    Vision,
+    VisionLegacy
 };
 
-bool currentUserInterfaceIdiomIsSmallScreen();
-bool currentUserInterfaceIdiomIsReality();
+PAL_EXPORT bool currentUserInterfaceIdiomIsSmallScreen();
+PAL_EXPORT bool currentUserInterfaceIdiomIsVisionOrVisionLegacy();
+PAL_EXPORT bool currentUserInterfaceIdiomIsVisionLegacy();
 
-UserInterfaceIdiom currentUserInterfaceIdiom();
-void setCurrentUserInterfaceIdiom(UserInterfaceIdiom);
+PAL_EXPORT UserInterfaceIdiom currentUserInterfaceIdiom();
+PAL_EXPORT void setCurrentUserInterfaceIdiom(UserInterfaceIdiom);
 
-bool updateCurrentUserInterfaceIdiom();
+PAL_EXPORT bool updateCurrentUserInterfaceIdiom();
 
 }
 

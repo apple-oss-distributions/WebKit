@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2022 Apple Inc. All rights reserved.
+ * Copyright (C) 2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,56 +25,34 @@
 
 #pragma once
 
-#include "ScreenOrientationType.h"
-#include <wtf/RefCounted.h>
-#include <wtf/WeakHashSet.h>
+#include <wtf/Function.h>
 #include <wtf/WeakPtr.h>
 
-#if PLATFORM(IOS_FAMILY)
+#if HAVE(APPLE_THERMAL_MITIGATION_SUPPORT)
 #include <wtf/RetainPtr.h>
-#include <wtf/WeakObjCPtr.h>
-
-OBJC_CLASS UIWindow;
-OBJC_CLASS WebScreenOrientationObserver;
+OBJC_CLASS WebThermalMitigationObserver;
 #endif
 
 namespace WebCore {
 
-class ScreenOrientationProvider : public RefCounted<ScreenOrientationProvider>, public CanMakeWeakPtr<ScreenOrientationProvider> {
+class ThermalMitigationNotifier : public CanMakeWeakPtr<ThermalMitigationNotifier> {
+    WTF_MAKE_FAST_ALLOCATED;
 public:
-    WEBCORE_EXPORT static Ref<ScreenOrientationProvider> create();
-    WEBCORE_EXPORT ~ScreenOrientationProvider();
+    using ThermalMitigationChangeCallback = Function<void(bool thermalMitigationEnabled)>;
+    WEBCORE_EXPORT explicit ThermalMitigationNotifier(ThermalMitigationChangeCallback&&);
+    WEBCORE_EXPORT ~ThermalMitigationNotifier();
 
-    class Observer : public CanMakeWeakPtr<Observer> {
-    public:
-        virtual ~Observer() { }
-        virtual void screenOrientationDidChange(ScreenOrientationType) = 0;
-    };
-
-    WEBCORE_EXPORT ScreenOrientationType currentOrientation();
-    WEBCORE_EXPORT void addObserver(Observer&);
-    WEBCORE_EXPORT void removeObserver(Observer&);
-
-#if PLATFORM(IOS_FAMILY)
-    WEBCORE_EXPORT void setWindow(UIWindow *);
-#endif
-
-    void screenOrientationDidChange();
+    WEBCORE_EXPORT bool thermalMitigationEnabled() const;
+    WEBCORE_EXPORT static bool isThermalMitigationEnabled();
 
 private:
-    explicit ScreenOrientationProvider();
+#if HAVE(APPLE_THERMAL_MITIGATION_SUPPORT)
+    void notifyThermalMitigationChanged(bool);
+    friend void notifyThermalMitigationChanged(ThermalMitigationNotifier&, bool);
 
-    std::optional<ScreenOrientationType> platformCurrentOrientation();
-    void platformStartListeningForChanges();
-    void platformStopListeningForChanges();
-
-    WeakHashSet<Observer> m_observers;
-    std::optional<ScreenOrientationType> m_currentOrientation;
-
-#if PLATFORM(IOS_FAMILY)
-    WeakObjCPtr<UIWindow> m_window;
-    RetainPtr<WebScreenOrientationObserver> m_systemObserver;
+    RetainPtr<WebThermalMitigationObserver> m_observer;
+    ThermalMitigationChangeCallback m_callback;
 #endif
 };
 
-} // namespace WebCore
+}

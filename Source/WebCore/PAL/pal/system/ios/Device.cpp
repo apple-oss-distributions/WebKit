@@ -34,7 +34,7 @@
 #include <wtf/RetainPtr.h>
 #include <wtf/text/WTFString.h>
 
-namespace WebCore {
+namespace PAL {
 
 bool deviceClassIsSmallScreen()
 {
@@ -42,7 +42,7 @@ bool deviceClassIsSmallScreen()
     return deviceClass == MGDeviceClassiPhone || deviceClass == MGDeviceClassiPod || deviceClass == MGDeviceClassWatch;
 }
 
-bool deviceClassIsReality()
+bool deviceClassIsVision()
 {
 #if PLATFORM(VISION)
     static auto deviceClass = MGGetSInt32Answer(kMGQDeviceClassNumber, MGDeviceClassInvalid);
@@ -74,6 +74,6 @@ bool deviceHasIPadCapability()
     return deviceHasIPadCapability;
 }
 
-} // namespace WebCore
+} // namespace PAL
 
 #endif // PLATFORM(IOS_FAMILY)

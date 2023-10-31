@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015-2021 Apple Inc. All rights reserved.
+ * Copyright (C) 2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,24 +25,41 @@
 
 #pragma once
 
-#if PLATFORM(IOS_FAMILY)
-
-#include <wtf/Forward.h>
+#if ENABLE(MEDIA_STREAM)
 
 namespace WebCore {
 
-String deviceName(); // Thread-safe.
+enum class MediaAccessDenialReason : uint8_t {
+    NoReason = 0,
+    NoConstraints,
+    UserMediaDisabled,
+    NoCaptureDevices,
+    InvalidConstraint,
+    HardwareError,
+    PermissionDenied,
+    InvalidAccess,
+    OtherFailure
+};
 
-// Returns true only for iPhone, iPod, Apple Watch.
-// Few callers should be making any decisions based on device class.
-// If a check like this is needed, often currentUserInterfaceIdiomIsSmallScreen is preferred.
-WEBCORE_EXPORT bool deviceClassIsSmallScreen();
+} // namespace WebCore
 
-WEBCORE_EXPORT bool deviceClassIsReality();
+namespace WTF {
 
-// FIXME: How does this differ from !deviceClassIsSmallScreen()?
-WEBCORE_EXPORT bool deviceHasIPadCapability();
+template<> struct EnumTraits<WebCore::MediaAccessDenialReason> {
+    using values = EnumValues<
+    WebCore::MediaAccessDenialReason,
+    WebCore::MediaAccessDenialReason::NoReason,
+    WebCore::MediaAccessDenialReason::NoConstraints,
+    WebCore::MediaAccessDenialReason::UserMediaDisabled,
+    WebCore::MediaAccessDenialReason::NoCaptureDevices,
+    WebCore::MediaAccessDenialReason::InvalidConstraint,
+    WebCore::MediaAccessDenialReason::HardwareError,
+    WebCore::MediaAccessDenialReason::PermissionDenied,
+    WebCore::MediaAccessDenialReason::InvalidAccess,
+    WebCore::MediaAccessDenialReason::OtherFailure
+    >;
+};
 
-}
+} // namespace WTF
 
-#endif // PLATFORM(IOS_FAMILY)
+#endif // ENABLE(MEDIA_STREAM)
