@@ -117,9 +117,8 @@ static void collectDescendantViewsInRect(Vector<UIView *, 16>& viewsInRect, UIVi
 
             if (![view isKindOfClass:WKCompositingView.class])
                 return true;
-            if (auto* node = RemoteLayerTreeNode::forCALayer(view.layer))
-                return node->eventRegion().intersects(WebCore::IntRect { subviewRect });
-            return false;
+            auto* node = RemoteLayerTreeNode::forCALayer(view.layer);
+            return node->eventRegion().intersects(WebCore::IntRect { subviewRect });
         }();
 
         if (intersectsRect)
