@@ -87,7 +87,7 @@ public:
     bool attachToElement(HTMLMediaElement&);
     void detachFromElement(HTMLMediaElement&);
     void monitorSourceBuffers() override;
-    bool isSeeking() const { return m_pendingSeekTime.isValid(); }
+    bool isSeeking() const { return !!m_pendingSeekTarget; }
     Ref<TimeRanges> seekable();
     ExceptionOr<void> setLiveSeekableRange(double start, double end);
     ExceptionOr<void> clearLiveSeekableRange();
@@ -130,6 +130,7 @@ public:
 
 #if ENABLE(MANAGED_MEDIA_SOURCE)
     virtual bool isManaged() const { return false; }
+    virtual bool streaming() const { return false; }
     void memoryPressure();
 #endif
 
@@ -154,7 +155,8 @@ private:
     static bool isTypeSupported(ScriptExecutionContext&, const String& type, Vector<ContentType>&& contentTypesRequiringHardwareSupport);
 
     void setPrivateAndOpen(Ref<MediaSourcePrivate>&&) final;
-    void seekToTime(const MediaTime&) final;
+    void waitForTarget(const SeekTarget&, CompletionHandler<void(const MediaTime&)>&&) final;
+    void seekToTime(const MediaTime&, CompletionHandler<void()>&&) final;
 
     void refEventTarget() final { ref(); }
     void derefEventTarget() final { deref(); }
@@ -182,7 +184,8 @@ private:
     PlatformTimeRanges m_liveSeekable;
     WeakPtr<HTMLMediaElement, WeakPtrImplWithEventTargetData> m_mediaElement;
     MediaTime m_duration;
-    MediaTime m_pendingSeekTime;
+    std::optional<SeekTarget> m_pendingSeekTarget;
+    CompletionHandler<void(const MediaTime&)> m_seekCompletedHandler;
     ReadyState m_readyState { ReadyState::Closed };
     bool m_openDeferred { false };
     bool m_sourceopenPending { false };

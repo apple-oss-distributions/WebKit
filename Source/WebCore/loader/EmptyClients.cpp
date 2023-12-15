@@ -605,6 +605,10 @@ void EmptyFrameLoaderClient::dispatchDecidePolicyForNavigationAction(const Navig
 {
 }
 
+void EmptyFrameLoaderClient::broadcastFrameRemovalToOtherProcesses()
+{
+}
+
 void EmptyFrameLoaderClient::dispatchWillSendSubmitEvent(Ref<FormState>&&)
 {
 }
@@ -913,6 +917,11 @@ ResourceError EmptyFrameLoaderClient::httpsUpgradeRedirectLoopError(const Resour
     return { };
 }
 
+ResourceError EmptyFrameLoaderClient::httpNavigationWithHTTPSOnlyError(const ResourceRequest&) const
+{
+    return { };
+}
+
 ResourceError EmptyFrameLoaderClient::pluginWillHandleLoadError(const ResourceResponse&) const
 {
     return { };
@@ -1155,7 +1164,7 @@ public:
     EmptyMediaRecorderProvider() = default;
 private:
 #if ENABLE(MEDIA_RECORDER)
-    std::unique_ptr<MediaRecorderPrivate> createMediaRecorderPrivate(MediaStreamPrivate&, const MediaRecorderPrivateOptions&) final { return nullptr; }
+    RefPtr<MediaRecorderPrivate> createMediaRecorderPrivate(MediaStreamPrivate&, const MediaRecorderPrivateOptions&) final { return nullptr; }
 #endif
 };
 

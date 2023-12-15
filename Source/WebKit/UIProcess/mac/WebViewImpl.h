@@ -42,6 +42,7 @@
 #include <WebKit/_WKOverlayScrollbarStyle.h>
 #include <pal/spi/cocoa/AVKitSPI.h>
 #include <wtf/BlockPtr.h>
+#include <wtf/CheckedPtr.h>
 #include <wtf/CompletionHandler.h>
 #include <wtf/RetainPtr.h>
 #include <wtf/WeakObjCPtr.h>
@@ -139,9 +140,6 @@ struct TranslationContextMenuInfo;
 
 - (void)_web_didChangeContentSize:(NSSize)newSize;
 
-- (void)_web_windowWillEnterFullScreen;
-- (void)_web_windowWillExitFullScreen;
-
 #if ENABLE(DRAG_SUPPORT)
 - (WKDragDestinationAction)_web_dragDestinationActionForDraggingInfo:(id <NSDraggingInfo>)draggingInfo;
 - (void)_web_didPerformDragOperation:(BOOL)handled;
@@ -184,7 +182,7 @@ typedef id <NSValidatedUserInterfaceItem> ValidationItem;
 typedef Vector<RetainPtr<ValidationItem>> ValidationVector;
 typedef HashMap<String, ValidationVector> ValidationMap;
 
-class WebViewImpl : public CanMakeWeakPtr<WebViewImpl> {
+class WebViewImpl : public CanMakeWeakPtr<WebViewImpl>, public CanMakeCheckedPtr {
     WTF_MAKE_FAST_ALLOCATED;
     WTF_MAKE_NONCOPYABLE(WebViewImpl);
 public:
@@ -231,9 +229,6 @@ public:
     bool frameSizeUpdatesDisabled() const;
     void setFrameAndScrollBy(CGRect, CGSize);
     void updateWindowAndViewFrames();
-
-    void windowWillEnterFullScreen();
-    void windowWillExitFullScreen();
 
     void setFixedLayoutSize(CGSize);
     CGSize fixedLayoutSize() const;
@@ -702,6 +697,11 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     void beginTextRecognitionForVideoInElementFullscreen(ShareableBitmap::Handle&&, WebCore::FloatRect);
     void cancelTextRecognitionForVideoInElementFullscreen();
 
+#if HAVE(INLINE_PREDICTIONS)
+    void setInlinePredictionsEnabled(bool enabled) { m_inlinePredictionsEnabled = enabled; }
+    bool inlinePredictionsEnabled() const { return m_inlinePredictionsEnabled; }
+#endif
+
 private:
 #if HAVE(TOUCH_BAR)
     void setUpTextTouchBar(NSTouchBar *);
@@ -959,6 +959,10 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 
 #if HAVE(REDESIGNED_TEXT_CURSOR) && PLATFORM(MAC)
     RetainPtr<_WKWebViewTextInputNotifications> _textInputNotifications;
+#endif
+
+#if HAVE(INLINE_PREDICTIONS)
+    bool m_inlinePredictionsEnabled { false };
 #endif
 };
     

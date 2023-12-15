@@ -29,11 +29,10 @@
 #include "NetworkDataTask.h"
 #include "NetworkLoadClient.h"
 #include "NetworkLoadParameters.h"
-#include <WebCore/AuthenticationChallenge.h>
-#include <wtf/CompletionHandler.h>
 #include <wtf/text/WTFString.h>
 
 namespace WebCore {
+class AuthenticationChallenge;
 class BlobRegistryImpl;
 }
 
@@ -100,6 +99,7 @@ private:
     RefPtr<NetworkDataTask> m_task;
     WeakPtr<NetworkLoadScheduler> m_scheduler;
 
+    // FIXME: Deduplicate this with NetworkDataTask's m_previousRequest.
     WebCore::ResourceRequest m_currentRequest; // Updated on redirects.
 };
 

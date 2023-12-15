@@ -75,17 +75,21 @@ void FrameLoader::HistoryController::saveScrollPositionAndViewStateToItem(Histor
     if (!item || !frameView)
         return;
 
-    if (m_frame.document()->backForwardCacheState() != Document::NotInBackForwardCache)
+    if (m_frame.document()->backForwardCacheState() != Document::NotInBackForwardCache) {
         item->setScrollPosition(frameView->cachedScrollPosition());
-    else
-        item->setScrollPosition(frameView->scrollPosition());
-
 #if PLATFORM(IOS_FAMILY)
-    item->setExposedContentRect(frameView->exposedContentRect());
-    item->setUnobscuredContentRect(frameView->unobscuredContentRect());
+        item->setUnobscuredContentRect(frameView->cachedUnobscuredContentRect());
+        item->setExposedContentRect(frameView->cachedExposedContentRect());
 #endif
+    } else {
+        item->setScrollPosition(frameView->scrollPosition());
+#if PLATFORM(IOS_FAMILY)
+        item->setUnobscuredContentRect(frameView->unobscuredContentRect());
+        item->setExposedContentRect(frameView->exposedContentRect());
+#endif
+    }
 
-    Page* page = m_frame.page();
+    auto* page = m_frame.page();
     if (page && m_frame.isMainFrame()) {
         item->setPageScaleFactor(page->pageScaleFactor() / page->viewScaleFactor());
 #if PLATFORM(IOS_FAMILY)
@@ -892,8 +896,8 @@ void FrameLoader::HistoryController::pushState(RefPtr<SerializedScriptValue>&& s
 
     auto* document = m_frame.document();
     if (document && !document->hasRecentUserInteractionForNavigationFromJS())
-        m_currentItem->setWasCreatedByJSWithoutUserInteraction(true);
-    
+        topItem->setWasCreatedByJSWithoutUserInteraction(true);
+
     // Override data in the current item (created by createItemTree) to reflect
     // the pushState() arguments.
     m_currentItem->setTitle(title);

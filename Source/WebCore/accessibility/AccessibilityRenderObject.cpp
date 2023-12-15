@@ -163,13 +163,6 @@ void AccessibilityRenderObject::detachRemoteParts(AccessibilityDetachmentType de
     m_renderer = nullptr;
 }
 
-RenderBoxModelObject* AccessibilityRenderObject::renderBoxModelObject() const
-{
-    if (!is<RenderBoxModelObject>(renderer()))
-        return nullptr;
-    return downcast<RenderBoxModelObject>(renderer());
-}
-
 static inline bool isInlineWithContinuation(RenderObject& object)
 {
     return is<RenderInline>(object) && downcast<RenderInline>(object).continuation();
@@ -562,19 +555,15 @@ AccessibilityObject* AccessibilityRenderObject::parentObject() const
 
 bool AccessibilityRenderObject::isAttachment() const
 {
-    RenderBoxModelObject* renderer = renderBoxModelObject();
-    if (!renderer)
-        return false;
-
+    auto* widget = this->widget();
     // WebKit2 plugins need to be treated differently than attachments, so return false here.
     // Only WebKit1 plugins have an associated platformWidget.
-    if (is<PluginViewBase>(widget()) && !widget()->platformWidget())
+    if (is<PluginViewBase>(widget) && !widget->platformWidget())
         return false;
 
+    auto* renderer = this->renderer();
     // Widgets are the replaced elements that we represent to AX as attachments
-    bool isWidget = renderer->isWidget();
-
-    return isWidget && ariaRoleAttribute() == AccessibilityRole::Unknown;
+    return renderer && renderer->isWidget();
 }
 
 bool AccessibilityRenderObject::isOffScreen() const
@@ -877,8 +866,8 @@ bool AccessibilityRenderObject::supportsPath() const
 Path AccessibilityRenderObject::elementPath() const
 {
     if (is<RenderText>(renderer())) {
-        Vector<IntRect> rects;
-        downcast<RenderText>(*m_renderer).absoluteRects(rects, flooredLayoutPoint(m_renderer->localToAbsolute()));
+        Vector<LayoutRect> rects;
+        downcast<RenderText>(*m_renderer).boundingRects(rects, flooredLayoutPoint(m_renderer->localToAbsolute()));
         // If only 1 rect, don't compute path since the bounding rect will be good enough.
         if (rects.size() < 2)
             return Path();
@@ -886,12 +875,12 @@ Path AccessibilityRenderObject::elementPath() const
         // Compute the path only if this is the last part of a line followed by the beginning of the next line.
         const auto& style = m_renderer->style();
         bool rightToLeftText = style.direction() == TextDirection::RTL;
-        static const int xTolerance = 5;
-        static const int yTolerance = 5;
+        static const auto xTolerance = 5_lu;
+        static const auto yTolerance = 5_lu;
         bool needsPath = false;
-        IntRect unionRect = rects[0];
+        auto unionRect = rects[0];
         for (size_t i = 1; i < rects.size(); ++i) {
-            needsPath = std::abs(rects[i].y() - unionRect.maxY()) < yTolerance // This rect is in a new line.
+            needsPath = absoluteValue(rects[i].y() - unionRect.maxY()) < yTolerance // This rect is in a new line.
                 && (rightToLeftText ? rects[i].x() - unionRect.x() > xTolerance
                     : unionRect.x() - rects[i].x() > xTolerance); // And this rect is to right/left of all previous rects.
 
@@ -922,6 +911,7 @@ Path AccessibilityRenderObject::elementPath() const
             return path;
 
         // The SVG path is in terms of the parent's bounding box. The path needs to be offset to frame coordinates.
+        // FIXME: This seems wrong for SVG inside HTML.
         if (auto svgRoot = ancestorsOfType<LegacyRenderSVGRoot>(*m_renderer).first()) {
             LayoutPoint parentOffset = cache->getOrCreate(&*svgRoot)->elementRect().location();
             path.transform(AffineTransform().translate(parentOffset.x(), parentOffset.y()));
@@ -1077,14 +1067,10 @@ bool AccessibilityRenderObject::computeAccessibilityIsIgnored() const
     if (decision == AccessibilityObjectInclusion::IgnoreObject)
         return true;
 
-    // If this element is within a parent that cannot have children, it should not be exposed.
-    if (isDescendantOfBarrenParent())
-        return true;    
-
     if (roleValue() == AccessibilityRole::Ignored)
         return true;
 
-    if (roleValue() == AccessibilityRole::Presentational || inheritsPresentationalRole())
+    if (ignoredFromPresentationalRole())
         return true;
 
     // WebAreas should be ignored if their iframe container is marked as presentational.
@@ -2036,9 +2022,8 @@ AccessibilityRole AccessibilityRenderObject::determineAccessibilityRole()
         return m_ariaRole;
 
     Node* node = m_renderer->node();
-    RenderBoxModelObject* cssBox = renderBoxModelObject();
 
-    if (cssBox && cssBox->isListItem())
+    if (m_renderer->isListItem())
         return AccessibilityRole::ListItem;
     if (m_renderer->isListMarker())
         return AccessibilityRole::ListMarker;
@@ -2046,7 +2031,7 @@ AccessibilityRole AccessibilityRenderObject::determineAccessibilityRole()
         return AccessibilityRole::StaticText;
     if (is<HTMLImageElement>(node) && downcast<HTMLImageElement>(*node).hasAttributeWithoutSynchronization(usemapAttr))
         return AccessibilityRole::ImageMap;
-    if (cssBox && cssBox->isImage()) {
+    if (m_renderer->isImage()) {
         if (is<HTMLInputElement>(node))
             return hasPopup() ? AccessibilityRole::PopUpButton : AccessibilityRole::Button;
 
@@ -2057,15 +2042,15 @@ AccessibilityRole AccessibilityRenderObject::determineAccessibilityRole()
         return AccessibilityRole::Image;
     }
 
-    if (cssBox && cssBox->isRenderView())
+    if (m_renderer->isRenderView())
         return AccessibilityRole::WebArea;
-    if (cssBox && cssBox->isTextField()) {
+    if (m_renderer->isTextField()) {
         if (is<HTMLInputElement>(node))
             return downcast<HTMLInputElement>(*node).isSearchField() ? AccessibilityRole::SearchField : AccessibilityRole::TextField;
     }
-    if (cssBox && cssBox->isTextArea())
+    if (m_renderer->isTextArea())
         return AccessibilityRole::TextArea;
-    if (cssBox && cssBox->isMenuList())
+    if (m_renderer->isMenuList())
         return AccessibilityRole::PopUpButton;
 
     if (m_renderer->isSVGRootOrLegacySVGRoot())
@@ -2166,11 +2151,11 @@ bool AccessibilityRenderObject::inheritsPresentationalRole() const
     
 void AccessibilityRenderObject::addImageMapChildren()
 {
-    RenderBoxModelObject* cssBox = renderBoxModelObject();
-    if (!is<RenderImage>(cssBox))
+    auto* renderImage = dynamicDowncast<RenderImage>(m_renderer.get());
+    if (!renderImage)
         return;
-    
-    HTMLMapElement* map = downcast<RenderImage>(*cssBox).imageMap();
+
+    RefPtr map = renderImage->imageMap();
     if (!map)
         return;
 
@@ -2180,7 +2165,7 @@ void AccessibilityRenderObject::addImageMapChildren()
             continue;
         auto& areaObject = downcast<AccessibilityImageMapLink>(*axObjectCache()->create(AccessibilityRole::ImageMapLink));
         areaObject.setHTMLAreaElement(&area);
-        areaObject.setHTMLMapElement(map);
+        areaObject.setHTMLMapElement(map.get());
         areaObject.setParent(this);
         if (!areaObject.accessibilityIsIgnored())
             addChild(&areaObject);
@@ -2233,11 +2218,7 @@ AccessibilitySVGRoot* AccessibilityRenderObject::remoteSVGRootElement(CreationCh
     if (!frameView)
         return nullptr;
 
-    auto* localFrame = dynamicDowncast<LocalFrame>(frameView->frame());
-    if (!localFrame)
-        return nullptr;
-
-    auto* document = localFrame->document();
+    auto* document = frameView->frame().document();
     if (!is<SVGDocument>(document))
         return nullptr;
 

@@ -449,6 +449,13 @@ void SourceBuffer::removedFromMediaSource()
     m_source = nullptr;
 }
 
+void SourceBuffer::computeSeekTime(const SeekTarget& target, CompletionHandler<void(const MediaTime&)>&& completionHandler)
+
+{
+    ALWAYS_LOG(LOGIDENTIFIER, target);
+    m_private->computeSeekTime(target, WTFMove(completionHandler));
+}
+
 void SourceBuffer::seekToTime(const MediaTime& time)
 {
     ALWAYS_LOG(LOGIDENTIFIER, time);
@@ -496,7 +503,7 @@ ExceptionOr<void> SourceBuffer::appendBufferInternal(const unsigned char* data, 
     if (isRemoved() || m_updating)
         return Exception { InvalidStateError };
 
-    DEBUG_LOG(LOGIDENTIFIER, "size = ", size, ", buffered = ", m_private->buffered());
+    ALWAYS_LOG(LOGIDENTIFIER, "size = ", size, ", buffered = ", m_private->buffered(), " streaming = ", m_source->streaming());
 
     // 3. If the readyState attribute of the parent media source is in the "ended" state then run the following steps:
     // 3.1. Set the readyState attribute of the parent media source to "open"

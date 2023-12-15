@@ -28,7 +28,6 @@
 
 #import "APIPageConfiguration.h"
 #import "CSPExtensionUtilities.h"
-#import "UserInterfaceIdiom.h"
 #import <WebKit/WKPreferences.h>
 #import <WebKit/WKProcessPool.h>
 #import <WebKit/WKRetainPtr.h>
@@ -44,6 +43,7 @@
 #import "_WKVisitedLinkStore.h"
 #import <WebCore/RuntimeApplicationChecks.h>
 #import <WebCore/Settings.h>
+#import <pal/system/ios/UserInterfaceIdiom.h>
 #import <wtf/RetainPtr.h>
 #import <wtf/RobinHoodHashSet.h>
 #import <wtf/URLParser.h>
@@ -160,7 +160,6 @@ static bool defaultShouldDecidePolicyBeforeLoadingQuickLookPreview()
     BOOL _mainContentUserGestureOverrideEnabled;
 
 #if PLATFORM(MAC)
-    WKRetainPtr<WKPageGroupRef> _pageGroup;
     BOOL _showsURLsInToolTips;
     BOOL _serviceControlsEnabled;
     BOOL _imageControlsEnabled;
@@ -205,7 +204,7 @@ static bool defaultShouldDecidePolicyBeforeLoadingQuickLookPreview()
     _allowsPictureInPictureMediaPlayback = YES;
 #endif
 
-    _allowsInlineMediaPlayback = !WebKit::currentUserInterfaceIdiomIsSmallScreen();
+    _allowsInlineMediaPlayback = !PAL::currentUserInterfaceIdiomIsSmallScreen();
     _inlineMediaPlaybackRequiresPlaysInlineAttribute = !_allowsInlineMediaPlayback;
     _allowsInlineMediaPlaybackAfterFullscreen = !_allowsInlineMediaPlayback;
     _mediaDataLoadsAutomatically = _allowsInlineMediaPlayback;
@@ -459,7 +458,6 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     configuration->_serviceControlsEnabled = self->_serviceControlsEnabled;
     configuration->_imageControlsEnabled = self->_imageControlsEnabled;
     configuration->_contextMenuQRCodeDetectionEnabled = self->_contextMenuQRCodeDetectionEnabled;
-    configuration->_pageGroup = self._pageGroup;
 #endif
 #if ENABLE(DATA_DETECTION) && PLATFORM(IOS_FAMILY)
     configuration->_dataDetectorTypes = self->_dataDetectorTypes;
@@ -1274,12 +1272,11 @@ static WebKit::AttributionOverrideTesting toAttributionOverrideTesting(_WKAttrib
 
 - (WKPageGroupRef)_pageGroup
 {
-    return _pageGroup.get();
+    return nullptr;
 }
 
 - (void)_setPageGroup:(WKPageGroupRef)pageGroup
 {
-    _pageGroup = pageGroup;
 }
 
 - (void)_setCPULimit:(double)cpuLimit

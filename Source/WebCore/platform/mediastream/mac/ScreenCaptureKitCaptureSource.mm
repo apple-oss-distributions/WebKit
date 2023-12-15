@@ -48,6 +48,21 @@
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wunguarded-availability-new"
 
+#if HAVE(SC_CONTENT_SHARING_PICKER)
+// FIXME: Remove this once it is in a public header.
+typedef NS_ENUM(NSInteger, SCPresenterOverlayAlertSetting);
+
+typedef NS_ENUM(NSInteger, WK_SCPresenterOverlayAlertSetting) {
+    WK_SCPresenterOverlayAlertSettingSystem,
+    WK_SCPresenterOverlayAlertSettingNever,
+    WK_SCPresenterOverlayAlertSettingAlways
+};
+
+@interface SCStreamConfiguration (SCStreamConfiguration_Pending_Public_API)
+@property (nonatomic, assign) SCPresenterOverlayAlertSetting presenterOverlayPrivacyAlertSetting;
+@end
+#endif
+
 using namespace WebCore;
 @interface WebCoreScreenCaptureKitHelper : NSObject<SCStreamDelegate, SCStreamOutput> {
     WeakPtr<ScreenCaptureKitCaptureSource> _callback;
@@ -129,20 +144,19 @@ using namespace WebCore;
 namespace WebCore {
 
 ALLOW_NEW_API_WITHOUT_GUARDS_BEGIN
-ALLOW_DEPRECATED_DECLARATIONS_BEGIN
 
 bool ScreenCaptureKitCaptureSource::isAvailable()
 {
     return PAL::isScreenCaptureKitFrameworkAvailable();
 }
 
-Expected<UniqueRef<DisplayCaptureSourceCocoa::Capturer>, String> ScreenCaptureKitCaptureSource::create(const CaptureDevice& device, const MediaConstraints*)
+Expected<UniqueRef<DisplayCaptureSourceCocoa::Capturer>, CaptureSourceError> ScreenCaptureKitCaptureSource::create(const CaptureDevice& device, const MediaConstraints*)
 {
     ASSERT(device.type() == CaptureDevice::DeviceType::Screen || device.type() == CaptureDevice::DeviceType::Window);
 
     auto deviceID = parseInteger<uint32_t>(device.persistentId());
     if (!deviceID)
-        return makeUnexpected("Invalid display device ID"_s);
+        return makeUnexpected(CaptureSourceError { "Invalid display device ID"_s, MediaAccessDenialReason::PermissionDenied });
 
     return UniqueRef<DisplayCaptureSourceCocoa::Capturer>(makeUniqueRef<ScreenCaptureKitCaptureSource>(device, deviceID.value()));
 }
@@ -156,6 +170,8 @@ ScreenCaptureKitCaptureSource::ScreenCaptureKitCaptureSource(const CaptureDevice
 
 ScreenCaptureKitCaptureSource::~ScreenCaptureKitCaptureSource()
 {
+    if (!m_sessionSource)
+        ScreenCaptureKitSharingSessionManager::singleton().cancelPendingSessionForDevice(m_captureDevice);
 }
 
 bool ScreenCaptureKitCaptureSource::start()
@@ -266,14 +282,16 @@ RetainPtr<SCStreamConfiguration> ScreenCaptureKitCaptureSource::streamConfigurat
     if (m_streamConfiguration)
         return m_streamConfiguration;
 
-    ALWAYS_LOG_IF_POSSIBLE(LOGIDENTIFIER);
-
     m_streamConfiguration = adoptNS([PAL::allocSCStreamConfigurationInstance() init]);
     [m_streamConfiguration setPixelFormat:preferedPixelBufferFormat()];
     [m_streamConfiguration setShowsCursor:YES];
     [m_streamConfiguration setQueueDepth:6];
     [m_streamConfiguration setColorSpaceName:kCGColorSpaceSRGB];
     [m_streamConfiguration setColorMatrix:kCGDisplayStreamYCbCrMatrix_SMPTE_240M_1995];
+#if HAVE(SC_CONTENT_SHARING_PICKER)
+    if ([m_streamConfiguration respondsToSelector:@selector(setPresenterOverlayPrivacyAlertSetting:)])
+        [m_streamConfiguration setPresenterOverlayPrivacyAlertSetting:static_cast<SCPresenterOverlayAlertSetting>(WK_SCPresenterOverlayAlertSettingNever)];
+#endif
 
     if (m_frameRate)
         [m_streamConfiguration setMinimumFrameInterval:PAL::CMTimeMakeWithSeconds(1 / m_frameRate, 1000)];
@@ -391,6 +409,8 @@ void ScreenCaptureKitCaptureSource::commitConfiguration(const RealtimeMediaSourc
     m_height = settings.height();
     m_frameRate = settings.frameRate();
 
+    ALWAYS_LOG_IF_POSSIBLE(LOGIDENTIFIER, IntSize(m_width, m_height), ", ", m_frameRate);
+
     if (!contentStream())
         return;
 
@@ -431,7 +451,12 @@ void ScreenCaptureKitCaptureSource::streamDidOutputVideoSampleBuffer(RetainPtr<C
     }
 
     m_currentFrame = WTFMove(sampleBuffer);
-    m_intrinsicSize = IntSize(PAL::CMVideoFormatDescriptionGetPresentationDimensions(PAL::CMSampleBufferGetFormatDescription(m_currentFrame.get()), true, true));
+
+    auto intrinsicSize = IntSize(PAL::CMVideoFormatDescriptionGetPresentationDimensions(PAL::CMSampleBufferGetFormatDescription(m_currentFrame.get()), true, true));
+    if (!m_intrinsicSize || *m_intrinsicSize != intrinsicSize) {
+        m_intrinsicSize = intrinsicSize;
+        configurationChanged();
+    }
 }
 
 dispatch_queue_t ScreenCaptureKitCaptureSource::captureQueue()
@@ -479,7 +504,6 @@ std::optional<CaptureDevice> ScreenCaptureKitCaptureSource::windowCaptureDeviceW
     return CaptureDevice(String::number(windowID.value()), CaptureDevice::DeviceType::Window, emptyString(), emptyString(), true);
 }
 
-ALLOW_DEPRECATED_DECLARATIONS_END
 ALLOW_NEW_API_WITHOUT_GUARDS_END
 
 } // namespace WebCore

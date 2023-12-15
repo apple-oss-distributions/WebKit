@@ -50,6 +50,7 @@ class PlatformCALayerRemote;
 class RemoteLayerBackingStoreCollection;
 class RemoteLayerTreeNode;
 enum class SwapBuffersDisplayRequirement : uint8_t;
+struct PlatformCALayerRemoteDelegatedContents;
 
 #if ENABLE(CG_DISPLAY_LIST_BACKED_IMAGE_BUFFER)
 using UseCGDisplayListImageCache = WebCore::ImageBufferCreationContext::UseCGDisplayListImageCache;
@@ -110,20 +111,7 @@ public:
         UseCGDisplayListImageCache useCGDisplayListImageCache { UseCGDisplayListImageCache::No };
 #endif
 
-        bool operator==(const Parameters& other) const
-        {
-            return (type == other.type
-                && size == other.size
-                && colorSpace == other.colorSpace
-                && scale == other.scale
-                && deepColor == other.deepColor
-                && isOpaque == other.isOpaque
-#if ENABLE(CG_DISPLAY_LIST_BACKED_IMAGE_BUFFER)
-                && includeDisplayList == other.includeDisplayList
-                && useCGDisplayListImageCache == other.useCGDisplayListImageCache
-#endif
-                );
-        }
+        friend bool operator==(const Parameters&, const Parameters&) = default;
     };
 
     void ensureBackingStore(const Parameters&);
@@ -131,7 +119,7 @@ public:
     void setNeedsDisplay(const WebCore::IntRect);
     void setNeedsDisplay();
 
-    void setDelegatedContents(const WebCore::PlatformCALayerDelegatedContents&);
+    void setDelegatedContents(const PlatformCALayerRemoteDelegatedContents&);
 
     // Returns true if we need to encode the buffer.
     bool layerWillBeDisplayed();
@@ -194,7 +182,7 @@ public:
 private:
     RemoteLayerBackingStoreCollection* backingStoreCollection() const;
 
-    void drawInContext(WebCore::GraphicsContext&, WTF::Function<void()>&& additionalContextSetupCallback = nullptr);
+    void drawInContext(WebCore::GraphicsContext&);
 
     struct Buffer {
         RefPtr<WebCore::ImageBuffer> imageBuffer;
@@ -216,6 +204,8 @@ private:
     void ensureFrontBuffer();
     void dirtyRepaintCounterIfNecessary();
 
+    WebCore::IntRect layerBounds() const;
+
     PlatformCALayerRemote* m_layer;
 
     Parameters m_parameters;
@@ -230,7 +220,7 @@ private:
 
     // FIXME: This should be removed and m_bufferHandle should be used to ref the buffer once ShareableBitmap::Handle
     // can be encoded multiple times. http://webkit.org/b/234169
-    std::optional<MachSendRight> m_contentsBufferHandle;
+    std::optional<ImageBufferBackendHandle> m_contentsBufferHandle;
     std::optional<WebCore::RenderingResourceIdentifier> m_contentsRenderingResourceIdentifier;
 
 #if ENABLE(CG_DISPLAY_LIST_BACKED_IMAGE_BUFFER)
@@ -251,6 +241,7 @@ class RemoteLayerBackingStoreProperties {
     WTF_MAKE_FAST_ALLOCATED;
 public:
     RemoteLayerBackingStoreProperties() = default;
+    RemoteLayerBackingStoreProperties(RemoteLayerBackingStoreProperties&&) = default;
 
     static WARN_UNUSED_RETURN bool decode(IPC::Decoder&, RemoteLayerBackingStoreProperties&);
 

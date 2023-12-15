@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2011, 2015 Google Inc. All rights reserved.
- * Copyright (C) 2016-2022 Apple Inc. All rights reserved.
+ * Copyright (C) 2016-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,7 +26,9 @@
 
 #pragma once
 
+#include <span>
 #include <wtf/Forward.h>
+#include <wtf/OptionSet.h>
 
 typedef const struct OpaqueJSContext* JSContextRef;
 typedef struct OpaqueJSString* JSStringRef;
@@ -40,6 +42,7 @@ typedef struct OpaqueJSValue* JSObjectRef;
 
 namespace WebCore {
 class LocalFrame;
+enum class ParserContentPolicy : uint8_t;
 }
 
 namespace WebCoreTestSupport {
@@ -86,5 +89,11 @@ inline void populateJITOperations() { populateDisassemblyLabels(); }
 #else
 inline void populateJITOperations() { }
 #endif // ENABLE(JIT_OPERATION_VALIDATION) || ENABLE(JIT_OPERATION_DISASSEMBLY)
+
+bool testDocumentFragmentParseXML(const String&, OptionSet<WebCore::ParserContentPolicy>) TEST_SUPPORT_EXPORT;
+
+#if ENABLE(WEB_AUDIO)
+void testSincResamplerProcessBuffer(std::span<const float> source, std::span<float> destination, double scaleFactor) TEST_SUPPORT_EXPORT;
+#endif
 
 } // namespace WebCoreTestSupport

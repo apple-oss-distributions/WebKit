@@ -519,7 +519,7 @@ public:
     // Return true if the animation is handled by the compositing system.
     virtual bool addAnimation(const KeyframeValueList&, const FloatSize& /*boxSize*/, const Animation*, const String& /*animationName*/, double /*timeOffset*/)  { return false; }
     virtual void pauseAnimation(const String& /*animationName*/, double /*timeOffset*/) { }
-    virtual void removeAnimation(const String& /*animationName*/) { }
+    virtual void removeAnimation(const String& /*animationName*/, std::optional<AnimatedProperty>) { }
     virtual void transformRelatedPropertyDidChange() { }
     WEBCORE_EXPORT virtual void suspendAnimations(MonotonicTime);
     WEBCORE_EXPORT virtual void resumeAnimations();
@@ -593,7 +593,6 @@ public:
 
     enum class CustomAppearance : uint8_t {
         None,
-        ScrollingOverhang,
         ScrollingShadow
     };
     virtual void setCustomAppearance(CustomAppearance customAppearance) { m_customAppearance = customAppearance; }
@@ -850,7 +849,6 @@ template<> struct EnumTraits<WebCore::GraphicsLayer::CustomAppearance> {
     using values = EnumValues<
         WebCore::GraphicsLayer::CustomAppearance,
         WebCore::GraphicsLayer::CustomAppearance::None,
-        WebCore::GraphicsLayer::CustomAppearance::ScrollingOverhang,
         WebCore::GraphicsLayer::CustomAppearance::ScrollingShadow
     >;
 };

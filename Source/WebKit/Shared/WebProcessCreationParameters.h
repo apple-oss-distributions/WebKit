@@ -32,7 +32,7 @@
 #include "SandboxExtension.h"
 #include "TextCheckerState.h"
 #include "UserData.h"
-#include "UserInterfaceIdiom.h"
+
 #include "WebProcessDataStoreParameters.h"
 #include <WebCore/CrossOriginMode.h>
 #include <wtf/HashMap.h>
@@ -42,14 +42,18 @@
 #include <wtf/text/StringHash.h>
 #include <wtf/text/WTFString.h>
 
+#if PLATFORM(COCOA) || PLATFORM(GTK)
+#include <WebCore/ScreenProperties.h>
+#endif
+
 #if PLATFORM(COCOA)
 #include <WebCore/PlatformScreen.h>
-#include <WebCore/ScreenProperties.h>
 #include <wtf/MachSendRight.h>
 #endif
 
 #if PLATFORM(IOS_FAMILY)
 #include <WebCore/RenderThemeIOS.h>
+#include <pal/system/ios/UserInterfaceIdiom.h>
 #endif
 
 #if PLATFORM(GTK) || PLATFORM(WPE)
@@ -57,6 +61,7 @@
 #endif
 
 #if PLATFORM(GTK)
+#include "DMABufRendererBufferMode.h"
 #include "GtkSettingsState.h"
 #endif
 
@@ -162,6 +167,9 @@ struct WebProcessCreationParameters {
 
 #if PLATFORM(COCOA)
     Vector<String> mediaMIMETypes;
+#endif
+
+#if PLATFORM(COCOA) || PLATFORM(GTK)
     WebCore::ScreenProperties screenProperties;
 #endif
 
@@ -199,6 +207,11 @@ struct WebProcessCreationParameters {
     Vector<SandboxExtension::Handle> dynamicIOKitExtensionHandles;
 #endif
 
+#if PLATFORM(VISION)
+    // FIXME: Remove when GPU Process is fully enabled.
+    Vector<SandboxExtension::Handle> metalCacheDirectoryExtensionHandles;
+#endif
+
 #if PLATFORM(COCOA)
     bool systemHasBattery { false };
     bool systemHasAC { false };
@@ -206,7 +219,7 @@ struct WebProcessCreationParameters {
 #endif
 
 #if PLATFORM(IOS_FAMILY)
-    UserInterfaceIdiom currentUserInterfaceIdiom { UserInterfaceIdiom::Default };
+    PAL::UserInterfaceIdiom currentUserInterfaceIdiom { PAL::UserInterfaceIdiom::Default };
     bool supportsPictureInPicture { false };
     WebCore::RenderThemeIOS::CSSValueToSystemColorMap cssValueToSystemColorMap;
     WebCore::Color focusRingColor;
@@ -219,7 +232,7 @@ struct WebProcessCreationParameters {
 #endif
 
 #if PLATFORM(GTK)
-    bool useDMABufSurfaceForCompositing { false };
+    OptionSet<DMABufRendererBufferMode> dmaBufRendererBufferMode;
     bool useSystemAppearanceForScrollbars { false };
     GtkSettingsState gtkSettings;
 #endif

@@ -191,7 +191,7 @@ void RemoteLayerBackingStore::encode(IPC::Encoder& encoder) const
 
         auto* sharing = backend->toBackendSharing();
         if (is<ImageBufferBackendHandleSharing>(sharing))
-            return downcast<ImageBufferBackendHandleSharing>(*sharing).takeBackendHandle();
+            return downcast<ImageBufferBackendHandleSharing>(*sharing).takeBackendHandle(SharedMemory::Protection::ReadOnly);
 
         return std::nullopt;
     };
@@ -204,9 +204,9 @@ void RemoteLayerBackingStore::encode(IPC::Encoder& encoder) const
     std::optional<ImageBufferBackendHandle> handle;
     if (m_contentsBufferHandle) {
         ASSERT(m_parameters.type == Type::IOSurface);
-        handle = m_contentsBufferHandle;
-    } else if (m_frontBuffer.imageBuffer)
-        handle = handleFromBuffer(*m_frontBuffer.imageBuffer);
+        handle = ImageBufferBackendHandle { *m_contentsBufferHandle };
+    } else if (RefPtr protectedBuffer = m_frontBuffer.imageBuffer)
+        handle = handleFromBuffer(*protectedBuffer);
 
     // It would be nice to ASSERT(handle && hasValue(*handle)) here, but when we hit the timeout in RemoteImageBufferProxy::ensureBackendCreated(), we don't have a handle.
 #if !LOG_DISABLED
@@ -303,12 +303,17 @@ bool RemoteLayerBackingStore::layerWillBeDisplayed()
 
 void RemoteLayerBackingStore::setNeedsDisplay(const IntRect rect)
 {
-    m_dirtyRegion.unite(rect);
+    m_dirtyRegion.unite(intersection(layerBounds(), rect));
 }
 
 void RemoteLayerBackingStore::setNeedsDisplay()
 {
-    setNeedsDisplay(IntRect(IntPoint(), expandedIntSize(m_parameters.size)));
+    m_dirtyRegion.unite(layerBounds());
+}
+
+WebCore::IntRect RemoteLayerBackingStore::layerBounds() const
+{
+    return IntRect { { }, expandedIntSize(m_parameters.size) };
 }
 
 bool RemoteLayerBackingStore::usesDeepColorBackingStore() const
@@ -403,9 +408,9 @@ bool RemoteLayerBackingStore::supportsPartialRepaint() const
 #endif
 }
 
-void RemoteLayerBackingStore::setDelegatedContents(const WebCore::PlatformCALayerDelegatedContents& contents)
+void RemoteLayerBackingStore::setDelegatedContents(const PlatformCALayerRemoteDelegatedContents& contents)
 {
-    m_contentsBufferHandle = contents.surface.copySendRight();
+    m_contentsBufferHandle = ImageBufferBackendHandle { contents.surface };
     if (contents.finishedFence)
         m_frontBufferFlushers.append(DelegatedContentsFenceFlusher::create(Ref { *contents.finishedFence }));
     m_contentsRenderingResourceIdentifier = contents.surfaceIdentifier;
@@ -565,12 +570,7 @@ void RemoteLayerBackingStore::paintContents()
         auto& displayListContext = m_displayListBuffer->context();
 
         BifurcatedGraphicsContext context(m_frontBuffer.imageBuffer->context(), displayListContext);
-        drawInContext(context, [&] {
-#if HAVE(CG_DISPLAY_LIST_RESPECTING_CONTENTS_FLIPPED)
-            displayListContext.scale(FloatSize(1, -1));
-            displayListContext.translate(0, -m_parameters.size.height());
-#endif
-        });
+        drawInContext(context);
         return;
     }
 #endif
@@ -579,15 +579,12 @@ void RemoteLayerBackingStore::paintContents()
     drawInContext(context);
 }
 
-void RemoteLayerBackingStore::drawInContext(GraphicsContext& context, WTF::Function<void()>&& additionalContextSetupCallback)
+void RemoteLayerBackingStore::drawInContext(GraphicsContext& context)
 {
     auto markFrontBufferNotCleared = makeScopeExit([&]() {
         m_frontBuffer.isCleared = false;
     });
     GraphicsContextStateSaver stateSaver(context);
-
-    if (additionalContextSetupCallback)
-        additionalContextSetupCallback();
 
     // If we have less than webLayerMaxRectsToPaint rects to paint and they cover less
     // than webLayerWastedSpaceThreshold of the total dirty area, we'll repaint each rect separately.
@@ -609,16 +606,16 @@ void RemoteLayerBackingStore::drawInContext(GraphicsContext& context, WTF::Funct
         m_paintingRects.append(scaledRect);
     }
 
-    IntRect layerBounds(IntPoint(), expandedIntSize(m_parameters.size));
-    if (!m_dirtyRegion.contains(layerBounds) && m_backBuffer.imageBuffer) {
+    IntRect layerBounds = this->layerBounds();
+    if (RefPtr imageBuffer = m_backBuffer.imageBuffer; !m_dirtyRegion.contains(layerBounds) && imageBuffer) {
         if (!m_previouslyPaintedRect)
-            context.drawImageBuffer(*m_backBuffer.imageBuffer, { 0, 0 }, { CompositeOperator::Copy });
+            context.drawImageBuffer(*imageBuffer, { 0, 0 }, { CompositeOperator::Copy });
         else {
             Region copyRegion(*m_previouslyPaintedRect);
             copyRegion.subtract(m_dirtyRegion);
             IntRect copyRect = copyRegion.bounds();
             if (!copyRect.isEmpty())
-                context.drawImageBuffer(*m_backBuffer.imageBuffer, copyRect, copyRect, { CompositeOperator::Copy });
+                context.drawImageBuffer(*imageBuffer, copyRect, copyRect, { CompositeOperator::Copy });
         }
     }
 
@@ -708,7 +705,7 @@ RetainPtr<id> RemoteLayerBackingStoreProperties::layerContentsBufferFromBackendH
     RetainPtr<id> contents;
     WTF::switchOn(backendHandle,
         [&] (ShareableBitmap::Handle& handle) {
-            if (auto bitmap = ShareableBitmap::create(WTFMove(handle)))
+            if (auto bitmap = ShareableBitmap::create(WTFMove(handle), SharedMemory::Protection::ReadOnly))
                 contents = bridge_id_cast(bitmap->makeCGImageCopy());
         },
         [&] (MachSendRight& machSendRight) {
@@ -767,6 +764,7 @@ void RemoteLayerBackingStoreProperties::applyBackingStoreToLayer(CALayer *layer,
         if (!replayCGDisplayListsIntoBackingStore) {
             [layer setValue:@1 forKeyPath:WKCGDisplayListEnabledKey];
             [layer setValue:@1 forKeyPath:WKCGDisplayListBifurcationEnabledKey];
+            [layer setValue:@(layer.contentsScale) forKeyPath:@"separatedOptions.bifurcationScale"];
         } else
             layer.opaque = m_isOpaque;
         [(WKCompositingLayer *)layer _setWKContents:contents.get() withDisplayList:WTFMove(std::get<CGDisplayList>(*m_displayListBufferHandle)) replayForTesting:replayCGDisplayListsIntoBackingStore];

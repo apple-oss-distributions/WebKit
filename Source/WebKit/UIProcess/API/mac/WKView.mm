@@ -82,16 +82,6 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_BEGIN
 @implementation WKView
 ALLOW_DEPRECATED_IMPLEMENTATIONS_END
 
-- (id)initWithFrame:(NSRect)frame processGroup:(WKProcessGroup *)processGroup browsingContextGroup:(WKBrowsingContextGroup *)browsingContextGroup
-{
-    return nil;
-}
-
-- (id)initWithFrame:(NSRect)frame processGroup:(WKProcessGroup *)processGroup browsingContextGroup:(WKBrowsingContextGroup *)browsingContextGroup relatedToView:(WKView *)relatedView
-{
-    return nil;
-}
-
 - (void)dealloc
 {
     [super dealloc];
@@ -920,14 +910,6 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
 }
 
 - (void)_web_gestureEventWasNotHandledByWebCore:(NSEvent *)event
-{
-}
-
-- (void)_web_windowWillEnterFullScreen
-{
-}
-
-- (void)_web_windowWillExitFullScreen
 {
 }
 

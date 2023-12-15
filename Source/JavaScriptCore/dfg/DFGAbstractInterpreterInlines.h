@@ -2744,6 +2744,11 @@ bool AbstractInterpreter<AbstractStateType>::executeEffects(unsigned clobberLimi
         break;
     }
 
+    case ArraySpliceExtract:
+        clobberWorld();
+        makeBytecodeTopForNode(node);
+        break;
+
     case ArrayIndexOf: {
         setNonCellTypeForNode(node, SpecInt32Only);
         break;
@@ -3265,7 +3270,15 @@ bool AbstractInterpreter<AbstractStateType>::executeEffects(unsigned clobberLimi
     case NewRegexp:
         setForNode(node, m_graph.globalObjectFor(node->origin.semantic)->regExpStructure());
         break;
-            
+
+    case NewMap:
+        setForNode(node, node->structure());
+        break;
+
+    case NewSet:
+        setForNode(node, node->structure());
+        break;
+
     case ToThis: {
         AbstractValue& source = forNode(node->child1());
         AbstractValue& destination = forNode(node);
@@ -3795,10 +3808,8 @@ bool AbstractInterpreter<AbstractStateType>::executeEffects(unsigned clobberLimi
                     // This thing won't give us a variant that involves prototypes. If it did, we'd
                     // have more work to do here.
                     DFG_ASSERT(m_graph, node, status[i].conditionSet().isEmpty());
-
-                    result.merge(
-                        m_graph.inferredValueForProperty(
-                            value, status[i].offset(), m_state.structureClobberState()));
+                    const auto& variant = status[i];
+                    result.merge(m_graph.inferredValueForProperty(value, *m_graph.addStructureSet(variant.structureSet()), variant.offset(), m_state.structureClobberState()));
                 }
             
                 m_state.setShouldTryConstantFolding(true);
@@ -4946,12 +4957,6 @@ bool AbstractInterpreter<AbstractStateType>::executeEffects(unsigned clobberLimi
         const AbstractValue& abstractValue = forNode(node->child1());
         unsigned bits = node->typeInfoOperand();
         ASSERT(bits);
-        if (bits == ImplementsDefaultHasInstance) {
-            if (abstractValue.m_type == SpecFunctionWithDefaultHasInstance) {
-                m_state.setShouldTryConstantFolding(true);
-                break;
-            }
-        }
 
         if (JSValue value = abstractValue.value()) {
             if (value.isCell()) {

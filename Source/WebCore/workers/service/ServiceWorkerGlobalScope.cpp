@@ -149,6 +149,15 @@ ServiceWorkerThread& ServiceWorkerGlobalScope::thread()
     return static_cast<ServiceWorkerThread&>(WorkerGlobalScope::thread());
 }
 
+void ServiceWorkerGlobalScope::prepareForDestruction()
+{
+    // Make sure we destroy fetch events objects before the VM goes away, since their
+    // destructor may access the VM.
+    m_extendedEvents.clear();
+
+    WorkerGlobalScope::prepareForDestruction();
+}
+
 // https://w3c.github.io/ServiceWorker/#update-service-worker-extended-events-set-algorithm
 void ServiceWorkerGlobalScope::updateExtendedEventsSet(ExtendableEvent* newEvent)
 {
@@ -233,6 +242,14 @@ void ServiceWorkerGlobalScope::addConsoleMessage(MessageSource source, MessageLe
         });
     }
     WorkerGlobalScope::addConsoleMessage(source, level, message, requestIdentifier);
+}
+
+CookieStore& ServiceWorkerGlobalScope::cookieStore()
+{
+    // FIXME: Should not pass nullptr. Should instead add service worker supported context.
+    if (!m_cookieStore)
+        m_cookieStore = CookieStore::create(nullptr);
+    return *m_cookieStore;
 }
 
 } // namespace WebCore

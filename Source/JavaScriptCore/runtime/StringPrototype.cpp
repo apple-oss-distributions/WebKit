@@ -468,11 +468,12 @@ static ALWAYS_INLINE JSString* replaceUsingRegExpSearchWithCache(VM& vm, JSGloba
             return nullptr;
         }
 
-        vm.stringReplaceCache.set(source, regExp, result, globalObject->regExpGlobalData().ovector());
+        vm.stringReplaceCache.set(source, regExp, result, globalObject->regExpGlobalData().matchResult(), globalObject->regExpGlobalData().ovector());
     } else {
         result = entry->m_result;
         auto lastMatch = entry->m_lastMatch;
-        globalObject->regExpGlobalData().resetResultFromCache(globalObject, regExp, string, WTFMove(lastMatch));
+        auto matchResult = entry->m_matchResult;
+        globalObject->regExpGlobalData().resetResultFromCache(globalObject, regExp, string, matchResult, WTFMove(lastMatch));
     }
 
     // regExp->numSubpatterns() + 1 for pattern args, + 2 for match start and string
@@ -587,8 +588,10 @@ static ALWAYS_INLINE JSString* replaceUsingRegExpSearch(
 
                 if (matchStart < 0)
                     patternValue = jsUndefined();
-                else
-                    patternValue = jsSubstring(vm, source, matchStart, matchLen);
+                else {
+                    patternValue = jsSubstring(vm, globalObject, string, matchStart, matchLen);
+                    RETURN_IF_EXCEPTION(scope, nullptr);
+                }
 
                 cachedCall.appendArgument(patternValue);
 
@@ -605,8 +608,10 @@ static ALWAYS_INLINE JSString* replaceUsingRegExpSearch(
                             JSValue captureValue;
                             if (captureStart < 0)
                                 captureValue = jsUndefined();
-                            else
-                                captureValue = jsSubstring(vm, source, captureStart, captureLen);
+                            else {
+                                captureValue = jsSubstring(vm, globalObject, string, captureStart, captureLen);
+                                RETURN_IF_EXCEPTION(scope, nullptr);
+                            }
                             groups->putDirect(vm, Identifier::fromString(vm, groupName), captureValue);
                         } else
                             groups->putDirect(vm, Identifier::fromString(vm, groupName), jsUndefined());
@@ -669,7 +674,7 @@ static ALWAYS_INLINE JSString* replaceUsingRegExpSearch(
                     if (matchStart < 0)
                         patternValue = jsUndefined();
                     else {
-                        patternValue = jsSubstring(vm, source, matchStart, matchLen);
+                        patternValue = jsSubstring(vm, globalObject, string, matchStart, matchLen);
                         RETURN_IF_EXCEPTION(scope, nullptr);
                     }
 
@@ -689,7 +694,7 @@ static ALWAYS_INLINE JSString* replaceUsingRegExpSearch(
                                 if (captureStart < 0)
                                     captureValue = jsUndefined();
                                 else {
-                                    captureValue = jsSubstring(vm, source, captureStart, captureLen);
+                                    captureValue = jsSubstring(vm, globalObject, string, captureStart, captureLen);
                                     RETURN_IF_EXCEPTION(scope, nullptr);
                                 }
                                 groups->putDirect(vm, Identifier::fromString(vm, groupName), captureValue);

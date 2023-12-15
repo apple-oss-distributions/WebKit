@@ -272,7 +272,7 @@ String XMLHttpRequest::responseURL() const
 XMLHttpRequestUpload& XMLHttpRequest::upload()
 {
     if (!m_upload)
-        m_upload = makeUnique<XMLHttpRequestUpload>(*this);
+        m_upload = makeUniqueWithoutRefCountedCheck<XMLHttpRequestUpload>(*this);
     return *m_upload;
 }
 
@@ -796,7 +796,7 @@ ExceptionOr<void> XMLHttpRequest::setRequestHeader(const String& name, const Str
     if (readyState() != OPENED || m_sendFlag)
         return Exception { InvalidStateError };
 
-    String normalizedValue = value.trim(isHTTPSpace);
+    String normalizedValue = value.trim(isASCIIWhitespaceWithoutFF<UChar>);
     if (!isValidHTTPToken(name) || !isValidHTTPHeaderValue(normalizedValue))
         return Exception { SyntaxError };
 

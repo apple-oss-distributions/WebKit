@@ -26,7 +26,6 @@
 #import "WKApplicationStateTrackingView.h"
 #import "WKBase.h"
 #import "WKBrowsingContextController.h"
-#import "WKBrowsingContextGroup.h"
 #import "WKProcessGroup.h"
 #import <WebCore/InspectorOverlay.h>
 #import <wtf/NakedRef.h>
@@ -47,6 +46,7 @@ class FloatRect;
 namespace WebKit {
 class DrawingAreaProxy;
 class RemoteLayerTreeTransaction;
+class VisibleContentRectUpdateInfo;
 class WebFrameProxy;
 class WebPageProxy;
 class WebProcessProxy;
@@ -73,6 +73,18 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 @property (nonatomic, readonly) NSUndoManager *undoManagerForWebView;
 
 - (instancetype)initWithFrame:(CGRect)frame processPool:(NakedRef<WebKit::WebProcessPool>)processPool configuration:(Ref<API::PageConfiguration>&&)configuration webView:(WKWebView *)webView;
+
+- (std::optional<WebKit::VisibleContentRectUpdateInfo>)createVisibleContentRectUpdateInfoFromVisibleRect:(CGRect)visibleContentRect
+    unobscuredRect:(CGRect)unobscuredContentRect
+    contentInsets:(UIEdgeInsets)contentInsets
+    unobscuredRectInScrollViewCoordinates:(CGRect)unobscuredRectInScrollViewCoordinates
+    obscuredInsets:(UIEdgeInsets)obscuredInsets
+    unobscuredSafeAreaInsets:(UIEdgeInsets)unobscuredSafeAreaInsets
+    inputViewBounds:(CGRect)inputViewBounds
+    scale:(CGFloat)zoomScale minimumScale:(CGFloat)minimumScale
+    viewStability:(OptionSet<WebKit::ViewStabilityFlag>)viewStability
+    enclosedInScrollableAncestorView:(BOOL)enclosedInScrollableAncestorView
+    sendEvenIfUnchanged:(BOOL)sendEvenIfUnchanged;
 
 - (void)didUpdateVisibleRect:(CGRect)visibleRect
     unobscuredRect:(CGRect)unobscuredRect

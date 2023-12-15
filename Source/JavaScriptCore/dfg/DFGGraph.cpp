@@ -1385,6 +1385,17 @@ AbstractValue Graph::inferredValueForProperty(
     return AbstractValue::heapTop();
 }
 
+AbstractValue Graph::inferredValueForProperty(const AbstractValue& base, const RegisteredStructureSet& structureSet, PropertyOffset offset, StructureClobberState clobberState)
+{
+    if (JSValue value = tryGetConstantProperty(base.m_value, structureSet, offset)) {
+        AbstractValue result;
+        result.set(*this, *freeze(value), clobberState);
+        return result;
+    }
+
+    return AbstractValue::heapTop();
+}
+
 JSValue Graph::tryGetConstantClosureVar(JSValue base, ScopeOffset offset)
 {
     // This has an awesome concurrency story. See comment for GetGlobalVar in ByteCodeParser.
@@ -1752,8 +1763,34 @@ MethodOfGettingAValueProfile Graph::methodOfGettingAValueProfileFor(Node* curren
                     return MethodOfGettingAValueProfile::lazyOperandValueProfile(node->origin.semantic, node->operand());
             }
 
-            if (node->hasHeapPrediction())
-                return MethodOfGettingAValueProfile::bytecodeValueProfile(node->origin.semantic);
+            if (node->hasHeapPrediction()) {
+                auto instruction = profiledBlock->instructions().at(node->origin.semantic.bytecodeIndex());
+                OpcodeID opcodeID = instruction->opcodeID();
+                switch (opcodeID) {
+                case op_tail_call:
+                case op_tail_call_varargs:
+                case op_tail_call_forward_arguments: {
+                    InlineCallFrame* inlineCallFrame = node->origin.semantic.inlineCallFrame();
+                    if (!inlineCallFrame)
+                        return { }; // TailCall in the outermost function.
+
+                    CodeOrigin* codeOrigin = inlineCallFrame->getCallerSkippingTailCalls();
+                    if (!codeOrigin)
+                        return { };
+
+                    CodeBlock* callerBlock = baselineCodeBlockFor(*codeOrigin);
+                    auto* valueProfile = callerBlock->tryGetValueProfileForBytecodeIndex(codeOrigin->bytecodeIndex());
+                    if (!valueProfile)
+                        return { };
+
+                    return MethodOfGettingAValueProfile::bytecodeValueProfile(*codeOrigin);
+                }
+                case op_call_ignore_result:
+                    return { };
+                default:
+                    return MethodOfGettingAValueProfile::bytecodeValueProfile(node->origin.semantic);
+                }
+            }
 
             if (profiledBlock->hasBaselineJITProfiling()) {
                 if (profiledBlock->binaryArithProfileForBytecodeIndex(node->origin.semantic.bytecodeIndex()))

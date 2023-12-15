@@ -116,6 +116,11 @@ bool MediaStreamTrackPrivate::muted() const
     return m_source->muted();
 }
 
+bool MediaStreamTrackPrivate::interrupted() const
+{
+    return m_source->interrupted();
+}
+
 bool MediaStreamTrackPrivate::isCaptureTrack() const
 {
     return m_source->isCaptureSource();
@@ -252,11 +257,11 @@ void MediaStreamTrackPrivate::sourceConfigurationChanged()
     });
 }
 
-bool MediaStreamTrackPrivate::preventSourceFromStopping()
+bool MediaStreamTrackPrivate::preventSourceFromEnding()
 {
     ALWAYS_LOG(LOGIDENTIFIER, m_isEnded);
 
-    // Do not allow the source to stop if we are still using it.
+    // Do not allow the source to end if we are still using it.
     return !m_isEnded;
 }
 

@@ -36,6 +36,7 @@
 #include "JSDOMPromiseDeferred.h"
 #include "LocalDOMWindow.h"
 #include "Page.h"
+#include "VisibilityState.h"
 #include <wtf/IsoMallocInlines.h>
 
 namespace WebCore {
@@ -266,8 +267,11 @@ void ScreenOrientation::stop()
         return;
 
     manager->removeObserver(*this);
-    if (manager->lockRequester() == this)
-        manager->takeLockPromise()->reject(Exception { AbortError, "Document is no longer fully active"_s });
+    if (manager->lockRequester() == this) {
+        queueTaskKeepingObjectAlive(*this, TaskSource::DOMManipulation, [promise = manager->takeLockPromise()] {
+            promise->reject(Exception { AbortError, "Document is no longer fully active"_s });
+        });
+    }
 }
 
 bool ScreenOrientation::virtualHasPendingActivity() const

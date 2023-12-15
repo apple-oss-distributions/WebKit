@@ -126,6 +126,13 @@ public:
     static constexpr Seconds syncWorkerTerminationTimeout { 100_ms }; // Only used by layout tests.
 
     WEBCORE_EXPORT void setAsInspected(ServiceWorkerIdentifier, bool);
+    WEBCORE_EXPORT void setInspectable(bool);
+
+    WEBCORE_EXPORT void updateRegistrationState(ServiceWorkerRegistrationIdentifier, ServiceWorkerRegistrationState, const std::optional<ServiceWorkerData>&);
+    WEBCORE_EXPORT void updateWorkerState(ServiceWorkerIdentifier, ServiceWorkerState);
+    WEBCORE_EXPORT void fireUpdateFoundEvent(ServiceWorkerRegistrationIdentifier);
+    WEBCORE_EXPORT void setRegistrationLastUpdateTime(ServiceWorkerRegistrationIdentifier, WallTime);
+    WEBCORE_EXPORT void setRegistrationUpdateViaCache(ServiceWorkerRegistrationIdentifier, ServiceWorkerUpdateViaCache);
 
 private:
     SWContextManager() = default;

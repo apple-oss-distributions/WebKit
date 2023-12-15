@@ -28,6 +28,7 @@
 
 #if HAVE(APP_SSO)
 
+#import "APIFrameHandle.h"
 #import "APIHTTPCookieStore.h"
 #import "APINavigation.h"
 #import "APINavigationAction.h"
@@ -40,6 +41,8 @@
 #import "WebFrameProxy.h"
 #import "WebPageProxy.h"
 #import "WebsiteDataStore.h"
+#import <WebCore/ContentSecurityPolicy.h>
+#import <WebCore/HTTPParsers.h>
 #import <WebCore/ResourceResponse.h>
 #import <WebCore/SecurityOrigin.h>
 #import <pal/cocoa/AppSSOSoftLink.h>
@@ -49,6 +52,7 @@
 #define AUTHORIZATIONSESSION_RELEASE_LOG(fmt, ...) RELEASE_LOG(AppSSO, "%p - [InitiatingAction=%s][State=%s] SOAuthorizationSession::" fmt, this, toString(m_action), stateString(), ##__VA_ARGS__)
 
 namespace WebKit {
+using namespace WebCore;
 
 namespace {
 
@@ -295,6 +299,13 @@ void SOAuthorizationSession::complete(NSHTTPURLResponse *httpResponse, NSData *d
     becomeCompleted();
 
     auto response = WebCore::ResourceResponse(httpResponse);
+
+    if (shouldInterruptLoadForCSPFrameAncestorsOrXFrameOptions(response)) {
+        AUTHORIZATIONSESSION_RELEASE_LOG("complete: CSP failed. Falling back to web path.");
+        fallBackToWebPathInternal();
+        return;
+    }
+
     if (!isSameOrigin(m_navigationAction->request(), response)) {
         AUTHORIZATIONSESSION_RELEASE_LOG("complete:  Origins don't match. Falling back to web path.");
         fallBackToWebPathInternal();

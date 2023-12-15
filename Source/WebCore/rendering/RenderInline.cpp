@@ -276,20 +276,17 @@ private:
     const LayoutPoint& m_accumulatedOffset;
 };
 
-void RenderInline::absoluteRects(Vector<IntRect>& rects, const LayoutPoint& accumulatedOffset) const
+void RenderInline::boundingRects(Vector<LayoutRect>& rects, const LayoutPoint& accumulatedOffset) const
 {
-    Vector<LayoutRect> lineboxRects;
-    AbsoluteRectsGeneratorContext context(lineboxRects, accumulatedOffset);
+    AbsoluteRectsGeneratorContext context(rects, accumulatedOffset);
     generateLineBoxRects(context);
-    for (const auto& rect : lineboxRects)
-        rects.append(snappedIntRect(rect));
 
-    if (RenderBoxModelObject* continuation = this->continuation()) {
+    if (auto* continuation = this->continuation()) {
         if (is<RenderBox>(*continuation)) {
             auto& box = downcast<RenderBox>(*continuation);
-            continuation->absoluteRects(rects, toLayoutPoint(accumulatedOffset - containingBlock()->location() + box.locationOffset()));
+            continuation->boundingRects(rects, toLayoutPoint(accumulatedOffset - containingBlock()->location() + box.locationOffset()));
         } else
-            continuation->absoluteRects(rects, toLayoutPoint(accumulatedOffset - containingBlock()->location()));
+            continuation->boundingRects(rects, toLayoutPoint(accumulatedOffset - containingBlock()->location()));
     }
 }
 
@@ -467,10 +464,17 @@ LayoutUnit RenderInline::innerPaddingBoxWidth() const
 
     if (LayoutIntegration::LineLayout::containing(*this)) {
         if (auto inlineBox = InlineIterator::firstInlineBoxFor(*this)) {
-            firstInlineBoxPaddingBoxLeft = inlineBox->logicalLeftIgnoringInlineDirection() + borderStart();
-            for (; inlineBox->nextInlineBox(); inlineBox.traverseNextInlineBox()) { }
-            ASSERT(inlineBox);
-            lastInlineBoxPaddingBoxRight = inlineBox->logicalRightIgnoringInlineDirection() - borderEnd();
+            if (style().isLeftToRightDirection()) {
+                firstInlineBoxPaddingBoxLeft = inlineBox->logicalLeftIgnoringInlineDirection() + borderStart();
+                for (; inlineBox->nextInlineBox(); inlineBox.traverseNextInlineBox()) { }
+                ASSERT(inlineBox);
+                lastInlineBoxPaddingBoxRight = inlineBox->logicalRightIgnoringInlineDirection() - borderEnd();
+            } else {
+                lastInlineBoxPaddingBoxRight = inlineBox->logicalRightIgnoringInlineDirection() - borderStart();
+                for (; inlineBox->nextInlineBox(); inlineBox.traverseNextInlineBox()) { }
+                ASSERT(inlineBox);
+                firstInlineBoxPaddingBoxLeft = inlineBox->logicalLeftIgnoringInlineDirection() + borderEnd();
+            }
             return std::max(0_lu, lastInlineBoxPaddingBoxRight - firstInlineBoxPaddingBoxLeft);
         }
         return { };

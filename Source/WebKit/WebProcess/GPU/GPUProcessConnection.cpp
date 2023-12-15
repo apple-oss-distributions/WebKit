@@ -118,6 +118,7 @@ RefPtr<GPUProcessConnection> GPUProcessConnection::create(IPC::Connection& paren
     if (!connectionIdentifiers)
         return nullptr;
 
+    RELEASE_ASSERT_WITH_MESSAGE(WebProcess::singleton().hasEverHadAnyWebPages(), "GPUProcess preferences come from the pages");
     parentConnection.send(Messages::WebProcessProxy::CreateGPUProcessConnection(WTFMove(connectionIdentifiers->client), getGPUProcessConnectionParameters()), 0, IPC::SendOption::DispatchMessageEvenWhenWaitingForSyncReply);
 
     auto instance = adoptRef(*new GPUProcessConnection(WTFMove(connectionIdentifiers->server)));
@@ -210,7 +211,7 @@ RemoteVideoFrameObjectHeapProxy& GPUProcessConnection::videoFrameObjectHeapProxy
 
 RemoteMediaPlayerManager& GPUProcessConnection::mediaPlayerManager()
 {
-    return *WebProcess::singleton().supplement<RemoteMediaPlayerManager>();
+    return WebProcess::singleton().remoteMediaPlayerManager();
 }
 #endif
 
@@ -227,7 +228,7 @@ bool GPUProcessConnection::dispatchMessage(IPC::Connection& connection, IPC::Dec
 {
 #if ENABLE(VIDEO)
     if (decoder.messageReceiverName() == Messages::MediaPlayerPrivateRemote::messageReceiverName()) {
-        WebProcess::singleton().supplement<RemoteMediaPlayerManager>()->didReceivePlayerMessage(connection, decoder);
+        WebProcess::singleton().remoteMediaPlayerManager().didReceivePlayerMessage(connection, decoder);
         return true;
     }
 #endif

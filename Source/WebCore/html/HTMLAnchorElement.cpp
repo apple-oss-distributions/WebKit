@@ -127,8 +127,8 @@ static bool hasNonEmptyBox(RenderBoxModelObject* renderer)
 
     // FIXME: Since all we are checking is whether the rects are empty, could we just
     // pass in 0,0 for the layout point instead of calling localToAbsolute?
-    Vector<IntRect> rects;
-    renderer->absoluteRects(rects, flooredLayoutPoint(renderer->localToAbsolute()));
+    Vector<LayoutRect> rects;
+    renderer->boundingRects(rects, flooredLayoutPoint(renderer->localToAbsolute()));
     for (auto& rect : rects) {
         if (!rect.isEmpty())
             return true;
@@ -197,7 +197,7 @@ void HTMLAnchorElement::defaultEventHandler(Event& event)
             // This keeps track of the editable block that the selection was in (if it was in one) just before the link was clicked
             // for the LiveWhenNotFocused editable link behavior
             auto& eventNames = WebCore::eventNames();
-            if (event.type() == eventNames.mousedownEvent && is<MouseEvent>(event) && downcast<MouseEvent>(event).button() != RightButton && document().frame()) {
+            if (event.type() == eventNames.mousedownEvent && is<MouseEvent>(event) && downcast<MouseEvent>(event).button() != MouseButton::Right && document().frame()) {
                 setRootEditableElementForSelectionOnMouseDown(document().frame()->selection().selection().rootEditableElement());
                 m_wasShiftKeyDownOnMouseDown = downcast<MouseEvent>(event).shiftKey();
             } else if (event.type() == eventNames.mouseoverEvent) {
@@ -309,7 +309,7 @@ bool HTMLAnchorElement::hasRel(Relation relation) const
 DOMTokenList& HTMLAnchorElement::relList()
 {
     if (!m_relList) {
-        m_relList = makeUnique<DOMTokenList>(*this, HTMLNames::relAttr, [](Document& document, StringView token) {
+        m_relList = makeUniqueWithoutRefCountedCheck<DOMTokenList>(*this, HTMLNames::relAttr, [](Document& document, StringView token) {
 #if USE(SYSTEM_PREVIEW)
             if (equalLettersIgnoringASCIICase(token, "ar"_s))
                 return document.settings().systemPreviewEnabled();
@@ -339,7 +339,17 @@ AtomString HTMLAnchorElement::target() const
 
 String HTMLAnchorElement::origin() const
 {
-    return SecurityOrigin::create(href()).get().toString();
+    auto url = href();
+    if (!url.isValid())
+        return emptyString();
+    return SecurityOrigin::create(url)->toString();
+}
+
+void HTMLAnchorElement::setProtocol(StringView value)
+{
+    if (auto url = href(); !url.isValid())
+        return;
+    URLDecomposition::setProtocol(value);
 }
 
 String HTMLAnchorElement::text()
@@ -615,7 +625,7 @@ void HTMLAnchorElement::handleClick(Event& event)
             systemPreviewInfo.previewRect = child->boundsInRootViewSpace();
 
         if (auto* page = document().page())
-            page->beginSystemPreview(completedURL, WTFMove(systemPreviewInfo), [keepBlobAlive = URLKeepingBlobAlive(completedURL, document().topOrigin().data())] { });
+            page->beginSystemPreview(completedURL, document().topOrigin().data(), WTFMove(systemPreviewInfo), [keepBlobAlive = URLKeepingBlobAlive(completedURL, document().topOrigin().data())] { });
         return;
     }
 #endif
@@ -649,7 +659,7 @@ AtomString HTMLAnchorElement::effectiveTarget() const
     auto effectiveTarget = target();
     if (effectiveTarget.isEmpty())
         effectiveTarget = document().baseTarget();
-    return effectiveTarget;
+    return makeTargetBlankIfHasDanglingMarkup(effectiveTarget);
 }
 
 HTMLAnchorElement::EventType HTMLAnchorElement::eventType(Event& event)
@@ -744,9 +754,7 @@ String HTMLAnchorElement::referrerPolicyForBindings() const
 
 ReferrerPolicy HTMLAnchorElement::referrerPolicy() const
 {
-    if (document().settings().referrerPolicyAttributeEnabled())
-        return parseReferrerPolicy(attributeWithoutSynchronization(referrerpolicyAttr), ReferrerPolicySource::ReferrerPolicyAttribute).value_or(ReferrerPolicy::EmptyString);
-    return ReferrerPolicy::EmptyString;
+    return parseReferrerPolicy(attributeWithoutSynchronization(referrerpolicyAttr), ReferrerPolicySource::ReferrerPolicyAttribute).value_or(ReferrerPolicy::EmptyString);
 }
 
 }

@@ -42,7 +42,9 @@ enum class Base64EncodeMode : bool { Default, URL };
 //   enforce a correct number of trailing equal signs in the input.
 // - ::DefaultValidatePaddingAndIgnoreWhitespace ignores ASCII whitespace in
 //   the input. It matches <https://infra.spec.whatwg.org/#forgiving-base64>.
-enum class Base64DecodeMode { DefaultIgnorePadding, DefaultValidatePadding, DefaultValidatePaddingAndIgnoreWhitespace, URL };
+// - ::DefaultIgnoreWhitespaceForQuirk, URL ignores ASCII whitespace in the
+//   input but doesn't validate padding. It is currently only used for quirks.
+enum class Base64DecodeMode { DefaultIgnorePadding, DefaultValidatePadding, DefaultValidatePaddingAndIgnoreWhitespace, DefaultIgnoreWhitespaceForQuirk, URL };
 
 struct Base64Specification {
     std::span<const std::byte> input;
@@ -80,6 +82,8 @@ WTF_EXPORT_PRIVATE std::optional<Vector<uint8_t>> base64Decode(StringView, Base6
 std::optional<Vector<uint8_t>> base64Decode(std::span<const uint8_t>, Base64DecodeMode = Base64DecodeMode::DefaultIgnorePadding);
 std::optional<Vector<uint8_t>> base64Decode(std::span<const char>, Base64DecodeMode = Base64DecodeMode::DefaultIgnorePadding);
 std::optional<Vector<uint8_t>> base64Decode(const void*, unsigned, Base64DecodeMode = Base64DecodeMode::DefaultIgnorePadding);
+
+WTF_EXPORT_PRIVATE String base64DecodeToString(StringView, Base64DecodeMode = Base64DecodeMode::DefaultIgnorePadding);
 
 // All the same functions modified for base64url, as defined in RFC 4648.
 // This format uses '-' and '_' instead of '+' and '/' respectively.

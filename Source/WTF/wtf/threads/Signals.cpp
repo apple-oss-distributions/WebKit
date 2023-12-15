@@ -335,6 +335,38 @@ void registerThreadForMachExceptionHandling(Thread& thread)
 
 #endif // HAVE(MACH_EXCEPTIONS)
 
+inline std::tuple<int, std::optional<int>> toSystemSignal(Signal signal)
+{
+    switch (signal) {
+    case Signal::AccessFault: return std::make_tuple(SIGSEGV, SIGBUS);
+    case Signal::IllegalInstruction: return std::make_tuple(SIGILL, std::nullopt);
+    case Signal::Usr: return std::make_tuple(SIGUSR2, std::nullopt);
+    case Signal::FloatingPoint: return std::make_tuple(SIGFPE, std::nullopt);
+    case Signal::Breakpoint: return std::make_tuple(SIGTRAP, std::nullopt);
+#if !OS(DARWIN)
+    case Signal::Abort: return std::make_tuple(SIGABRT, std::nullopt);
+#endif
+    default: break;
+    }
+    RELEASE_ASSERT_NOT_REACHED();
+}
+
+inline Signal fromSystemSignal(int signal)
+{
+    switch (signal) {
+    case SIGSEGV: return Signal::AccessFault;
+    case SIGBUS: return Signal::AccessFault;
+    case SIGFPE: return Signal::FloatingPoint;
+    case SIGTRAP: return Signal::Breakpoint;
+    case SIGILL: return Signal::IllegalInstruction;
+    case SIGUSR2: return Signal::Usr;
+#if !OS(DARWIN)
+    case SIGABRT: return Signal::Abort;
+#endif
+    default: return Signal::Unknown;
+    }
+}
+
 inline size_t offsetForSystemSignal(int sig)
 {
     Signal signal = fromSystemSignal(sig);

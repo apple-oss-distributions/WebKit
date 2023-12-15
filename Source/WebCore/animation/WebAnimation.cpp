@@ -721,8 +721,11 @@ void WebAnimation::cancel()
 
         // 2. Reject the current finished promise with a DOMException named "AbortError".
         // 3. Set the [[PromiseIsHandled]] internal slot of the current finished promise to true.
-        if (!m_finishedPromise->isFulfilled())
-            m_finishedPromise->reject(Exception { AbortError }, RejectAsHandled::Yes);
+        if (auto* context = scriptExecutionContext(); context && !m_finishedPromise->isFulfilled()) {
+            context->eventLoop().queueMicrotask([finishedPromise = WTFMove(m_finishedPromise)]() mutable {
+                finishedPromise->reject(Exception { AbortError }, RejectAsHandled::Yes);
+            });
+        }
 
         // 4. Let current finished promise be a new (pending) Promise object.
         m_finishedPromise = makeUniqueRef<FinishedPromise>(*this, &WebAnimation::finishedPromiseResolve);
@@ -821,7 +824,11 @@ void WebAnimation::resetPendingTasks()
 
     // 5. Reject animation's current ready promise with a DOMException named "AbortError".
     // 6. Set the [[PromiseIsHandled]] internal slot of animation’s current ready promise to true.
-    m_readyPromise->reject(Exception { AbortError }, RejectAsHandled::Yes);
+    if (auto* context = scriptExecutionContext()) {
+        context->eventLoop().queueMicrotask([readyPromise = WTFMove(m_readyPromise)]() mutable {
+            readyPromise->reject(Exception { AbortError }, RejectAsHandled::Yes);
+        });
+    }
 
     // 7. Let animation's current ready promise be the result of creating a new resolved Promise object.
     m_readyPromise = makeUniqueRef<ReadyPromise>(*this, &WebAnimation::readyPromiseResolve);
@@ -1371,7 +1378,7 @@ void WebAnimation::tick()
 void WebAnimation::resolve(RenderStyle& targetStyle, const Style::ResolutionContext& resolutionContext, std::optional<Seconds> startTime)
 {
     if (!m_shouldSkipUpdatingFinishedStateWhenResolving)
-        updateFinishedState(DidSeek::No, SynchronouslyNotify::Yes);
+        updateFinishedState(DidSeek::No, SynchronouslyNotify::No);
     m_shouldSkipUpdatingFinishedStateWhenResolving = false;
 
     if (auto keyframeEffect = dynamicDowncast<KeyframeEffect>(m_effect.get()))
@@ -1660,6 +1667,15 @@ std::optional<Seconds> WebAnimation::convertAnimationTimeToTimelineTime(Seconds 
         return std::nullopt;
     // 5. Return the result of calculating: time × (1 / playback rate) + start time (where playback rate and start time are the playback rate and start time of animation, respectively).
     return animationTime * (1 / m_playbackRate) + *m_startTime;
+}
+
+bool WebAnimation::isSkippedContentAnimation() const
+{
+    if (auto animation = dynamicDowncast<DeclarativeAnimation>(this)) {
+        if (auto element = animation->owningElement())
+            return element->element.renderer() && element->element.renderer()->isSkippedContent();
+    }
+    return false;
 }
 
 } // namespace WebCore

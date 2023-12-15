@@ -29,9 +29,10 @@
 #if PLATFORM(IOS_FAMILY) && ENABLE(FULLSCREEN_API)
 
 #import "UIKitSPI.h"
-#import "VideoFullscreenManagerProxy.h"
+#import "VideoPresentationManagerProxy.h"
 #import "WKFullScreenViewController.h"
 #import "WKFullscreenStackView.h"
+#import "WKScrollView.h"
 #import "WKWebView.h"
 #import "WKWebViewInternal.h"
 #import "WKWebViewPrivateForTesting.h"
@@ -46,7 +47,7 @@
 #import <WebCore/IntRect.h>
 #import <WebCore/LocalizedStrings.h>
 #import <WebCore/VideoFullscreenInterfaceAVKit.h>
-#import <WebCore/VideoFullscreenModel.h>
+#import <WebCore/VideoPresentationModel.h>
 #import <WebCore/ViewportArguments.h>
 #import <objc/runtime.h>
 #import <pal/spi/cf/CFNetworkSPI.h>
@@ -68,6 +69,11 @@ SOFT_LINK_PRIVATE_FRAMEWORK_OPTIONAL(LinkPresentation)
 namespace WebKit {
 using namespace WebKit;
 using namespace WebCore;
+
+static constexpr float ZoomForFullscreenWindow = 1.0;
+#if PLATFORM(VISION)
+static constexpr float ZoomForVisionFullscreenVideoWindow = 1.36;
+#endif
 
 static CGSize sizeExpandedToSize(CGSize initial, CGSize other)
 {
@@ -96,7 +102,7 @@ static void replaceViewWithView(UIView *view, UIView *otherView)
 
 static bool useSpatialFullScreenTransition()
 {
-    return [[UIDevice currentDevice] userInterfaceIdiom] == UIUserInterfaceIdiomReality;
+    return [[UIDevice currentDevice] userInterfaceIdiom] == UIUserInterfaceIdiomVision;
 }
 
 static void resizeScene(UIWindowScene *scene, CGSize size, CompletionHandler<void()>&& completionHandler)
@@ -135,54 +141,106 @@ struct WKWebViewState {
     CGFloat _savedPageScale = 1;
     CGFloat _savedViewScale = 1.0;
     CGFloat _savedZoomScale = 1;
+    CGFloat _savedContentZoomScale = 1;
+    BOOL _savedContentInsetWasExternallyOverridden = NO;
     UIEdgeInsets _savedEdgeInset = UIEdgeInsetsZero;
+    BOOL _savedHaveSetObscuredInsets = NO;
     UIEdgeInsets _savedObscuredInsets = UIEdgeInsetsZero;
     UIEdgeInsets _savedScrollIndicatorInsets = UIEdgeInsetsZero;
+#if !PLATFORM(WATCHOS) && !PLATFORM(APPLETV)
+    BOOL _savedContentInsetAdjustmentBehaviorWasExternallyOverridden = NO;
+#endif
+    UIScrollViewContentInsetAdjustmentBehavior _savedContentInsetAdjustmentBehavior = UIScrollViewContentInsetAdjustmentAutomatic;
     CGPoint _savedContentOffset = CGPointZero;
     CGFloat _savedMinimumZoomScale = 1;
     CGFloat _savedMaximumZoomScale = 1;
     BOOL _savedBouncesZoom = NO;
     BOOL _savedForceAlwaysUserScalable = NO;
     CGFloat _savedMinimumEffectiveDeviceWidth = 0;
+    BOOL _savedHaveSetUnobscuredSafeAreaInsets = NO;
+    UIEdgeInsets _savedUnobscuredSafeAreaInsets = UIEdgeInsetsZero;
+    BOOL _savedHasOverriddenLayoutParameters = NO;
+    std::optional<CGSize> _savedMinimumUnobscuredSizeOverride;
+    std::optional<CGSize> _savedMaximumUnobscuredSizeOverride;
+
 
     void applyTo(WKWebView* webView)
     {
         [webView _setPageScale:_savedPageScale withOrigin:CGPointMake(0, 0)];
-        [webView _setObscuredInsets:_savedObscuredInsets];
-        [[webView scrollView] setContentInset:_savedEdgeInset];
-        [[webView scrollView] setContentOffset:_savedContentOffset];
-        [[webView scrollView] setScrollIndicatorInsets:_savedScrollIndicatorInsets];
+        if (_savedHaveSetObscuredInsets)
+            webView._obscuredInsets = _savedObscuredInsets;
+        else
+            [webView _resetObscuredInsets];
+
+        auto* scrollView = (WKScrollView *)[webView scrollView];
+        if (_savedContentInsetWasExternallyOverridden)
+            scrollView.contentInset = _savedEdgeInset;
+        else
+            [scrollView _resetContentInset];
+
+        scrollView.contentOffset = _savedContentOffset;
+        scrollView.scrollIndicatorInsets = _savedScrollIndicatorInsets;
+
+#if !PLATFORM(WATCHOS) && !PLATFORM(APPLETV)
+        if (_savedContentInsetAdjustmentBehaviorWasExternallyOverridden)
+            scrollView.contentInsetAdjustmentBehavior = _savedContentInsetAdjustmentBehavior;
+        else
+            [webView _resetScrollViewInsetAdjustmentBehavior];
+#endif
+
+        if (_savedHaveSetUnobscuredSafeAreaInsets)
+            webView._unobscuredSafeAreaInsets = _savedUnobscuredSafeAreaInsets;
+        else
+            [webView _resetUnobscuredSafeAreaInsets];
+
+        if (_savedHasOverriddenLayoutParameters && _savedMinimumUnobscuredSizeOverride && _savedMaximumUnobscuredSizeOverride)
+            [webView _overrideLayoutParametersWithMinimumLayoutSize:*_savedMinimumUnobscuredSizeOverride maximumUnobscuredSizeOverride:*_savedMaximumUnobscuredSizeOverride];
+        else
+            [webView _clearOverrideLayoutParameters];
+
         if (auto page = webView._page) {
             page->setTopContentInset(_savedTopContentInset);
             page->setForceAlwaysUserScalable(_savedForceAlwaysUserScalable);
         }
         [webView _setViewScale:_savedViewScale];
-        [[webView scrollView] setZoomScale:_savedZoomScale];
-        webView.scrollView.minimumZoomScale = _savedMinimumZoomScale;
-        webView.scrollView.maximumZoomScale = _savedMaximumZoomScale;
-        webView.scrollView.bouncesZoom = _savedBouncesZoom;
+        scrollView.zoomScale = _savedZoomScale;
+        scrollView.minimumZoomScale = _savedMinimumZoomScale;
+        scrollView.maximumZoomScale = _savedMaximumZoomScale;
+        scrollView.bouncesZoom = _savedBouncesZoom;
         webView._minimumEffectiveDeviceWidth = _savedMinimumEffectiveDeviceWidth;
     }
 
     void store(WKWebView* webView)
     {
-        _savedPageScale = [webView _pageScale];
-        _savedObscuredInsets = [webView _obscuredInsets];
-        _savedEdgeInset = [[webView scrollView] contentInset];
-        _savedContentOffset = [[webView scrollView] contentOffset];
+        auto* scrollView = [webView _wkScrollView];
+        _savedPageScale = webView._pageScale;
+        _savedHaveSetObscuredInsets = webView._haveSetObscuredInsets;
+        _savedObscuredInsets = webView._obscuredInsets;
+        _savedContentInsetWasExternallyOverridden = scrollView._contentInsetWasExternallyOverridden;
+        _savedEdgeInset = scrollView.contentInset;
+        _savedContentOffset = scrollView.contentOffset;
 ALLOW_DEPRECATED_DECLARATIONS_BEGIN
-        _savedScrollIndicatorInsets = [[webView scrollView] scrollIndicatorInsets];
+        _savedScrollIndicatorInsets = scrollView.scrollIndicatorInsets;
 ALLOW_DEPRECATED_DECLARATIONS_END
+#if !PLATFORM(WATCHOS) && !PLATFORM(APPLETV)
+        _savedContentInsetAdjustmentBehaviorWasExternallyOverridden = scrollView._contentInsetAdjustmentBehaviorWasExternallyOverridden;
+#endif
         if (auto page = webView._page) {
             _savedTopContentInset = page->topContentInset();
             _savedForceAlwaysUserScalable = page->forceAlwaysUserScalable();
         }
-        _savedViewScale = [webView _viewScale];
-        _savedZoomScale = [[webView scrollView] zoomScale];
-        _savedMinimumZoomScale = webView.scrollView.minimumZoomScale;
-        _savedMaximumZoomScale = webView.scrollView.maximumZoomScale;
-        _savedBouncesZoom = webView.scrollView.bouncesZoom;
+        _savedViewScale = webView._viewScale;
+        _savedZoomScale = scrollView.zoomScale;
+        _savedContentZoomScale = webView._contentZoomScale;
+        _savedMinimumZoomScale = scrollView.minimumZoomScale;
+        _savedMaximumZoomScale = scrollView.maximumZoomScale;
+        _savedBouncesZoom = scrollView.bouncesZoom;
         _savedMinimumEffectiveDeviceWidth = webView._minimumEffectiveDeviceWidth;
+        _savedHaveSetUnobscuredSafeAreaInsets = webView._haveSetUnobscuredSafeAreaInsets;
+        _savedUnobscuredSafeAreaInsets = webView._unobscuredSafeAreaInsets;
+        _savedHasOverriddenLayoutParameters = webView._hasOverriddenLayoutParameters;
+        _savedMaximumUnobscuredSizeOverride = webView._maximumUnobscuredSizeOverride;
+        _savedMinimumUnobscuredSizeOverride = webView._minimumUnobscuredSizeOverride;
     }
 };
 
@@ -487,24 +545,50 @@ static constexpr NSString *kPrefersFullScreenDimmingKey = @"WebKitPrefersFullScr
 
 @end
 
+@interface WKMRUIPlatterOrnamentProperties : NSObject
+
+@property (nonatomic, readonly) CGFloat depthDisplacement;
+@property (nonatomic, readonly) CGFloat windowAlpha;
+@property (nonatomic, readonly) CGPoint offset2D;
+
+- (instancetype)initWithOrnament:(MRUIPlatterOrnament *)ornament;
+
+@end
+
+@implementation WKMRUIPlatterOrnamentProperties
+
+- (instancetype)initWithOrnament:(MRUIPlatterOrnament *)ornament
+{
+    if (!(self = [super init]))
+        return nil;
+
+    _depthDisplacement = ornament._depthDisplacement;
+    _windowAlpha = ornament.viewController.view.window.alpha;
+    _offset2D = ornament.offset2D;
+
+    return self;
+}
+
+@end
+
 @interface WKFullScreenParentWindowState : NSObject
 
 @property (nonatomic, readonly) CATransform3D transform3D;
 @property (nonatomic, readonly) Class windowClass;
+@property (nonatomic, readonly) CGSize sceneSize;
 @property (nonatomic, readonly) CGSize sceneMinimumSize;
 @property (nonatomic, readonly) RSSSceneChromeOptions sceneChromeOptions;
 @property (nonatomic, readonly) MRUISceneResizingBehavior sceneResizingBehavior;
 @property (nonatomic, readonly) MRUIDarknessPreference preferredDarkness;
-@property (nonatomic, readonly) BOOL prefersOrnamentsHidden;
 
-@property (nonatomic, readonly) NSMapTable<MRUIPlatterOrnament *, NSNumber *> *ornamentDepths;
+@property (nonatomic, readonly) NSMapTable<MRUIPlatterOrnament *, WKMRUIPlatterOrnamentProperties *> *ornamentProperties;
 
 - (id)initWithWindow:(UIWindow *)window;
 
 @end
 
 @implementation WKFullScreenParentWindowState {
-    RetainPtr<NSMapTable<MRUIPlatterOrnament *, NSNumber *>> _ornamentDepths;
+    RetainPtr<NSMapTable<MRUIPlatterOrnament *, WKMRUIPlatterOrnamentProperties *>> _ornamentProperties;
 }
 
 - (id)initWithWindow:(UIWindow *)window
@@ -517,23 +601,25 @@ static constexpr NSString *kPrefersFullScreenDimmingKey = @"WebKitPrefersFullScr
     _preferredDarkness = UIApplication.sharedApplication.mrui_activeStage.preferredDarkness;
 
     UIWindowScene *windowScene = window.windowScene;
+    _sceneSize = windowScene.coordinateSpace.bounds.size;
     _sceneMinimumSize = windowScene.sizeRestrictions.minimumSize;
     _sceneChromeOptions = windowScene.mrui_placement.preferredChromeOptions;
     _sceneResizingBehavior = windowScene.mrui_placement.preferredResizingBehavior;
-    _prefersOrnamentsHidden = windowScene.prefersOrnamentsHidden_forLMKOnly;
 
-    _ornamentDepths = [NSMapTable weakToStrongObjectsMapTable];
+    _ornamentProperties = [NSMapTable weakToStrongObjectsMapTable];
 
     MRUIPlatterOrnamentManager *ornamentManager = windowScene._mrui_platterOrnamentManager;
-    for (MRUIPlatterOrnament *ornament in ornamentManager.ornaments)
-        [_ornamentDepths setObject:@(ornament._depthDisplacement) forKey:ornament];
+    for (MRUIPlatterOrnament *ornament in ornamentManager.ornaments) {
+        auto properties = adoptNS([[WKMRUIPlatterOrnamentProperties alloc] initWithOrnament:ornament]);
+        [_ornamentProperties setObject:properties.get() forKey:ornament];
+    }
 
     return self;
 }
 
-- (NSMapTable<MRUIPlatterOrnament *, NSNumber *> *)ornamentDepths
+- (NSMapTable<MRUIPlatterOrnament *, WKMRUIPlatterOrnamentProperties *> *)ornamentProperties
 {
-    return _ornamentDepths.get();
+    return _ornamentProperties.get();
 }
 
 @end
@@ -627,7 +713,7 @@ static constexpr NSString *kPrefersFullScreenDimmingKey = @"WebKitPrefersFullScr
 
 #pragma mark -
 
-@interface WKFullScreenWindowController (VideoFullscreenManagerProxyClient)
+@interface WKFullScreenWindowController (VideoPresentationManagerProxyClient)
 - (void)didEnterPictureInPicture;
 - (void)didExitPictureInPicture;
 @end
@@ -664,7 +750,7 @@ static constexpr NSString *kPrefersFullScreenDimmingKey = @"WebKitPrefersFullScr
     RetainPtr<WKFullScreenParentWindowState> _parentWindowState;
 #endif
 
-    std::unique_ptr<WebKit::VideoFullscreenManagerProxy::VideoInPictureInPictureDidChangeObserver> _pipObserver;
+    std::unique_ptr<WebKit::VideoPresentationManagerProxy::VideoInPictureInPictureDidChangeObserver> _pipObserver;
     BOOL _shouldReturnToFullscreenFromPictureInPicture;
     BOOL _enterFullscreenNeedsExitPictureInPicture;
     BOOL _returnToFullscreenFromPictureInPicture;
@@ -792,6 +878,7 @@ static constexpr NSString *kPrefersFullScreenDimmingKey = @"WebKitPrefersFullScr
         [_window setAlpha:0];
         [_window setClipsToBounds:YES];
         [_window _setContinuousCornerRadius:kFullScreenWindowCornerRadius];
+        [_window _setPreferredGroundingShadowVisibility:_UIPlatterGroundingShadowVisibilityVisible];
         [_window setNeedsLayout];
         [_window layoutIfNeeded];
     }
@@ -813,7 +900,6 @@ static constexpr NSString *kPrefersFullScreenDimmingKey = @"WebKitPrefersFullScr
     [_fullscreenViewController setDelegate:self];
     _fullscreenViewController.get().view.frame = _rootViewController.get().view.bounds;
 #if PLATFORM(VISION)
-    [_fullscreenViewController setSceneDimmed:[self _prefersSceneDimming]];
     [_fullscreenViewController hideCustomControls:manager->isVideoElement()];
 #endif
     [self _updateLocationInfo];
@@ -863,22 +949,16 @@ static constexpr NSString *kPrefersFullScreenDimmingKey = @"WebKitPrefersFullScr
         WebKit::replaceViewWithView(webView.get(), _webViewPlaceholder.get());
 
         [webView setAutoresizingMask:(UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight)];
-        [webView setFrame:[_window bounds]];
         [webView _setMinimumEffectiveDeviceWidth:0];
-        [webView _overrideLayoutParametersWithMinimumLayoutSize:[_window bounds].size maximumUnobscuredSizeOverride:[_window bounds].size];
+        [webView _setViewScale:1.f];
+        WebKit::WKWebViewState().applyTo(webView.get());
+        [webView _resetContentOffset];
         [_window insertSubview:webView.get() atIndex:0];
         [webView setNeedsLayout];
         [webView layoutIfNeeded];
 
         if (auto* manager = self._manager)
             manager->setAnimatingFullScreen(true);
-
-        WebCore::ViewportArguments arguments { WebCore::ViewportArguments::CSSDeviceAdaptation };
-        arguments.zoom = 1;
-        arguments.minZoom = 1;
-        arguments.maxZoom = 1;
-        arguments.userZoom = 1;
-        page->setOverrideViewportArguments(arguments);
 
         page->forceRepaint([protectedSelf = retainPtr(self), self, logIdentifier = logIdentifier] {
             if (_exitRequested) {
@@ -963,7 +1043,6 @@ static constexpr NSString *kPrefersFullScreenDimmingKey = @"WebKitPrefersFullScr
             return;
         }
 
-        WebKit::WKWebViewState().applyTo(webView.get());
         auto page = [self._webView _page];
         auto* manager = self._manager;
 
@@ -984,21 +1063,21 @@ static constexpr NSString *kPrefersFullScreenDimmingKey = @"WebKitPrefersFullScr
             }
 #endif
 
-            if (auto* videoFullscreenManager = self._videoFullscreenManager) {
+            if (auto* videoPresentationManager = self._videoPresentationManager) {
                 if (!_pipObserver) {
-                    _pipObserver = WTF::makeUnique<WebKit::VideoFullscreenManagerProxy::VideoInPictureInPictureDidChangeObserver>([self] (bool inPiP) {
+                    _pipObserver = WTF::makeUnique<WebKit::VideoPresentationManagerProxy::VideoInPictureInPictureDidChangeObserver>([self] (bool inPiP) {
                         if (inPiP)
                             [self didEnterPictureInPicture];
                         else
                             [self didExitPictureInPicture];
                     });
-                    videoFullscreenManager->addVideoInPictureInPictureDidChangeObserver(*_pipObserver);
+                    videoPresentationManager->addVideoInPictureInPictureDidChangeObserver(*_pipObserver);
                 }
-                if (auto* videoFullscreenInterface = videoFullscreenManager ? videoFullscreenManager->controlsManagerInterface() : nullptr) {
+                if (auto* videoFullscreenInterface = videoPresentationManager ? videoPresentationManager->returningToStandbyInterface() : nullptr) {
                     if (_returnToFullscreenFromPictureInPicture)
                         videoFullscreenInterface->preparedToReturnToStandby();
                     else if (videoFullscreenInterface->inPictureInPicture()) {
-                        if (auto model = videoFullscreenInterface->videoFullscreenModel()) {
+                        if (auto model = videoFullscreenInterface->videoPresentationModel()) {
                             _enterFullscreenNeedsExitPictureInPicture = YES;
                             model->requestFullscreenMode(WebCore::HTMLMediaElementEnums::VideoFullscreenModeNone);
                         }
@@ -1162,7 +1241,7 @@ static constexpr NSString *kPrefersFullScreenDimmingKey = @"WebKitPrefersFullScr
         manager->didExitFullScreen();
     }
 
-    auto* videoFullscreenInterface = self._videoFullscreenManager ? self._videoFullscreenManager->controlsManagerInterface() : nullptr;
+    auto* videoFullscreenInterface = self._videoPresentationManager ? self._videoPresentationManager->controlsManagerInterface() : nullptr;
     _shouldReturnToFullscreenFromPictureInPicture = videoFullscreenInterface && videoFullscreenInterface->inPictureInPicture();
 
     [_window setHidden:YES];
@@ -1246,7 +1325,7 @@ static constexpr NSString *kPrefersFullScreenDimmingKey = @"WebKitPrefersFullScr
 - (void)didExitPictureInPicture
 {
     if (!_enterFullscreenNeedsExitPictureInPicture && _shouldReturnToFullscreenFromPictureInPicture) {
-        auto* videoFullscreenInterface = self._videoFullscreenManager ? self._videoFullscreenManager->controlsManagerInterface() : nullptr;
+        auto* videoFullscreenInterface = self._videoPresentationManager ? self._videoPresentationManager->returningToStandbyInterface() : nullptr;
         if (videoFullscreenInterface && videoFullscreenInterface->returningToStandby()) {
             OBJC_ALWAYS_LOG(OBJC_LOGIDENTIFIER, "returning to standby");
             if (!_exitingFullScreen) {
@@ -1478,10 +1557,10 @@ static constexpr NSString *kPrefersFullScreenDimmingKey = @"WebKitPrefersFullScr
     return nullptr;
 }
 
-- (WebKit::VideoFullscreenManagerProxy*)_videoFullscreenManager
+- (WebKit::VideoPresentationManagerProxy*)_videoPresentationManager
 {
     if (auto page = [self._webView _page])
-        return page->videoFullscreenManager();
+        return page->videoPresentationManager();
     return nullptr;
 }
 
@@ -1607,7 +1686,14 @@ static constexpr NSString *kPrefersFullScreenDimmingKey = @"WebKitPrefersFullScr
     return NO;
 }
 
-- (BOOL)_prefersSceneDimming
+- (BOOL)_sceneAspectRatioLockingEnabled
+{
+    if (auto page = [self._webView _page])
+        return page->preferences().fullscreenSceneAspectRatioLockingEnabled();
+    return YES;
+}
+
+- (BOOL)prefersSceneDimming
 {
     if (![self _sceneDimmingEnabled])
         return NO;
@@ -1648,7 +1734,43 @@ static constexpr NSString *kPrefersFullScreenDimmingKey = @"WebKitPrefersFullScr
         OBJC_ALWAYS_LOG(logIdentifier, "resize completed");
         [_lastKnownParentWindow setFrame:adjustedOriginalWindowFrame];
         [_window setFrame:adjustedFullscreenWindowFrame];
+
+        [self _updateOrnamentOffsetsForTemporarySceneSize:[_window windowScene].coordinateSpace.bounds.size];
     });
+}
+
+- (void)_updateOrnamentOffsetsForTemporarySceneSize:(CGSize)newSceneSize
+{
+    CGSize originalSceneSize = [_parentWindowState sceneSize];
+
+    CGFloat sceneWidthDifference = newSceneSize.width - originalSceneSize.width;
+    CGFloat sceneHeightDifference = newSceneSize.height - originalSceneSize.height;
+
+    // The temporary scene size will always be greater than or equal to the original scene size,
+    // and the position of the original scene will always be centered relative to the new size.
+
+    ASSERT(sceneWidthDifference >= 0);
+    ASSERT(sceneHeightDifference >= 0);
+
+    for (MRUIPlatterOrnament *ornament in [_parentWindowState ornamentProperties]) {
+        CGPoint originalOffset2D = [[[_parentWindowState ornamentProperties] objectForKey:ornament] offset2D];
+        ornament.offset2D = CGPointMake(
+            originalOffset2D.x + sceneWidthDifference * (0.5 - ornament.sceneAnchorPoint.x),
+            originalOffset2D.y + sceneHeightDifference * (0.5 - ornament.sceneAnchorPoint.y)
+        );
+    }
+}
+
+- (void)_setOrnamentsHidden:(BOOL)hidden
+{
+    for (MRUIPlatterOrnament *ornament in [_parentWindowState ornamentProperties]) {
+        if (hidden)
+            ornament.viewController.view.window.alpha = 0.0;
+        else {
+            CGFloat originalAlpha = [[[_parentWindowState ornamentProperties] objectForKey:ornament] windowAlpha];
+            ornament.viewController.view.window.alpha = originalAlpha;
+        }
+    }
 }
 
 - (void)_performSpatialFullScreenTransition:(BOOL)enter completionHandler:(CompletionHandler<void()>&&)completionHandler
@@ -1661,17 +1783,19 @@ static constexpr NSString *kPrefersFullScreenDimmingKey = @"WebKitPrefersFullScr
 
     inWindow.transform3D = CATransform3DTranslate(originalState.transform3D, 0, 0, kIncomingWindowZOffset);
 
-    if ([self _prefersSceneDimming]) {
+    MRUIStage *stage = UIApplication.sharedApplication.mrui_activeStage;
+    if (self.prefersSceneDimming
+        || (!enter && stage.preferredDarkness != originalState.preferredDarkness)) {
         [UIView animateWithDuration:kDarknessAnimationDuration animations:^{
-            MRUIStage *stage = UIApplication.sharedApplication.mrui_activeStage;
-            stage.preferredDarkness = enter ? MRUIDarknessPreferenceVeryDark : originalState.preferredDarkness;
+            stage.preferredDarkness = enter ? MRUIDarknessPreferenceDark : originalState.preferredDarkness;
         } completion:nil];
     }
 
     [UIView animateWithDuration:kOutgoingWindowFadeDuration delay:0 options:UIViewAnimationOptionCurveEaseInOut animations:^{
-        outWindow.alpha = 0;
         if (enter)
-            outWindow.windowScene.prefersOrnamentsHidden_forLMKOnly = YES;
+            [self _setOrnamentsHidden:YES];
+
+        outWindow.alpha = 0;
     } completion:nil];
 
     [UIView animateWithDuration:kWindowTranslationDuration delay:0 options:UIViewAnimationOptionCurveEaseInOut animations:^{
@@ -1682,8 +1806,8 @@ static constexpr NSString *kPrefersFullScreenDimmingKey = @"WebKitPrefersFullScr
         inWindow.transform3D = originalState.transform3D;
     } completion:nil];
 
-    for (MRUIPlatterOrnament *ornament in originalState.ornamentDepths) {
-        CGFloat originalDepth = [[originalState.ornamentDepths objectForKey:ornament] floatValue];
+    for (MRUIPlatterOrnament *ornament in originalState.ornamentProperties) {
+        CGFloat originalDepth = [[originalState.ornamentProperties objectForKey:ornament] depthDisplacement];
         CGFloat finalDepth = originalDepth;
         if (enter)
             finalDepth += kOutgoingWindowZOffset;
@@ -1705,13 +1829,17 @@ static constexpr NSString *kPrefersFullScreenDimmingKey = @"WebKitPrefersFullScr
             [inWindow setFrame:scene.coordinateSpace.bounds];
 
             if (enter) {
-                scene.mrui_placement.preferredResizingBehavior = MRUISceneResizingBehaviorUniform;
+                if ([controller _sceneAspectRatioLockingEnabled])
+                    scene.mrui_placement.preferredResizingBehavior = MRUISceneResizingBehaviorUniform;
                 scene.delegate = adoptNS([[WKFullscreenWindowSceneDelegate alloc] initWithController:controller.get() originalDelegate:scene.delegate]).get();
             } else {
                 scene.sizeRestrictions.minimumSize = [originalState sceneMinimumSize];
                 scene.mrui_placement.preferredResizingBehavior = [originalState sceneResizingBehavior];
                 if (auto delegate = dynamic_objc_cast<WKFullscreenWindowSceneDelegate>(scene.delegate))
                     scene.delegate = [delegate originalDelegate];
+
+                for (MRUIPlatterOrnament *ornament in [originalState ornamentProperties])
+                    ornament.offset2D = [[[originalState ornamentProperties] objectForKey:ornament] offset2D];
             }
 
             scene.mrui_placement.preferredChromeOptions = [originalState sceneChromeOptions];
@@ -1721,21 +1849,23 @@ static constexpr NSString *kPrefersFullScreenDimmingKey = @"WebKitPrefersFullScr
     });
 
     [UIView animateWithDuration:kIncomingWindowFadeDuration delay:kIncomingWindowFadeDelay options:UIViewAnimationOptionCurveEaseInOut animations:^{
-        inWindow.alpha = 1;
         if (!enter)
-            inWindow.windowScene.prefersOrnamentsHidden_forLMKOnly = originalState.prefersOrnamentsHidden;
+            [self _setOrnamentsHidden:NO];
+
+        inWindow.alpha = 1;
     } completion:completion.get()];
 }
 
-- (void)toggleDimming
+- (void)toggleSceneDimming
 {
-    BOOL updatedPrefersSceneDimming = ![self _prefersSceneDimming];
+    BOOL updatedPrefersSceneDimming = !self.prefersSceneDimming;
 
     [[NSUserDefaults standardUserDefaults] setBool:updatedPrefersSceneDimming forKey:kPrefersFullScreenDimmingKey];
-    [_fullscreenViewController setSceneDimmed:updatedPrefersSceneDimming];
 
-    MRUIStage *stage = UIApplication.sharedApplication.mrui_activeStage;
-    stage.preferredDarkness = updatedPrefersSceneDimming ? MRUIDarknessPreferenceVeryDark : [_parentWindowState preferredDarkness];
+    if (self.isFullScreen) {
+        MRUIStage *stage = UIApplication.sharedApplication.mrui_activeStage;
+        stage.preferredDarkness = updatedPrefersSceneDimming ? MRUIDarknessPreferenceDark : [_parentWindowState preferredDarkness];
+    }
 }
 
 #endif // PLATFORM(VISION)
@@ -1776,6 +1906,5 @@ static constexpr NSString *kPrefersFullScreenDimmingKey = @"WebKitPrefersFullScr
 }
 @end
 #endif
-
 
 #endif // PLATFORM(IOS_FAMILY) && ENABLE(FULLSCREEN_API)

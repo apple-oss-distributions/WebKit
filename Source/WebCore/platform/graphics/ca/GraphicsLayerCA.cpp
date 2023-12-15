@@ -29,6 +29,7 @@
 #if USE(CA)
 
 #include "Animation.h"
+#include "DisplayList.h"
 #include "DisplayListRecorderImpl.h"
 #include "DisplayListReplayer.h"
 #include "FloatConversion.h"
@@ -38,7 +39,6 @@
 #include "GraphicsLayerFactory.h"
 #include "HTMLVideoElement.h"
 #include "Image.h"
-#include "InMemoryDisplayList.h"
 #include "Logging.h"
 #include "Model.h"
 #include "PlatformCAAnimationCocoa.h"
@@ -365,7 +365,7 @@ Ref<PlatformCAAnimation> GraphicsLayerCA::createPlatformCAAnimation(PlatformCAAn
     return PlatformCAAnimationCocoa::create(type, keyPath);
 }
 
-typedef HashMap<const GraphicsLayerCA*, std::pair<FloatRect, std::unique_ptr<DisplayList::InMemoryDisplayList>>> LayerDisplayListHashMap;
+typedef HashMap<const GraphicsLayerCA*, std::pair<FloatRect, std::unique_ptr<DisplayList::DisplayList>>> LayerDisplayListHashMap;
 
 static LayerDisplayListHashMap& layerDisplayListMap()
 {
@@ -1051,8 +1051,13 @@ static bool keyframeValueListHasSingleIntervalWithLinearOrEquivalentTimingFuncti
         return false;
 
     auto* timingFunction = valueList.at(0).timingFunction();
-    if (!timingFunction || is<LinearTimingFunction>(timingFunction))
+    if (!timingFunction)
         return true;
+
+    if (is<LinearTimingFunction>(timingFunction)) {
+        ASSERT(LinearTimingFunction::identity() == *timingFunction);
+        return true;
+    }
 
     return is<CubicBezierTimingFunction>(timingFunction) && downcast<CubicBezierTimingFunction>(*timingFunction).isLinear();
 }
@@ -1126,7 +1131,7 @@ void GraphicsLayerCA::pauseAnimation(const String& animationName, double timeOff
     }
 }
 
-void GraphicsLayerCA::removeAnimation(const String& animationName)
+void GraphicsLayerCA::removeAnimation(const String& animationName, std::optional<AnimatedProperty> property)
 {
     LOG_WITH_STREAM(Animations, stream << "GraphicsLayerCA " << this << " id " << primaryLayerID() << " removeAnimation " << animationName << " (is running " << animationIsRunning(animationName) << ")");
 
@@ -1134,6 +1139,10 @@ void GraphicsLayerCA::removeAnimation(const String& animationName)
         // There may be several animations with the same name in the case of transform animations
         // animating multiple components as individual animations.
         if (animation.m_name == animationName && !animation.m_pendingRemoval) {
+            // If a specific property is provided, we must check we only remove the animations
+            // for this specific property.
+            if (property && animation.m_property != *property)
+                continue;
             animation.m_pendingRemoval = true;
             noteLayerPropertyChanged(AnimationChanged | CoverageRectChanged);
         }
@@ -1314,10 +1323,14 @@ void GraphicsLayerCA::setContentsToVideoElement(HTMLVideoElement& videoElement, 
 {
 #if HAVE(AVKIT)
     if (auto hostingContextID = videoElement.layerHostingContextID()) {
-        if (hostingContextID != m_layerHostingContextID) {
-            m_contentsLayer = createPlatformVideoLayer(videoElement, this);
-            m_layerHostingContextID = hostingContextID;
+        if (m_contentsLayer && !m_contentsDisplayDelegate
+            && m_layerHostingContextID == hostingContextID
+            && m_contentsLayerPurpose == purpose) {
+                return;
         }
+
+        m_contentsLayer = createPlatformVideoLayer(videoElement, this);
+        m_layerHostingContextID = hostingContextID;
         m_contentsLayerPurpose = purpose;
         m_contentsDisplayDelegate = nullptr;
         updateVideoGravity();
@@ -1866,7 +1879,7 @@ void GraphicsLayerCA::recursiveCommitChanges(CommitState& commitState, const Tra
     if (usesDisplayListDrawing() && m_drawsContent && (!m_hasEverPainted || hadDirtyRects)) {
         TraceScope tracingScope(DisplayListRecordStart, DisplayListRecordEnd);
 
-        m_displayList = makeUnique<DisplayList::InMemoryDisplayList>();
+        m_displayList = makeUnique<DisplayList::DisplayList>();
         
         FloatRect initialClip(boundsOrigin(), size());
 
@@ -1898,7 +1911,7 @@ void GraphicsLayerCA::platformCALayerPaintContents(PlatformCALayer*, GraphicsCon
         
         if (UNLIKELY(isTrackingDisplayListReplay())) {
             auto replayList = replayer.replay(clip, isTrackingDisplayListReplay()).trackedDisplayList;
-            layerDisplayListMap().add(this, std::pair<FloatRect, std::unique_ptr<DisplayList::InMemoryDisplayList>>(clip, WTFMove(replayList)));
+            layerDisplayListMap().add(this, std::pair<FloatRect, std::unique_ptr<DisplayList::DisplayList>>(clip, WTFMove(replayList)));
         } else
             replayer.replay(clip);
 
@@ -2725,7 +2738,7 @@ void GraphicsLayerCA::updateCoverage(const CommitState& commitState)
     }
 
 #if ENABLE(INTERACTION_REGIONS_IN_EVENT_REGION)
-    m_layer->setCoverageRect(m_coverageRect);
+    m_layer->setVisibleRect(m_visibleRect);
 #endif
 
     bool requiresBacking = m_intersectsCoverageRect
@@ -2898,7 +2911,7 @@ void GraphicsLayerCA::updateContentsColorLayer()
 void GraphicsLayerCA::updateClippingStrategy(PlatformCALayer& clippingLayer, RefPtr<PlatformCALayer>& shapeMaskLayer, const FloatRoundedRect& roundedRect)
 {
     if (roundedRect.radii().isUniformCornerRadius() && clippingLayer.bounds() == roundedRect.rect()) {
-        clippingLayer.setMask(nullptr);
+        clippingLayer.setMaskLayer(nullptr);
         if (shapeMaskLayer) {
             shapeMaskLayer->setOwner(nullptr);
             shapeMaskLayer = nullptr;
@@ -2928,7 +2941,8 @@ void GraphicsLayerCA::updateClippingStrategy(PlatformCALayer& clippingLayer, Ref
     shapeMaskLayer->setShapeRoundedRect(localRoundedRect);
 
     clippingLayer.setCornerRadius(0);
-    clippingLayer.setMask(shapeMaskLayer.get());
+    RefPtr maskLayer = shapeMaskLayer;
+    clippingLayer.setMaskLayer(WTFMove(maskLayer));
 }
 
 void GraphicsLayerCA::updateContentsRects()
@@ -2967,7 +2981,7 @@ void GraphicsLayerCA::updateContentsRects()
 
             m_contentsClippingLayer->removeFromSuperlayer();
             m_contentsClippingLayer->setOwner(nullptr);
-            m_contentsClippingLayer->setMask(nullptr);
+            m_contentsClippingLayer->setMaskLayer(nullptr);
             m_contentsClippingLayer = nullptr;
             gainedOrLostClippingLayer = true;
         }
@@ -3021,22 +3035,22 @@ void GraphicsLayerCA::updateScrollingNode()
 
 void GraphicsLayerCA::updateMaskLayer()
 {
-    PlatformCALayer* maskCALayer = m_maskLayer ? downcast<GraphicsLayerCA>(*m_maskLayer).primaryLayer() : nullptr;
+    RefPtr<PlatformCALayer> maskCALayer = m_maskLayer ? downcast<GraphicsLayerCA>(*m_maskLayer).primaryLayer() : nullptr;
     
     LayerMap* layerCloneMap;
     if (m_structuralLayer && structuralLayerPurpose() == StructuralLayerForBackdrop) {
-        m_structuralLayer->setMask(maskCALayer);
+        m_structuralLayer->setMaskLayer(WTFMove(maskCALayer));
         layerCloneMap = m_layerClones ? &m_layerClones->structuralLayerClones : nullptr;
     } else {
-        m_layer->setMask(maskCALayer);
+        m_layer->setMaskLayer(WTFMove(maskCALayer));
         layerCloneMap = m_layerClones ? &m_layerClones->primaryLayerClones : nullptr;
     }
 
     LayerMap* maskLayerCloneMap = m_maskLayer ? downcast<GraphicsLayerCA>(*m_maskLayer).primaryLayerClones() : nullptr;
     if (layerCloneMap) {
         for (auto& clone : *layerCloneMap) {
-            PlatformCALayer* maskClone = maskLayerCloneMap ? maskLayerCloneMap->get(clone.key) : nullptr;
-            clone.value->setMask(maskClone);
+            RefPtr<PlatformCALayer> maskClone = maskLayerCloneMap ? maskLayerCloneMap->get(clone.key) : nullptr;
+            clone.value->setMaskLayer(WTFMove(maskClone));
         }
     }
 }
@@ -3554,7 +3568,7 @@ bool GraphicsLayerCA::createTransformAnimationsFromKeyframes(const KeyframeValue
     const auto& primitives = prefix.primitives();
     unsigned numberOfSharedPrimitives = valueList.size() > 1 ? primitives.size() : 0;
 
-    removeAnimation(animationName);
+    removeAnimation(animationName, valueList.property());
 
     for (unsigned animationIndex = 0; animationIndex < numberOfSharedPrimitives; ++animationIndex) {
         if (!appendToUncommittedAnimations(valueList, primitives[animationIndex], animation, animationName, boxSize, animationIndex, timeOffset, false /* isMatrixAnimation */, keyframesShouldUseAnimationWideTimingFunction))
@@ -3619,7 +3633,7 @@ bool GraphicsLayerCA::createFilterAnimationsFromKeyframes(const KeyframeValueLis
             return false;
     }
 
-    removeAnimation(animationName);
+    removeAnimation(animationName, valueList.property());
 
     for (int animationIndex = 0; animationIndex < numAnimations; ++animationIndex) {
         if (!appendToUncommittedAnimations(valueList, operations.operations().at(animationIndex).get(), animation, animationName, animationIndex, timeOffset, keyframesShouldUseAnimationWideTimingFunction))
@@ -3707,7 +3721,7 @@ const TimingFunction& GraphicsLayerCA::timingFunctionForAnimationValue(const Ani
         return *animValue.timingFunction();
     if (anim.defaultTimingFunctionForKeyframes())
         return *anim.defaultTimingFunctionForKeyframes();
-    return LinearTimingFunction::sharedLinearTimingFunction();
+    return LinearTimingFunction::identity();
 }
 
 bool GraphicsLayerCA::setAnimationEndpoints(const KeyframeValueList& valueList, const Animation* animation, PlatformCAAnimation* basicAnim)
@@ -4673,7 +4687,7 @@ RefPtr<PlatformCALayer> GraphicsLayerCA::fetchCloneLayers(GraphicsLayer* replica
 
     if (m_maskLayer) {
         RefPtr<PlatformCALayer> maskClone = downcast<GraphicsLayerCA>(*m_maskLayer).fetchCloneLayers(replicaRoot, replicaState, IntermediateCloneLevel);
-        primaryLayer->setMask(maskClone.get());
+        primaryLayer->setMaskLayer(WTFMove(maskClone));
     }
 
     if (m_replicatedLayer) {
@@ -4707,16 +4721,16 @@ RefPtr<PlatformCALayer> GraphicsLayerCA::fetchCloneLayers(GraphicsLayer* replica
         contentsClippingLayer->appendSublayer(*contentsLayer);
 
     if (contentsShapeMaskLayer)
-        contentsClippingLayer->setMask(contentsShapeMaskLayer.get());
+        contentsClippingLayer->setMaskLayer(WTFMove(contentsShapeMaskLayer));
 
     if (shapeMaskLayer)
-        primaryLayer->setMask(shapeMaskLayer.get());
+        primaryLayer->setMaskLayer(WTFMove(shapeMaskLayer));
 
     if (replicaLayer || structuralLayer || contentsLayer || contentsClippingLayer || childLayers.size() > 0) {
         if (structuralLayer) {
             if (backdropLayer) {
                 clonalSublayers.append(backdropLayer);
-                backdropLayer->setMask(backdropClippingLayer.get());
+                backdropLayer->setMaskLayer(WTFMove(backdropClippingLayer));
             }
             
             // Replicas render behind the actual layer content.

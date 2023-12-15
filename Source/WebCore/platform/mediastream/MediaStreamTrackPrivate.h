@@ -84,6 +84,7 @@ public:
 
     bool muted() const;
     void setMuted(bool muted) { m_source->setMuted(muted); }
+    bool interrupted() const;
 
     void setIsInBackground(bool value) { m_source->setIsInBackground(value); }
 
@@ -135,7 +136,7 @@ private:
     void sourceMutedChanged() final;
     void sourceSettingsChanged() final;
     void sourceConfigurationChanged() final;
-    bool preventSourceFromStopping() final;
+    bool preventSourceFromEnding() final;
     void audioUnitWillStart() final;
     void hasStartedProducingData() final;
 

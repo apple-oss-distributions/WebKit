@@ -299,11 +299,6 @@ public:
     const LayerRepresentation& layer() const { return m_layer; }
     WEBCORE_EXPORT void setLayer(const LayerRepresentation&);
 
-#if ENABLE(INTERACTION_REGIONS_IN_EVENT_REGION)
-    const LayerRepresentation& interactionRegionsLayer() const { return m_interactionRegionsLayer; }
-    WEBCORE_EXPORT void setInteractionRegionsLayer(const LayerRepresentation&);
-#endif
-
     ScrollingStateTree& scrollingStateTree() const { return m_scrollingStateTree; }
 
     ScrollingNodeID scrollingNodeID() const { return m_nodeID; }
@@ -312,18 +307,18 @@ public:
     void setParent(RefPtr<ScrollingStateNode>&& parent) { m_parent = parent; }
     ScrollingNodeID parentNodeID() const;
 
-    Vector<RefPtr<ScrollingStateNode>>* children() const { return m_children.get(); }
-    std::unique_ptr<Vector<RefPtr<ScrollingStateNode>>> takeChildren() { return WTFMove(m_children); }
+    Vector<Ref<ScrollingStateNode>>& children() { return m_children; }
+    const Vector<Ref<ScrollingStateNode>>& children() const { return m_children; }
+    Vector<Ref<ScrollingStateNode>> takeChildren() { return std::exchange(m_children, { }); }
 
     void appendChild(Ref<ScrollingStateNode>&&);
     void insertChild(Ref<ScrollingStateNode>&&, size_t index);
 
     // Note that node ownership is via the parent, so these functions can trigger node deletion.
     void removeFromParent();
-    void removeChildAtIndex(size_t index);
     void removeChild(ScrollingStateNode&);
 
-    size_t indexOfChild(ScrollingStateNode&) const;
+    RefPtr<ScrollingStateNode> childAtIndex(size_t) const;
 
     String scrollingStateTreeAsText(OptionSet<ScrollingStateTreeAsTextBehavior> = { }) const;
 
@@ -347,12 +342,9 @@ private:
     ScrollingStateTree& m_scrollingStateTree;
 
     ThreadSafeWeakPtr<ScrollingStateNode> m_parent;
-    std::unique_ptr<Vector<RefPtr<ScrollingStateNode>>> m_children;
+    Vector<Ref<ScrollingStateNode>> m_children;
 
     LayerRepresentation m_layer;
-#if ENABLE(INTERACTION_REGIONS_IN_EVENT_REGION)
-    LayerRepresentation m_interactionRegionsLayer;
-#endif
 };
 
 inline ScrollingNodeID ScrollingStateNode::parentNodeID() const

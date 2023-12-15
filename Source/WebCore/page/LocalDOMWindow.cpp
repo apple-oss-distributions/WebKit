@@ -134,6 +134,7 @@
 #include <wtf/NeverDestroyed.h>
 #include <wtf/Ref.h>
 #include <wtf/SetForScope.h>
+#include <wtf/SystemTracing.h>
 #include <wtf/URL.h>
 #include <wtf/text/WTFString.h>
 
@@ -1488,33 +1489,6 @@ void LocalDOMWindow::setName(const AtomString& string)
 void LocalDOMWindow::setStatus(const String& string)
 {
     m_status = string;
-
-    RefPtr frame = this->frame();
-    if (!frame)
-        return;
-
-    Page* page = frame->page();
-    if (!page)
-        return;
-
-    ASSERT(frame->document()); // Client calls shouldn't be made when the frame is in inconsistent state.
-    page->chrome().setStatusbarText(*frame, m_status);
-}
-
-void LocalDOMWindow::setDefaultStatus(const String& string)
-{
-    m_defaultStatus = string;
-
-    RefPtr frame = this->frame();
-    if (!frame)
-        return;
-
-    Page* page = frame->page();
-    if (!page)
-        return;
-
-    ASSERT(frame->document()); // Client calls shouldn't be made when the frame is in inconsistent state.
-    page->chrome().setStatusbarText(*frame, m_defaultStatus);
 }
 
 WindowProxy* LocalDOMWindow::opener() const
@@ -1899,7 +1873,7 @@ ExceptionOr<int> LocalDOMWindow::setTimeout(std::unique_ptr<ScheduledAction> act
 
     action->addArguments(WTFMove(arguments));
 
-    return DOMTimer::install(*context, WTFMove(action), Seconds::fromMilliseconds(timeout), true);
+    return DOMTimer::install(*context, WTFMove(action), Seconds::fromMilliseconds(timeout), DOMTimer::Type::SingleShot);
 }
 
 void LocalDOMWindow::clearTimeout(int timeoutId)
@@ -1924,7 +1898,7 @@ ExceptionOr<int> LocalDOMWindow::setInterval(std::unique_ptr<ScheduledAction> ac
 
     action->addArguments(WTFMove(arguments));
 
-    return DOMTimer::install(*context, WTFMove(action), Seconds::fromMilliseconds(timeout), false);
+    return DOMTimer::install(*context, WTFMove(action), Seconds::fromMilliseconds(timeout), DOMTimer::Type::Repeating);
 }
 
 void LocalDOMWindow::clearInterval(int timeoutId)
@@ -2356,7 +2330,14 @@ void LocalDOMWindow::dispatchLoadEvent()
             navigationTiming->documentLoadTiming().setLoadEventStart(now);
     }
 
+    bool isMainFrame = frame() && frame()->isMainFrame();
+    if (isMainFrame)
+        WTFBeginSignpost(document(), "Page Load: Load Event");
+
     dispatchEvent(Event::create(eventNames().loadEvent, Event::CanBubble::No, Event::IsCancelable::No), document());
+
+    if (isMainFrame)
+        WTFEndSignpost(document(), "Page Load: Load Event");
 
     if (shouldMarkLoadEventTimes) {
         auto now = MonotonicTime::now();
@@ -2599,7 +2580,7 @@ ExceptionOr<RefPtr<LocalFrame>> LocalDOMWindow::createWindow(const String& urlSt
     WindowFeatures windowFeatures = initialWindowFeatures;
 
     // For whatever reason, Firefox uses the first frame to determine the outgoingReferrer. We replicate that behavior here.
-    String referrer = windowFeatures.noreferrer ? String() : SecurityPolicy::generateReferrerHeader(firstFrame.document()->referrerPolicy(), completedURL, firstFrame.loader().outgoingReferrer(), OriginAccessPatternsForWebProcess::singleton());
+    String referrer = windowFeatures.wantsNoReferrer() ? String() : SecurityPolicy::generateReferrerHeader(firstFrame.document()->referrerPolicy(), completedURL, firstFrame.loader().outgoingReferrer(), OriginAccessPatternsForWebProcess::singleton());
     auto initiatedByMainFrame = activeFrame->isMainFrame() ? InitiatedByMainFrame::Yes : InitiatedByMainFrame::Unknown;
 
     ResourceRequest resourceRequest { completedURL, referrer };
@@ -2616,7 +2597,7 @@ ExceptionOr<RefPtr<LocalFrame>> LocalDOMWindow::createWindow(const String& urlSt
     if (!newFrame)
         return RefPtr<LocalFrame> { nullptr };
 
-    bool noopener = windowFeatures.noopener || windowFeatures.noreferrer;
+    bool noopener = windowFeatures.wantsNoOpener();
     if (!noopener)
         newFrame->loader().setOpener(&openerFrame);
 
@@ -2802,7 +2783,7 @@ WebCoreOpaqueRoot root(LocalDOMWindow* window)
 CookieStore& LocalDOMWindow::cookieStore()
 {
     if (!m_cookieStore)
-        m_cookieStore = CookieStore::create();
+        m_cookieStore = CookieStore::create(document());
     return *m_cookieStore;
 }
 

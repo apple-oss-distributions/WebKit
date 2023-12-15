@@ -63,6 +63,8 @@ public:
     {
     }
 
+    virtual ~AsyncCallback() { }
+
     HRESULT STDMETHODCALLTYPE QueryInterface(_In_ REFIID riid, __RPC__deref_out void __RPC_FAR *__RPC_FAR *ppvObject) override
     {
         static const QITAB qit[] = {
@@ -132,7 +134,7 @@ private:
         return makeUnique<MediaPlayerPrivateMediaFoundation>(player);
     }
 
-    void getSupportedTypes(HashSet<String, ASCIICaseInsensitiveHash>& types) const final
+    void getSupportedTypes(HashSet<String>& types) const final
     {
         return MediaPlayerPrivateMediaFoundation::getSupportedTypes(types);
     }
@@ -155,9 +157,9 @@ bool MediaPlayerPrivateMediaFoundation::isAvailable()
     return isMediaFoundationAvailable;
 }
 
-static const HashSet<String, ASCIICaseInsensitiveHash>& mimeTypeCache()
+static const HashSet<String>& mimeTypeCache()
 {
-    static NeverDestroyed<HashSet<String, ASCIICaseInsensitiveHash>> cachedTypes;
+    static NeverDestroyed<HashSet<String>> cachedTypes;
 
     if (cachedTypes.get().size() > 0)
         return cachedTypes;
@@ -180,7 +182,7 @@ static const HashSet<String, ASCIICaseInsensitiveHash>& mimeTypeCache()
     return cachedTypes;
 }
 
-void MediaPlayerPrivateMediaFoundation::getSupportedTypes(HashSet<String, ASCIICaseInsensitiveHash>& types)
+void MediaPlayerPrivateMediaFoundation::getSupportedTypes(HashSet<String>& types)
 {
     types = mimeTypeCache();
 }
@@ -264,13 +266,13 @@ bool MediaPlayerPrivateMediaFoundation::seeking() const
     return m_seeking;
 }
 
-void MediaPlayerPrivateMediaFoundation::seek(float time)
+void MediaPlayerPrivateMediaFoundation::seekToTarget(const SeekTarget& target)
 {
     PROPVARIANT propVariant;
     PropVariantInit(&propVariant);
     propVariant.vt = VT_I8;
-    propVariant.hVal.QuadPart = static_cast<__int64>(time * tenMegahertz);
-    
+    propVariant.hVal.QuadPart = static_cast<__int64>(target.time.toFloat() * tenMegahertz);
+
     HRESULT hr = m_mediaSession->Start(&GUID_NULL, &propVariant);
     ASSERT_UNUSED(hr, SUCCEEDED(hr));
     PropVariantClear(&propVariant);
@@ -2831,7 +2833,6 @@ void MediaPlayerPrivateMediaFoundation::Direct3DPresenter::paintCurrentFrame(Web
 
         ASSERT(cairoFormat != CAIRO_FORMAT_INVALID);
 
-        cairo_surface_t* image = nullptr;
         if (cairoFormat != CAIRO_FORMAT_INVALID) {
             auto surface = adoptRef(cairo_image_surface_create_for_data(static_cast<unsigned char*>(data), cairoFormat, width, height, pitch));
             auto image = NativeImage::create(WTFMove(surface));

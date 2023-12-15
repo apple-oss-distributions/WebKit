@@ -471,7 +471,7 @@ void PageClientImpl::doneWithKeyEvent(const NativeWebKeyboardEvent& event, bool 
 #if ENABLE(TOUCH_EVENTS)
 void PageClientImpl::doneWithTouchEvent(const NativeWebTouchEvent& nativeWebTouchEvent, bool eventHandled)
 {
-    [contentView() _webTouchEvent:nativeWebTouchEvent preventsNativeGestures:eventHandled];
+    [contentView() _touchEvent:nativeWebTouchEvent preventsNativeGestures:eventHandled];
 }
 #endif
 
@@ -884,6 +884,11 @@ void PageClientImpl::didFinishNavigation(API::Navigation* navigation)
 void PageClientImpl::didFailNavigation(API::Navigation* navigation)
 {
     [webView() _didFailNavigation:navigation];
+}
+
+std::optional<WebKit::VisibleContentRectUpdateInfo> PageClientImpl::createVisibleContentRectUpdateInfo()
+{
+    return [webView() _createVisibleContentRectUpdateInfo];
 }
 
 void PageClientImpl::didSameDocumentNavigationForMainFrame(SameDocumentNavigationType navigationType)

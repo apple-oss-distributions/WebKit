@@ -58,6 +58,8 @@ public:
 
     bool displayDidRefreshIsPending() const { return m_waitingForBackingStoreSwap; }
 
+    void gpuProcessConnectionWasDestroyed();
+
 protected:
     void updateRendering();
 
@@ -66,7 +68,7 @@ private:
     void setNeedsDisplay() override;
     void setNeedsDisplayInRect(const WebCore::IntRect&) override;
     void scroll(const WebCore::IntRect& scrollRect, const WebCore::IntSize& scrollDelta) override;
-    void updateGeometry(const WebCore::IntSize& viewSize, bool flushSynchronously, const WTF::MachSendRight& fencePort, CompletionHandler<void()>&&) override;
+    void updateGeometry(const WebCore::IntSize& viewSize, const std::optional<VisibleContentRectUpdateInfo>&, bool flushSynchronously, const WTF::MachSendRight& fencePort, CompletionHandler<void()>&&) override;
 
     WebCore::GraphicsLayerFactory* graphicsLayerFactory() override;
     void setRootCompositingLayer(WebCore::Frame&, WebCore::GraphicsLayer*) override;
@@ -133,13 +135,13 @@ private:
 
     class BackingStoreFlusher : public ThreadSafeRefCounted<BackingStoreFlusher> {
     public:
-        static Ref<BackingStoreFlusher> create(IPC::Connection*, UniqueRef<IPC::Encoder>&&, Vector<std::unique_ptr<WebCore::ThreadSafeImageBufferFlusher>>);
+        static Ref<BackingStoreFlusher> create(RefPtr<IPC::Connection>&&, UniqueRef<IPC::Encoder>&&, Vector<std::unique_ptr<WebCore::ThreadSafeImageBufferFlusher>>);
 
         void flush();
         bool hasFlushed() const { return m_hasFlushed; }
 
     private:
-        BackingStoreFlusher(IPC::Connection*, UniqueRef<IPC::Encoder>&&, Vector<std::unique_ptr<WebCore::ThreadSafeImageBufferFlusher>>);
+        BackingStoreFlusher(RefPtr<IPC::Connection>&&, UniqueRef<IPC::Encoder>&&, Vector<std::unique_ptr<WebCore::ThreadSafeImageBufferFlusher>>);
 
         RefPtr<IPC::Connection> m_connection;
         std::unique_ptr<IPC::Encoder> m_commitEncoder;

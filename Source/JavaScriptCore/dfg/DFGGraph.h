@@ -366,7 +366,7 @@ public:
             NodeFlags flags = node->flags() & NodeBytecodeBackPropMask;
             if (!flags)
                 return false;
-            return (flags & (NodeBytecodeUsesAsNumber | NodeBytecodeNeedsNegZero | NodeBytecodeUsesAsInt | NodeBytecodeUsesAsArrayIndex)) == flags;
+            return (flags & (NodeBytecodeUsesAsNumber | NodeBytecodeNeedsNegZero | NodeBytecodeNeedsNaNOrInfinity | NodeBytecodeUsesAsInt | NodeBytecodePrefersArrayIndex)) == flags;
         };
 
         // Wrapping Int52 to Value is also not so cheap. Thus, we allow Int52 addition only when the node is used as number.
@@ -923,8 +923,8 @@ public:
 
     // This uses either constant property inference or property type inference to derive a good abstract
     // value for some property accessed with the given abstract value base.
-    AbstractValue inferredValueForProperty(
-        const AbstractValue& base, PropertyOffset, StructureClobberState);
+    AbstractValue inferredValueForProperty(const AbstractValue& base, PropertyOffset, StructureClobberState);
+    AbstractValue inferredValueForProperty(const AbstractValue& base, const RegisteredStructureSet&, PropertyOffset, StructureClobberState);
     
     FullBytecodeLiveness& livenessFor(CodeBlock*);
     FullBytecodeLiveness& livenessFor(InlineCallFrame*);

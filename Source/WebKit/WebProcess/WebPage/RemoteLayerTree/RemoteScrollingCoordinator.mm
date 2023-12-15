@@ -46,6 +46,7 @@
 #import <WebCore/RenderView.h>
 #import <WebCore/ScrollbarsController.h>
 #import <WebCore/ScrollingStateFrameScrollingNode.h>
+#import <WebCore/ScrollingStateTree.h>
 #import <WebCore/ScrollingTreeFixedNodeCocoa.h>
 #import <WebCore/ScrollingTreeStickyNodeCocoa.h>
 #import <WebCore/WheelEventTestMonitor.h>
@@ -102,12 +103,14 @@ void RemoteScrollingCoordinator::setScrollPinningBehavior(ScrollPinningBehavior)
     // FIXME: send to the UI process.
 }
 
-void RemoteScrollingCoordinator::buildTransaction(RemoteScrollingCoordinatorTransaction& transaction)
+RemoteScrollingCoordinatorTransaction RemoteScrollingCoordinator::buildTransaction()
 {
     willCommitTree();
 
-    transaction.setClearScrollLatching(std::exchange(m_clearScrollLatchingInNextTransaction, false));
-    transaction.setStateTreeToEncode(scrollingStateTree()->commit(LayerRepresentation::PlatformLayerIDRepresentation));
+    return {
+        scrollingStateTree()->commit(LayerRepresentation::PlatformLayerIDRepresentation),
+        std::exchange(m_clearScrollLatchingInNextTransaction, false)
+    };
 }
 
 // Notification from the UI process that we scrolled.
@@ -140,6 +143,9 @@ void RemoteScrollingCoordinator::scrollingStateInUIProcessChanged(const RemoteSc
 
     if (uiState.changes().contains(RemoteScrollingUIStateChanges::UserScrollNodes))
         m_nodesWithActiveUserScrolls = uiState.nodesWithActiveUserScrolls();
+
+    if (uiState.changes().contains(RemoteScrollingUIStateChanges::RubberbandingNodes))
+        m_nodesWithActiveRubberBanding = uiState.nodesWithActiveRubberband();
 }
 
 void RemoteScrollingCoordinator::addNodeWithActiveRubberBanding(ScrollingNodeID nodeID)

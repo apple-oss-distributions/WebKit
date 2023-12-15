@@ -32,6 +32,7 @@
 #include "BackForwardCache.h"
 #include "BackForwardClient.h"
 #include "BackForwardController.h"
+#include "BadgeClient.h"
 #include "BroadcastChannelRegistry.h"
 #include "CacheStorageProvider.h"
 #include "CachedImage.h"
@@ -66,6 +67,7 @@
 #include "EventLoop.h"
 #include "EventNames.h"
 #include "ExtensionStyleSheets.h"
+#include "FilterRenderingMode.h"
 #include "FocusController.h"
 #include "FontCache.h"
 #include "FrameLoader.h"
@@ -159,12 +161,13 @@
 #include "TextIterator.h"
 #include "TextRecognitionResult.h"
 #include "TextResourceDecoder.h"
+#include "ThermalMitigationNotifier.h"
 #include "UserContentProvider.h"
 #include "UserContentURLPattern.h"
-#include "UserInputBridge.h"
 #include "UserScript.h"
 #include "UserStyleSheet.h"
 #include "ValidationMessageClient.h"
+#include "VisibilityState.h"
 #include "VisitedLinkState.h"
 #include "VisitedLinkStore.h"
 #include "VoidCallback.h"
@@ -173,6 +176,7 @@
 #include "WheelEventDeltaFilter.h"
 #include "WheelEventTestMonitor.h"
 #include "Widget.h"
+#include "WindowEventLoop.h"
 #include "WorkerOrWorkletScriptController.h"
 #include <JavaScriptCore/VM.h>
 #include <wtf/FileSystem.h>
@@ -269,14 +273,14 @@ static constexpr OptionSet<ActivityState> pageInitialActivityState()
     return { ActivityState::IsVisible, ActivityState::IsInWindow };
 }
 
-static Ref<Frame> createMainFrame(Page& page, std::variant<UniqueRef<LocalFrameLoaderClient>, PageConfiguration::RemoteMainFrameCreationParameters>&& frameCreationParameter, FrameIdentifier identifier)
+static Ref<Frame> createMainFrame(Page& page, std::variant<UniqueRef<LocalFrameLoaderClient>, UniqueRef<RemoteFrameClient>>&& client, FrameIdentifier identifier)
 {
-    return switchOn(WTFMove(frameCreationParameter), [&] (UniqueRef<LocalFrameLoaderClient>&& localFrameClient) -> Ref<Frame> {
+    return switchOn(WTFMove(client), [&] (UniqueRef<LocalFrameLoaderClient>&& localFrameClient) -> Ref<Frame> {
         auto localFrame = LocalFrame::createMainFrame(page, WTFMove(localFrameClient), identifier);
         page.addRootFrame(localFrame.get());
         return localFrame;
-    }, [&] (PageConfiguration::RemoteMainFrameCreationParameters&& remoteMainFrameCreationParameters) -> Ref<Frame> {
-        return RemoteFrame::createMainFrame(page, WTFMove(remoteMainFrameCreationParameters.remoteFrameClient), identifier, remoteMainFrameCreationParameters.remoteProcessIdentifier);
+    }, [&] (UniqueRef<RemoteFrameClient>&& remoteFrameClient) -> Ref<Frame> {
+        return RemoteFrame::createMainFrame(page, WTFMove(remoteFrameClient), identifier);
     });
 }
 
@@ -291,7 +295,6 @@ Page::Page(PageConfiguration&& pageConfiguration)
 #if ENABLE(CONTEXT_MENUS)
     , m_contextMenuController(makeUniqueRef<ContextMenuController>(*this, WTFMove(pageConfiguration.contextMenuClient)))
 #endif
-    , m_userInputBridge(makeUniqueRef<UserInputBridge>(*this))
     , m_inspectorController(makeUniqueRef<InspectorController>(*this, WTFMove(pageConfiguration.inspectorClient)))
     , m_pointerCaptureController(makeUniqueRef<PointerCaptureController>(*this))
 #if ENABLE(POINTER_LOCK)
@@ -340,6 +343,7 @@ Page::Page(PageConfiguration&& pageConfiguration)
     , m_isUtilityPage(isUtilityPageChromeClient(chrome().client()))
     , m_performanceMonitor(isUtilityPage() ? nullptr : makeUnique<PerformanceMonitor>(*this))
     , m_lowPowerModeNotifier(makeUnique<LowPowerModeNotifier>([this](bool isLowPowerModeEnabled) { handleLowModePowerChange(isLowPowerModeEnabled); }))
+    , m_thermalMitigationNotifier(makeUnique<ThermalMitigationNotifier>([this](bool thermalMitigationEnabled) { handleThermalMitigationChange(thermalMitigationEnabled); }))
     , m_performanceLogging(makeUnique<PerformanceLogging>(*this))
 #if PLATFORM(MAC) && (ENABLE(SERVICE_CONTROLS) || ENABLE(TELEPHONE_NUMBER_DETECTION))
     , m_servicesOverlayController(makeUnique<ServicesOverlayController>(*this))
@@ -415,6 +419,9 @@ Page::Page(PageConfiguration&& pageConfiguration)
 
     if (m_lowPowerModeNotifier->isLowPowerModeEnabled())
         m_throttlingReasons.add(ThrottlingReason::LowPowerMode);
+
+    if (m_thermalMitigationNotifier->thermalMitigationEnabled())
+        m_throttlingReasons.add(ThrottlingReason::ThermalMitigation);
 }
 
 Page::~Page()
@@ -502,10 +509,31 @@ OptionSet<DisabledAdaptations> Page::disabledAdaptations() const
     return { };
 }
 
+static Document* viewportDocumentForFrame(const Frame& frame)
+{
+    auto* localFrame = dynamicDowncast<LocalFrame>(frame);
+    if (!localFrame)
+        return nullptr;
+
+    auto* document = localFrame->document();
+    if (!document)
+        return nullptr;
+
+    Page* page = localFrame->page();
+    if (!page)
+        return nullptr;
+
+    if (auto* fullscreenDocument = page->outermostFullscreenDocument())
+        return fullscreenDocument;
+
+    return document;
+}
+
 ViewportArguments Page::viewportArguments() const
 {
-    auto* localMainFrame = dynamicDowncast<LocalFrame>(mainFrame());
-    return localMainFrame && localMainFrame->document() ? localMainFrame->document()->viewportArguments() : ViewportArguments();
+    if (auto* document = viewportDocumentForFrame(mainFrame()))
+        return document->viewportArguments();
+    return ViewportArguments();
 }
 
 void Page::setOverrideViewportArguments(const std::optional<ViewportArguments>& viewportArguments)
@@ -1483,12 +1511,7 @@ void Page::didCommitLoad()
         geolocationController->didNavigatePage();
 #endif
 
-    m_opportunisticTaskDeferralScopeForFirstPaint = m_opportunisticTaskScheduler->makeDeferralScope();
-}
-
-void Page::didFirstMeaningfulPaint()
-{
-    m_opportunisticTaskDeferralScopeForFirstPaint = nullptr;
+    m_isWaitingForLoadToFinish = true;
 }
 
 void Page::didFinishLoad()
@@ -1499,6 +1522,8 @@ void Page::didFinishLoad()
         m_performanceMonitor->didFinishLoad();
 
     setLoadSchedulingMode(LoadSchedulingMode::Direct);
+
+    m_isWaitingForLoadToFinish = false;
 }
 
 bool Page::isOnlyNonUtilityPage() const
@@ -1685,9 +1710,17 @@ void Page::scheduleRenderingUpdate(OptionSet<RenderingUpdateStep> requestedSteps
 
 void Page::scheduleRenderingUpdateInternal()
 {
-    if (chrome().client().scheduleRenderingUpdate())
-        return;
-    renderingUpdateScheduler().scheduleRenderingUpdate();
+    if (!chrome().client().scheduleRenderingUpdate())
+        renderingUpdateScheduler().scheduleRenderingUpdate();
+
+    auto now = MonotonicTime::now();
+    forEachWindowEventLoop([&](WindowEventLoop& windowEventLoop) {
+        auto interval = preferredRenderingUpdateInterval();
+        auto nextRenderingUpdateTime = m_lastRenderingUpdateTimestamp + interval;
+        if (nextRenderingUpdateTime < now)
+            nextRenderingUpdateTime = now + interval;
+        windowEventLoop.didScheduleRenderingUpdate(*this, nextRenderingUpdateTime);
+    });
 }
 
 void Page::didScheduleRenderingUpdate()
@@ -1743,6 +1776,10 @@ void Page::updateRendering()
     }
 
     m_lastRenderingUpdateTimestamp = MonotonicTime::now();
+
+    forEachWindowEventLoop([&](WindowEventLoop& eventLoop) {
+        eventLoop.didStartRenderingUpdate(*this);
+    });
 
     bool isSVGImagePage = chrome().client().isSVGImageChromeClient();
     if (!isSVGImagePage)
@@ -1821,6 +1858,10 @@ void Page::updateRendering()
             if (!focusedElement->isFocusable())
                 document.setFocusedElement(nullptr);
         }
+    });
+
+    runProcessingStep(RenderingUpdateStep::UpdateContentRelevancy, [] (Document& document) {
+        document.updateRelevancyOfContentVisibilityElements();
     });
 
     runProcessingStep(RenderingUpdateStep::IntersectionObservations, [] (Document& document) {
@@ -2030,8 +2071,10 @@ void Page::renderingUpdateCompleted()
         m_unfulfilledRequestedSteps = { };
     }
 
-    if (!isUtilityPage())
-        m_opportunisticTaskScheduler->reschedule(m_lastRenderingUpdateTimestamp + preferredRenderingUpdateInterval());
+    if (!isUtilityPage()) {
+        auto nextRenderingUpdate = m_lastRenderingUpdateTimestamp + preferredRenderingUpdateInterval();
+        m_opportunisticTaskScheduler->rescheduleIfNeeded(nextRenderingUpdate);
+    }
 }
 
 void Page::willStartRenderingUpdateDisplay()
@@ -2157,7 +2200,12 @@ void Page::setImageAnimationEnabled(bool enabled)
     updatePlayStateForAllAnimations();
     chrome().client().isAnyAnimationAllowedToPlayDidChange(enabled);
 }
-#endif
+
+void Page::setSystemAllowsAnimationControls(bool isAllowed)
+{
+    m_systemAllowsAnimationControls = isAllowed;
+}
+#endif // ENABLE(ACCESSIBILITY_ANIMATION_CONTROL)
 
 void Page::suspendScriptedAnimations()
 {
@@ -2249,6 +2297,19 @@ void Page::handleLowModePowerChange(bool isLowPowerModeEnabled)
     updateDOMTimerAlignmentInterval();
 }
 
+void Page::handleThermalMitigationChange(bool thermalMitigationEnabled)
+{
+    if (!canUpdateThrottlingReason(ThrottlingReason::ThermalMitigation))
+        return;
+
+    if (thermalMitigationEnabled == m_throttlingReasons.contains(ThrottlingReason::ThermalMitigation))
+        return;
+
+    m_throttlingReasons.set(ThrottlingReason::ThermalMitigation, thermalMitigationEnabled);
+
+    updateDOMTimerAlignmentInterval();
+}
+
 void Page::userStyleSheetLocationChanged()
 {
     // FIXME: Eventually we will move to a model of just being handed the sheet
@@ -2270,8 +2331,9 @@ void Page::userStyleSheetLocationChanged()
     if (url.protocolIsData() && url.string().startsWith("data:text/css;charset=utf-8;base64,"_s)) {
         m_didLoadUserStyleSheet = true;
 
-        if (auto styleSheetAsUTF8 = base64Decode(PAL::decodeURLEscapeSequences(StringView(url.string()).substring(35)), Base64DecodeMode::DefaultValidatePaddingAndIgnoreWhitespace))
-            m_userStyleSheet = String::fromUTF8(styleSheetAsUTF8->data(), styleSheetAsUTF8->size());
+        String styleSheetAsBase64 = base64DecodeToString(PAL::decodeURLEscapeSequences(StringView(url.string()).substring(35)), Base64DecodeMode::DefaultValidatePaddingAndIgnoreWhitespace);
+        if (!styleSheetAsBase64.isNull())
+            m_userStyleSheet = styleSheetAsBase64;
     }
 
     forEachDocument([] (Document& document) {
@@ -2463,10 +2525,11 @@ void Page::updateDOMTimerAlignmentInterval()
     bool needsIncreaseTimer = false;
 
     switch (m_timerThrottlingState) {
-    case TimerThrottlingState::Disabled:
-        m_domTimerAlignmentInterval = isLowPowerModeEnabled() ? DOMTimer::defaultAlignmentIntervalInLowPowerMode() : DOMTimer::defaultAlignmentInterval();
+    case TimerThrottlingState::Disabled: {
+        bool isInLowPowerOrThermallyMitigatedMode = isLowPowerModeEnabled() || isThermalMitigationEnabled();
+        m_domTimerAlignmentInterval = isInLowPowerOrThermallyMitigatedMode ? DOMTimer::defaultAlignmentIntervalInLowPowerOrThermallyMitigatedMode() : DOMTimer::defaultAlignmentInterval();
         break;
-
+    }
     case TimerThrottlingState::Enabled:
         m_domTimerAlignmentInterval = DOMTimer::hiddenPageAlignmentInterval();
         break;
@@ -2490,7 +2553,7 @@ void Page::updateDOMTimerAlignmentInterval()
 
     // If throttling is enabled, auto-increasing of throttling is enabled, and the auto-increase
     // limit has not yet been reached, and then arm the timer to consider an increase. Time to wait
-    // between increases is equal to the current throttle time. Since alinment interval increases
+    // between increases is equal to the current throttle time. Since alignment interval increases
     // exponentially, time between steps is exponential too.
     if (!needsIncreaseTimer)
         m_domTimerAlignmentIntervalIncreaseTimer.stop();
@@ -3050,7 +3113,7 @@ static const double gMaximumUnpaintedAreaRatio = 0.04;
 
 bool Page::isCountingRelevantRepaintedObjects() const
 {
-    return m_isCountingRelevantRepaintedObjects && m_requestedLayoutMilestones.contains(DidHitRelevantRepaintedObjectsAreaThreshold);
+    return m_isCountingRelevantRepaintedObjects && m_requestedLayoutMilestones.contains(LayoutMilestone::DidHitRelevantRepaintedObjectsAreaThreshold);
 }
 
 void Page::startCountingRelevantRepaintedObjects()
@@ -3150,7 +3213,7 @@ void Page::addRelevantRepaintedObject(RenderObject* object, const LayoutRect& ob
         m_isCountingRelevantRepaintedObjects = false;
         resetRelevantPaintedObjectCounter();
         if (auto* frame = dynamicDowncast<LocalFrame>(mainFrame()))
-            frame->loader().didReachLayoutMilestone(DidHitRelevantRepaintedObjectsAreaThreshold);
+            frame->loader().didReachLayoutMilestone(LayoutMilestone::DidHitRelevantRepaintedObjectsAreaThreshold);
     }
 }
 
@@ -3748,6 +3811,33 @@ void Page::setFullscreenControlsHidden(bool hidden)
 #endif
 }
 
+Document* Page::outermostFullscreenDocument() const
+{
+#if ENABLE(FULLSCREEN_API)
+    auto localMainFrame = dynamicDowncast<LocalFrame>(m_mainFrame.get());
+    if (!localMainFrame)
+        return nullptr;
+
+    CheckedPtr<Document> outermostFullscreenDocument = nullptr;
+    CheckedPtr currentDocument = localMainFrame->document();
+    while (currentDocument) {
+        auto* fullscreenElement = currentDocument->fullscreenManager().fullscreenElement();
+        if (!fullscreenElement)
+            break;
+
+        outermostFullscreenDocument = currentDocument;
+        auto* fullscreenFrame = dynamicDowncast<HTMLFrameOwnerElement>(fullscreenElement);
+        if (!fullscreenFrame)
+            break;
+
+        currentDocument = fullscreenFrame->contentDocument();
+    }
+    return outermostFullscreenDocument.get();
+#else
+    return nullptr;
+#endif
+}
+
 void Page::disableICECandidateFiltering()
 {
     m_shouldEnableICECandidateFilteringByDefault = false;
@@ -3834,6 +3924,27 @@ void Page::forEachFrame(const Function<void(LocalFrame&)>& functor)
 
     for (auto& frame : frames)
         functor(frame);
+}
+
+void Page::forEachWindowEventLoop(const Function<void(WindowEventLoop&)>& functor)
+{
+    HashSet<Ref<WindowEventLoop>> windowEventLoops;
+    WindowEventLoop* lastEventLoop = nullptr;
+    for (const Frame* frame = &mainFrame(); frame; frame = frame->tree().traverseNext()) {
+        auto* localFrame = dynamicDowncast<LocalFrame>(frame);
+        if (!localFrame)
+            continue;
+        auto* document = localFrame->document();
+        if (!document)
+            continue;
+        Ref currentEventLoop = document->windowEventLoop();
+        if (lastEventLoop == currentEventLoop.ptr())
+            continue; // Common and faster than a hash table lookup
+        lastEventLoop = currentEventLoop.ptr();
+        windowEventLoops.add(WTFMove(currentEventLoop));
+    }
+    for (auto& eventLoop : windowEventLoops)
+        functor(eventLoop);
 }
 
 bool Page::allowsLoadFromURL(const URL& url, MainFrameMainResource mainFrameMainResource) const
@@ -3984,9 +4095,9 @@ void Page::abortApplePayAMSUISession(ApplePayAMSUIPaymentHandler& paymentHandler
 #endif // ENABLE(APPLE_PAY_AMS_UI)
 
 #if USE(SYSTEM_PREVIEW)
-void Page::beginSystemPreview(const URL& url, const SystemPreviewInfo& systemPreviewInfo, CompletionHandler<void()>&& completionHandler)
+void Page::beginSystemPreview(const URL& url, const SecurityOriginData& topOrigin, const SystemPreviewInfo& systemPreviewInfo, CompletionHandler<void()>&& completionHandler)
 {
-    chrome().client().beginSystemPreview(url, systemPreviewInfo, WTFMove(completionHandler));
+    chrome().client().beginSystemPreview(url, topOrigin, systemPreviewInfo, WTFMove(completionHandler));
 }
 #endif
 
@@ -4187,6 +4298,7 @@ WTF::TextStream& operator<<(WTF::TextStream& ts, RenderingUpdateStep step)
     case RenderingUpdateStep::Fullscreen: ts << "Fullscreen"; break;
     case RenderingUpdateStep::AnimationFrameCallbacks: ts << "AnimationFrameCallbacks"; break;
     case RenderingUpdateStep::IntersectionObservations: ts << "IntersectionObservations"; break;
+    case RenderingUpdateStep::UpdateContentRelevancy: ts << "UpdateContentRelevancy"; break;
     case RenderingUpdateStep::ResizeObservations: ts << "ResizeObservations"; break;
     case RenderingUpdateStep::Images: ts << "Images"; break;
     case RenderingUpdateStep::WheelEventMonitorCallbacks: ts << "WheelEventMonitorCallbacks"; break;
@@ -4440,7 +4552,15 @@ void Page::didFinishScrolling()
 void Page::addRootFrame(LocalFrame& frame)
 {
     ASSERT(frame.isRootFrame());
+    ASSERT(!m_rootFrames.contains(frame));
     m_rootFrames.add(frame);
+}
+
+void Page::removeRootFrame(LocalFrame& frame)
+{
+    ASSERT(frame.isRootFrame());
+    ASSERT(m_rootFrames.contains(frame));
+    m_rootFrames.remove(frame);
 }
 
 void Page::reloadExecutionContextsForOrigin(const ClientOrigin& origin, std::optional<FrameIdentifier> triggeringFrame) const
@@ -4465,9 +4585,24 @@ void Page::reloadExecutionContextsForOrigin(const ClientOrigin& origin, std::opt
     }
 }
 
+void Page::opportunisticallyRunIdleCallbacks()
+{
+    forEachWindowEventLoop([&](auto& eventLoop) {
+        eventLoop.opportunisticallyRunIdleCallbacks();
+    });
+}
+
+void Page::willChangeLocationInCompletelyLoadedSubframe()
+{
+    commonVM().heap.scheduleOpportunisticFullCollectionIfNeeded();
+}
+
 void Page::performOpportunisticallyScheduledTasks(MonotonicTime deadline)
 {
-    commonVM().performOpportunisticallyScheduledTasks(deadline);
+    OptionSet<JSC::VM::SchedulerOptions> options;
+    if (m_opportunisticTaskScheduler->hasImminentlyScheduledWork())
+        options.add(JSC::VM::SchedulerOptions::HasImminentlyScheduledWork);
+    commonVM().performOpportunisticallyScheduledTasks(deadline, options);
 }
 
 } // namespace WebCore

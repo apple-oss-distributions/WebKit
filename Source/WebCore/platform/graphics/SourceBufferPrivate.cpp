@@ -256,6 +256,33 @@ void SourceBufferPrivate::reenqueSamples(const AtomString& trackID)
     reenqueueMediaForTime(*trackBuffer, trackID, currentMediaTime());
 }
 
+void SourceBufferPrivate::computeSeekTime(const SeekTarget& target, CompletionHandler<void(const MediaTime&)>&& completionHandler)
+{
+    if (!isAttached()) {
+        completionHandler(MediaTime::invalidTime());
+        return;
+    }
+
+    auto seekTime = target.time;
+
+    if (target.negativeThreshold || target.positiveThreshold) {
+        for (auto& trackBuffer : m_trackBufferMap.values()) {
+            // Find the sample which contains the target time.
+            auto trackSeekTime = trackBuffer->findSeekTimeForTargetTime(target.time, target.negativeThreshold, target.positiveThreshold);
+
+            if (trackSeekTime.isValid() && abs(target.time - trackSeekTime) > abs(target.time - seekTime))
+                seekTime = trackSeekTime;
+        }
+    }
+    // When converting from a double-precision float to a MediaTime, a certain amount of precision is lost. If that
+    // results in a round-trip between `float in -> MediaTime -> float out` where in != out, we will wait forever for
+    // the time jump observer to fire.
+    if (seekTime.hasDoubleValue())
+        seekTime = MediaTime::createWithDouble(seekTime.toDouble(), MediaTime::DefaultTimeScale);
+
+    completionHandler(seekTime);
+}
+
 void SourceBufferPrivate::seekToTime(const MediaTime& time)
 {
     for (auto& trackBufferPair : m_trackBufferMap) {
@@ -302,24 +329,6 @@ void SourceBufferPrivate::bufferedSamplesForTrackId(const AtomString& trackId, C
 void SourceBufferPrivate::enqueuedSamplesForTrackID(const AtomString&, CompletionHandler<void(Vector<String>&&)>&& completionHandler)
 {
     completionHandler({ });
-}
-
-MediaTime SourceBufferPrivate::fastSeekTimeForMediaTime(const MediaTime& targetTime, const MediaTime& negativeThreshold, const MediaTime& positiveThreshold)
-{
-    if (!isAttached())
-        return targetTime;
-
-    auto seekTime = targetTime;
-
-    for (auto& trackBuffer : m_trackBufferMap.values()) {
-        // Find the sample which contains the target time.
-        auto trackSeekTime = trackBuffer->findSeekTimeForTargetTime(targetTime, negativeThreshold, positiveThreshold);
-
-        if (trackSeekTime.isValid() && abs(targetTime - trackSeekTime) > abs(targetTime - seekTime))
-            seekTime = trackSeekTime;
-    }
-
-    return seekTime;
 }
 
 void SourceBufferPrivate::updateMinimumUpcomingPresentationTime(TrackBuffer& trackBuffer, const AtomString& trackID)
@@ -1218,18 +1227,8 @@ void SourceBufferPrivate::processMediaSample(Ref<MediaSample>&& sample)
             resetTimestampOffsetInTrackBuffers();
         }
 
-        // Eliminate small gaps between buffered ranges by coalescing
-        // disjoint ranges separated by less than a "fudge factor".
         auto presentationEndTime = presentationTimestamp + frameDuration;
-        auto nearestToPresentationStartTime = trackBuffer.buffered().nearest(presentationTimestamp);
-        if (nearestToPresentationStartTime.isValid() && (presentationTimestamp - nearestToPresentationStartTime).isBetween(MediaTime::zeroTime(), timeFudgeFactor()))
-            presentationTimestamp = nearestToPresentationStartTime;
-
-        auto nearestToPresentationEndTime = trackBuffer.buffered().nearest(presentationEndTime);
-        if (nearestToPresentationEndTime.isValid() && (nearestToPresentationEndTime - presentationEndTime).isBetween(MediaTime::zeroTime(), timeFudgeFactor()))
-            presentationEndTime = nearestToPresentationEndTime;
-
-        trackBuffer.addBufferedRange(presentationTimestamp, presentationEndTime);
+        trackBuffer.addBufferedRange(presentationTimestamp, presentationEndTime, AddTimeRangeOption::EliminateSmallGaps);
         m_client->sourceBufferPrivateDidParseSample(frameDuration.toDouble());
 
         break;

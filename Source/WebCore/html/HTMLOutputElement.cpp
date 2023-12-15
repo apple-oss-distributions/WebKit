@@ -79,6 +79,7 @@ void HTMLOutputElement::attributeChanged(const QualifiedName& name, const AtomSt
 
 void HTMLOutputElement::reset()
 {
+    setInteractedWithSinceLastFormSubmitEvent(false);
     stringReplaceAll(defaultValue());
     m_defaultValueOverride = { };
 }
@@ -110,7 +111,7 @@ void HTMLOutputElement::setDefaultValue(String&& value)
 DOMTokenList& HTMLOutputElement::htmlFor()
 {
     if (!m_forTokens)
-        m_forTokens = makeUnique<DOMTokenList>(*this, HTMLNames::forAttr);
+        m_forTokens = makeUniqueWithoutRefCountedCheck<DOMTokenList>(*this, HTMLNames::forAttr);
     return *m_forTokens;
 }
 

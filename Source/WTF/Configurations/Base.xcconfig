@@ -94,7 +94,7 @@ GCC_WARN_UNUSED_VARIABLE = YES;
 PREBINDING = NO;
 WARNING_CFLAGS = $(inherited) -Wcast-qual -Wchar-subscripts -Wextra-tokens -Winit-self -Wmissing-noreturn -Wpacked -Wpointer-arith -Wredundant-decls -Wwrite-strings -Wexit-time-destructors -Wglobal-constructors -Wtautological-compare -Wimplicit-fallthrough -Wvla -Wliteral-conversion -Wthread-safety;
 HEADER_SEARCH_PATHS = $(BUILT_PRODUCTS_DIR)$(WTF_INSTALL_PATH_PREFIX)$(WK_LIBRARY_HEADERS_FOLDER_PATH) $(DSTROOT)$(WTF_INSTALL_PATH_PREFIX)$(WK_LIBRARY_HEADERS_FOLDER_PATH) $(inherited);
-SYSTEM_HEADER_SEARCH_PATHS = $(SDK_DIR)$(WTF_INSTALL_PATH_PREFIX)$(WK_LIBRARY_HEADERS_FOLDER_PATH) $(inherited);
+SYSTEM_HEADER_SEARCH_PATHS = $(WK_PRIVATE_SDK_DIR)$(WTF_INSTALL_PATH_PREFIX)$(WK_LIBRARY_HEADERS_FOLDER_PATH) $(inherited);
 LIBRARY_SEARCH_PATHS = $(SDK_DIR)$(WTF_INSTALL_PATH_PREFIX)$(WK_LIBRARY_INSTALL_PATH) $(inherited);
 
 SUPPORTED_PLATFORMS = iphoneos iphonesimulator macosx appletvos appletvsimulator watchos watchsimulator;
@@ -113,6 +113,7 @@ STRIP_INSTALLED_PRODUCT = YES;
 STRIP_INSTALLED_PRODUCT[config=Debug] = NO;
 
 SDKROOT = macosx.internal;
+ADDITIONAL_SDKS = $(WK_ADDITIONAL_SDKS);
 
 OTHER_CPLUSPLUSFLAGS = $(inherited) -isystem $(SDKROOT)/System/Library/Frameworks/System.framework/PrivateHeaders;
 EXCLUDED_SOURCE_FILE_NAMES = libWebKitAdditions.a

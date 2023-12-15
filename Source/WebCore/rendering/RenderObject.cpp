@@ -807,16 +807,14 @@ IntRect RenderObject::absoluteBoundingBoxRect(bool useTransforms, bool* wasFixed
     }
 
     FloatPoint absPos = localToAbsolute(FloatPoint(), { } /* ignore transforms */, wasFixed);
-    Vector<IntRect> rects;
-    absoluteRects(rects, flooredLayoutPoint(absPos));
+    Vector<LayoutRect> rects;
+    boundingRects(rects, flooredLayoutPoint(absPos));
 
     size_t n = rects.size();
     if (!n)
         return IntRect();
 
-    LayoutRect result = rects[0];
-    for (size_t i = 1; i < n; ++i)
-        result.unite(rects[i]);
+    LayoutRect result = unionRect(rects);
     return snappedIntRect(result);
 }
 
@@ -1128,7 +1126,7 @@ std::optional<FloatRect> RenderObject::computeFloatVisibleRectInContainer(const 
 static void outputRenderTreeLegend(TextStream& stream)
 {
     stream.nextLine();
-    stream << "(B)lock/(I)nline/I(N)line-block, (A)bsolute/Fi(X)ed/(R)elative/Stic(K)y, (F)loating, (O)verflow clip, Anon(Y)mous, (G)enerated, has(L)ayer, hasLayer(S)crollableArea, (C)omposited, (+)Dirty style, (+)Dirty layout";
+    stream << "(B)lock/(I)nline/I(N)line-block, (A)bsolute/Fi(X)ed/(R)elative/Stic(K)y, (F)loating, (O)verflow clip, Anon(Y)mous, (G)enerated, has(L)ayer, hasLayer(S)crollableArea, (C)omposited, Content-visibility:(H)idden/(A)uto, (S)kipped content, (+)Dirty style, (+)Dirty layout";
     stream.nextLine();
 }
 
@@ -1265,6 +1263,19 @@ void RenderObject::outputRenderObject(TextStream& stream, bool mark, int depth) 
 
     if (isComposited())
         stream << "C";
+    else
+        stream << "-";
+
+    auto contentVisibility = style().contentVisibility();
+    if (contentVisibility == ContentVisibility::Hidden)
+        stream << "H";
+    else if (contentVisibility == ContentVisibility::Auto)
+        stream << "A";
+    else
+        stream << "-";
+
+    if (isSkippedContent())
+        stream << "S";
     else
         stream << "-";
 
@@ -2230,17 +2241,23 @@ Vector<IntRect> RenderObject::absoluteTextRects(const SimpleRange& range, Option
 {
     ASSERT(!behavior.contains(BoundingRectBehavior::UseVisibleBounds));
     ASSERT(!behavior.contains(BoundingRectBehavior::IgnoreTinyRects));
-    Vector<IntRect> rects;
+    Vector<LayoutRect> rects;
     for (auto& node : intersectingNodes(range)) {
         auto renderer = node.renderer();
         if (renderer && renderer->isBR())
-            downcast<RenderLineBreak>(*renderer).absoluteRects(rects, flooredLayoutPoint(renderer->localToAbsolute()));
+            downcast<RenderLineBreak>(*renderer).boundingRects(rects, flooredLayoutPoint(renderer->localToAbsolute()));
         else if (is<Text>(node)) {
             for (auto& rect : absoluteRectsForRangeInText(range, downcast<Text>(node), behavior))
-                rects.append(enclosingIntRect(rect));
+                rects.append(LayoutRect { rect });
         }
     }
-    return rects;
+
+    Vector<IntRect> result;
+    result.reserveInitialCapacity(rects.size());
+    for (auto& layoutRect : rects)
+        result.uncheckedAppend(enclosingIntRect(layoutRect));
+
+    return result;
 }
 
 static RefPtr<Node> nodeBefore(const BoundaryPoint& point)
@@ -2673,12 +2690,12 @@ String RenderObject::debugDescription() const
 
 bool RenderObject::isSkippedContent() const
 {
-    return parent() && parent()->style().effectiveSkippedContent();
+    return parent() && parent()->style().skippedContentReason().has_value();
 }
 
-bool RenderObject::isSkippedContentRoot() const
+bool RenderObject::isSkippedContentForLayout() const
 {
-    return style().contentVisibility() == ContentVisibility::Hidden;
+    return isSkippedContent() && !view().frameView().layoutContext().needsSkippedContentLayout();
 }
 
 TextStream& operator<<(TextStream& ts, const RenderObject& renderer)

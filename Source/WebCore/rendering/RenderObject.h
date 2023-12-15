@@ -73,7 +73,7 @@ class RenderLayerModelObject;
 class RenderFragmentContainer;
 class RenderTheme;
 class RenderTreeBuilder;
-class HighlightData;
+class RenderHighlight;
 class TransformState;
 class VisiblePosition;
 
@@ -608,7 +608,7 @@ public:
     WEBCORE_EXPORT static Vector<SelectionGeometry> collectSelectionGeometriesWithoutUnionInteriorLines(const SimpleRange&);
 #endif
 
-    virtual void absoluteRects(Vector<IntRect>&, const LayoutPoint&) const { }
+    virtual void boundingRects(Vector<LayoutRect>&, const LayoutPoint& /* offsetFromRoot */) const { }
 
     WEBCORE_EXPORT IntRect absoluteBoundingBoxRect(bool useTransform = true, bool* wasFixed = nullptr) const;
     IntRect absoluteBoundingBoxRectIgnoringTransforms() const { return absoluteBoundingBoxRect(false); }
@@ -805,6 +805,7 @@ public:
     bool isSkippedContent() const;
 
     bool isSkippedContentRoot() const;
+    bool isSkippedContentForLayout() const;
 
 protected:
     //////////////////////////////////////////

@@ -77,7 +77,7 @@ void NetworkDataTaskDataURL::resume()
 
     m_state = State::Running;
 
-    DataURLDecoder::decode(firstRequest().url(), { }, [this, protectedThis = Ref { *this }](auto decodeResult) mutable {
+    DataURLDecoder::decode(firstRequest().url(), { }, DataURLDecoder::ShouldValidatePadding::Yes, [this, protectedThis = Ref { *this }](auto decodeResult) mutable {
         if (m_state == State::Canceling || m_state == State::Completed)
             return;
 
@@ -150,7 +150,7 @@ void NetworkDataTaskDataURL::didDecodeDataURL(std::optional<WebCore::DataURLDeco
         case PolicyAction::Download:
             downloadDecodedData(WTFMove(data));
             break;
-        case PolicyAction::StopAllLoads:
+        case PolicyAction::LoadWillContinueInAnotherProcess:
             ASSERT_NOT_REACHED();
             break;
         }

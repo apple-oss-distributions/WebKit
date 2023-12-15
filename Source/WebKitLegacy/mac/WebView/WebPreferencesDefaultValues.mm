@@ -35,7 +35,7 @@
 #import <wtf/text/WTFString.h>
 
 #if PLATFORM(IOS_FAMILY)
-#import <WebCore/Device.h>
+#import <pal/system/ios/Device.h>
 #endif
 
 namespace WebKit {
@@ -44,12 +44,12 @@ namespace WebKit {
 
 bool defaultAllowsInlineMediaPlayback()
 {
-    return !WebCore::deviceClassIsSmallScreen();
+    return !PAL::deviceClassIsSmallScreen();
 }
 
 bool defaultAllowsInlineMediaPlaybackAfterFullscreen()
 {
-    return WebCore::deviceClassIsSmallScreen();
+    return PAL::deviceClassIsSmallScreen();
 }
 
 bool defaultAllowsPictureInPictureMediaPlayback()
@@ -66,7 +66,7 @@ bool defaultJavaScriptCanOpenWindowsAutomatically()
 
 bool defaultInlineMediaPlaybackRequiresPlaysInlineAttribute()
 {
-    return WebCore::deviceClassIsSmallScreen();
+    return PAL::deviceClassIsSmallScreen();
 }
 
 bool defaultPassiveTouchListenersAsDefaultOnDocument()
@@ -213,6 +213,12 @@ bool defaultPopoverAttributeEnabled()
     return newSDK;
 }
 
+bool defaultSearchInputIncrementalAttributeAndSearchEventEnabled()
+{
+    static bool newSDK = linkedOnOrAfterSDKWithBehavior(SDKAlignedBehavior::NoSearchInputIncrementalAttributeAndSearchEvent);
+    return !newSDK;
+}
+
 #if PLATFORM(MAC)
 
 bool defaultPassiveWheelListenersAsDefaultOnDocument()
@@ -233,7 +239,7 @@ bool defaultWheelEventGesturesBecomeNonBlocking()
 
 bool defaultMediaSourceEnabled()
 {
-    return !WebCore::deviceClassIsSmallScreen();
+    return !PAL::deviceClassIsSmallScreen();
 }
 
 #endif

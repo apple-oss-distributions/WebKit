@@ -73,7 +73,7 @@ public:
     void dirtyLineBoxes(bool fullLayout);
     void deleteLineBoxes();
 
-    void absoluteRects(Vector<IntRect>&, const LayoutPoint& accumulatedOffset) const final;
+    void boundingRects(Vector<LayoutRect>&, const LayoutPoint& accumulatedOffset) const final;
     Vector<IntRect> absoluteRectsForRange(unsigned startOffset = 0, unsigned endOffset = UINT_MAX, bool useSelectionHeight = false, bool* wasFixed = nullptr) const;
 #if PLATFORM(IOS_FAMILY)
     void collectSelectionGeometries(Vector<SelectionGeometry>&, unsigned startOffset = 0, unsigned endOffset = std::numeric_limits<unsigned>::max()) final;
@@ -184,6 +184,9 @@ public:
 
     void resetMinMaxWidth();
 
+    void setCanUseSimplifiedTextMeasuring(bool canUseSimplifiedTextMeasuring) { m_canUseSimplifiedTextMeasuring = canUseSimplifiedTextMeasuring; }
+    std::optional<bool> canUseSimplifiedTextMeasuring() const { return m_canUseSimplifiedTextMeasuring; }
+
 protected:
     virtual void computePreferredLogicalWidths(float leadWidth, bool forcedMinMaxWidthComputation = false);
     void willBeDestroyed() override;
@@ -252,6 +255,7 @@ private:
 #endif
     std::optional<float> m_minWidth;
     std::optional<float> m_maxWidth;
+    std::optional<bool> m_canUseSimplifiedTextMeasuring { };
     float m_beginMinWidth { 0 };
     float m_endMinWidth { 0 };
 
