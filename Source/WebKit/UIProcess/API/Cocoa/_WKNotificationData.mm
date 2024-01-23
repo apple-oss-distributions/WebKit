@@ -34,7 +34,10 @@ static NSString *tagKey = @"tag";
 static NSString *languageKey = @"language";
 static NSString *dataKey = @"data";
 
-@implementation _WKNotificationData
+@implementation _WKNotificationData {
+@package
+    RetainPtr<NSDictionary> _dictionaryRepresentation;
+}
 
 - (instancetype)initWithCoreData:(const WebCore::NotificationData&)coreData dataStore:(WKWebsiteDataStore *)dataStore
 {
@@ -42,11 +45,17 @@ static NSString *dataKey = @"data";
     if (!self)
         return nil;
 
+    _dictionaryRepresentation = coreData.dictionaryRepresentation();
+
     _title = [(NSString *)coreData.title retain];
     _body = [(NSString *)coreData.body retain];
     _origin = [(NSString *)coreData.originString retain];
     _identifier = [(NSString *)coreData.notificationID.toString() retain];
     _userInfo = [coreData.dictionaryRepresentation() retain];
+    if (coreData.silent == std::nullopt)
+        _alert = _WKNotificationAlertDefault;
+    else
+        _alert = *coreData.silent ? _WKNotificationAlertSilent : _WKNotificationAlertEnabled;
 
     return self;
 }
@@ -63,6 +72,11 @@ static NSString *dataKey = @"data";
     [_userInfo release];
 
     [super dealloc];
+}
+
+- (NSDictionary *)dictionaryRepresentation
+{
+    return _dictionaryRepresentation.get();
 }
 
 @end

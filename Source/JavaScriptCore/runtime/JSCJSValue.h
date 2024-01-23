@@ -162,7 +162,7 @@ public:
     static constexpr uint32_t NullTag =         0xfffffffd;
     static constexpr uint32_t UndefinedTag =    0xfffffffc;
     static constexpr uint32_t CellTag =         0xfffffffb;
-    static constexpr uint32_t WasmTag =         0xfffffffa;
+    static constexpr uint32_t NativeCalleeTag = 0xfffffffa;
     static constexpr uint32_t EmptyValueTag =   0xfffffff9;
     static constexpr uint32_t DeletedValueTag = 0xfffffff8;
 
@@ -214,8 +214,7 @@ public:
     explicit JSValue(unsigned long long);
 
     explicit operator bool() const;
-    bool operator==(const JSValue& other) const;
-    bool operator!=(const JSValue& other) const;
+    bool operator==(const JSValue&) const;
 
     bool isInt32() const;
     bool isUInt32() const;
@@ -498,11 +497,11 @@ public:
     static constexpr int32_t ValueEmpty   = 0x0;
     static constexpr int32_t ValueDeleted = 0x4;
 
-    static constexpr int64_t WasmTag = OtherTag | 0x1;
-    static constexpr int64_t WasmMask = NumberTag | 0x7;
+    static constexpr int64_t NativeCalleeTag = OtherTag | 0x1;
+    static constexpr int64_t NativeCalleeMask = NumberTag | 0x7;
     // We tag Wasm non-JSCell pointers with a 3 at the bottom. We can test if a 64-bit JSValue pattern
     // is a Wasm callee by masking the upper 16 bits and the lower 3 bits, and seeing if
-    // the resulting value is 3. The full test is: x & WasmMask == WasmTag
+    // the resulting value is 3. The full test is: x & NativeCalleeMask == NativeCalleeTag
     // This works because the lower 3 bits of the non-number immediate values are as follows:
     // undefined: 0b010
     // null:      0b010
@@ -687,10 +686,6 @@ ALWAYS_INLINE EncodedJSValue encodedJSValue()
 
 inline bool operator==(const JSValue a, const JSCell* b) { return a == JSValue(b); }
 inline bool operator==(const JSCell* a, const JSValue b) { return JSValue(a) == b; }
-
-inline bool operator!=(const JSValue a, const JSCell* b) { return a != JSValue(b); }
-inline bool operator!=(const JSCell* a, const JSValue b) { return JSValue(a) != b; }
-
 
 bool isThisValueAltered(const PutPropertySlot&, JSObject* baseObject);
 

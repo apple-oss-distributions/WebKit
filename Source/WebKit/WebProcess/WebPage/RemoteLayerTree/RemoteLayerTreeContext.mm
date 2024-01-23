@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2012 Apple Inc. All rights reserved.
+ * Copyright (C) 2012-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,15 +27,17 @@
 #import "RemoteLayerTreeContext.h"
 
 #import "DrawingArea.h"
-#import "GenericCallback.h"
 #import "GraphicsLayerCARemote.h"
 #import "PlatformCALayerRemote.h"
 #import "RemoteLayerTreeDrawingArea.h"
 #import "RemoteLayerTreeTransaction.h"
 #import "RemoteLayerWithRemoteRenderingBackingStoreCollection.h"
+#import "VideoPresentationManager.h"
+#import "WebFrame.h"
 #import "WebPage.h"
-#import <WebCore/Frame.h>
-#import <WebCore/FrameView.h>
+#import <WebCore/HTMLMediaElementIdentifier.h>
+#import <WebCore/LocalFrame.h>
+#import <WebCore/LocalFrameView.h>
 #import <WebCore/Page.h>
 #import <wtf/SetForScope.h>
 #import <wtf/SystemTracing.h>
@@ -107,7 +109,7 @@ bool RemoteLayerTreeContext::canShowWhileLocked() const
 
 void RemoteLayerTreeContext::layerDidEnterContext(PlatformCALayerRemote& layer, PlatformCALayer::LayerType type)
 {
-    GraphicsLayer::PlatformLayerID layerID = layer.layerID();
+    PlatformLayerIdentifier layerID = layer.layerID();
 
     RemoteLayerTreeTransaction::LayerCreationProperties creationProperties;
     layer.populateCreationProperties(creationProperties, *this, type);
@@ -116,10 +118,40 @@ void RemoteLayerTreeContext::layerDidEnterContext(PlatformCALayerRemote& layer, 
     m_livePlatformLayers.add(layerID, &layer);
 }
 
+#if HAVE(AVKIT)
+void RemoteLayerTreeContext::layerDidEnterContext(PlatformCALayerRemote& layer, PlatformCALayer::LayerType type, WebCore::HTMLVideoElement& videoElement)
+{
+    PlatformLayerIdentifier layerID = layer.layerID();
+
+    RemoteLayerTreeTransaction::LayerCreationProperties creationProperties;
+    layer.populateCreationProperties(creationProperties, *this, type);
+    ASSERT(!creationProperties.videoElementData);
+    creationProperties.videoElementData = RemoteLayerTreeTransaction::LayerCreationProperties::VideoElementData {
+        videoElement.identifier(),
+        videoElement.videoLayerSize(),
+        videoElement.naturalSize()
+    };
+
+    m_webPage.videoPresentationManager().setupRemoteLayerHosting(videoElement);
+    m_videoLayers.add(layerID, videoElement.identifier());
+
+    m_createdLayers.add(layerID, WTFMove(creationProperties));
+    m_livePlatformLayers.add(layerID, &layer);
+}
+#endif
+
 void RemoteLayerTreeContext::layerWillLeaveContext(PlatformCALayerRemote& layer)
 {
     ASSERT(layer.layerID());
-    GraphicsLayer::PlatformLayerID layerID = layer.layerID();
+    PlatformLayerIdentifier layerID = layer.layerID();
+
+#if HAVE(AVKIT)
+    auto videoLayerIter = m_videoLayers.find(layerID);
+    if (videoLayerIter != m_videoLayers.end()) {
+        m_webPage.videoPresentationManager().willRemoveLayerForID(videoLayerIter->value);
+        m_videoLayers.remove(videoLayerIter);
+    }
+#endif
 
     m_createdLayers.remove(layerID);
     m_livePlatformLayers.remove(layerID);
@@ -145,24 +177,26 @@ Ref<GraphicsLayer> RemoteLayerTreeContext::createGraphicsLayer(WebCore::Graphics
     return adoptRef(*new GraphicsLayerCARemote(layerType, client, *this));
 }
 
-void RemoteLayerTreeContext::buildTransaction(RemoteLayerTreeTransaction& transaction, PlatformCALayer& rootLayer)
+void RemoteLayerTreeContext::buildTransaction(RemoteLayerTreeTransaction& transaction, PlatformCALayer& rootLayer, WebCore::FrameIdentifier rootFrameID)
 {
     TraceScope tracingScope(BuildTransactionStart, BuildTransactionEnd);
 
     PlatformCALayerRemote& rootLayerRemote = downcast<PlatformCALayerRemote>(rootLayer);
     transaction.setRootLayerID(rootLayerRemote.layerID());
+    if (auto* rootFrame = WebProcess::singleton().webFrame(rootFrameID))
+        transaction.setRemoteContextHostedIdentifier(rootFrame->layerHostingContextIdentifier());
 
     m_currentTransaction = &transaction;
     rootLayerRemote.recursiveBuildTransaction(*this, transaction);
     m_backingStoreCollection->prepareBackingStoresForDisplay(transaction);
     m_currentTransaction = nullptr;
 
-    m_backingStoreCollection->paintReachableBackingStoreContents();
+    bool paintedAnyBackingStore = m_backingStoreCollection->paintReachableBackingStoreContents();
+    if (paintedAnyBackingStore)
+        m_nextRenderingUpdateRequiresSynchronousImageDecoding = false;
 
-    transaction.setCreatedLayers(copyToVector(m_createdLayers.values()));
+    transaction.setCreatedLayers(moveToVector(std::exchange(m_createdLayers, { }).values()));
     transaction.setDestroyedLayerIDs(WTFMove(m_destroyedLayers));
-    
-    m_createdLayers.clear();
 }
 
 void RemoteLayerTreeContext::layerPropertyChangedWhileBuildingTransaction(PlatformCALayerRemote& layer)
@@ -176,14 +210,14 @@ void RemoteLayerTreeContext::willStartAnimationOnLayer(PlatformCALayerRemote& la
     m_layersWithAnimations.add(layer.layerID(), &layer);
 }
 
-void RemoteLayerTreeContext::animationDidStart(WebCore::GraphicsLayer::PlatformLayerID layerID, const String& key, MonotonicTime startTime)
+void RemoteLayerTreeContext::animationDidStart(WebCore::PlatformLayerIdentifier layerID, const String& key, MonotonicTime startTime)
 {
     auto it = m_layersWithAnimations.find(layerID);
     if (it != m_layersWithAnimations.end())
         it->value->animationStarted(key, startTime);
 }
 
-void RemoteLayerTreeContext::animationDidEnd(WebCore::GraphicsLayer::PlatformLayerID layerID, const String& key)
+void RemoteLayerTreeContext::animationDidEnd(WebCore::PlatformLayerIdentifier layerID, const String& key)
 {
     auto it = m_layersWithAnimations.find(layerID);
     if (it != m_layersWithAnimations.end())
@@ -193,6 +227,11 @@ void RemoteLayerTreeContext::animationDidEnd(WebCore::GraphicsLayer::PlatformLay
 RemoteRenderingBackendProxy& RemoteLayerTreeContext::ensureRemoteRenderingBackendProxy()
 {
     return m_webPage.ensureRemoteRenderingBackendProxy();
+}
+
+void RemoteLayerTreeContext::gpuProcessConnectionWasDestroyed()
+{
+    m_backingStoreCollection->gpuProcessConnectionWasDestroyed();
 }
 
 } // namespace WebKit

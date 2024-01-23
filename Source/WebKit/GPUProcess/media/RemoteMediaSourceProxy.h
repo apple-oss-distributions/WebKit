@@ -64,17 +64,18 @@ public:
     // MediaSourcePrivateClient overrides
     void setPrivateAndOpen(Ref<WebCore::MediaSourcePrivate>&&) final;
     MediaTime duration() const final;
-    std::unique_ptr<WebCore::PlatformTimeRanges> buffered() const final;
-    void seekToTime(const MediaTime&) final;
-#if USE(GSTREAMER)
+    const WebCore::PlatformTimeRanges& buffered() const final;
+    void waitForTarget(const WebCore::SeekTarget&, CompletionHandler<void(const MediaTime&)>&&) final;
+    void seekToTime(const MediaTime&, CompletionHandler<void()>&&) final;
     void monitorSourceBuffers() final;
-#endif
 
 #if !RELEASE_LOG_DISABLED
     void setLogIdentifier(const void*) final;
 #endif
 
     void failedToCreateRenderer(RendererType) final;
+
+    void shutdown();
 
 private:
     // IPC::MessageReceiver
@@ -84,12 +85,12 @@ private:
     using AddSourceBufferCallback = CompletionHandler<void(WebCore::MediaSourcePrivate::AddStatus, std::optional<RemoteSourceBufferIdentifier>)>;
     void addSourceBuffer(const WebCore::ContentType&, AddSourceBufferCallback&&);
     void durationChanged(const MediaTime&);
-    void bufferedChanged(const WebCore::PlatformTimeRanges&);
+    void bufferedChanged(WebCore::PlatformTimeRanges&&);
+    void markEndOfStream(WebCore::MediaSourcePrivate::EndOfStreamStatus);
+    void unmarkEndOfStream();
     void setReadyState(WebCore::MediaPlayerEnums::ReadyState);
-    void setIsSeeking(bool);
-    void waitForSeekCompleted();
-    void seekCompleted();
     void setTimeFudgeFactor(const MediaTime&);
+    void disconnect();
 
     WeakPtr<GPUConnectionToWebProcess> m_connectionToWebProcess;
     RemoteMediaSourceIdentifier m_identifier;

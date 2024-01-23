@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2021 Apple Inc. All rights reserved.
+ * Copyright (C) 2021-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -31,18 +31,21 @@ namespace IPC {
 
 enum class ReceiverName : uint8_t {
     TestWithCVPixelBuffer = 1
-    , TestWithIfMessage = 2
-    , TestWithImageData = 3
-    , TestWithLegacyReceiver = 4
-    , TestWithSemaphore = 5
-    , TestWithStream = 6
-    , TestWithStreamBatched = 7
-    , TestWithStreamBuffer = 8
-    , TestWithSuperclass = 9
-    , TestWithoutAttributes = 10
-    , IPC = 11
-    , AsyncReply = 12
-    , Invalid = 13
+    , TestWithEnabledIf = 2
+    , TestWithIfMessage = 3
+    , TestWithImageData = 4
+    , TestWithLegacyReceiver = 5
+    , TestWithSemaphore = 6
+    , TestWithStream = 7
+    , TestWithStreamBatched = 8
+    , TestWithStreamBuffer = 9
+    , TestWithStreamServerConnectionHandle = 10
+    , TestWithSuperclass = 11
+    , TestWithoutAttributes = 12
+    , TestWithoutUsingIPCConnection = 13
+    , IPC = 14
+    , AsyncReply = 15
+    , Invalid = 16
 };
 
 enum class MessageName : uint16_t {
@@ -50,6 +53,8 @@ enum class MessageName : uint16_t {
     TestWithCVPixelBuffer_ReceiveCVPixelBuffer,
     TestWithCVPixelBuffer_SendCVPixelBuffer,
 #endif
+    TestWithEnabledIf_AlwaysEnabled,
+    TestWithEnabledIf_OnlyEnabledIfFeatureEnabled,
 #if PLATFORM(COCOA) || PLATFORM(GTK)
     TestWithIfMessage_LoadURL,
 #endif
@@ -93,6 +98,8 @@ enum class MessageName : uint16_t {
     TestWithSemaphore_SendSemaphore,
     TestWithStreamBatched_SendString,
     TestWithStreamBuffer_SendStreamBuffer,
+    TestWithStreamServerConnectionHandle_SendStreamServerConnection,
+    TestWithStream_CallWithIdentifier,
 #if PLATFORM(COCOA)
     TestWithStream_SendMachSendRight,
 #endif
@@ -139,6 +146,12 @@ enum class MessageName : uint16_t {
 #if (ENABLE(TOUCH_EVENTS) && (NESTED_MESSAGE_CONDITION || SOME_OTHER_MESSAGE_CONDITION))
     TestWithoutAttributes_TouchEvent,
 #endif
+    TestWithoutUsingIPCConnection_MessageWithArgument,
+    TestWithoutUsingIPCConnection_MessageWithArgumentAndEmptyReply,
+    TestWithoutUsingIPCConnection_MessageWithArgumentAndReplyWithArgument,
+    TestWithoutUsingIPCConnection_MessageWithoutArgument,
+    TestWithoutUsingIPCConnection_MessageWithoutArgumentAndEmptyReply,
+    TestWithoutUsingIPCConnection_MessageWithoutArgumentAndReplyWithArgument,
 #if PLATFORM(COCOA)
     InitializeConnection,
 #endif
@@ -146,7 +159,6 @@ enum class MessageName : uint16_t {
     ProcessOutOfStreamMessage,
     SetStreamDestinationID,
     SyncMessageReply,
-    Terminate,
 #if USE(AVFOUNDATION)
     TestWithCVPixelBuffer_ReceiveCVPixelBufferReply,
 #endif
@@ -158,6 +170,7 @@ enum class MessageName : uint16_t {
 #endif
     TestWithLegacyReceiver_RunJavaScriptAlertReply,
     TestWithSemaphore_ReceiveSemaphoreReply,
+    TestWithStream_CallWithIdentifierReply,
     TestWithStream_SendStringAsyncReply,
 #if ENABLE(TEST_FEATURE)
     TestWithSuperclass_TestAsyncMessageReply,
@@ -171,6 +184,10 @@ enum class MessageName : uint16_t {
     TestWithoutAttributes_InterpretKeyEventReply,
 #endif
     TestWithoutAttributes_RunJavaScriptAlertReply,
+    TestWithoutUsingIPCConnection_MessageWithArgumentAndEmptyReplyReply,
+    TestWithoutUsingIPCConnection_MessageWithArgumentAndReplyWithArgumentReply,
+    TestWithoutUsingIPCConnection_MessageWithoutArgumentAndEmptyReplyReply,
+    TestWithoutUsingIPCConnection_MessageWithoutArgumentAndReplyWithArgumentReply,
     FirstSynchronous,
     LastAsynchronous = FirstSynchronous - 1,
     TestWithLegacyReceiver_GetPluginProcessConnection,
@@ -186,6 +203,7 @@ enum class MessageName : uint16_t {
     TestWithoutAttributes_TestMultipleAttributes,
     WrappedAsyncMessageForTesting,
     Count,
+    Invalid = Count,
     Last = Count - 1
 };
 

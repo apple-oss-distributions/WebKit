@@ -58,7 +58,6 @@
 #include "WebProcessProxyMessages.h"
 #include <WebCore/PlatformMediaSessionManager.h>
 #include <WebCore/SharedBuffer.h>
-#include <wtf/Language.h>
 
 #if ENABLE(ENCRYPTED_MEDIA)
 #include "RemoteCDMInstanceSessionMessages.h"
@@ -104,17 +103,11 @@
 namespace WebKit {
 using namespace WebCore;
 
-static void languagesChanged(void* context)
-{
-    static_cast<GPUProcessConnection*>(context)->connection().send(Messages::GPUConnectionToWebProcess::SetUserPreferredLanguages(userPreferredLanguages()), { });
-}
-
 static GPUProcessConnectionParameters getGPUProcessConnectionParameters()
 {
     GPUProcessConnectionParameters parameters;
 #if PLATFORM(COCOA)
     parameters.webProcessIdentity = ProcessIdentity { ProcessIdentity::CurrentProcess };
-    parameters.overrideLanguages = userPreferredLanguagesOverride();
 #endif
     return parameters;
 }
@@ -125,13 +118,15 @@ RefPtr<GPUProcessConnection> GPUProcessConnection::create(IPC::Connection& paren
     if (!connectionIdentifiers)
         return nullptr;
 
-    parentConnection.send(Messages::WebProcessProxy::CreateGPUProcessConnection(connectionIdentifiers->client, getGPUProcessConnectionParameters()), 0, IPC::SendOption::DispatchMessageEvenWhenWaitingForSyncReply);
+    RELEASE_ASSERT_WITH_MESSAGE(WebProcess::singleton().hasEverHadAnyWebPages(), "GPUProcess preferences come from the pages");
+    parentConnection.send(Messages::WebProcessProxy::CreateGPUProcessConnection(WTFMove(connectionIdentifiers->client), getGPUProcessConnectionParameters()), 0, IPC::SendOption::DispatchMessageEvenWhenWaitingForSyncReply);
 
     auto instance = adoptRef(*new GPUProcessConnection(WTFMove(connectionIdentifiers->server)));
 #if ENABLE(IPC_TESTING_API)
     if (parentConnection.ignoreInvalidMessageForTesting())
         instance->connection().setIgnoreInvalidMessageForTesting();
 #endif
+    RELEASE_LOG(Process, "GPUProcessConnection::create - %p", instance.ptr());
     return instance;
 }
 
@@ -139,8 +134,6 @@ GPUProcessConnection::GPUProcessConnection(IPC::Connection::Identifier&& connect
     : m_connection(IPC::Connection::createServerConnection(connectionIdentifier))
 {
     m_connection->open(*this);
-
-    addLanguageChangeObserver(this, languagesChanged);
 
     if (WebProcess::singleton().shouldUseRemoteRenderingFor(RenderingPurpose::MediaPainting)) {
 #if ENABLE(VP9)
@@ -156,7 +149,6 @@ GPUProcessConnection::~GPUProcessConnection()
     if (m_audioSourceProviderManager)
         m_audioSourceProviderManager->stopListeningForIPC();
 #endif
-    removeLanguageChangeObserver(this);
 }
 
 #if HAVE(AUDIT_TOKEN)
@@ -176,6 +168,7 @@ void GPUProcessConnection::invalidate()
 
 void GPUProcessConnection::didClose(IPC::Connection&)
 {
+    RELEASE_LOG_ERROR(Process, "%p - GPUProcessConnection::didClose", this);
     auto protector = Ref { *this };
     WebProcess::singleton().gpuProcessConnectionClosed(*this);
 
@@ -184,9 +177,10 @@ void GPUProcessConnection::didClose(IPC::Connection&)
         arbitrator->leaveRoutingAbritration();
 #endif
 
-    auto clients = m_clients;
-    for (auto& client : clients)
+    m_clients.forEach([this] (auto& client) {
         client.gpuProcessConnectionDidClose(*this);
+    });
+    m_clients.clear();
 }
 
 void GPUProcessConnection::didReceiveInvalidMessage(IPC::Connection&, IPC::MessageName)
@@ -214,12 +208,12 @@ RemoteVideoFrameObjectHeapProxy& GPUProcessConnection::videoFrameObjectHeapProxy
         m_videoFrameObjectHeapProxy = RemoteVideoFrameObjectHeapProxy::create(*this);
     return *m_videoFrameObjectHeapProxy;
 }
-#endif
 
 RemoteMediaPlayerManager& GPUProcessConnection::mediaPlayerManager()
 {
-    return *WebProcess::singleton().supplement<RemoteMediaPlayerManager>();
+    return WebProcess::singleton().remoteMediaPlayerManager();
 }
+#endif
 
 #if PLATFORM(COCOA) && ENABLE(WEB_AUDIO)
 RemoteAudioSourceProviderManager& GPUProcessConnection::audioSourceProviderManager()
@@ -232,10 +226,12 @@ RemoteAudioSourceProviderManager& GPUProcessConnection::audioSourceProviderManag
 
 bool GPUProcessConnection::dispatchMessage(IPC::Connection& connection, IPC::Decoder& decoder)
 {
+#if ENABLE(VIDEO)
     if (decoder.messageReceiverName() == Messages::MediaPlayerPrivateRemote::messageReceiverName()) {
-        WebProcess::singleton().supplement<RemoteMediaPlayerManager>()->didReceivePlayerMessage(connection, decoder);
+        WebProcess::singleton().remoteMediaPlayerManager().didReceivePlayerMessage(connection, decoder);
         return true;
     }
+#endif
 
 #if PLATFORM(COCOA) && ENABLE(MEDIA_STREAM)
     if (decoder.messageReceiverName() == Messages::UserMediaCaptureManager::messageReceiverName()) {
@@ -299,10 +295,12 @@ bool GPUProcessConnection::dispatchSyncMessage(IPC::Connection& connection, IPC:
 void GPUProcessConnection::didInitialize(std::optional<GPUProcessConnectionInfo>&& info)
 {
     if (!info) {
+        RELEASE_LOG_ERROR(Process, "%p - GPUProcessConnection::didInitialize - failed", this);
         invalidate();
         return;
     }
     m_hasInitialized = true;
+    RELEASE_LOG(Process, "%p - GPUProcessConnection::didInitialize", this);
 
 #if ENABLE(VP9) && USE(LIBWEBRTC) && PLATFORM(COCOA)
     WebProcess::singleton().libWebRTCCodecs().setVP9VTBSupport(info->hasVP9HardwareDecoder);
@@ -313,8 +311,9 @@ void GPUProcessConnection::didInitialize(std::optional<GPUProcessConnectionInfo>
 bool GPUProcessConnection::waitForDidInitialize()
 {
     if (!m_hasInitialized) {
-        bool result = m_connection->waitForAndDispatchImmediately<Messages::GPUProcessConnection::DidInitialize>(0, defaultTimeout);
-        if (!result) {
+        auto result = m_connection->waitForAndDispatchImmediately<Messages::GPUProcessConnection::DidInitialize>(0, defaultTimeout);
+        if (result != IPC::Error::NoError) {
+            RELEASE_LOG_ERROR(Process, "%p - GPUProcessConnection::waitForDidInitialize - failed, error:%" PUBLIC_LOG_STRING, this, IPC::errorAsString(result));
             invalidate();
             return false;
         }
@@ -324,7 +323,9 @@ bool GPUProcessConnection::waitForDidInitialize()
 
 void GPUProcessConnection::didReceiveRemoteCommand(PlatformMediaSession::RemoteControlCommandType type, const PlatformMediaSession::RemoteCommandArgument& argument)
 {
+#if ENABLE(VIDEO) || ENABLE(WEB_AUDIO)
     PlatformMediaSessionManager::sharedManager().processDidReceiveRemoteControlCommand(type, argument);
+#endif
 }
 
 #if ENABLE(ROUTING_ARBITRATION)
@@ -380,10 +381,10 @@ void GPUProcessConnection::enableVP9Decoders(bool enableVP8Decoder, bool enableV
 }
 #endif
 
-void GPUProcessConnection::updateMediaConfiguration()
+void GPUProcessConnection::updateMediaConfiguration(bool forceUpdate)
 {
 #if PLATFORM(COCOA)
-    bool settingsChanged = false;
+    bool settingsChanged = forceUpdate;
 
     if (m_mediaOverridesForTesting.systemHasAC != SystemBatteryStatusTestingOverrides::singleton().hasAC() || m_mediaOverridesForTesting.systemHasBattery != SystemBatteryStatusTestingOverrides::singleton().hasBattery())
         settingsChanged = true;

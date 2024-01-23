@@ -1592,7 +1592,7 @@ TEST_P(VertexAttributeTest, DrawArraysWithDisabledAttribute)
 TEST_P(VertexAttributeTest, DisabledAttribArrays)
 {
     // Known failure on Retina MBP: http://crbug.com/635081
-    ANGLE_SKIP_TEST_IF(IsOSX() && IsNVIDIA());
+    ANGLE_SKIP_TEST_IF(IsMac() && IsNVIDIA());
 
     constexpr char kVS[] =
         "attribute vec4 a_position;\n"
@@ -1725,7 +1725,7 @@ void main()
 TEST_P(VertexAttributeTestES3, DrawWithUnalignedData)
 {
     // http://anglebug.com/7068
-    ANGLE_SKIP_TEST_IF(IsOSX());
+    ANGLE_SKIP_TEST_IF(IsMac());
 
     constexpr char kVS[] = R"(#version 300 es
 precision highp float;
@@ -3674,7 +3674,7 @@ TEST_P(VertexAttributeTest, AliasingVectorAttribLocations)
     ANGLE_SKIP_TEST_IF(IsAndroid() && IsOpenGL());
 
     // http://anglebug.com/3466
-    ANGLE_SKIP_TEST_IF(IsOSX() && IsOpenGL());
+    ANGLE_SKIP_TEST_IF(IsMac() && IsOpenGL());
 
     // http://anglebug.com/3467
     ANGLE_SKIP_TEST_IF(IsD3D());
@@ -3834,7 +3834,7 @@ TEST_P(VertexAttributeTest, AliasingMatrixAttribLocations)
     ANGLE_SKIP_TEST_IF(IsAndroid() && IsOpenGL());
 
     // http://anglebug.com/3466
-    ANGLE_SKIP_TEST_IF(IsOSX() && IsOpenGL());
+    ANGLE_SKIP_TEST_IF(IsMac() && IsOpenGL());
 
     // http://anglebug.com/3467
     ANGLE_SKIP_TEST_IF(IsD3D());
@@ -4068,7 +4068,7 @@ TEST_P(VertexAttributeTest, AliasingVectorAttribLocationsDifferingPrecisions)
     ANGLE_SKIP_TEST_IF(IsAndroid() && IsOpenGL());
 
     // http://anglebug.com/3466
-    ANGLE_SKIP_TEST_IF(IsOSX() && IsOpenGL());
+    ANGLE_SKIP_TEST_IF(IsMac() && IsOpenGL());
 
     // http://anglebug.com/3467
     ANGLE_SKIP_TEST_IF(IsD3D());
@@ -4278,6 +4278,43 @@ void main()
     ASSERT_GL_NO_ERROR();
 
     EXPECT_PIXEL_RECT_EQ(0, 0, getWindowWidth(), getWindowHeight(), GLColor::green);
+}
+
+// Test that vertex conversion correctly no-ops when the vertex format requires conversion but there
+// are no vertices to convert.
+TEST_P(VertexAttributeTest, ConversionWithNoVertices)
+{
+    constexpr char kVS[] = R"(precision highp float;
+attribute vec3 attr1;
+void main(void) {
+   gl_Position = vec4(attr1, 1.0);
+})";
+
+    constexpr char kFS[] = R"(precision highp float;
+void main(void) {
+   gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0);
+})";
+
+    GLBuffer buffer;
+    glBindBuffer(GL_ARRAY_BUFFER, buffer);
+    std::array<int8_t, 12> data = {
+        1,
+    };
+    glBufferData(GL_ARRAY_BUFFER, data.size() * sizeof(data[0]), data.data(), GL_STATIC_DRAW);
+
+    ANGLE_GL_PROGRAM(program, kVS, kFS);
+    glBindAttribLocation(program, 0, "attr1");
+    glLinkProgram(program);
+    ASSERT_TRUE(CheckLinkStatusAndReturnProgram(program, true));
+    glUseProgram(program);
+
+    // Set the offset the athe attribute past the end of the buffer but use a format that requires
+    // conversion in Vulkan
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 3, GL_BYTE, true, 128, reinterpret_cast<void *>(256));
+
+    glDrawArrays(GL_TRIANGLES, 0, 3);
+    EXPECT_GL_NO_ERROR();
 }
 
 // Create a vertex array with an empty array buffer and attribute offsets.

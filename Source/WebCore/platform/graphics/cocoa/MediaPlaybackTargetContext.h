@@ -30,27 +30,29 @@
 #include <wtf/RetainPtr.h>
 #include <wtf/text/WTFString.h>
 
-#if PLATFORM(COCOA)
 OBJC_CLASS AVOutputContext;
 OBJC_CLASS NSData;
-#endif
 
 namespace WebCore {
 
+enum class MediaPlaybackTargetContextMockState : uint8_t {
+    Unknown = 0,
+    OutputDeviceUnavailable = 1,
+    OutputDeviceAvailable = 2,
+};
+
+enum class MediaPlaybackTargetContextType : uint8_t {
+    None,
+    AVOutputContext,
+    SerializedAVOutputContext,
+    Mock,
+};
+
 class MediaPlaybackTargetContext {
 public:
-    enum class Type : uint8_t {
-        None,
-        AVOutputContext,
-        SerializedAVOutputContext,
-        Mock,
-    };
 
-    enum class MockState : uint8_t {
-        Unknown = 0,
-        OutputDeviceUnavailable = 1,
-        OutputDeviceAvailable = 2,
-    };
+    using Type = MediaPlaybackTargetContextType;
+    using MockState = MediaPlaybackTargetContextMockState;
 
     MediaPlaybackTargetContext() = default;
     WEBCORE_EXPORT explicit MediaPlaybackTargetContext(RetainPtr<AVOutputContext>&&);
@@ -109,28 +111,5 @@ private:
 };
 
 } // namespace WebCore
-
-namespace WTF {
-
-template<> struct EnumTraits<WebCore::MediaPlaybackTargetContext::Type> {
-    using values = EnumValues<
-        WebCore::MediaPlaybackTargetContext::Type,
-        WebCore::MediaPlaybackTargetContext::Type::None,
-        WebCore::MediaPlaybackTargetContext::Type::AVOutputContext,
-        WebCore::MediaPlaybackTargetContext::Type::SerializedAVOutputContext,
-        WebCore::MediaPlaybackTargetContext::Type::Mock
-    >;
-};
-
-template<> struct EnumTraits<WebCore::MediaPlaybackTargetContext::MockState> {
-    using values = EnumValues<
-        WebCore::MediaPlaybackTargetContext::MockState,
-        WebCore::MediaPlaybackTargetContext::MockState::Unknown,
-        WebCore::MediaPlaybackTargetContext::MockState::OutputDeviceUnavailable,
-        WebCore::MediaPlaybackTargetContext::MockState::OutputDeviceAvailable
-    >;
-};
-
-} // namespace WTF
 
 #endif // ENABLE(WIRELESS_PLAYBACK_TARGET)

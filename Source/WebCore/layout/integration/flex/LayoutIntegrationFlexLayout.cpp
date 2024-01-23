@@ -33,23 +33,25 @@
 #include "HitTestResult.h"
 #include "LayoutBoxGeometry.h"
 #include "LayoutChildIterator.h"
+#include "RenderBoxInlines.h"
 #include "RenderFlexibleBox.h"
+#include "RenderView.h"
 
 namespace WebCore {
 namespace LayoutIntegration {
 
 FlexLayout::FlexLayout(RenderFlexibleBox& flexBoxRenderer)
     : m_boxTree(flexBoxRenderer)
-    , m_layoutState(flexBoxRenderer.document(), flexBox(), Layout::LayoutState::FormattingContextIntegrationType::Flex)
-    , m_flexFormattingState(m_layoutState.ensureFlexFormattingState(flexBox()))
+    , m_layoutState(flexBoxRenderer.view().layoutState())
+    , m_flexFormattingState(layoutState().ensureFlexFormattingState(flexBox()))
 {
 }
 
 // FIXME: Merge these with the other integration layout functions.
-static inline Layout::Edges flexBoxLogicalBorder(const RenderBoxModelObject& renderer, bool isLeftToRightInlineDirection, WritingMode writingMode)
+static inline Layout::Edges flexBoxLogicalBorder(const RenderBoxModelObject& renderer, bool isLeftToRightInlineDirection, BlockFlowDirection blockFlowDirection)
 {
     UNUSED_PARAM(isLeftToRightInlineDirection);
-    UNUSED_PARAM(writingMode);
+    UNUSED_PARAM(blockFlowDirection);
 
     auto borderLeft = renderer.borderLeft();
     auto borderRight = renderer.borderRight();
@@ -59,10 +61,10 @@ static inline Layout::Edges flexBoxLogicalBorder(const RenderBoxModelObject& ren
     return { { borderLeft, borderRight }, { borderTop, borderBottom } };
 }
 
-static inline Layout::Edges flexBoxLogicalPadding(const RenderBoxModelObject& renderer, bool isLeftToRightInlineDirection, WritingMode writingMode)
+static inline Layout::Edges flexBoxLogicalPadding(const RenderBoxModelObject& renderer, bool isLeftToRightInlineDirection, BlockFlowDirection blockFlowDirection)
 {
     UNUSED_PARAM(isLeftToRightInlineDirection);
-    UNUSED_PARAM(writingMode);
+    UNUSED_PARAM(blockFlowDirection);
 
     auto paddingLeft = renderer.paddingLeft();
     auto paddingRight = renderer.paddingRight();
@@ -78,15 +80,15 @@ void FlexLayout::updateFormattingRootGeometryAndInvalidate()
         auto& flexBoxRenderer = this->flexBoxRenderer();
 
         auto isLeftToRightInlineDirection = flexBoxRenderer.style().isLeftToRightDirection();
-        auto writingMode = flexBoxRenderer.style().writingMode();
+        auto blockFlowDirection = writingModeToBlockFlowDirection(flexBoxRenderer.style().writingMode());
 
-        root.setContentBoxWidth(writingMode == WritingMode::TopToBottom ? flexBoxRenderer.contentWidth() : flexBoxRenderer.contentHeight());
-        root.setPadding(flexBoxLogicalPadding(flexBoxRenderer, isLeftToRightInlineDirection, writingMode));
-        root.setBorder(flexBoxLogicalBorder(flexBoxRenderer, isLeftToRightInlineDirection, writingMode));
+        root.setContentBoxWidth(blockFlowDirection == BlockFlowDirection::TopToBottom ? flexBoxRenderer.contentWidth() : flexBoxRenderer.contentHeight());
+        root.setPadding(flexBoxLogicalPadding(flexBoxRenderer, isLeftToRightInlineDirection, blockFlowDirection));
+        root.setBorder(flexBoxLogicalBorder(flexBoxRenderer, isLeftToRightInlineDirection, blockFlowDirection));
         root.setHorizontalMargin({ });
         root.setVerticalMargin({ });
     };
-    updateGeometry(m_layoutState.ensureGeometryForBox(flexBox()));
+    updateGeometry(layoutState().ensureGeometryForBox(flexBox()));
 
     for (auto& flexItem : Layout::childrenOfType<Layout::Box>(flexBox()))
         m_flexFormattingState.clearIntrinsicWidthConstraints(flexItem);
@@ -94,22 +96,31 @@ void FlexLayout::updateFormattingRootGeometryAndInvalidate()
 
 void FlexLayout::updateFlexItemDimensions(const RenderBlock& flexItem, LayoutUnit minimumContentSize, LayoutUnit maximumContentSize)
 {
+    auto& rootGeometry = layoutState().geometryForBox(flexBox());
     auto& layoutBox = m_boxTree.layoutBoxForRenderer(flexItem);
-    auto& boxGeometry = m_layoutState.ensureGeometryForBox(layoutBox);
+    auto& boxGeometry = layoutState().ensureGeometryForBox(layoutBox);
+    auto& style = flexItem.style();
 
-    boxGeometry.setContentBoxWidth(flexItem.contentWidth());
-    boxGeometry.setContentBoxHeight(flexItem.contentHeight());
     boxGeometry.setVerticalMargin({ flexItem.marginTop(), flexItem.marginBottom() });
     boxGeometry.setHorizontalMargin({ flexItem.marginLeft(), flexItem.marginRight() });
     boxGeometry.setBorder({ { flexItem.borderLeft(), flexItem.borderRight() }, { flexItem.borderTop(), flexItem.borderBottom() } });
     boxGeometry.setPadding(Layout::Edges { { flexItem.paddingLeft(), flexItem.paddingRight() }, { flexItem.paddingTop(), flexItem.paddingBottom() } });
 
-    // FIXME: We may need to differentiate preferred and min/max content size.
-    // At this point the min/max values are already logical (meaning row -> horizontal min/max, column -> vertical min/max)
-    auto flexDirection = flexBox().style().flexDirection();
-    auto isRowFlow = flexDirection == FlexDirection::Row || flexDirection == FlexDirection::RowReverse;
-    auto marginBorderAndPadding = isRowFlow ? boxGeometry.horizontalMarginBorderAndPadding() : boxGeometry.verticalMarginBorderAndPadding();
-    m_flexFormattingState.setIntrinsicWidthConstraintsForBox(layoutBox, { minimumContentSize + marginBorderAndPadding, maximumContentSize + marginBorderAndPadding });
+    if (style.width().isFixed() || style.width().isPercentOrCalculated()) {
+        auto widthValue = minimumValueForLength(style.width(), rootGeometry.contentBoxWidth());
+        if (style.boxSizing() == BoxSizing::BorderBox)
+            widthValue = std::max(0_lu, widthValue - boxGeometry.horizontalBorderAndPadding());
+        boxGeometry.setContentBoxWidth(widthValue);
+    }
+
+    if (style.height().isFixed()) {
+        auto heightValue = LayoutUnit { style.height().value() };
+        if (style.boxSizing() == BoxSizing::BorderBox)
+            heightValue = std::max(0_lu, heightValue - boxGeometry.verticalBorderAndPadding());
+        boxGeometry.setContentBoxHeight(heightValue);
+    }
+
+    m_flexFormattingState.setIntrinsicWidthConstraintsForBox(layoutBox, { minimumContentSize, maximumContentSize });
 }
 
 void FlexLayout::updateStyle(const RenderBlock&, const RenderStyle&)
@@ -119,14 +130,14 @@ void FlexLayout::updateStyle(const RenderBlock&, const RenderStyle&)
 std::pair<LayoutUnit, LayoutUnit> FlexLayout::computeIntrinsicWidthConstraints()
 {
     auto flexFormattingContext = Layout::FlexFormattingContext { flexBox(), m_flexFormattingState };
-    auto constraints = flexFormattingContext.computedIntrinsicWidthConstraintsForIntegration();
+    auto constraints = flexFormattingContext.computedIntrinsicWidthConstraints();
 
     return { constraints.minimum, constraints.maximum };
 }
 
 void FlexLayout::layout()
 {
-    auto& rootGeometry = m_layoutState.geometryForBox(flexBox());
+    auto& rootGeometry = layoutState().geometryForBox(flexBox());
     auto horizontalConstraints = Layout::HorizontalConstraints { rootGeometry.contentBoxLeft(), rootGeometry.contentBoxWidth() };
     auto verticalSpaceForFlexItems = [&]() -> std::tuple<std::optional<LayoutUnit>, std::optional<LayoutUnit>> {
         auto& flexBoxStyle = flexBox().style();
@@ -146,7 +157,7 @@ void FlexLayout::layout()
     auto [availableVerticalSpace, minimumVerticalSpace] = verticalSpaceForFlexItems();
     auto constraints = Layout::ConstraintsForFlexContent { { horizontalConstraints, rootGeometry.contentBoxTop() }, availableVerticalSpace, minimumVerticalSpace };
     auto flexFormattingContext = Layout::FlexFormattingContext { flexBox(), m_flexFormattingState };
-    flexFormattingContext.layoutInFlowContentForIntegration(constraints);
+    flexFormattingContext.layout(constraints);
 
     updateRenderers();
 

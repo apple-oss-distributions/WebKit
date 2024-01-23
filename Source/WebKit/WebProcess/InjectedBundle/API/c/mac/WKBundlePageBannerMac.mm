@@ -56,11 +56,6 @@ public:
 
 private:
     // PageBanner::Client.
-    void pageBannerDestroyed(PageBanner*) override
-    {
-        delete this;
-    }
-    
     bool mouseEvent(PageBanner* pageBanner, WebEventType type, WebMouseEventButton button, const IntPoint& position) override
     {
         switch (type) {
@@ -77,7 +72,7 @@ private:
             return m_client.mouseUp(toAPI(pageBanner), toAPI(position), toAPI(button), m_client.base.clientInfo);
         }
         case WebEventType::MouseMove: {
-            if (button == WebMouseEventButton::NoButton) {
+            if (button == WebMouseEventButton::None) {
                 if (!m_client.mouseMoved)
                     return false;
 
@@ -105,7 +100,7 @@ WKBundlePageBannerRef WKBundlePageBannerCreateBannerWithCALayer(CALayer *layer, 
         return 0;
 
     auto clientImpl = makeUnique<WebKit::PageBannerClientImpl>(wkClient);
-    return toAPI(&WebKit::PageBanner::create(layer, height, clientImpl.release()).leakRef());
+    return toAPI(&WebKit::PageBanner::create(layer, height, WTFMove(clientImpl)).leakRef());
 }
 
 CALayer *WKBundlePageBannerGetLayer(WKBundlePageBannerRef pageBanner)

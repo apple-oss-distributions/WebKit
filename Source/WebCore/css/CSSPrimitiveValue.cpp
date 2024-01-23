@@ -21,7 +21,6 @@
 #include "config.h"
 #include "CSSPrimitiveValue.h"
 
-#include "CSSBasicShapes.h"
 #include "CSSCalcValue.h"
 #include "CSSHelper.h"
 #include "CSSMarkup.h"
@@ -37,15 +36,13 @@
 #include "Color.h"
 #include "ColorSerialization.h"
 #include "ContainerQueryEvaluator.h"
-#include "Counter.h"
-#include "DeprecatedCSSOMPrimitiveValue.h"
 #include "FontCascade.h"
 #include "Length.h"
 #include "NodeRenderStyle.h"
-#include "Pair.h"
-#include "Rect.h"
+#include "RenderBoxInlines.h"
 #include "RenderStyle.h"
 #include "RenderView.h"
+#include <wtf/Hasher.h>
 #include <wtf/NeverDestroyed.h>
 #include <wtf/StdLibExtras.h>
 #include <wtf/text/StringBuilder.h>
@@ -59,7 +56,8 @@ static inline bool isValidCSSUnitTypeForDoubleConversion(CSSUnitType unitType)
     case CSSUnitType::CSS_CALC:
     case CSSUnitType::CSS_CALC_PERCENTAGE_WITH_LENGTH:
     case CSSUnitType::CSS_CALC_PERCENTAGE_WITH_NUMBER:
-    case CSSUnitType::CSS_CHS:
+    case CSSUnitType::CSS_CAP:
+    case CSSUnitType::CSS_CH:
     case CSSUnitType::CSS_IC:
     case CSSUnitType::CSS_CM:
     case CSSUnitType::CSS_DEG:
@@ -70,8 +68,8 @@ static inline bool isValidCSSUnitTypeForDoubleConversion(CSSUnitType unitType)
     case CSSUnitType::CSS_DVMAX:
     case CSSUnitType::CSS_DVMIN:
     case CSSUnitType::CSS_DVW:
-    case CSSUnitType::CSS_EMS:
-    case CSSUnitType::CSS_EXS:
+    case CSSUnitType::CSS_EM:
+    case CSSUnitType::CSS_EX:
     case CSSUnitType::CSS_FR:
     case CSSUnitType::CSS_GRAD:
     case CSSUnitType::CSS_HZ:
@@ -86,17 +84,21 @@ static inline bool isValidCSSUnitTypeForDoubleConversion(CSSUnitType unitType)
     case CSSUnitType::CSS_PT:
     case CSSUnitType::CSS_PX:
     case CSSUnitType::CSS_Q:
-    case CSSUnitType::CSS_LHS:
+    case CSSUnitType::CSS_LH:
     case CSSUnitType::CSS_LVB:
     case CSSUnitType::CSS_LVH:
     case CSSUnitType::CSS_LVI:
     case CSSUnitType::CSS_LVMAX:
     case CSSUnitType::CSS_LVMIN:
     case CSSUnitType::CSS_LVW:
-    case CSSUnitType::CSS_RLHS:
-    case CSSUnitType::CSS_QUIRKY_EMS:
+    case CSSUnitType::CSS_RLH:
+    case CSSUnitType::CSS_QUIRKY_EM:
     case CSSUnitType::CSS_RAD:
-    case CSSUnitType::CSS_REMS:
+    case CSSUnitType::CSS_RCAP:
+    case CSSUnitType::CSS_RCH:
+    case CSSUnitType::CSS_REM:
+    case CSSUnitType::CSS_REX:
+    case CSSUnitType::CSS_RIC:
     case CSSUnitType::CSS_S:
     case CSSUnitType::CSS_SVB:
     case CSSUnitType::CSS_SVH:
@@ -123,18 +125,12 @@ static inline bool isValidCSSUnitTypeForDoubleConversion(CSSUnitType unitType)
     case CSSUnitType::CSS_CQMAX:
         return true;
     case CSSUnitType::CSS_ATTR:
-    case CSSUnitType::CSS_COUNTER:
     case CSSUnitType::CSS_COUNTER_NAME:
     case CSSUnitType::CSS_FONT_FAMILY:
     case CSSUnitType::CustomIdent:
-    case CSSUnitType::CSS_PAIR:
     case CSSUnitType::CSS_PROPERTY_ID:
-    case CSSUnitType::CSS_QUAD:
-    case CSSUnitType::CSS_RECT:
     case CSSUnitType::CSS_RGBCOLOR:
-    case CSSUnitType::CSS_SHAPE:
     case CSSUnitType::CSS_STRING:
-    case CSSUnitType::CSS_UNICODE_RANGE:
     case CSSUnitType::CSS_UNKNOWN:
     case CSSUnitType::CSS_UNRESOLVED_COLOR:
     case CSSUnitType::CSS_URI:
@@ -163,10 +159,10 @@ static inline bool isStringType(CSSUnitType type)
     case CSSUnitType::CSS_CALC:
     case CSSUnitType::CSS_CALC_PERCENTAGE_WITH_LENGTH:
     case CSSUnitType::CSS_CALC_PERCENTAGE_WITH_NUMBER:
-    case CSSUnitType::CSS_CHS:
+    case CSSUnitType::CSS_CAP:
+    case CSSUnitType::CSS_CH:
     case CSSUnitType::CSS_IC:
     case CSSUnitType::CSS_CM:
-    case CSSUnitType::CSS_COUNTER:
     case CSSUnitType::CSS_DEG:
     case CSSUnitType::CSS_DIMENSION:
     case CSSUnitType::CSS_DPCM:
@@ -179,8 +175,8 @@ static inline bool isStringType(CSSUnitType type)
     case CSSUnitType::CSS_DVMIN:
     case CSSUnitType::CSS_DVW:
     case CSSUnitType::CSS_X:
-    case CSSUnitType::CSS_EMS:
-    case CSSUnitType::CSS_EXS:
+    case CSSUnitType::CSS_EM:
+    case CSSUnitType::CSS_EX:
     case CSSUnitType::CSS_FR:
     case CSSUnitType::CSS_GRAD:
     case CSSUnitType::CSS_HZ:
@@ -197,20 +193,21 @@ static inline bool isStringType(CSSUnitType type)
     case CSSUnitType::CSS_MS:
     case CSSUnitType::CSS_NUMBER:
     case CSSUnitType::CSS_INTEGER:
-    case CSSUnitType::CSS_PAIR:
     case CSSUnitType::CSS_PC:
     case CSSUnitType::CSS_PERCENTAGE:
     case CSSUnitType::CSS_PROPERTY_ID:
     case CSSUnitType::CSS_PT:
     case CSSUnitType::CSS_PX:
     case CSSUnitType::CSS_Q:
-    case CSSUnitType::CSS_LHS:
-    case CSSUnitType::CSS_RLHS:
-    case CSSUnitType::CSS_QUAD:
-    case CSSUnitType::CSS_QUIRKY_EMS:
+    case CSSUnitType::CSS_LH:
+    case CSSUnitType::CSS_RLH:
+    case CSSUnitType::CSS_QUIRKY_EM:
     case CSSUnitType::CSS_RAD:
-    case CSSUnitType::CSS_RECT:
-    case CSSUnitType::CSS_REMS:
+    case CSSUnitType::CSS_RCAP:
+    case CSSUnitType::CSS_RCH:
+    case CSSUnitType::CSS_REM:
+    case CSSUnitType::CSS_REX:
+    case CSSUnitType::CSS_RIC:
     case CSSUnitType::CSS_RGBCOLOR:
     case CSSUnitType::CSS_S:
     case CSSUnitType::CSS_SVB:
@@ -219,9 +216,7 @@ static inline bool isStringType(CSSUnitType type)
     case CSSUnitType::CSS_SVMAX:
     case CSSUnitType::CSS_SVMIN:
     case CSSUnitType::CSS_SVW:
-    case CSSUnitType::CSS_SHAPE:
     case CSSUnitType::CSS_TURN:
-    case CSSUnitType::CSS_UNICODE_RANGE:
     case CSSUnitType::CSS_UNKNOWN:
     case CSSUnitType::CSS_UNRESOLVED_COLOR:
     case CSSUnitType::CSS_VALUE_ID:
@@ -264,7 +259,7 @@ CSSUnitType CSSPrimitiveValue::primitiveType() const
     if (primitiveUnitType() == CSSUnitType::CSS_FONT_FAMILY)
         return CSSUnitType::CSS_STRING;
 
-    if (primitiveUnitType() != CSSUnitType::CSS_CALC)
+    if (!isCalculated())
         return primitiveUnitType();
 
     switch (m_value.calc->category()) {
@@ -311,12 +306,12 @@ CSSPrimitiveValue::CSSPrimitiveValue(const String& string, CSSUnitType type)
         m_value.string->ref();
 }
 
-CSSPrimitiveValue::CSSPrimitiveValue(const Color& color)
+CSSPrimitiveValue::CSSPrimitiveValue(Color color)
     : CSSValue(PrimitiveClass)
 {
     setPrimitiveUnitType(CSSUnitType::CSS_RGBCOLOR);
     static_assert(sizeof(m_value.colorAsInteger) == sizeof(color));
-    new (reinterpret_cast<Color*>(&m_value.colorAsInteger)) Color(color);
+    new (reinterpret_cast<Color*>(&m_value.colorAsInteger)) Color(WTFMove(color));
 }
 
 CSSPrimitiveValue::CSSPrimitiveValue(StaticCSSValueTag, CSSValueID valueID)
@@ -327,8 +322,8 @@ CSSPrimitiveValue::CSSPrimitiveValue(StaticCSSValueTag, CSSValueID valueID)
     makeStatic();
 }
 
-CSSPrimitiveValue::CSSPrimitiveValue(StaticCSSValueTag, const Color& color)
-    : CSSPrimitiveValue(color)
+CSSPrimitiveValue::CSSPrimitiveValue(StaticCSSValueTag, Color color)
+    : CSSPrimitiveValue(WTFMove(color))
 {
     makeStatic();
 }
@@ -345,53 +340,18 @@ CSSPrimitiveValue::CSSPrimitiveValue(StaticCSSValueTag, ImplicitInitialValueTag)
     m_isImplicitInitialValue = true;
 }
 
-CSSPrimitiveValue::CSSPrimitiveValue(Ref<Counter>&& counter)
-    : CSSValue(PrimitiveClass)
-{
-    setPrimitiveUnitType(CSSUnitType::CSS_COUNTER);
-    m_value.counter = &counter.leakRef();
-}
-
-CSSPrimitiveValue::CSSPrimitiveValue(Ref<Rect>&& rect)
-    : CSSValue(PrimitiveClass)
-{
-    setPrimitiveUnitType(CSSUnitType::CSS_RECT);
-    m_value.rect = &rect.leakRef();
-}
-
-CSSPrimitiveValue::CSSPrimitiveValue(Ref<Quad>&& quad)
-    : CSSValue(PrimitiveClass)
-{
-    setPrimitiveUnitType(CSSUnitType::CSS_QUAD);
-    m_value.quad = &quad.leakRef();
-}
-
-CSSPrimitiveValue::CSSPrimitiveValue(Ref<Pair>&& pair)
-    : CSSValue(PrimitiveClass)
-{
-    setPrimitiveUnitType(CSSUnitType::CSS_PAIR);
-    m_value.pair = &pair.leakRef();
-}
-
-CSSPrimitiveValue::CSSPrimitiveValue(Ref<CSSBasicShape>&& shape)
-    : CSSValue(PrimitiveClass)
-{
-    setPrimitiveUnitType(CSSUnitType::CSS_SHAPE);
-    m_value.shape = &shape.leakRef();
-}
-
-CSSPrimitiveValue::CSSPrimitiveValue(Ref<CSSCalcValue>&& value)
+CSSPrimitiveValue::CSSPrimitiveValue(Ref<CSSCalcValue> value)
     : CSSValue(PrimitiveClass)
 {
     setPrimitiveUnitType(CSSUnitType::CSS_CALC);
     m_value.calc = &value.leakRef();
 }
 
-CSSPrimitiveValue::CSSPrimitiveValue(Ref<CSSUnresolvedColor>&& unresolvedColor)
+CSSPrimitiveValue::CSSPrimitiveValue(CSSUnresolvedColor unresolvedColor)
     : CSSValue(PrimitiveClass)
 {
     setPrimitiveUnitType(CSSUnitType::CSS_UNRESOLVED_COLOR);
-    m_value.unresolvedColor = &unresolvedColor.leakRef();
+    m_value.unresolvedColor = new CSSUnresolvedColor(WTFMove(unresolvedColor));
 }
 
 CSSPrimitiveValue::~CSSPrimitiveValue()
@@ -407,18 +367,6 @@ CSSPrimitiveValue::~CSSPrimitiveValue()
         if (m_value.string)
             m_value.string->deref();
         break;
-    case CSSUnitType::CSS_COUNTER:
-        m_value.counter->deref();
-        break;
-    case CSSUnitType::CSS_RECT:
-        m_value.rect->deref();
-        break;
-    case CSSUnitType::CSS_QUAD:
-        m_value.quad->deref();
-        break;
-    case CSSUnitType::CSS_PAIR:
-        m_value.pair->deref();
-        break;
     case CSSUnitType::CSS_CALC:
         m_value.calc->deref();
         break;
@@ -426,25 +374,27 @@ CSSPrimitiveValue::~CSSPrimitiveValue()
     case CSSUnitType::CSS_CALC_PERCENTAGE_WITH_LENGTH:
         ASSERT_NOT_REACHED();
         break;
-    case CSSUnitType::CSS_SHAPE:
-        m_value.shape->deref();
-        break;
     case CSSUnitType::CSS_RGBCOLOR:
         std::destroy_at(reinterpret_cast<Color*>(&m_value.colorAsInteger));
         break;
     case CSSUnitType::CSS_UNRESOLVED_COLOR:
-        m_value.unresolvedColor->deref();
+        delete m_value.unresolvedColor;
         break;
     case CSSUnitType::CSS_DIMENSION:
     case CSSUnitType::CSS_NUMBER:
     case CSSUnitType::CSS_INTEGER:
     case CSSUnitType::CSS_PERCENTAGE:
-    case CSSUnitType::CSS_EMS:
-    case CSSUnitType::CSS_QUIRKY_EMS:
-    case CSSUnitType::CSS_EXS:
-    case CSSUnitType::CSS_REMS:
-    case CSSUnitType::CSS_CHS:
+    case CSSUnitType::CSS_EM:
+    case CSSUnitType::CSS_QUIRKY_EM:
+    case CSSUnitType::CSS_EX:
+    case CSSUnitType::CSS_CAP:
+    case CSSUnitType::CSS_CH:
     case CSSUnitType::CSS_IC:
+    case CSSUnitType::CSS_RCAP:
+    case CSSUnitType::CSS_RCH:
+    case CSSUnitType::CSS_REM:
+    case CSSUnitType::CSS_REX:
+    case CSSUnitType::CSS_RIC:
     case CSSUnitType::CSS_PX:
     case CSSUnitType::CSS_CM:
     case CSSUnitType::CSS_MM:
@@ -489,11 +439,10 @@ CSSPrimitiveValue::~CSSPrimitiveValue()
     case CSSUnitType::CSS_DPCM:
     case CSSUnitType::CSS_FR:
     case CSSUnitType::CSS_Q:
-    case CSSUnitType::CSS_LHS:
-    case CSSUnitType::CSS_RLHS:
+    case CSSUnitType::CSS_LH:
+    case CSSUnitType::CSS_RLH:
     case CSSUnitType::CSS_IDENT:
     case CSSUnitType::CSS_UNKNOWN:
-    case CSSUnitType::CSS_UNICODE_RANGE:
     case CSSUnitType::CSS_PROPERTY_ID:
     case CSSUnitType::CSS_VALUE_ID:
     case CSSUnitType::CSS_CQW:
@@ -516,31 +465,48 @@ Ref<CSSPrimitiveValue> CSSPrimitiveValue::create(CSSPropertyID propertyID)
     return adoptRef(*new CSSPrimitiveValue(propertyID));
 }
 
+static CSSPrimitiveValue* valueFromPool(std::span<LazyNeverDestroyed<CSSPrimitiveValue>> pool, double value)
+{
+    // Casting to a signed integer first since casting a negative floating point value to an unsigned
+    // integer is undefined behavior.
+    unsigned poolIndex = static_cast<unsigned>(static_cast<int>(value));
+    double roundTripValue = poolIndex;
+    if (!memcmp(&value, &roundTripValue, sizeof(double)) && poolIndex < pool.size())
+        return &pool[poolIndex].get();
+    return nullptr;
+}
+
+Ref<CSSPrimitiveValue> CSSPrimitiveValue::create(double value)
+{
+    if (auto* result = valueFromPool(staticCSSValuePool->m_numberValues, value))
+        return *result;
+    return adoptRef(*new CSSPrimitiveValue(value, CSSUnitType::CSS_NUMBER));
+}
+
 Ref<CSSPrimitiveValue> CSSPrimitiveValue::create(double value, CSSUnitType type)
 {
-    if (auto values = [type]() -> LazyNeverDestroyed<CSSPrimitiveValue>* {
-        switch (type) {
-        case CSSUnitType::CSS_NUMBER:
-            return staticCSSValuePool->m_numberValues;
-        case CSSUnitType::CSS_PERCENTAGE:
-            return staticCSSValuePool->m_percentValues;
-        case CSSUnitType::CSS_PX:
-            return staticCSSValuePool->m_pixelValues;
-        default:
-            return nullptr;
-        }
-    }()) {
-        int intValue = value;
-        double roundTripValue = intValue;
-        if (!memcmp(&value, &roundTripValue, sizeof(double)) && intValue >= 0 && intValue <= StaticCSSValuePool::maximumCacheableIntegerValue)
-            return values[intValue].get();
+    switch (type) {
+    case CSSUnitType::CSS_NUMBER:
+        if (auto* result = valueFromPool(staticCSSValuePool->m_numberValues, value))
+            return *result;
+        break;
+    case CSSUnitType::CSS_PERCENTAGE:
+        if (auto* result = valueFromPool(staticCSSValuePool->m_percentValues, value))
+            return *result;
+        break;
+    case CSSUnitType::CSS_PX:
+        if (auto* result = valueFromPool(staticCSSValuePool->m_pixelValues, value))
+            return *result;
+        break;
+    default:
+        break;
     }
     return adoptRef(*new CSSPrimitiveValue(value, type));
 }
 
-Ref<CSSPrimitiveValue> CSSPrimitiveValue::create(const String& value, CSSUnitType type)
+Ref<CSSPrimitiveValue> CSSPrimitiveValue::create(String value)
 {
-    return adoptRef(*new CSSPrimitiveValue(value, type));
+    return adoptRef(*new CSSPrimitiveValue(WTFMove(value), CSSUnitType::CSS_STRING));
 }
 
 Ref<CSSPrimitiveValue> CSSPrimitiveValue::create(const Length& length)
@@ -550,6 +516,10 @@ Ref<CSSPrimitiveValue> CSSPrimitiveValue::create(const Length& length)
         return create(CSSValueAuto);
     case LengthType::Content:
         return create(CSSValueContent);
+    case LengthType::FillAvailable:
+        return create(CSSValueWebkitFillAvailable);
+    case LengthType::FitContent:
+        return create(CSSValueFitContent);
     case LengthType::Fixed:
         return create(length.value(), CSSUnitType::CSS_PX);
     case LengthType::Intrinsic:
@@ -560,10 +530,8 @@ Ref<CSSPrimitiveValue> CSSPrimitiveValue::create(const Length& length)
         return create(CSSValueMinContent);
     case LengthType::MaxContent:
         return create(CSSValueMaxContent);
-    case LengthType::FillAvailable:
-        return create(CSSValueWebkitFillAvailable);
-    case LengthType::FitContent:
-        return create(CSSValueFitContent);
+    case LengthType::Normal:
+        return create(CSSValueNormal);
     case LengthType::Percent:
         ASSERT(std::isfinite(length.percent()));
         return create(length.percent(), CSSUnitType::CSS_PERCENTAGE);
@@ -580,12 +548,13 @@ Ref<CSSPrimitiveValue> CSSPrimitiveValue::create(const Length& length, const Ren
     switch (length.type()) {
     case LengthType::Auto:
     case LengthType::Content:
+    case LengthType::FillAvailable:
+    case LengthType::FitContent:
     case LengthType::Intrinsic:
     case LengthType::MinIntrinsic:
     case LengthType::MinContent:
     case LengthType::MaxContent:
-    case LengthType::FillAvailable:
-    case LengthType::FitContent:
+    case LengthType::Normal:
     case LengthType::Percent:
         return create(length);
     case LengthType::Fixed:
@@ -600,44 +569,44 @@ Ref<CSSPrimitiveValue> CSSPrimitiveValue::create(const Length& length, const Ren
     RELEASE_ASSERT_NOT_REACHED();
 }
 
-Ref<CSSPrimitiveValue> CSSPrimitiveValue::create(const LengthSize& lengthSize, const RenderStyle& style)
-{
-    return create(Pair::create(create(lengthSize.width, style), create(lengthSize.height, style)));
-}
-
-Ref<CSSPrimitiveValue> CSSPrimitiveValue::create(Ref<CSSBasicShape>&& value)
+Ref<CSSPrimitiveValue> CSSPrimitiveValue::create(Ref<CSSCalcValue> value)
 {
     return adoptRef(*new CSSPrimitiveValue(WTFMove(value)));
 }
 
-Ref<CSSPrimitiveValue> CSSPrimitiveValue::create(Ref<CSSCalcValue>&& value)
+Ref<CSSPrimitiveValue> CSSPrimitiveValue::create(CSSUnresolvedColor value)
 {
     return adoptRef(*new CSSPrimitiveValue(WTFMove(value)));
 }
 
-Ref<CSSPrimitiveValue> CSSPrimitiveValue::create(Ref<Counter>&& value)
+Ref<CSSPrimitiveValue> CSSPrimitiveValue::createAttr(String value)
 {
-    return adoptRef(*new CSSPrimitiveValue(WTFMove(value)));
+    return adoptRef(*new CSSPrimitiveValue(WTFMove(value), CSSUnitType::CSS_ATTR));
 }
 
-Ref<CSSPrimitiveValue> CSSPrimitiveValue::create(Ref<Pair>&& value)
+Ref<CSSPrimitiveValue> CSSPrimitiveValue::createCounterName(String value)
 {
-    return adoptRef(*new CSSPrimitiveValue(WTFMove(value)));
+    return adoptRef(*new CSSPrimitiveValue(WTFMove(value), CSSUnitType::CSS_COUNTER_NAME));
 }
 
-Ref<CSSPrimitiveValue> CSSPrimitiveValue::create(Ref<Quad>&& value)
+Ref<CSSPrimitiveValue> CSSPrimitiveValue::createCustomIdent(String value)
 {
-    return adoptRef(*new CSSPrimitiveValue(WTFMove(value)));
+    return adoptRef(*new CSSPrimitiveValue(WTFMove(value), CSSUnitType::CustomIdent));
 }
 
-Ref<CSSPrimitiveValue> CSSPrimitiveValue::create(Ref<Rect>&& value)
+Ref<CSSPrimitiveValue> CSSPrimitiveValue::createFontFamily(String value)
 {
-    return adoptRef(*new CSSPrimitiveValue(WTFMove(value)));
+    return adoptRef(*new CSSPrimitiveValue(WTFMove(value), CSSUnitType::CSS_FONT_FAMILY));
 }
 
-Ref<CSSPrimitiveValue> CSSPrimitiveValue::create(Ref<CSSUnresolvedColor>&& value)
+Ref<CSSPrimitiveValue> CSSPrimitiveValue::createInteger(double value)
 {
-    return adoptRef(*new CSSPrimitiveValue(WTFMove(value)));
+    return adoptRef(*new CSSPrimitiveValue(value, CSSUnitType::CSS_INTEGER));
+}
+
+Ref<CSSPrimitiveValue> CSSPrimitiveValue::createURI(String value)
+{
+    return adoptRef(*new CSSPrimitiveValue(WTFMove(value), CSSUnitType::CSS_URI));
 }
 
 double CSSPrimitiveValue::computeDegrees() const
@@ -687,7 +656,7 @@ template<> LayoutUnit CSSPrimitiveValue::computeLength(const CSSToLengthConversi
 
 double CSSPrimitiveValue::computeLengthDouble(const CSSToLengthConversionData& conversionData) const
 {
-    if (primitiveUnitType() == CSSUnitType::CSS_CALC) {
+    if (isCalculated()) {
         // The multiplier and factor is applied to each value in the calc expression individually
         return m_value.calc->computeLengthPx(conversionData);
     }
@@ -724,30 +693,41 @@ static double lengthOfViewportPhysicalAxisForLogicalAxis(LogicalBoxAxis logicalA
     return lengthOfViewportPhysicalAxisForLogicalAxis(logicalAxis, size, rootElement->renderStyle());
 }
 
-double CSSPrimitiveValue::computeUnzoomedNonCalcLengthDouble(CSSUnitType primitiveType, double value, CSSPropertyID propertyToCompute, const FontMetrics* fontMetrics, const FontCascadeDescription* fontDescription, const FontCascadeDescription* rootFontDescription, const RenderView* renderView)
+double CSSPrimitiveValue::computeUnzoomedNonCalcLengthDouble(CSSUnitType primitiveType, double value, CSSPropertyID propertyToCompute, const FontCascade* fontCascadeForUnit, const RenderView* renderView)
 {
     switch (primitiveType) {
-    case CSSUnitType::CSS_EMS:
-    case CSSUnitType::CSS_QUIRKY_EMS:
-        ASSERT(fontDescription);
-        return ((propertyToCompute == CSSPropertyFontSize) ? fontDescription->specifiedSize() : fontDescription->computedSize()) * value;
-    case CSSUnitType::CSS_EXS:
-        ASSERT(fontMetrics);
-        if (fontMetrics->hasXHeight())
-            return fontMetrics->xHeight() * value;
-        ASSERT(fontDescription);
-        return ((propertyToCompute == CSSPropertyFontSize) ? fontDescription->specifiedSize() : fontDescription->computedSize()) / 2.0 * value;
-    case CSSUnitType::CSS_REMS:
-        if (!rootFontDescription)
-            return value;
-        return ((propertyToCompute == CSSPropertyFontSize) ? rootFontDescription->specifiedSize() : rootFontDescription->computedSize()) * value;
-    case CSSUnitType::CSS_CHS:
-        ASSERT(fontMetrics);
-        ASSERT(fontDescription);
-        return fontMetrics->zeroWidth().value_or(fontDescription->computedSize() / 2) * value;
+    case CSSUnitType::CSS_EM:
+    case CSSUnitType::CSS_QUIRKY_EM:
+    case CSSUnitType::CSS_REM: {
+        ASSERT(fontCascadeForUnit);
+        auto& fontDescription = fontCascadeForUnit->fontDescription();
+        return ((propertyToCompute == CSSPropertyFontSize) ? fontDescription.specifiedSize() : fontDescription.computedSize()) * value;
+    }
+    case CSSUnitType::CSS_EX:
+    case CSSUnitType::CSS_REX: {
+        ASSERT(fontCascadeForUnit);
+        auto& fontMetrics = fontCascadeForUnit->metricsOfPrimaryFont();
+        if (fontMetrics.hasXHeight())
+            return fontMetrics.xHeight() * value;
+        auto& fontDescription = fontCascadeForUnit->fontDescription();
+        return ((propertyToCompute == CSSPropertyFontSize) ? fontDescription.specifiedSize() : fontDescription.computedSize()) / 2.0 * value;
+    }
+    case CSSUnitType::CSS_CAP:
+    case CSSUnitType::CSS_RCAP: {
+        ASSERT(fontCascadeForUnit);
+        auto& fontMetrics = fontCascadeForUnit->metricsOfPrimaryFont();
+        if (fontMetrics.hasCapHeight())
+            return fontMetrics.floatCapHeight() * value;
+        return fontMetrics.ascent() * value;
+    }
+    case CSSUnitType::CSS_CH:
+    case CSSUnitType::CSS_RCH:
+        ASSERT(fontCascadeForUnit);
+        return fontCascadeForUnit->metricsOfPrimaryFont().zeroWidth().value_or(fontCascadeForUnit->fontDescription().computedSize() / 2) * value;
     case CSSUnitType::CSS_IC:
-        ASSERT(fontMetrics);
-        return fontMetrics->ideogramWidth() * value;
+    case CSSUnitType::CSS_RIC:
+        ASSERT(fontCascadeForUnit);
+        return fontCascadeForUnit->metricsOfPrimaryFont().ideogramWidth() * value;
     case CSSUnitType::CSS_PX:
         return value;
     case CSSUnitType::CSS_CM:
@@ -756,8 +736,8 @@ double CSSPrimitiveValue::computeUnzoomedNonCalcLengthDouble(CSSUnitType primiti
         return cssPixelsPerInch / mmPerInch * value;
     case CSSUnitType::CSS_Q:
         return cssPixelsPerInch / QPerInch * value;
-    case CSSUnitType::CSS_LHS:
-    case CSSUnitType::CSS_RLHS:
+    case CSSUnitType::CSS_LH:
+    case CSSUnitType::CSS_RLH:
         ASSERT_NOT_REACHED();
         return -1.0;
     case CSSUnitType::CSS_IN:
@@ -827,38 +807,51 @@ double CSSPrimitiveValue::computeUnzoomedNonCalcLengthDouble(CSSUnitType primiti
 
 double CSSPrimitiveValue::computeNonCalcLengthDouble(const CSSToLengthConversionData& conversionData, CSSUnitType primitiveType, double value)
 {
-    auto selectContainerRenderer = [&](CQ::Axis axis) -> const RenderBox* {
+    auto resolveContainerUnit = [&](CQ::Axis physicalAxis) -> std::optional<double> {
+        ASSERT(physicalAxis == CQ::Axis::Width || physicalAxis == CQ::Axis::Height);
+
         conversionData.setUsesContainerUnits();
+
         auto* element = conversionData.elementForContainerUnitResolution();
         if (!element)
-            return nullptr;
-        // FIXME: Use cached query containers when available.
-        auto* container = Style::ContainerQueryEvaluator::selectContainer(axis, nullString(), *element);
-        if (!container)
-            return nullptr;
-        return dynamicDowncast<RenderBox>(container->renderer());
+            return { };
+
+        auto mode = conversionData.style()->styleType() == PseudoId::None
+            ? Style::ContainerQueryEvaluator::SelectionMode::Element
+            : Style::ContainerQueryEvaluator::SelectionMode::PseudoElement;
+
+        // "The query container for each axis is the nearest ancestor container that accepts container size queries on that axis."
+        while ((element = Style::ContainerQueryEvaluator::selectContainer(physicalAxis, nullString(), *element, mode))) {
+            auto* containerRenderer = dynamicDowncast<RenderBox>(element->renderer());
+            if (containerRenderer && containerRenderer->hasEligibleContainmentForSizeQuery()) {
+                auto widthOrHeight = physicalAxis == CQ::Axis::Width ? containerRenderer->contentWidth() : containerRenderer->contentHeight();
+                return widthOrHeight * value / 100;
+            }
+            // For pseudo-elements the element itself can be the container. Avoid looping forever.
+            mode = Style::ContainerQueryEvaluator::SelectionMode::Element;
+        }
+        return { };
     };
 
     switch (primitiveType) {
-    case CSSUnitType::CSS_EMS:
-    case CSSUnitType::CSS_QUIRKY_EMS:
-        value = computeUnzoomedNonCalcLengthDouble(primitiveType, value, conversionData.propertyToCompute(), nullptr, &conversionData.fontCascadeForFontUnits().fontDescription());
-        break;
-
-    case CSSUnitType::CSS_EXS:
+    case CSSUnitType::CSS_EM:
+    case CSSUnitType::CSS_QUIRKY_EM:
+    case CSSUnitType::CSS_EX:
+    case CSSUnitType::CSS_CAP:
+    case CSSUnitType::CSS_CH:
+    case CSSUnitType::CSS_IC:
         // FIXME: We have a bug right now where the zoom will be applied twice to EX units.
         // We really need to compute EX using fontMetrics for the original specifiedSize and not use
         // our actual constructed rendering font.
-        value = computeUnzoomedNonCalcLengthDouble(primitiveType, value, conversionData.propertyToCompute(), &conversionData.fontCascadeForFontUnits().metricsOfPrimaryFont(), &conversionData.fontCascadeForFontUnits().fontDescription());
+        value = computeUnzoomedNonCalcLengthDouble(primitiveType, value, conversionData.propertyToCompute(), &conversionData.fontCascadeForFontUnits());
         break;
 
-    case CSSUnitType::CSS_REMS:
-        value = computeUnzoomedNonCalcLengthDouble(primitiveType, value, conversionData.propertyToCompute(), nullptr, nullptr, conversionData.rootStyle() ? &conversionData.rootStyle()->fontDescription() : nullptr);
-        break;
-
-    case CSSUnitType::CSS_CHS:
-    case CSSUnitType::CSS_IC:
-        value = computeUnzoomedNonCalcLengthDouble(primitiveType, value, conversionData.propertyToCompute(), &conversionData.fontCascadeForFontUnits().metricsOfPrimaryFont(), &conversionData.fontCascadeForFontUnits().fontDescription());
+    case CSSUnitType::CSS_RCAP:
+    case CSSUnitType::CSS_RCH:
+    case CSSUnitType::CSS_REM:
+    case CSSUnitType::CSS_REX:
+    case CSSUnitType::CSS_RIC:
+        value = computeUnzoomedNonCalcLengthDouble(primitiveType, value, conversionData.propertyToCompute(), conversionData.rootStyle() ? &conversionData.rootStyle()->fontCascade() : &conversionData.fontCascadeForFontUnits());
         break;
 
     case CSSUnitType::CSS_PX:
@@ -945,7 +938,7 @@ double CSSPrimitiveValue::computeNonCalcLengthDouble(const CSSToLengthConversion
     case CSSUnitType::CSS_DVI:
         return value * lengthOfViewportPhysicalAxisForLogicalAxis(LogicalBoxAxis::Inline, conversionData.dynamicViewportFactor(), conversionData.style());
 
-    case CSSUnitType::CSS_LHS:
+    case CSSUnitType::CSS_LH:
         if (conversionData.computingLineHeight() || conversionData.computingFontSize()) {
             // Try to get the parent's computed line-height, or fall back to the initial line-height of this element's font spacing.
             value *= conversionData.parentStyle() ? conversionData.parentStyle()->computedLineHeight() : conversionData.fontCascadeForFontUnits().metricsOfPrimaryFont().lineSpacing();
@@ -954,27 +947,27 @@ double CSSPrimitiveValue::computeNonCalcLengthDouble(const CSSToLengthConversion
         break;
 
     case CSSUnitType::CSS_CQW: {
-        if (auto* containerRenderer = selectContainerRenderer(CQ::Axis::Width))
-            return containerRenderer->width() * value / 100;
-        return value * conversionData.smallViewportFactor().width();
+        if (auto resolvedValue = resolveContainerUnit(CQ::Axis::Width))
+            return *resolvedValue;
+        return computeNonCalcLengthDouble(conversionData, CSSUnitType::CSS_SVW, value);
     }
 
     case CSSUnitType::CSS_CQH: {
-        if (auto* containerRenderer = selectContainerRenderer(CQ::Axis::Height))
-            return containerRenderer->height() * value / 100;
-        return value * conversionData.smallViewportFactor().height();
+        if (auto resolvedValue = resolveContainerUnit(CQ::Axis::Height))
+            return *resolvedValue;
+        return computeNonCalcLengthDouble(conversionData, CSSUnitType::CSS_SVH, value);
     }
 
     case CSSUnitType::CSS_CQI: {
-        if (auto* containerRenderer = selectContainerRenderer(CQ::Axis::Inline))
-            return containerRenderer->logicalWidth() * value / 100;
-        return value * lengthOfViewportPhysicalAxisForLogicalAxis(LogicalBoxAxis::Inline, conversionData.smallViewportFactor(), conversionData.rootStyle());
+        if (auto resolvedValue = resolveContainerUnit(conversionData.style()->isHorizontalWritingMode() ? CQ::Axis::Width : CQ::Axis::Height))
+            return *resolvedValue;
+        return computeNonCalcLengthDouble(conversionData, CSSUnitType::CSS_SVI, value);
     }
 
     case CSSUnitType::CSS_CQB: {
-        if (auto* containerRenderer = selectContainerRenderer(CQ::Axis::Block))
-            return containerRenderer->logicalHeight() * value / 100;
-        return value * lengthOfViewportPhysicalAxisForLogicalAxis(LogicalBoxAxis::Block, conversionData.smallViewportFactor(), conversionData.rootStyle());
+        if (auto resolvedValue = resolveContainerUnit(conversionData.style()->isHorizontalWritingMode() ? CQ::Axis::Height : CQ::Axis::Width))
+            return *resolvedValue;
+        return computeNonCalcLengthDouble(conversionData, CSSUnitType::CSS_SVB, value);
     }
 
     case CSSUnitType::CSS_CQMAX:
@@ -983,7 +976,7 @@ double CSSPrimitiveValue::computeNonCalcLengthDouble(const CSSToLengthConversion
     case CSSUnitType::CSS_CQMIN:
         return std::min(computeNonCalcLengthDouble(conversionData, CSSUnitType::CSS_CQB, value), computeNonCalcLengthDouble(conversionData, CSSUnitType::CSS_CQI, value));
 
-    case CSSUnitType::CSS_RLHS:
+    case CSSUnitType::CSS_RLH:
         if (conversionData.rootStyle()) {
             if (conversionData.computingLineHeight() || conversionData.computingFontSize())
                 value *= conversionData.rootStyle()->computeLineHeight(conversionData.rootStyle()->specifiedLineHeight());
@@ -1099,47 +1092,37 @@ double CSSPrimitiveValue::doubleValue(CSSUnitType unitType) const
 
 double CSSPrimitiveValue::doubleValue() const
 {
-    return primitiveUnitType() != CSSUnitType::CSS_CALC ? m_value.number : m_value.calc->doubleValue();
+    return isCalculated() ? m_value.calc->doubleValue() : m_value.number;
 }
 
 double CSSPrimitiveValue::doubleValueDividingBy100IfPercentage() const
 {
-    switch (primitiveUnitType()) {
-    case CSSUnitType::CSS_CALC:
+    if (isCalculated())
         return m_value.calc->primitiveType() == CSSUnitType::CSS_PERCENTAGE ? m_value.calc->doubleValue() / 100.0 : m_value.calc->doubleValue();
-    
-    case CSSUnitType::CSS_PERCENTAGE:
+    if (isPercentage())
         return m_value.number / 100.0;
-        
-    default:
-        return m_value.number;
-    }
+    return m_value.number;
 }
 
 std::optional<bool> CSSPrimitiveValue::isZero() const
 {
-    if (primitiveUnitType() == CSSUnitType::CSS_CALC)
+    if (isCalculated())
         return std::nullopt;
     return !m_value.number;
 }
 
 std::optional<bool> CSSPrimitiveValue::isPositive() const
 {
-    if (primitiveUnitType() == CSSUnitType::CSS_CALC)
+    if (isCalculated())
         return std::nullopt;
     return m_value.number > 0;
 }
 
 std::optional<bool> CSSPrimitiveValue::isNegative() const
 {
-    if (primitiveUnitType() == CSSUnitType::CSS_CALC)
+    if (isCalculated())
         return std::nullopt;
     return m_value.number < 0;
-}
-
-bool CSSPrimitiveValue::isCenterPosition() const
-{
-    return valueID() == CSSValueCenter || doubleValue(CSSUnitType::CSS_PERCENTAGE) == 50;
 }
 
 std::optional<double> CSSPrimitiveValue::doubleValueInternal(CSSUnitType requestedUnitType) const
@@ -1251,7 +1234,8 @@ NEVER_INLINE String CSSPrimitiveValue::formatIntegerValue(ASCIILiteral suffix) c
 ASCIILiteral CSSPrimitiveValue::unitTypeString(CSSUnitType unitType)
 {
     switch (unitType) {
-    case CSSUnitType::CSS_CHS: return "ch"_s;
+    case CSSUnitType::CSS_CAP: return "cap"_s;
+    case CSSUnitType::CSS_CH: return "ch"_s;
     case CSSUnitType::CSS_CM: return "cm"_s;
     case CSSUnitType::CSS_CQB: return "cqb"_s;
     case CSSUnitType::CSS_CQH: return "cqh"_s;
@@ -1269,15 +1253,15 @@ ASCIILiteral CSSPrimitiveValue::unitTypeString(CSSUnitType unitType)
     case CSSUnitType::CSS_DVMAX: return "dvmax"_s;
     case CSSUnitType::CSS_DVMIN: return "dvmin"_s;
     case CSSUnitType::CSS_DVW: return "dvw"_s;
-    case CSSUnitType::CSS_EMS: return "em"_s;
-    case CSSUnitType::CSS_EXS: return "ex"_s;
+    case CSSUnitType::CSS_EM: return "em"_s;
+    case CSSUnitType::CSS_EX: return "ex"_s;
     case CSSUnitType::CSS_FR: return "fr"_s;
     case CSSUnitType::CSS_GRAD: return "grad"_s;
     case CSSUnitType::CSS_HZ: return "hz"_s;
     case CSSUnitType::CSS_IC: return "ic"_s;
     case CSSUnitType::CSS_IN: return "in"_s;
     case CSSUnitType::CSS_KHZ: return "khz"_s;
-    case CSSUnitType::CSS_LHS: return "lh"_s;
+    case CSSUnitType::CSS_LH: return "lh"_s;
     case CSSUnitType::CSS_LVB: return "lvb"_s;
     case CSSUnitType::CSS_LVH: return "lvh"_s;
     case CSSUnitType::CSS_LVI: return "lvi"_s;
@@ -1292,8 +1276,12 @@ ASCIILiteral CSSPrimitiveValue::unitTypeString(CSSUnitType unitType)
     case CSSUnitType::CSS_PX: return "px"_s;
     case CSSUnitType::CSS_Q: return "q"_s;
     case CSSUnitType::CSS_RAD: return "rad"_s;
-    case CSSUnitType::CSS_REMS: return "rem"_s;
-    case CSSUnitType::CSS_RLHS: return "rlh"_s;
+    case CSSUnitType::CSS_RCAP: return "rcap"_s;
+    case CSSUnitType::CSS_RCH: return "rch"_s;
+    case CSSUnitType::CSS_REM: return "rem"_s;
+    case CSSUnitType::CSS_REX: return "rex"_s;
+    case CSSUnitType::CSS_RIC: return "ric"_s;
+    case CSSUnitType::CSS_RLH: return "rlh"_s;
     case CSSUnitType::CSS_S: return "s"_s;
     case CSSUnitType::CSS_SVB: return "svb"_s;
     case CSSUnitType::CSS_SVH: return "svh"_s;
@@ -1314,22 +1302,16 @@ ASCIILiteral CSSPrimitiveValue::unitTypeString(CSSUnitType unitType)
     case CSSUnitType::CSS_CALC:
     case CSSUnitType::CSS_CALC_PERCENTAGE_WITH_LENGTH:
     case CSSUnitType::CSS_CALC_PERCENTAGE_WITH_NUMBER:
-    case CSSUnitType::CSS_COUNTER:
     case CSSUnitType::CSS_COUNTER_NAME:
     case CSSUnitType::CSS_DIMENSION:
     case CSSUnitType::CSS_FONT_FAMILY:
     case CSSUnitType::CSS_IDENT:
     case CSSUnitType::CSS_INTEGER:
     case CSSUnitType::CSS_NUMBER:
-    case CSSUnitType::CSS_PAIR:
     case CSSUnitType::CSS_PROPERTY_ID:
-    case CSSUnitType::CSS_QUAD:
-    case CSSUnitType::CSS_QUIRKY_EMS:
-    case CSSUnitType::CSS_RECT:
+    case CSSUnitType::CSS_QUIRKY_EM:
     case CSSUnitType::CSS_RGBCOLOR:
-    case CSSUnitType::CSS_SHAPE:
     case CSSUnitType::CSS_STRING:
-    case CSSUnitType::CSS_UNICODE_RANGE:
     case CSSUnitType::CSS_UNKNOWN:
     case CSSUnitType::CSS_UNRESOLVED_COLOR:
     case CSSUnitType::CSS_URI:
@@ -1341,24 +1323,12 @@ ASCIILiteral CSSPrimitiveValue::unitTypeString(CSSUnitType unitType)
     return ""_s;
 }
 
-static String serialize(const Counter& counter)
-{
-    auto listStyleSeparator = counter.listStyle == CSSValueDecimal ? ""_s : ", "_s;
-    auto listStyleLiteral = counter.listStyle == CSSValueDecimal ? ""_s : nameLiteral(counter.listStyle);
-    if (counter.separator.isEmpty())
-        return makeString("counter("_s, counter.identifier, listStyleSeparator, listStyleLiteral, ')');
-    StringBuilder result;
-    result.append("counters("_s, counter.identifier, ", "_s);
-    serializeString(counter.separator, result);
-    result.append(listStyleSeparator, listStyleLiteral, ')');
-    return result.toString();
-}
-
 ALWAYS_INLINE String CSSPrimitiveValue::serializeInternal() const
 {
     auto type = primitiveUnitType();
     switch (type) {
-    case CSSUnitType::CSS_CHS:
+    case CSSUnitType::CSS_CAP:
+    case CSSUnitType::CSS_CH:
     case CSSUnitType::CSS_CM:
     case CSSUnitType::CSS_CQB:
     case CSSUnitType::CSS_CQH:
@@ -1376,15 +1346,15 @@ ALWAYS_INLINE String CSSPrimitiveValue::serializeInternal() const
     case CSSUnitType::CSS_DVMAX:
     case CSSUnitType::CSS_DVMIN:
     case CSSUnitType::CSS_DVW:
-    case CSSUnitType::CSS_EMS:
-    case CSSUnitType::CSS_EXS:
+    case CSSUnitType::CSS_EM:
+    case CSSUnitType::CSS_EX:
     case CSSUnitType::CSS_FR:
     case CSSUnitType::CSS_GRAD:
     case CSSUnitType::CSS_HZ:
     case CSSUnitType::CSS_IC:
     case CSSUnitType::CSS_IN:
     case CSSUnitType::CSS_KHZ:
-    case CSSUnitType::CSS_LHS:
+    case CSSUnitType::CSS_LH:
     case CSSUnitType::CSS_LVB:
     case CSSUnitType::CSS_LVH:
     case CSSUnitType::CSS_LVI:
@@ -1400,8 +1370,12 @@ ALWAYS_INLINE String CSSPrimitiveValue::serializeInternal() const
     case CSSUnitType::CSS_PX:
     case CSSUnitType::CSS_Q:
     case CSSUnitType::CSS_RAD:
-    case CSSUnitType::CSS_REMS:
-    case CSSUnitType::CSS_RLHS:
+    case CSSUnitType::CSS_RCAP:
+    case CSSUnitType::CSS_RCH:
+    case CSSUnitType::CSS_REM:
+    case CSSUnitType::CSS_REX:
+    case CSSUnitType::CSS_RIC:
+    case CSSUnitType::CSS_RLH:
     case CSSUnitType::CSS_S:
     case CSSUnitType::CSS_SVB:
     case CSSUnitType::CSS_SVH:
@@ -1422,11 +1396,7 @@ ALWAYS_INLINE String CSSPrimitiveValue::serializeInternal() const
     case CSSUnitType::CSS_ATTR:
         return makeString("attr("_s, m_value.string, ')');
     case CSSUnitType::CSS_CALC:
-        if (!m_value.calc)
-            break;
         return m_value.calc->cssText();
-    case CSSUnitType::CSS_COUNTER:
-        return serialize(*m_value.counter);
     case CSSUnitType::CSS_COUNTER_NAME:
         return makeString("counter(", m_value.string, ')');
     case CSSUnitType::CSS_DIMENSION:
@@ -1436,18 +1406,10 @@ ALWAYS_INLINE String CSSPrimitiveValue::serializeInternal() const
         return serializeFontFamily(m_value.string);
     case CSSUnitType::CSS_INTEGER:
         return formatIntegerValue(""_s);
-    case CSSUnitType::CSS_PAIR:
-        return m_value.pair->cssText();
-    case CSSUnitType::CSS_QUAD:
-        return m_value.quad->cssText();
-    case CSSUnitType::CSS_QUIRKY_EMS:
+    case CSSUnitType::CSS_QUIRKY_EM:
         return formatNumberValue("em"_s);
-    case CSSUnitType::CSS_RECT:
-        return m_value.rect->cssText();
     case CSSUnitType::CSS_RGBCOLOR:
         return serializationForCSS(color());
-    case CSSUnitType::CSS_SHAPE:
-        return m_value.shape->cssText();
     case CSSUnitType::CSS_STRING:
         return serializeString(m_value.string);
     case CSSUnitType::CSS_UNRESOLVED_COLOR:
@@ -1464,7 +1426,6 @@ ALWAYS_INLINE String CSSPrimitiveValue::serializeInternal() const
     case CSSUnitType::CSS_CALC_PERCENTAGE_WITH_NUMBER:
     case CSSUnitType::CSS_IDENT:
     case CSSUnitType::CSS_PROPERTY_ID:
-    case CSSUnitType::CSS_UNICODE_RANGE:
     case CSSUnitType::CSS_UNKNOWN:
     case CSSUnitType::CSS_VALUE_ID:
         break;
@@ -1505,12 +1466,17 @@ bool CSSPrimitiveValue::equals(const CSSPrimitiveValue& other) const
     case CSSUnitType::CSS_NUMBER:
     case CSSUnitType::CSS_INTEGER:
     case CSSUnitType::CSS_PERCENTAGE:
-    case CSSUnitType::CSS_EMS:
-    case CSSUnitType::CSS_QUIRKY_EMS:
-    case CSSUnitType::CSS_EXS:
-    case CSSUnitType::CSS_REMS:
-    case CSSUnitType::CSS_CHS:
+    case CSSUnitType::CSS_EM:
+    case CSSUnitType::CSS_QUIRKY_EM:
+    case CSSUnitType::CSS_EX:
+    case CSSUnitType::CSS_CAP:
+    case CSSUnitType::CSS_CH:
     case CSSUnitType::CSS_IC:
+    case CSSUnitType::CSS_RCAP:
+    case CSSUnitType::CSS_RCH:
+    case CSSUnitType::CSS_REM:
+    case CSSUnitType::CSS_REX:
+    case CSSUnitType::CSS_RIC:
     case CSSUnitType::CSS_PX:
     case CSSUnitType::CSS_CM:
     case CSSUnitType::CSS_DPPX:
@@ -1555,8 +1521,8 @@ bool CSSPrimitiveValue::equals(const CSSPrimitiveValue& other) const
     case CSSUnitType::CSS_DVI:
     case CSSUnitType::CSS_FR:
     case CSSUnitType::CSS_Q:
-    case CSSUnitType::CSS_LHS:
-    case CSSUnitType::CSS_RLHS:
+    case CSSUnitType::CSS_LH:
+    case CSSUnitType::CSS_RLH:
     case CSSUnitType::CSS_DIMENSION:
     case CSSUnitType::CSS_CQW:
     case CSSUnitType::CSS_CQH:
@@ -1576,24 +1542,13 @@ bool CSSPrimitiveValue::equals(const CSSPrimitiveValue& other) const
     case CSSUnitType::CSS_COUNTER_NAME:
     case CSSUnitType::CSS_FONT_FAMILY:
         return equal(m_value.string, other.m_value.string);
-    case CSSUnitType::CSS_COUNTER:
-        return m_value.counter->equals(*other.m_value.counter);
-    case CSSUnitType::CSS_RECT:
-        return m_value.rect->equals(*other.m_value.rect);
-    case CSSUnitType::CSS_QUAD:
-        return m_value.quad->equals(*other.m_value.quad);
     case CSSUnitType::CSS_RGBCOLOR:
         return color() == other.color();
-    case CSSUnitType::CSS_PAIR:
-        return m_value.pair->equals(*other.m_value.pair);
     case CSSUnitType::CSS_CALC:
-        return m_value.calc && other.m_value.calc && m_value.calc->equals(*other.m_value.calc);
-    case CSSUnitType::CSS_SHAPE:
-        return m_value.shape->equals(*other.m_value.shape);
+        return m_value.calc->equals(*other.m_value.calc);
     case CSSUnitType::CSS_UNRESOLVED_COLOR:
         return m_value.unresolvedColor->equals(*other.m_value.unresolvedColor);
     case CSSUnitType::CSS_IDENT:
-    case CSSUnitType::CSS_UNICODE_RANGE:
     case CSSUnitType::CSS_CALC_PERCENTAGE_WITH_NUMBER:
     case CSSUnitType::CSS_CALC_PERCENTAGE_WITH_LENGTH:
         // FIXME: seems like these should be handled.
@@ -1603,49 +1558,33 @@ bool CSSPrimitiveValue::equals(const CSSPrimitiveValue& other) const
     return false;
 }
 
-Ref<DeprecatedCSSOMPrimitiveValue> CSSPrimitiveValue::createDeprecatedCSSOMPrimitiveWrapper(CSSStyleDeclaration& styleDeclaration) const
+bool CSSPrimitiveValue::addDerivedHash(Hasher& hasher) const
 {
-    return DeprecatedCSSOMPrimitiveValue::create(*this, styleDeclaration);
-}
+    add(hasher, primitiveUnitType());
 
-// https://drafts.css-houdini.org/css-properties-values-api/#dependency-cycles
-void CSSPrimitiveValue::collectComputedStyleDependencies(ComputedStyleDependencies& dependencies) const
-{
     switch (primitiveUnitType()) {
-    case CSSUnitType::CSS_REMS:
-        dependencies.rootProperties.appendIfNotContains(CSSPropertyFontSize);
-        break;
-    case CSSUnitType::CSS_RLHS:
-        dependencies.rootProperties.appendIfNotContains(CSSPropertyFontSize);
-        dependencies.rootProperties.appendIfNotContains(CSSPropertyLineHeight);
-        break;
-    case CSSUnitType::CSS_EMS:
-    case CSSUnitType::CSS_QUIRKY_EMS:
-    case CSSUnitType::CSS_EXS:
-    case CSSUnitType::CSS_CHS:
-    case CSSUnitType::CSS_IC:
-        dependencies.properties.appendIfNotContains(CSSPropertyFontSize);
-        break;
-    case CSSUnitType::CSS_LHS:
-        dependencies.properties.appendIfNotContains(CSSPropertyFontSize);
-        dependencies.properties.appendIfNotContains(CSSPropertyLineHeight);
-        break;
-    case CSSUnitType::CSS_CQW:
-    case CSSUnitType::CSS_CQH:
-    case CSSUnitType::CSS_CQI:
-    case CSSUnitType::CSS_CQB:
-    case CSSUnitType::CSS_CQMIN:
-    case CSSUnitType::CSS_CQMAX:
-        dependencies.containerDimensions = true;
-        break;
-    case CSSUnitType::CSS_CALC:
-        m_value.calc->collectComputedStyleDependencies(dependencies);
+    case CSSUnitType::CSS_UNKNOWN:
         break;
     case CSSUnitType::CSS_NUMBER:
     case CSSUnitType::CSS_INTEGER:
     case CSSUnitType::CSS_PERCENTAGE:
+    case CSSUnitType::CSS_EM:
+    case CSSUnitType::CSS_QUIRKY_EM:
+    case CSSUnitType::CSS_EX:
+    case CSSUnitType::CSS_CAP:
+    case CSSUnitType::CSS_CH:
+    case CSSUnitType::CSS_IC:
+    case CSSUnitType::CSS_RCAP:
+    case CSSUnitType::CSS_RCH:
+    case CSSUnitType::CSS_REM:
+    case CSSUnitType::CSS_REX:
+    case CSSUnitType::CSS_RIC:
     case CSSUnitType::CSS_PX:
     case CSSUnitType::CSS_CM:
+    case CSSUnitType::CSS_DPPX:
+    case CSSUnitType::CSS_X:
+    case CSSUnitType::CSS_DPI:
+    case CSSUnitType::CSS_DPCM:
     case CSSUnitType::CSS_MM:
     case CSSUnitType::CSS_IN:
     case CSSUnitType::CSS_PT:
@@ -1653,12 +1592,11 @@ void CSSPrimitiveValue::collectComputedStyleDependencies(ComputedStyleDependenci
     case CSSUnitType::CSS_DEG:
     case CSSUnitType::CSS_RAD:
     case CSSUnitType::CSS_GRAD:
-    case CSSUnitType::CSS_TURN:
     case CSSUnitType::CSS_MS:
     case CSSUnitType::CSS_S:
     case CSSUnitType::CSS_HZ:
     case CSSUnitType::CSS_KHZ:
-    case CSSUnitType::CSS_DIMENSION:
+    case CSSUnitType::CSS_TURN:
     case CSSUnitType::CSS_VW:
     case CSSUnitType::CSS_VH:
     case CSSUnitType::CSS_VMIN:
@@ -1683,6 +1621,133 @@ void CSSPrimitiveValue::collectComputedStyleDependencies(ComputedStyleDependenci
     case CSSUnitType::CSS_DVMAX:
     case CSSUnitType::CSS_DVB:
     case CSSUnitType::CSS_DVI:
+    case CSSUnitType::CSS_FR:
+    case CSSUnitType::CSS_Q:
+    case CSSUnitType::CSS_LH:
+    case CSSUnitType::CSS_RLH:
+    case CSSUnitType::CSS_DIMENSION:
+    case CSSUnitType::CSS_CQW:
+    case CSSUnitType::CSS_CQH:
+    case CSSUnitType::CSS_CQI:
+    case CSSUnitType::CSS_CQB:
+    case CSSUnitType::CSS_CQMIN:
+    case CSSUnitType::CSS_CQMAX:
+        add(hasher, m_value.number);
+        break;
+    case CSSUnitType::CSS_PROPERTY_ID:
+        add(hasher, m_value.propertyID);
+        break;
+    case CSSUnitType::CSS_VALUE_ID:
+        add(hasher, m_value.valueID);
+        break;
+    case CSSUnitType::CSS_STRING:
+    case CSSUnitType::CustomIdent:
+    case CSSUnitType::CSS_URI:
+    case CSSUnitType::CSS_ATTR:
+    case CSSUnitType::CSS_COUNTER_NAME:
+    case CSSUnitType::CSS_FONT_FAMILY:
+        add(hasher, String { m_value.string });
+        break;
+    case CSSUnitType::CSS_RGBCOLOR:
+        add(hasher, color());
+        break;
+    case CSSUnitType::CSS_CALC:
+        add(hasher, m_value.calc);
+        break;
+    case CSSUnitType::CSS_UNRESOLVED_COLOR:
+        add(hasher, m_value.unresolvedColor);
+        break;
+    case CSSUnitType::CSS_IDENT:
+    case CSSUnitType::CSS_CALC_PERCENTAGE_WITH_NUMBER:
+    case CSSUnitType::CSS_CALC_PERCENTAGE_WITH_LENGTH:
+        ASSERT_NOT_REACHED();
+        return false;
+    }
+    return true;
+}
+
+// https://drafts.css-houdini.org/css-properties-values-api/#dependency-cycles
+void CSSPrimitiveValue::collectComputedStyleDependencies(ComputedStyleDependencies& dependencies) const
+{
+    switch (primitiveUnitType()) {
+    case CSSUnitType::CSS_RCAP:
+    case CSSUnitType::CSS_RCH:
+    case CSSUnitType::CSS_REX:
+    case CSSUnitType::CSS_RIC:
+    case CSSUnitType::CSS_REM:
+        dependencies.rootProperties.appendIfNotContains(CSSPropertyFontSize);
+        break;
+    case CSSUnitType::CSS_RLH:
+        dependencies.rootProperties.appendIfNotContains(CSSPropertyFontSize);
+        dependencies.rootProperties.appendIfNotContains(CSSPropertyLineHeight);
+        break;
+    case CSSUnitType::CSS_EM:
+    case CSSUnitType::CSS_QUIRKY_EM:
+    case CSSUnitType::CSS_EX:
+    case CSSUnitType::CSS_CAP:
+    case CSSUnitType::CSS_CH:
+    case CSSUnitType::CSS_IC:
+        dependencies.properties.appendIfNotContains(CSSPropertyFontSize);
+        break;
+    case CSSUnitType::CSS_LH:
+        dependencies.properties.appendIfNotContains(CSSPropertyFontSize);
+        dependencies.properties.appendIfNotContains(CSSPropertyLineHeight);
+        break;
+    case CSSUnitType::CSS_CQW:
+    case CSSUnitType::CSS_CQH:
+    case CSSUnitType::CSS_CQI:
+    case CSSUnitType::CSS_CQB:
+    case CSSUnitType::CSS_CQMIN:
+    case CSSUnitType::CSS_CQMAX:
+        dependencies.containerDimensions = true;
+        break;
+    case CSSUnitType::CSS_CALC:
+        m_value.calc->collectComputedStyleDependencies(dependencies);
+        break;
+    case CSSUnitType::CSS_VW:
+    case CSSUnitType::CSS_VH:
+    case CSSUnitType::CSS_VMIN:
+    case CSSUnitType::CSS_VMAX:
+    case CSSUnitType::CSS_VB:
+    case CSSUnitType::CSS_VI:
+    case CSSUnitType::CSS_SVW:
+    case CSSUnitType::CSS_SVH:
+    case CSSUnitType::CSS_SVMIN:
+    case CSSUnitType::CSS_SVMAX:
+    case CSSUnitType::CSS_SVB:
+    case CSSUnitType::CSS_SVI:
+    case CSSUnitType::CSS_LVW:
+    case CSSUnitType::CSS_LVH:
+    case CSSUnitType::CSS_LVMIN:
+    case CSSUnitType::CSS_LVMAX:
+    case CSSUnitType::CSS_LVB:
+    case CSSUnitType::CSS_LVI:
+    case CSSUnitType::CSS_DVW:
+    case CSSUnitType::CSS_DVH:
+    case CSSUnitType::CSS_DVMIN:
+    case CSSUnitType::CSS_DVMAX:
+    case CSSUnitType::CSS_DVB:
+    case CSSUnitType::CSS_DVI:
+        dependencies.viewportDimensions = true;
+        break;
+    case CSSUnitType::CSS_NUMBER:
+    case CSSUnitType::CSS_INTEGER:
+    case CSSUnitType::CSS_PERCENTAGE:
+    case CSSUnitType::CSS_PX:
+    case CSSUnitType::CSS_CM:
+    case CSSUnitType::CSS_MM:
+    case CSSUnitType::CSS_IN:
+    case CSSUnitType::CSS_PT:
+    case CSSUnitType::CSS_PC:
+    case CSSUnitType::CSS_DEG:
+    case CSSUnitType::CSS_RAD:
+    case CSSUnitType::CSS_GRAD:
+    case CSSUnitType::CSS_TURN:
+    case CSSUnitType::CSS_MS:
+    case CSSUnitType::CSS_S:
+    case CSSUnitType::CSS_HZ:
+    case CSSUnitType::CSS_KHZ:
+    case CSSUnitType::CSS_DIMENSION:
     case CSSUnitType::CSS_DPPX:
     case CSSUnitType::CSS_X:
     case CSSUnitType::CSS_DPI:
@@ -1696,14 +1761,8 @@ void CSSPrimitiveValue::collectComputedStyleDependencies(ComputedStyleDependenci
     case CSSUnitType::CSS_IDENT:
     case CSSUnitType::CustomIdent:
     case CSSUnitType::CSS_ATTR:
-    case CSSUnitType::CSS_COUNTER:
-    case CSSUnitType::CSS_RECT:
     case CSSUnitType::CSS_RGBCOLOR:
-    case CSSUnitType::CSS_PAIR:
-    case CSSUnitType::CSS_UNICODE_RANGE:
     case CSSUnitType::CSS_COUNTER_NAME:
-    case CSSUnitType::CSS_SHAPE:
-    case CSSUnitType::CSS_QUAD:
     case CSSUnitType::CSS_CALC_PERCENTAGE_WITH_NUMBER:
     case CSSUnitType::CSS_CALC_PERCENTAGE_WITH_LENGTH:
     case CSSUnitType::CSS_UNRESOLVED_COLOR:
@@ -1711,6 +1770,29 @@ void CSSPrimitiveValue::collectComputedStyleDependencies(ComputedStyleDependenci
     case CSSUnitType::CSS_VALUE_ID:
         break;
     }
+}
+
+bool CSSPrimitiveValue::convertingToLengthHasRequiredConversionData(int lengthConversion, const CSSToLengthConversionData& conversionData) const
+{
+    // FIXME: We should probably make CSSPrimitiveValue::computeLengthDouble and
+    // CSSPrimitiveValue::computeNonCalcLengthDouble (which has the style assertion)
+    // return std::optional<double> instead of having this check here.
+
+    bool isFixedNumberConversion = lengthConversion & (FixedIntegerConversion | FixedFloatConversion);
+    auto dependencies = computedStyleDependencies();
+    if (!dependencies.rootProperties.isEmpty() && !conversionData.rootStyle())
+        return !isFixedNumberConversion;
+
+    if (!dependencies.properties.isEmpty() && !conversionData.style())
+        return !isFixedNumberConversion;
+
+    if (dependencies.containerDimensions && !conversionData.elementForContainerUnitResolution())
+        return !isFixedNumberConversion;
+
+    if (dependencies.viewportDimensions && conversionData.defaultViewportFactor().isEmpty())
+        return !isFixedNumberConversion;
+
+    return true;
 }
 
 } // namespace WebCore

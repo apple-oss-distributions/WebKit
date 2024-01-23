@@ -124,14 +124,19 @@ TEST(FixedQueue, WrapAround)
 TEST(FixedQueue, ConcurrentPushPop)
 {
     FixedQueue<uint64_t, 7> q;
-    double timeOut            = 1.0;
-    uint64_t kMaxLoop         = 1000000ull;
+    double timeOut    = 1.0;
+    uint64_t kMaxLoop = 1000000ull;
+    std::atomic<bool> enqueueThreadFinished;
+    enqueueThreadFinished = false;
+    std::atomic<bool> dequeueThreadFinished;
+    dequeueThreadFinished = false;
+
     std::thread enqueueThread = std::thread([&]() {
         std::time_t t1 = std::time(nullptr);
         uint64_t value = 0;
         do
         {
-            while (q.full())
+            while (q.full() && !dequeueThreadFinished)
             {
                 std::this_thread::sleep_for(std::chrono::microseconds(1));
             }
@@ -139,6 +144,7 @@ TEST(FixedQueue, ConcurrentPushPop)
             value++;
         } while (difftime(std::time(nullptr), t1) < timeOut && value < kMaxLoop);
         ASSERT(difftime(std::time(nullptr), t1) >= timeOut || value >= kMaxLoop);
+        enqueueThreadFinished = true;
     });
 
     std::thread dequeueThread = std::thread([&]() {
@@ -146,28 +152,35 @@ TEST(FixedQueue, ConcurrentPushPop)
         uint64_t expectedValue = 0;
         do
         {
-            while (q.empty())
+            while (q.empty() && !enqueueThreadFinished)
             {
                 std::this_thread::sleep_for(std::chrono::microseconds(1));
             }
 
-            // test iterator
-            int i = 0;
-            for (uint64_t v : q)
-            {
-                EXPECT_EQ(expectedValue + i, v);
-                i++;
-            }
-
+            EXPECT_EQ(expectedValue, q.front());
             // test pop
             q.pop();
 
             expectedValue++;
         } while (difftime(std::time(nullptr), t1) < timeOut && expectedValue < kMaxLoop);
         ASSERT(difftime(std::time(nullptr), t1) >= timeOut || expectedValue >= kMaxLoop);
+        dequeueThreadFinished = true;
     });
 
     enqueueThread.join();
     dequeueThread.join();
+}
+
+// Test clearing the queue
+TEST(FixedQueue, Clear)
+{
+    FixedQueue<int, 5> q;
+    for (int i = 0; i < 5; ++i)
+    {
+        q.push(i);
+    }
+    q.clear();
+    EXPECT_EQ(0u, q.size());
+    EXPECT_EQ(true, q.empty());
 }
 }  // namespace angle

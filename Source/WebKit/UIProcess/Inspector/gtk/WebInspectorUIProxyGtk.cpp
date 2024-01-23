@@ -31,6 +31,7 @@
 
 #include "APINavigation.h"
 #include "APINavigationAction.h"
+#include "WKAPICast.h"
 #include "WKArray.h"
 #include "WKContextMenuItem.h"
 #include "WKMutableArray.h"
@@ -164,7 +165,11 @@ WebPageProxy* WebInspectorUIProxy::platformCreateFrontendPage()
     });
     if (m_underTest)
         preferences->setHiddenPageDOMTimerThrottlingEnabled(false);
-    auto pageGroup = WebPageGroup::create(WebKit::defaultInspectorPageGroupIdentifierForPage(inspectedPage()));
+    const auto& inspectedPagePreferences = inspectedPage()->preferences();
+    preferences->setAcceleratedCompositingEnabled(inspectedPagePreferences.acceleratedCompositingEnabled());
+    preferences->setForceCompositingMode(inspectedPagePreferences.forceCompositingMode());
+    preferences->setThreadedScrollingEnabled(inspectedPagePreferences.threadedScrollingEnabled());
+    auto pageGroup = WebPageGroup::create(WebKit::defaultInspectorPageGroupIdentifierForPage(inspectedPage().get()));
     auto websiteDataStore = inspectorWebsiteDataStore();
     auto& processPool = WebKit::defaultInspectorProcessPool(inspectionLevel());
 
@@ -522,7 +527,7 @@ void WebInspectorUIProxy::platformSave(Vector<WebCore::InspectorFrontendClient::
     Vector<uint8_t> dataVector;
     CString dataString;
     if (saveDatas[0].base64Encoded) {
-        auto decodedData = base64Decode(saveDatas[0].content, Base64DecodeOptions::ValidatePadding);
+        auto decodedData = base64Decode(saveDatas[0].content, Base64DecodeMode::DefaultValidatePadding);
         if (!decodedData)
             return;
         decodedData->shrinkToFit();
@@ -535,7 +540,7 @@ void WebInspectorUIProxy::platformSave(Vector<WebCore::InspectorFrontendClient::
     GRefPtr<GFile> file = adoptGRef(gtk_file_chooser_get_file(chooser));
     GUniquePtr<char> path(g_file_get_path(file.get()));
     g_file_replace_contents_async(file.get(), data, dataLength, nullptr, false,
-        G_FILE_CREATE_REPLACE_DESTINATION, nullptr, fileReplaceContentsCallback, m_inspectorPage);
+        G_FILE_CREATE_REPLACE_DESTINATION, nullptr, fileReplaceContentsCallback, inspectorPage().get());
 }
 
 void WebInspectorUIProxy::platformLoad(const String&, CompletionHandler<void(const String&)>&& completionHandler)

@@ -27,6 +27,8 @@
 
 #include "GtkSettingsState.h"
 #include <gtk/gtk.h>
+#include <wtf/Function.h>
+#include <wtf/HashMap.h>
 #include <wtf/NeverDestroyed.h>
 
 namespace WebKit {
@@ -38,6 +40,9 @@ public:
     static GtkSettingsManager& singleton();
 
     const GtkSettingsState& settingsState() const { return m_settingsState; }
+
+    void addObserver(Function<void(const GtkSettingsState&)>&&, void* context);
+    void removeObserver(void* context);
 private:
     GtkSettingsManager();
 
@@ -54,9 +59,11 @@ private:
     int cursorBlinkTime() const;
     bool primaryButtonWarpsSlider() const;
     bool overlayScrolling() const;
+    bool enableAnimations() const;
 
     GtkSettings* m_settings;
     GtkSettingsState m_settingsState;
+    HashMap<void*, Function<void(const GtkSettingsState&)>> m_observers;
 };
 
 } // namespace WebKit

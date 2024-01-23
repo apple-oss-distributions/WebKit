@@ -157,16 +157,6 @@ bool WKPreferencesGetLoadsImagesAutomatically(WKPreferencesRef preferencesRef)
     return toImpl(preferencesRef)->loadsImagesAutomatically();
 }
 
-void WKPreferencesSetLoadsSiteIconsIgnoringImageLoadingPreference(WKPreferencesRef preferencesRef, bool loadsSiteIconsIgnoringImageLoadingPreference)
-{
-    toImpl(preferencesRef)->setLoadsSiteIconsIgnoringImageLoadingPreference(loadsSiteIconsIgnoringImageLoadingPreference);
-}
-
-bool WKPreferencesGetLoadsSiteIconsIgnoringImageLoadingPreference(WKPreferencesRef preferencesRef)
-{
-    return toImpl(preferencesRef)->loadsSiteIconsIgnoringImageLoadingPreference();
-}
-
 void WKPreferencesSetOfflineWebApplicationCacheEnabled(WKPreferencesRef preferencesRef, bool offlineWebApplicationCacheEnabled)
 {
     toImpl(preferencesRef)->setOfflineWebApplicationCacheEnabled(offlineWebApplicationCacheEnabled);
@@ -195,16 +185,6 @@ void WKPreferencesSetDatabasesEnabled(WKPreferencesRef preferencesRef, bool data
 bool WKPreferencesGetDatabasesEnabled(WKPreferencesRef preferencesRef)
 {
     return toImpl(preferencesRef)->databasesEnabled();
-}
-
-void WKPreferencesSetFrameFlatteningEnabled(WKPreferencesRef preferencesRef, bool frameFlatteningEnabled)
-{
-    toImpl(preferencesRef)->setFrameFlatteningEnabled(frameFlatteningEnabled);
-}
-
-bool WKPreferencesGetFrameFlatteningEnabled(WKPreferencesRef preferencesRef)
-{
-    return toImpl(preferencesRef)->frameFlatteningEnabled();
 }
 
 void WKPreferencesSetPluginsEnabled(WKPreferencesRef preferencesRef, bool pluginsEnabled)
@@ -482,16 +462,6 @@ void WKPreferencesSetNeedsSiteSpecificQuirks(WKPreferencesRef preferencesRef, bo
     toImpl(preferencesRef)->setNeedsSiteSpecificQuirks(flag);
 }
 
-bool WKPreferencesUseLegacyTextAlignPositionedElementBehavior(WKPreferencesRef preferencesRef)
-{
-    return toImpl(preferencesRef)->useLegacyTextAlignPositionedElementBehavior();
-}
-
-void WKPreferencesSetUseLegacyTextAlignPositionedElementBehavior(WKPreferencesRef preferencesRef, bool flag)
-{
-    toImpl(preferencesRef)->setUseLegacyTextAlignPositionedElementBehavior(flag);
-}
-
 bool WKPreferencesGetNeedsSiteSpecificQuirks(WKPreferencesRef preferencesRef)
 {
     return toImpl(preferencesRef)->needsSiteSpecificQuirks();
@@ -744,6 +714,26 @@ void WKPreferencesSetMainContentUserGestureOverrideEnabled(WKPreferencesRef pref
 bool WKPreferencesGetMainContentUserGestureOverrideEnabled(WKPreferencesRef preferencesRef)
 {
     return toImpl(preferencesRef)->mainContentUserGestureOverrideEnabled();
+}
+
+void WKPreferencesSetManagedMediaSourceLowThreshold(WKPreferencesRef preferencesRef, double threshold)
+{
+    toImpl(preferencesRef)->setManagedMediaSourceLowThreshold(threshold);
+}
+
+double WKPreferencesGetManagedMediaSourceLowThreshold(WKPreferencesRef preferencesRef)
+{
+    return toImpl(preferencesRef)->managedMediaSourceLowThreshold();
+}
+
+void WKPreferencesSetManagedMediaSourceHighThreshold(WKPreferencesRef preferencesRef, double threshold)
+{
+    toImpl(preferencesRef)->setManagedMediaSourceHighThreshold(threshold);
+}
+
+double WKPreferencesGetManagedMediaSourceHighThreshold(WKPreferencesRef preferencesRef)
+{
+    return toImpl(preferencesRef)->managedMediaSourceHighThreshold();
 }
 
 void WKPreferencesSetMediaPlaybackAllowsInline(WKPreferencesRef preferencesRef, bool flag)
@@ -1559,12 +1549,11 @@ bool WKPreferencesGetIntersectionObserverEnabled(WKPreferencesRef preferencesRef
 
 void WKPreferencesSetMenuItemElementEnabled(WKPreferencesRef preferencesRef, bool flag)
 {
-    return toImpl(preferencesRef)->setMenuItemElementEnabled(flag);
 }
 
 bool WKPreferencesGetMenuItemElementEnabled(WKPreferencesRef preferencesRef)
 {
-    return toImpl(preferencesRef)->menuItemElementEnabled();
+    return false;
 }
 
 void WKPreferencesSetPaintTimingEnabled(WKPreferencesRef preferencesRef, bool flag)
@@ -1575,16 +1564,6 @@ void WKPreferencesSetPaintTimingEnabled(WKPreferencesRef preferencesRef, bool fl
 bool WKPreferencesGetPaintTimingEnabled(WKPreferencesRef preferencesRef)
 {
     return toImpl(preferencesRef)->paintTimingEnabled();
-}
-
-void WKPreferencesSetIsNSURLSessionWebSocketEnabled(WKPreferencesRef preferencesRef, bool flag)
-{
-    toImpl(preferencesRef)->setIsNSURLSessionWebSocketEnabled(flag);
-}
-
-bool WKPreferencesGetIsNSURLSessionWebSocketEnabled(WKPreferencesRef preferencesRef)
-{
-    return toImpl(preferencesRef)->isNSURLSessionWebSocketEnabled();
 }
 
 void WKPreferencesSetWebRTCPlatformCodecsInGPUProcessEnabled(WKPreferencesRef preferencesRef, bool flag)
@@ -1907,16 +1886,6 @@ bool WKPreferencesGetVP9DecoderEnabled(WKPreferencesRef preferencesRef)
     return toImpl(preferencesRef)->vp9DecoderEnabled();
 }
 
-void WKPreferencesSetReferrerPolicyAttributeEnabled(WKPreferencesRef preferencesRef, bool flag)
-{
-    toImpl(preferencesRef)->setReferrerPolicyAttributeEnabled(flag);
-}
-
-bool WKPreferencesGetReferrerPolicyAttributeEnabled(WKPreferencesRef preferencesRef)
-{
-    return toImpl(preferencesRef)->referrerPolicyAttributeEnabled();
-}
-
 bool WKPreferencesGetRemotePlaybackEnabled(WKPreferencesRef preferencesRef)
 {
     return WebKit::toImpl(preferencesRef)->remotePlaybackEnabled();
@@ -1986,15 +1955,6 @@ bool WKPreferencesGetKeygenElementEnabled(WKPreferencesRef preferencesRef)
     return false;
 }
 
-void WKPreferencesSetWebRTCLegacyAPIEnabled(WKPreferencesRef, bool)
-{
-}
-
-bool WKPreferencesGetWebRTCLegacyAPIEnabled(WKPreferencesRef)
-{
-    return false;
-}
-
 void WKPreferencesSetNewBlockInsideInlineModelEnabled(WKPreferencesRef, bool)
 {
 }
@@ -2028,28 +1988,6 @@ void WKPreferencesSetHixie76WebSocketProtocolEnabled(WKPreferencesRef, bool)
 
 bool WKPreferencesGetHixie76WebSocketProtocolEnabled(WKPreferencesRef)
 {
-    return false;
-}
-
-void WKPreferencesSetApplicationChromeModeEnabled(WKPreferencesRef, bool)
-{
-    // FIXME: Remove once WebKit nightlies don't need to support Safari 8.
-}
-
-bool WKPreferencesGetApplicationChromeModeEnabled(WKPreferencesRef)
-{
-    // FIXME: Remove once WebKit nightlies don't need to support Safari 8.
-    return false;
-}
-
-void WKPreferencesSetInspectorUsesWebKitUserInterface(WKPreferencesRef, bool)
-{
-    // FIXME: Remove once WebKit nightlies don't need to support Safari 6 thru 7.
-}
-
-bool WKPreferencesGetInspectorUsesWebKitUserInterface(WKPreferencesRef)
-{
-    // FIXME: Remove once WebKit nightlies don't need to support Safari 6 thru 7.
     return false;
 }
 
@@ -2143,3 +2081,20 @@ bool WKPreferencesGetPaginateDuringLayoutEnabled(WKPreferencesRef)
     return false;
 }
 
+void WKPreferencesSetLoadsSiteIconsIgnoringImageLoadingPreference(WKPreferencesRef, bool)
+{
+}
+
+bool WKPreferencesGetLoadsSiteIconsIgnoringImageLoadingPreference(WKPreferencesRef)
+{
+    return false;
+}
+
+void WKPreferencesSetReferrerPolicyAttributeEnabled(WKPreferencesRef preferencesRef, bool flag)
+{
+}
+
+bool WKPreferencesGetReferrerPolicyAttributeEnabled(WKPreferencesRef preferencesRef)
+{
+    return true;
+}

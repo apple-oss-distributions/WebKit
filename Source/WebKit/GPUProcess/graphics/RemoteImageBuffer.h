@@ -27,60 +27,49 @@
 
 #if ENABLE(GPU_PROCESS)
 
-#include "QualifiedRenderingResourceIdentifier.h"
-#include "RemoteRenderingBackend.h"
-#include "ScopedActiveMessageReceiveQueue.h"
 #include "ScopedRenderingResourcesRequest.h"
+#include "ShareableBitmap.h"
+#include "StreamMessageReceiver.h"
 #include <WebCore/ImageBuffer.h>
+
+namespace IPC {
+class Semaphore;
+class StreamConnectionWorkQueue;
+}
 
 namespace WebKit {
 
-class RemoteDisplayListRecorder;
 class RemoteRenderingBackend;
 
-class RemoteImageBuffer : public WebCore::ImageBuffer {
+class RemoteImageBuffer : public IPC::StreamMessageReceiver {
 public:
-    template<typename BackendType>
-    static RefPtr<RemoteImageBuffer> create(const WebCore::FloatSize& size, float resolutionScale, const WebCore::DestinationColorSpace& colorSpace, WebCore::PixelFormat pixelFormat, WebCore::RenderingPurpose purpose, RemoteRenderingBackend& remoteRenderingBackend, QualifiedRenderingResourceIdentifier renderingResourceIdentifier)
-    {
-        auto context = WebCore::ImageBufferCreationContext { nullptr
-#if HAVE(IOSURFACE)
-            , &remoteRenderingBackend.ioSurfacePool()
-#endif
-        };
-
-        auto imageBuffer = ImageBuffer::create<BackendType, RemoteImageBuffer>(size, resolutionScale, colorSpace, pixelFormat, purpose, context, remoteRenderingBackend, renderingResourceIdentifier);
-        if (!imageBuffer)
-            return nullptr;
-
-        auto backend = static_cast<BackendType*>(imageBuffer->backend());
-        ASSERT(backend);
-
-        remoteRenderingBackend.didCreateImageBufferBackend(backend->createBackendHandle(), renderingResourceIdentifier, *imageBuffer->m_remoteDisplayList.get());
-        return imageBuffer;
-    }
-
-    static RefPtr<RemoteImageBuffer> createTransfer(std::unique_ptr<WebCore::ImageBufferBackend>&&, const WebCore::ImageBufferBackend::Info&, RemoteRenderingBackend&, QualifiedRenderingResourceIdentifier);
-
-    RemoteImageBuffer(const WebCore::ImageBufferBackend::Parameters&, const WebCore::ImageBufferBackend::Info&, std::unique_ptr<WebCore::ImageBufferBackend>&&, RemoteRenderingBackend&, QualifiedRenderingResourceIdentifier);
+    static Ref<RemoteImageBuffer> create(Ref<WebCore::ImageBuffer>, RemoteRenderingBackend&);
     ~RemoteImageBuffer();
-
-    void setOwnershipIdentity(const WebCore::ProcessIdentity& resourceOwner);
-
+    void stopListeningForIPC();
+    WebCore::RenderingResourceIdentifier identifier() const { return m_imageBuffer->renderingResourceIdentifier(); }
+    Ref<WebCore::ImageBuffer> imageBuffer() const { return m_imageBuffer; }
 private:
-    QualifiedRenderingResourceIdentifier m_renderingResourceIdentifier;
-    IPC::ScopedActiveMessageReceiveQueue<RemoteDisplayListRecorder> m_remoteDisplayList;
-    ScopedRenderingResourcesRequest m_renderingResourcesRequest;
-};
+    RemoteImageBuffer(Ref<WebCore::ImageBuffer>, RemoteRenderingBackend&);
+    void startListeningForIPC();
+    IPC::StreamConnectionWorkQueue& workQueue() const;
 
-struct RemoteSerializedImageBuffer : public ThreadSafeRefCounted<RemoteSerializedImageBuffer> {
-    RemoteSerializedImageBuffer(std::unique_ptr<WebCore::ImageBufferBackend>&& backend, const WebCore::ImageBufferBackend::Info& info)
-        : m_backend(WTFMove(backend))
-        , m_info(info)
-    { }
+    // IPC::StreamMessageReceiver
+    void didReceiveStreamMessage(IPC::StreamServerConnection&, IPC::Decoder&) final;
 
-    std::unique_ptr<WebCore::ImageBufferBackend> m_backend;
-    WebCore::ImageBufferBackend::Info m_info;
+    // Messages
+    void getPixelBuffer(WebCore::PixelBufferFormat, WebCore::IntRect srcRect, CompletionHandler<void()>&&);
+    void getPixelBufferWithNewMemory(SharedMemory::Handle&&, WebCore::PixelBufferFormat, WebCore::IntRect, CompletionHandler<void()>&&);
+    void putPixelBuffer(Ref<WebCore::PixelBuffer>, WebCore::IntRect srcRect, WebCore::IntPoint destPoint, WebCore::AlphaPremultiplication destFormat);
+    void getShareableBitmap(WebCore::PreserveResolution, CompletionHandler<void(ShareableBitmap::Handle&&)>&&);
+    void getFilteredImage(Ref<WebCore::Filter>, CompletionHandler<void(ShareableBitmap::Handle&&)>&&);
+    void convertToLuminanceMask();
+    void transformToColorSpace(const WebCore::DestinationColorSpace&);
+    void flushContext(IPC::Semaphore&&);
+    void flushContextSync(CompletionHandler<void()>&&);
+
+    RefPtr<RemoteRenderingBackend> m_backend;
+    Ref<WebCore::ImageBuffer> m_imageBuffer;
+    ScopedRenderingResourcesRequest m_renderingResourcesRequest { ScopedRenderingResourcesRequest::acquire() };
 };
 
 } // namespace WebKit

@@ -65,12 +65,12 @@ namespace WebKit {
 
 class WebFileSystemStorageConnection final : public WebCore::FileSystemStorageConnection {
 public:
-    static Ref<WebFileSystemStorageConnection> create(IPC::Connection&);
+    static Ref<WebFileSystemStorageConnection> create(Ref<IPC::Connection>&&);
     void connectionClosed();
     void didReceiveMessage(IPC::Connection&, IPC::Decoder&);
 
 private:
-    explicit WebFileSystemStorageConnection(IPC::Connection&);
+    explicit WebFileSystemStorageConnection(Ref<IPC::Connection>&&);
 
     // FileSystemStorageConnection
     void closeHandle(WebCore::FileSystemHandleIdentifier) final;
@@ -85,7 +85,7 @@ private:
     void getFile(WebCore::FileSystemHandleIdentifier, StringCallback&&) final;
 
     void createSyncAccessHandle(WebCore::FileSystemHandleIdentifier, WebCore::FileSystemStorageConnection::GetAccessHandleCallback&&) final;
-    void closeSyncAccessHandle(WebCore::FileSystemHandleIdentifier, WebCore::FileSystemSyncAccessHandleIdentifier, VoidCallback&&) final;
+    void closeSyncAccessHandle(WebCore::FileSystemHandleIdentifier, WebCore::FileSystemSyncAccessHandleIdentifier, EmptyCallback&&) final;
     void requestNewCapacityForSyncAccessHandle(WebCore::FileSystemHandleIdentifier, WebCore::FileSystemSyncAccessHandleIdentifier, uint64_t newCapacity, RequestCapacityCallback&& completionHandler) final;
     void registerSyncAccessHandle(WebCore::FileSystemSyncAccessHandleIdentifier, WebCore::ScriptExecutionContextIdentifier) final;
     void unregisterSyncAccessHandle(WebCore::FileSystemSyncAccessHandleIdentifier) final;

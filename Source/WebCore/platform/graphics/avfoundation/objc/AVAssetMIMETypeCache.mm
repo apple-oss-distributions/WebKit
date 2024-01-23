@@ -30,8 +30,12 @@
 
 #import "ContentType.h"
 #import "SourceBufferParserWebM.h"
+#import "WebMAudioUtilitiesCocoa.h"
+#import <pal/spi/cocoa/AVFoundationSPI.h>
+#import <pal/spi/cocoa/AudioToolboxSPI.h>
 #import <wtf/SortedArrayMap.h>
 
+#import <pal/cf/AudioToolboxSoftLink.h>
 #import <pal/cf/CoreMediaSoftLink.h>
 #import <pal/cocoa/AVFoundationSoftLink.h>
 
@@ -52,10 +56,69 @@ bool AVAssetMIMETypeCache::isAvailable() const
 #endif
 }
 
-bool AVAssetMIMETypeCache::canDecodeExtendedType(const ContentType& type)
+#if ENABLE(VIDEO) && USE(AVFOUNDATION) && ENABLE(OPUS)
+static bool isMultichannelOpusAvailable()
 {
+    static bool isMultichannelOpusAvailable = [] {
+        if (!isOpusDecoderAvailable())
+            return false;
+
+        AudioStreamBasicDescription asbd { };
+        asbd.mFormatID = kAudioFormatOpus;
+
+        // AvailableDecodeChannelLayoutTags is an array of AudioChannelLayoutTag objects
+        UInt32 propertySize = 0;
+        auto error = PAL::AudioFormatGetPropertyInfo(kAudioFormatProperty_AvailableDecodeChannelLayoutTags, sizeof(asbd), &asbd, &propertySize);
+        if (error != noErr || propertySize < sizeof(AudioChannelLayoutTag))
+            return false;
+
+        size_t count = propertySize / sizeof(AudioChannelLayoutTag);
+        Vector<AudioChannelLayoutTag> channelLayoutTags(count, { });
+
+        error = PAL::AudioFormatGetProperty(kAudioFormatProperty_AvailableDecodeChannelLayoutTags, sizeof(asbd), &asbd, &propertySize, channelLayoutTags.data());
+        if (error != noErr)
+            return false;
+
+        size_t maximumDecodeChannelCount = 0;
+        for (auto& channelLayoutTag : channelLayoutTags) {
+            UInt32 layoutIndicator = (channelLayoutTag & 0xFFFF0000);
+            if (layoutIndicator == kAudioChannelLayoutTag_Unknown || layoutIndicator == kAudioChannelLayoutTag_DiscreteInOrder)
+                continue;
+            maximumDecodeChannelCount = std::max<size_t>(maximumDecodeChannelCount, AudioChannelLayoutTag_GetNumberOfChannels(channelLayoutTag));
+        }
+
+        return maximumDecodeChannelCount > 2;
+    }();
+    return isMultichannelOpusAvailable;
+}
+#endif
+
+bool AVAssetMIMETypeCache::canDecodeExtendedType(const ContentType& typeParameter)
+{
+    ContentType type = typeParameter;
 #if ENABLE(VIDEO) && USE(AVFOUNDATION)
+#if ENABLE(OPUS)
+    // Disclaim support for 'opus' if multi-channel decode is not available.
+    if ((type.containerType() == "video/mp4"_s || type.containerType() == "audio/mp4"_s)
+        && type.codecs().contains("opus"_s) && !isMultichannelOpusAvailable())
+        return false;
+#endif
+
+    // Some platforms will disclaim support for 'flac', and only support the MP4RA registered `fLaC`
+    // codec string for flac, so convert the former to the latter before querying.
+    if ((type.containerType() == "video/mp4"_s || type.containerType() == "audio/mp4"_s)
+        && type.codecs().contains("flac"_s))
+        type = ContentType(makeStringByReplacingAll(type.raw(), "flac"_s, "fLaC"_s));
+
     ASSERT(isAvailable());
+
+#if HAVE(AVURLASSET_ISPLAYABLEEXTENDEDMIMETYPEWITHOPTIONS)
+    if (PAL::canLoad_AVFoundation_AVURLAssetExtendedMIMETypePlayabilityTreatPlaylistMIMETypesAsISOBMFFMediaDataContainersKey()
+        && [PAL::getAVURLAssetClass() respondsToSelector:@selector(isPlayableExtendedMIMEType:options:)]) {
+        if ([PAL::getAVURLAssetClass() isPlayableExtendedMIMEType:type.raw() options:@{ AVURLAssetExtendedMIMETypePlayabilityTreatPlaylistMIMETypesAsISOBMFFMediaDataContainersKey: @YES }])
+            return true;
+    } else
+#endif
     if ([PAL::getAVURLAssetClass() isPlayableExtendedMIMEType:type.raw()])
         return true;
 
@@ -133,7 +196,7 @@ void AVAssetMIMETypeCache::addSupportedTypes(const Vector<String>& types)
         m_cacheTypeCallback(types);
 }
 
-void AVAssetMIMETypeCache::initializeCache(HashSet<String, ASCIICaseInsensitiveHash>& cache)
+void AVAssetMIMETypeCache::initializeCache(HashSet<String>& cache)
 {
 #if ENABLE(VIDEO) && USE(AVFOUNDATION)
     if (!isAvailable())

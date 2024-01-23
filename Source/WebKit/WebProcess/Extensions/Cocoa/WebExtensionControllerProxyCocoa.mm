@@ -34,6 +34,7 @@
 
 #include "JSWebExtensionAPINamespace.h"
 #include "JSWebExtensionWrapper.h"
+#include "MessageSenderInlines.h"
 #include "WebExtensionAPINamespace.h"
 #include "WebExtensionContextProxy.h"
 #include "WebExtensionControllerMessages.h"
@@ -102,7 +103,7 @@ void WebExtensionControllerProxy::serviceWorkerGlobalObjectIsAvailableForFrame(W
     JSObjectSetProperty(context, globalObject, toJSString("chrome").get(), namespaceObject, kJSPropertyAttributeNone, nullptr);
 }
 
-// MARK: webNavigation support
+// MARK: Web Navigation
 
 void WebExtensionControllerProxy::didStartProvisionalLoadForFrame(WebPage& page, WebFrame& frame, const URL& url)
 {

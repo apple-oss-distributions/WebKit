@@ -29,12 +29,14 @@
 #include "WebSocketTask.h"
 #include <WebCore/CurlStream.h>
 #include <WebCore/ResourceRequest.h>
-#include <WebCore/WebSocketChannel.h>
+#include <WebCore/ThreadableWebSocketChannel.h>
 #include <WebCore/WebSocketDeflateFramer.h>
+#include <WebCore/WebSocketFrame.h>
 
 namespace WebCore {
 class CurlStreamScheduler;
 class SharedBuffer;
+class WebSocketHandshake;
 }
 
 namespace WebKit {
@@ -46,7 +48,7 @@ class WebSocketTask : public CanMakeWeakPtr<WebSocketTask>, public WebCore::Curl
     WTF_MAKE_FAST_ALLOCATED;
 public:
     WebSocketTask(NetworkSocketChannel&, const WebCore::ResourceRequest&, const String& protocol);
-    ~WebSocketTask();
+    virtual ~WebSocketTask();
 
     void sendString(const IPC::DataReference&, CompletionHandler<void()>&&);
     void sendData(const IPC::DataReference&, CompletionHandler<void()>&&);
@@ -109,7 +111,7 @@ private:
     Vector<uint8_t> m_continuousFrameData;
 
     bool m_receivedClosingHandshake { false };
-    int32_t m_closeEventCode { WebCore::WebSocketChannel::CloseEventCode::CloseEventCodeNotSpecified };
+    int32_t m_closeEventCode { WebCore::ThreadableWebSocketChannel::CloseEventCode::CloseEventCodeNotSpecified };
     String m_closeEventReason;
 
     bool m_didSendClosingHandshake { false };

@@ -42,6 +42,17 @@ typedef NS_ENUM(NSInteger, _WKApplicationManifestDisplayMode) {
     _WKApplicationManifestDisplayModeFullScreen,
 } WK_API_AVAILABLE(macos(10.13.4), ios(11.3));
 
+typedef NS_ENUM(NSInteger, _WKApplicationManifestOrientation) {
+    _WKApplicationManifestOrientationAny,
+    _WKApplicationManifestOrientationLandscape,
+    _WKApplicationManifestOrientationLandscapePrimary,
+    _WKApplicationManifestOrientationLandscapeSecondary,
+    _WKApplicationManifestOrientationNatural,
+    _WKApplicationManifestOrientationPortrait,
+    _WKApplicationManifestOrientationPortraitPrimary,
+    _WKApplicationManifestOrientationPortraitSecondary,
+} WK_API_AVAILABLE(macos(14.0), ios(17.0));
+
 typedef NS_ENUM(NSInteger, _WKApplicationManifestIconPurpose) {
     _WKApplicationManifestIconPurposeAny = (1 << 0),
     _WKApplicationManifestIconPurposeMonochrome = (1 << 1),
@@ -51,14 +62,23 @@ typedef NS_ENUM(NSInteger, _WKApplicationManifestIconPurpose) {
 WK_CLASS_AVAILABLE(macos(10.13.4), ios(11.3))
 @interface _WKApplicationManifest : NSObject <NSSecureCoding>
 
+@property (nonatomic, readonly, nullable, copy) NSString *rawJSON;
 @property (nonatomic, readonly, nullable, copy) NSString *name;
 @property (nonatomic, readonly, nullable, copy) NSString *shortName;
 @property (nonatomic, readonly, nullable, copy) NSString *applicationDescription;
 @property (nonatomic, readonly, nullable, copy) NSURL *scope;
+@property (nonatomic, readonly) BOOL isDefaultScope;
+@property (nonatomic, readonly, copy) NSURL *manifestURL;
 @property (nonatomic, readonly, copy) NSURL *startURL;
 @property (nonatomic, readonly, copy) NSURL *manifestId WK_API_AVAILABLE(macos(13.3), ios(16.4));
 @property (nonatomic, readonly) _WKApplicationManifestDisplayMode displayMode;
 @property (nonatomic, readonly, copy) NSArray<_WKApplicationManifestIcon *> *icons WK_API_AVAILABLE(macos(13.0), ios(16.0));
+
+#if TARGET_OS_IPHONE
+@property (nonatomic, readonly, nullable, copy) UIColor *backgroundColor WK_API_AVAILABLE(ios(17.0));
+#else
+@property (nonatomic, readonly, nullable, copy) NSColor *backgroundColor WK_API_AVAILABLE(macos(14.0));
+#endif
 
 #if TARGET_OS_IPHONE
 @property (nonatomic, readonly, nullable, copy) UIColor *themeColor WK_API_AVAILABLE(ios(15.0));

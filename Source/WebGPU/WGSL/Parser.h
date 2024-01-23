@@ -25,15 +25,12 @@
 
 #pragma once
 
-#include "ASTShaderModule.h"
-#include "CompilationMessage.h"
-#include <wtf/Expected.h>
+#include "WGSL.h"
 
 namespace WGSL {
 
-struct Configuration;
+class ShaderModule;
 
-Expected<AST::ShaderModule, Error> parseLChar(const String& wgsl, const Configuration&);
-Expected<AST::ShaderModule, Error> parseUChar(const String& wgsl, const Configuration&);
+std::optional<FailedCheck> parse(ShaderModule&);
 
 } // namespace WGSL

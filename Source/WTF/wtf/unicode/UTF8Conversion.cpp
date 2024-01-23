@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2007-2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2007-2023 Apple Inc. All rights reserved.
  * Copyright (C) 2010 Patrick Gansterer <paroga@paroga.com>
  *
  * Redistribution and use in source and binary forms, with or without
@@ -28,12 +28,12 @@
 #include <wtf/unicode/UTF8Conversion.h>
 
 #include <wtf/ASCIICType.h>
-#include <wtf/text/StringHasher.h>
+#include <wtf/text/StringHasherInlines.h>
 #include <wtf/unicode/CharacterNames.h>
 
 namespace WTF::Unicode {
 
-bool convertLatin1ToUTF8(const LChar** sourceStart, const LChar* sourceEnd, char** targetStart, char* targetEnd)
+bool convertLatin1ToUTF8(const LChar** sourceStart, const LChar* sourceEnd, char** targetStart, const char* targetEnd)
 {
     const LChar* source;
     char* target = *targetStart;
@@ -53,7 +53,7 @@ bool convertLatin1ToUTF8(const LChar** sourceStart, const LChar* sourceEnd, char
     return true;
 }
 
-ConversionResult convertUTF16ToUTF8(const UChar** sourceStart, const UChar* sourceEnd, char** targetStart, char* targetEnd, bool strict)
+ConversionResult convertUTF16ToUTF8(const UChar** sourceStart, const UChar* sourceEnd, char** targetStart, const char* targetEnd, bool strict)
 {
     auto result = ConversionResult::Success;
     const UChar* source = *sourceStart;
@@ -88,7 +88,7 @@ ConversionResult convertUTF16ToUTF8(const UChar** sourceStart, const UChar* sour
 }
 
 template<bool replaceInvalidSequences>
-bool convertUTF8ToUTF16Impl(const char* source, const char* sourceEnd, UChar** targetStart, UChar* targetEnd, bool* sourceAllASCII)
+bool convertUTF8ToUTF16Impl(const char* source, const char* sourceEnd, UChar** targetStart, const UChar* targetEnd, bool* sourceAllASCII)
 {
     RELEASE_ASSERT(sourceEnd - source <= std::numeric_limits<int>::max());
     UBool error = false;
@@ -117,12 +117,12 @@ bool convertUTF8ToUTF16Impl(const char* source, const char* sourceEnd, UChar** t
     return true;
 }
 
-bool convertUTF8ToUTF16(const char* source, const char* sourceEnd, UChar** targetStart, UChar* targetEnd, bool* sourceAllASCII)
+bool convertUTF8ToUTF16(const char* source, const char* sourceEnd, UChar** targetStart, const UChar* targetEnd, bool* sourceAllASCII)
 {
     return convertUTF8ToUTF16Impl<false>(source, sourceEnd, targetStart, targetEnd, sourceAllASCII);
 }
 
-bool convertUTF8ToUTF16ReplacingInvalidSequences(const char* source, const char* sourceEnd, UChar** targetStart, UChar* targetEnd, bool* sourceAllASCII)
+bool convertUTF8ToUTF16ReplacingInvalidSequences(const char* source, const char* sourceEnd, UChar** targetStart, const UChar* targetEnd, bool* sourceAllASCII)
 {
     return convertUTF8ToUTF16Impl<true>(source, sourceEnd, targetStart, targetEnd, sourceAllASCII);
 }
@@ -146,7 +146,8 @@ unsigned calculateStringHashAndLengthFromUTF8MaskingTop8Bits(const char* data, c
             utf16Length++;
         } else {
             ASSERT(U_IS_SUPPLEMENTARY(character));
-            stringHasher.addCharacters(U16_LEAD(character), U16_TRAIL(character));
+            stringHasher.addCharacter(U16_LEAD(character));
+            stringHasher.addCharacter(U16_TRAIL(character));
             utf16Length += 2;
         }
     }

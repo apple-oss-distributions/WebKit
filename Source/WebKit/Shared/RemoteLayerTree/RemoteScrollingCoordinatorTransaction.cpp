@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014-2015 Apple Inc. All rights reserved.
+ * Copyright (C) 2014-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -116,10 +116,10 @@ bool ArgumentCoder<ScrollingStateNode>::decode(Decoder& decoder, ScrollingStateN
 
     node.setChangedProperties(changedProperties);
     if (node.hasChangedProperty(ScrollingStateNode::Property::Layer)) {
-        std::optional<GraphicsLayer::PlatformLayerID> layerID;
+        std::optional<PlatformLayerIdentifier> layerID;
         if (!decoder.decode(layerID))
             return false;
-        node.setLayer(layerID.value_or(GraphicsLayer::PlatformLayerID { }));
+        node.setLayer(layerID.value_or(PlatformLayerIdentifier { }));
     }
 
     return true;
@@ -152,6 +152,7 @@ void ArgumentCoder<ScrollingStateScrollingNode>::encode(Encoder& encoder, const 
     SCROLLING_NODE_ENCODE(ScrollingStateNode::Property::ScrollableAreaParams, scrollableAreaParameters)
     SCROLLING_NODE_ENCODE(ScrollingStateNode::Property::RequestedScrollPosition, requestedScrollData)
     SCROLLING_NODE_ENCODE(ScrollingStateNode::Property::KeyboardScrollData, keyboardScrollData)
+    SCROLLING_NODE_ENCODE(ScrollingStateNode::Property::ContentAreaHoverState, mouseIsOverContentArea)
 
     if (node.hasChangedProperty(ScrollingStateNode::Property::ScrollContainerLayer))
         encoder << node.scrollContainerLayer().layerIDForEncoding();
@@ -164,6 +165,24 @@ void ArgumentCoder<ScrollingStateScrollingNode>::encode(Encoder& encoder, const 
 
     if (node.hasChangedProperty(ScrollingStateNode::Property::VerticalScrollbarLayer))
         encoder << node.verticalScrollbarLayer().layerIDForEncoding();
+    
+    if (node.hasChangedProperty(ScrollingStateNode::Property::ScrollbarHoverState)) {
+        auto mouseIsInScrollbar = node.scrollbarHoverState();
+        encoder << mouseIsInScrollbar.mouseIsOverHorizontalScrollbar;
+        encoder << mouseIsInScrollbar.mouseIsOverVerticalScrollbar;
+    }
+    
+    if (node.hasChangedProperty(ScrollingStateNode::Property::MouseActivityState)) {
+        auto mouseLocationState = node.mouseLocationState();
+        encoder << mouseLocationState.locationInHorizontalScrollbar;
+        encoder << mouseLocationState.locationInVerticalScrollbar;
+    }
+
+    if (node.hasChangedProperty(ScrollingStateNode::Property::ScrollbarEnabledState)) {
+        auto scrollbarEnabledState = node.scrollbarEnabledState();
+        encoder << scrollbarEnabledState.horizontalScrollbarIsEnabled;
+        encoder << scrollbarEnabledState.verticalScrollbarIsEnabled;
+    }
 }
 
 void ArgumentCoder<ScrollingStateFrameScrollingNode>::encode(Encoder& encoder, const ScrollingStateFrameScrollingNode& node)
@@ -185,7 +204,8 @@ void ArgumentCoder<ScrollingStateFrameScrollingNode>::encode(Encoder& encoder, c
     SCROLLING_NODE_ENCODE(ScrollingStateNode::Property::MinLayoutViewportOrigin, minLayoutViewportOrigin)
     SCROLLING_NODE_ENCODE(ScrollingStateNode::Property::MaxLayoutViewportOrigin, maxLayoutViewportOrigin)
     SCROLLING_NODE_ENCODE(ScrollingStateNode::Property::OverrideVisualViewportSize, overrideVisualViewportSize)
-
+    SCROLLING_NODE_ENCODE(ScrollingStateNode::Property::OverlayScrollbarsEnabled, overlayScrollbarsEnabled)
+    
     if (node.hasChangedProperty(ScrollingStateNode::Property::CounterScrollingLayer))
         encoder << node.counterScrollingLayer().layerIDForEncoding();
 
@@ -220,7 +240,7 @@ void ArgumentCoder<ScrollingStateOverflowScrollProxyNode>::encode(Encoder& encod
         type decodedValue; \
         if (!decoder.decode(decodedValue)) \
             return false; \
-        node.setter(decodedValue); \
+        node.setter(WTFMove(decodedValue)); \
     }
 
 #define SCROLLING_NODE_DECODE_ENUM(property, type, setter) \
@@ -249,35 +269,75 @@ bool ArgumentCoder<ScrollingStateScrollingNode>::decode(Decoder& decoder, Scroll
 #endif
     SCROLLING_NODE_DECODE(ScrollingStateNode::Property::IsMonitoringWheelEvents, bool, setIsMonitoringWheelEvents);
     SCROLLING_NODE_DECODE(ScrollingStateNode::Property::ScrollableAreaParams, ScrollableAreaParameters, setScrollableAreaParameters);
-    SCROLLING_NODE_DECODE(ScrollingStateNode::Property::RequestedScrollPosition, RequestedScrollData, setRequestedScrollData);
+    if (node.hasChangedProperty(ScrollingStateNode::Property::RequestedScrollPosition)) {
+        RequestedScrollData requestedScrollData;
+        if (!decoder.decode(requestedScrollData))
+            return false;
+        node.setRequestedScrollData(WTFMove(requestedScrollData), ScrollingStateScrollingNode::CanMergeScrollData::No);
+    }
     SCROLLING_NODE_DECODE(ScrollingStateNode::Property::KeyboardScrollData, RequestedKeyboardScrollData, setKeyboardScrollData);
+    SCROLLING_NODE_DECODE(ScrollingStateNode::Property::ContentAreaHoverState, bool, setMouseIsOverContentArea);
 
     if (node.hasChangedProperty(ScrollingStateNode::Property::ScrollContainerLayer)) {
-        std::optional<GraphicsLayer::PlatformLayerID> layerID;
+        std::optional<PlatformLayerIdentifier> layerID;
         if (!decoder.decode(layerID))
             return false;
-        node.setScrollContainerLayer(layerID.value_or(GraphicsLayer::PlatformLayerID { }));
+        node.setScrollContainerLayer(layerID.value_or(PlatformLayerIdentifier { }));
     }
 
     if (node.hasChangedProperty(ScrollingStateNode::Property::ScrolledContentsLayer)) {
-        std::optional<GraphicsLayer::PlatformLayerID> layerID;
+        std::optional<PlatformLayerIdentifier> layerID;
         if (!decoder.decode(layerID))
             return false;
-        node.setScrolledContentsLayer(layerID.value_or(GraphicsLayer::PlatformLayerID { }));
+        node.setScrolledContentsLayer(layerID.value_or(PlatformLayerIdentifier { }));
     }
 
     if (node.hasChangedProperty(ScrollingStateNode::Property::HorizontalScrollbarLayer)) {
-        std::optional<GraphicsLayer::PlatformLayerID> layerID;
+        std::optional<PlatformLayerIdentifier> layerID;
         if (!decoder.decode(layerID))
             return false;
-        node.setHorizontalScrollbarLayer(layerID.value_or(GraphicsLayer::PlatformLayerID { }));
+        node.setHorizontalScrollbarLayer(layerID.value_or(PlatformLayerIdentifier { }));
     }
 
     if (node.hasChangedProperty(ScrollingStateNode::Property::VerticalScrollbarLayer)) {
-        std::optional<GraphicsLayer::PlatformLayerID> layerID;
+        std::optional<PlatformLayerIdentifier> layerID;
         if (!decoder.decode(layerID))
             return false;
-        node.setVerticalScrollbarLayer(layerID.value_or(GraphicsLayer::PlatformLayerID { }));
+        node.setVerticalScrollbarLayer(layerID.value_or(PlatformLayerIdentifier { }));
+    }
+    
+    if (node.hasChangedProperty(ScrollingStateNode::Property::ScrollbarHoverState)) {
+        bool didEnterScrollbarHorizontal;
+        if (!decoder.decode(didEnterScrollbarHorizontal))
+            return false;
+
+        bool didEnterScrollbarVertical;
+        if (!decoder.decode(didEnterScrollbarVertical))
+            return false;
+        node.setScrollbarHoverState({ didEnterScrollbarHorizontal, didEnterScrollbarVertical });
+    }
+    
+    if (node.hasChangedProperty(ScrollingStateNode::Property::MouseActivityState)) {
+        IntPoint locationInHorizontalScrollbar;
+        if (!decoder.decode(locationInHorizontalScrollbar))
+            return false;
+
+        IntPoint locationInVerticalScrollbar;
+        if (!decoder.decode(locationInVerticalScrollbar))
+            return false;
+        node.setMouseMovedInContentArea({ locationInHorizontalScrollbar, locationInVerticalScrollbar });
+    }
+
+    if (node.hasChangedProperty(ScrollingStateNode::Property::ScrollbarEnabledState)) {
+        bool horizontalScrollbarEnabled;
+        if (!decoder.decode(horizontalScrollbarEnabled))
+            return false;
+
+        bool verticalScrollbarEnabled;
+        if (!decoder.decode(verticalScrollbarEnabled))
+            return false;
+        node.setScrollbarEnabledState(ScrollbarOrientation::Horizontal, horizontalScrollbarEnabled);
+        node.setScrollbarEnabledState(ScrollbarOrientation::Vertical, verticalScrollbarEnabled);
     }
 
     return true;
@@ -304,33 +364,34 @@ bool ArgumentCoder<ScrollingStateFrameScrollingNode>::decode(Decoder& decoder, S
     SCROLLING_NODE_DECODE(ScrollingStateNode::Property::MinLayoutViewportOrigin, FloatPoint, setMinLayoutViewportOrigin)
     SCROLLING_NODE_DECODE(ScrollingStateNode::Property::MaxLayoutViewportOrigin, FloatPoint, setMaxLayoutViewportOrigin)
     SCROLLING_NODE_DECODE(ScrollingStateNode::Property::OverrideVisualViewportSize, std::optional<FloatSize>, setOverrideVisualViewportSize)
+    SCROLLING_NODE_DECODE(ScrollingStateNode::Property::OverlayScrollbarsEnabled, bool, setOverlayScrollbarsEnabled)
 
     if (node.hasChangedProperty(ScrollingStateNode::Property::CounterScrollingLayer)) {
-        std::optional<GraphicsLayer::PlatformLayerID> layerID;
+        std::optional<PlatformLayerIdentifier> layerID;
         if (!decoder.decode(layerID))
             return false;
-        node.setCounterScrollingLayer(layerID.value_or(GraphicsLayer::PlatformLayerID { }));
+        node.setCounterScrollingLayer(layerID.value_or(PlatformLayerIdentifier { }));
     }
 
     if (node.hasChangedProperty(ScrollingStateNode::Property::InsetClipLayer)) {
-        std::optional<GraphicsLayer::PlatformLayerID> layerID;
+        std::optional<PlatformLayerIdentifier> layerID;
         if (!decoder.decode(layerID))
             return false;
-        node.setInsetClipLayer(layerID.value_or(GraphicsLayer::PlatformLayerID { }));
+        node.setInsetClipLayer(layerID.value_or(PlatformLayerIdentifier { }));
     }
 
     if (node.hasChangedProperty(ScrollingStateNode::Property::ContentShadowLayer)) {
-        std::optional<GraphicsLayer::PlatformLayerID> layerID;
+        std::optional<PlatformLayerIdentifier> layerID;
         if (!decoder.decode(layerID))
             return false;
-        node.setContentShadowLayer(layerID.value_or(GraphicsLayer::PlatformLayerID { }));
+        node.setContentShadowLayer(layerID.value_or(PlatformLayerIdentifier { }));
     }
 
     if (node.hasChangedProperty(ScrollingStateNode::Property::RootContentsLayer)) {
-        std::optional<GraphicsLayer::PlatformLayerID> layerID;
+        std::optional<PlatformLayerIdentifier> layerID;
         if (!decoder.decode(layerID))
             return false;
-        node.setRootContentsLayer(layerID.value_or(GraphicsLayer::PlatformLayerID { }));
+        node.setRootContentsLayer(layerID.value_or(PlatformLayerIdentifier { }));
     }
 
     return true;
@@ -442,6 +503,18 @@ bool ArgumentCoder<ScrollingStatePositionedNode>::decode(Decoder& decoder, Scrol
 
 namespace WebKit {
 
+RemoteScrollingCoordinatorTransaction::RemoteScrollingCoordinatorTransaction() = default;
+
+RemoteScrollingCoordinatorTransaction::RemoteScrollingCoordinatorTransaction(std::unique_ptr<WebCore::ScrollingStateTree>&& scrollingStateTree, bool clearScrollLatching)
+    : m_scrollingStateTree(WTFMove(scrollingStateTree))
+    , m_clearScrollLatching(clearScrollLatching) { }
+
+RemoteScrollingCoordinatorTransaction::RemoteScrollingCoordinatorTransaction(RemoteScrollingCoordinatorTransaction&&) = default;
+
+RemoteScrollingCoordinatorTransaction& RemoteScrollingCoordinatorTransaction::operator=(RemoteScrollingCoordinatorTransaction&&) = default;
+
+RemoteScrollingCoordinatorTransaction::~RemoteScrollingCoordinatorTransaction() = default;
+
 static void encodeNodeAndDescendants(IPC::Encoder& encoder, const ScrollingStateNode& stateNode, int& encodedNodeCount)
 {
     ++encodedNodeCount;
@@ -471,11 +544,8 @@ static void encodeNodeAndDescendants(IPC::Encoder& encoder, const ScrollingState
         break;
     }
 
-    if (!stateNode.children())
-        return;
-
-    for (const auto& child : *stateNode.children())
-        encodeNodeAndDescendants(encoder, *child.get(), encodedNodeCount);
+    for (const auto& child : stateNode.children())
+        encodeNodeAndDescendants(encoder, child.get(), encodedNodeCount);
 }
 
 void RemoteScrollingCoordinatorTransaction::encode(IPC::Encoder& encoder) const
@@ -500,53 +570,49 @@ void RemoteScrollingCoordinatorTransaction::encode(IPC::Encoder& encoder) const
         encoder << Vector<ScrollingNodeID>();
 }
 
-bool RemoteScrollingCoordinatorTransaction::decode(IPC::Decoder& decoder, RemoteScrollingCoordinatorTransaction& transaction)
+auto RemoteScrollingCoordinatorTransaction::decode(IPC::Decoder& decoder) -> std::optional<RemoteScrollingCoordinatorTransaction>
 {
-    return transaction.decode(decoder);
-}
-
-bool RemoteScrollingCoordinatorTransaction::decode(IPC::Decoder& decoder)
-{
-    if (!decoder.decode(m_clearScrollLatching))
-        return false;
+    bool clearScrollLatching;
+    if (!decoder.decode(clearScrollLatching))
+        return std::nullopt;
 
     int numNodes;
     if (!decoder.decode(numNodes))
-        return false;
+        return std::nullopt;
 
     bool hasNewRootNode;
     if (!decoder.decode(hasNewRootNode))
-        return false;
+        return std::nullopt;
     
-    m_scrollingStateTree = makeUnique<ScrollingStateTree>();
+    auto scrollingStateTree = makeUnique<ScrollingStateTree>();
 
     bool hasChangedProperties;
     if (!decoder.decode(hasChangedProperties))
-        return false;
+        return std::nullopt;
 
-    m_scrollingStateTree->setHasChangedProperties(hasChangedProperties);
+    scrollingStateTree->setHasChangedProperties(hasChangedProperties);
 
     for (int i = 0; i < numNodes; ++i) {
         ScrollingNodeType nodeType;
         if (!decoder.decode(nodeType))
-            return false;
+            return std::nullopt;
 
         ScrollingNodeID nodeID;
         if (!decoder.decode(nodeID))
-            return false;
+            return std::nullopt;
 
         ScrollingNodeID parentNodeID;
         if (!decoder.decode(parentNodeID))
-            return false;
+            return std::nullopt;
 
-        auto createdNodeID = m_scrollingStateTree->insertNode(nodeType, nodeID, parentNodeID, notFound);
+        auto createdNodeID = scrollingStateTree->insertNode(nodeType, nodeID, parentNodeID, notFound);
         if (createdNodeID != nodeID)
-            return false;
+            return std::nullopt;
 
-        auto newNode = m_scrollingStateTree->stateNodeForID(nodeID);
+        auto newNode = scrollingStateTree->stateNodeForID(nodeID);
         ASSERT(newNode);
         if (newNode->nodeType() != nodeType)
-            return false;
+            return std::nullopt;
 
         ASSERT(!parentNodeID || newNode->parent());
         
@@ -554,38 +620,38 @@ bool RemoteScrollingCoordinatorTransaction::decode(IPC::Decoder& decoder)
         case ScrollingNodeType::MainFrame:
         case ScrollingNodeType::Subframe:
             if (!decoder.decode(downcast<ScrollingStateFrameScrollingNode>(*newNode)))
-                return false;
+                return std::nullopt;
             break;
         case ScrollingNodeType::FrameHosting:
             if (!decoder.decode(downcast<ScrollingStateFrameHostingNode>(*newNode)))
-                return false;
+                return std::nullopt;
             break;
         case ScrollingNodeType::Overflow:
             if (!decoder.decode(downcast<ScrollingStateOverflowScrollingNode>(*newNode)))
-                return false;
+                return std::nullopt;
             break;
         case ScrollingNodeType::OverflowProxy:
             if (!decoder.decode(downcast<ScrollingStateOverflowScrollProxyNode>(*newNode)))
-                return false;
+                return std::nullopt;
             break;
         case ScrollingNodeType::Fixed:
             if (!decoder.decode(downcast<ScrollingStateFixedNode>(*newNode)))
-                return false;
+                return std::nullopt;
             break;
         case ScrollingNodeType::Sticky:
             if (!decoder.decode(downcast<ScrollingStateStickyNode>(*newNode)))
-                return false;
+                return std::nullopt;
             break;
         case ScrollingNodeType::Positioned:
             if (!decoder.decode(downcast<ScrollingStatePositionedNode>(*newNode)))
-                return false;
+                return std::nullopt;
             break;
         }
     }
 
-    m_scrollingStateTree->setHasNewRootStateNode(hasNewRootNode);
+    scrollingStateTree->setHasNewRootStateNode(hasNewRootNode);
 
-    return true;
+    return { RemoteScrollingCoordinatorTransaction { WTFMove(scrollingStateTree), clearScrollLatching } };
 }
 
 #if !defined(NDEBUG) || !LOG_DISABLED
@@ -609,10 +675,13 @@ static void dump(TextStream& ts, const ScrollingStateScrollingNode& node, bool c
 
     if (!changedPropertiesOnly || node.hasChangedProperty(ScrollingStateNode::Property::RequestedScrollPosition)) {
         const auto& requestedScrollData = node.requestedScrollData();
-        if (requestedScrollData.requestType == ScrollRequestType::CancelAnimatedScroll)
-            ts.dumpProperty("requested-type", "cancel animated scroll");
-        else {
-            ts.dumpProperty("requested-scroll-position", requestedScrollData.scrollPosition);
+        ts.dumpProperty("requested-type", requestedScrollData.requestType);
+        if (requestedScrollData.requestType != ScrollRequestType::CancelAnimatedScroll) {
+            if (requestedScrollData.requestType == ScrollRequestType::DeltaUpdate)
+                ts.dumpProperty("requested-scroll-delta", std::get<FloatSize>(requestedScrollData.scrollPositionOrDelta));
+            else
+                ts.dumpProperty("requested-scroll-position", std::get<FloatPoint>(requestedScrollData.scrollPositionOrDelta));
+
             ts.dumpProperty("requested-scroll-position-is-programatic", requestedScrollData.scrollType);
             ts.dumpProperty("requested-scroll-position-clamping", requestedScrollData.clamping);
             ts.dumpProperty("requested-scroll-position-animated", requestedScrollData.animated == ScrollIsAnimated::Yes);
@@ -620,10 +689,10 @@ static void dump(TextStream& ts, const ScrollingStateScrollingNode& node, bool c
     }
 
     if (!changedPropertiesOnly || node.hasChangedProperty(ScrollingStateNode::Property::ScrollContainerLayer))
-        ts.dumpProperty("scroll-container-layer", static_cast<GraphicsLayer::PlatformLayerID>(node.scrollContainerLayer()));
+        ts.dumpProperty("scroll-container-layer", static_cast<PlatformLayerIdentifier>(node.scrollContainerLayer()));
 
     if (!changedPropertiesOnly || node.hasChangedProperty(ScrollingStateNode::Property::ScrolledContentsLayer))
-        ts.dumpProperty("scrolled-contents-layer", static_cast<GraphicsLayer::PlatformLayerID>(node.scrolledContentsLayer()));
+        ts.dumpProperty("scrolled-contents-layer", static_cast<PlatformLayerIdentifier>(node.scrolledContentsLayer()));
 
     if (!changedPropertiesOnly || node.hasChangedProperty(ScrollingStateNode::Property::SnapOffsetsInfo)) {
         ts.dumpProperty("horizontal snap offsets", node.snapOffsetsInfo().horizontalSnapOffsets);
@@ -706,16 +775,16 @@ static void dump(TextStream& ts, const ScrollingStateFrameScrollingNode& node, b
         ts.dumpProperty("frame-scale-factor", node.frameScaleFactor());
 
     if (!changedPropertiesOnly || node.hasChangedProperty(ScrollingStateNode::Property::InsetClipLayer))
-        ts.dumpProperty("clip-inset-layer", static_cast<GraphicsLayer::PlatformLayerID>(node.insetClipLayer()));
+        ts.dumpProperty("clip-inset-layer", static_cast<PlatformLayerIdentifier>(node.insetClipLayer()));
 
     if (!changedPropertiesOnly || node.hasChangedProperty(ScrollingStateNode::Property::ContentShadowLayer))
-        ts.dumpProperty("content-shadow-layer", static_cast<GraphicsLayer::PlatformLayerID>(node.contentShadowLayer()));
+        ts.dumpProperty("content-shadow-layer", static_cast<PlatformLayerIdentifier>(node.contentShadowLayer()));
 
     if (!changedPropertiesOnly || node.hasChangedProperty(ScrollingStateNode::Property::HeaderLayer))
-        ts.dumpProperty("header-layer", static_cast<GraphicsLayer::PlatformLayerID>(node.headerLayer()));
+        ts.dumpProperty("header-layer", static_cast<PlatformLayerIdentifier>(node.headerLayer()));
 
     if (!changedPropertiesOnly || node.hasChangedProperty(ScrollingStateNode::Property::FooterLayer))
-        ts.dumpProperty("footer-layer", static_cast<GraphicsLayer::PlatformLayerID>(node.footerLayer()));
+        ts.dumpProperty("footer-layer", static_cast<PlatformLayerIdentifier>(node.footerLayer()));
 }
     
 static void dump(TextStream& ts, const ScrollingStateOverflowScrollingNode& node, bool changedPropertiesOnly)
@@ -755,7 +824,7 @@ static void dump(TextStream& ts, const ScrollingStateNode& node, bool changedPro
     ts.dumpProperty("type", node.nodeType());
 
     if (!changedPropertiesOnly || node.hasChangedProperty(ScrollingStateNode::Property::Layer))
-        ts.dumpProperty("layer", static_cast<GraphicsLayer::PlatformLayerID>(node.layer()));
+        ts.dumpProperty("layer", static_cast<PlatformLayerIdentifier>(node.layer()));
     
     switch (node.nodeType()) {
     case ScrollingNodeType::MainFrame:
@@ -789,12 +858,12 @@ static void recursiveDumpNodes(TextStream& ts, const ScrollingStateNode& node, b
     ts << "node " << node.scrollingNodeID();
     dump(ts, node, changedPropertiesOnly);
 
-    if (node.children()) {
+    if (!node.children().isEmpty()) {
         TextStream::GroupScope group(ts);
         ts << "children";
 
-        for (auto& childNode : *node.children())
-            recursiveDumpNodes(ts, *childNode, changedPropertiesOnly);
+        for (auto& childNode : node.children())
+            recursiveDumpNodes(ts, childNode, changedPropertiesOnly);
     }
 }
 
@@ -804,7 +873,7 @@ static void dump(TextStream& ts, const ScrollingStateTree& stateTree, bool chang
     ts.dumpProperty("has new root node", stateTree.hasNewRootStateNode());
 
     if (stateTree.rootStateNode())
-        recursiveDumpNodes(ts, *stateTree.rootStateNode(), changedPropertiesOnly);
+        recursiveDumpNodes(ts, Ref { *stateTree.rootStateNode() }, changedPropertiesOnly);
 }
 
 String RemoteScrollingCoordinatorTransaction::description() const
@@ -834,7 +903,7 @@ void RemoteScrollingCoordinatorTransaction::dump() const
 {
     WTFLogAlways("%s", description().utf8().data());
 }
-#endif
+#endif // !defined(NDEBUG) || !LOG_DISABLED
 
 } // namespace WebKit
 

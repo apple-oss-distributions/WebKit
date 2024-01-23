@@ -23,27 +23,25 @@
 #include "RealtimeIncomingVideoSourceGStreamer.h"
 
 #include "GStreamerCommon.h"
+#include "GStreamerWebRTCUtils.h"
 #include "VideoFrameGStreamer.h"
 #include "VideoFrameMetadataGStreamer.h"
-#include <gst/rtp/rtp.h>
 
-GST_DEBUG_CATEGORY_EXTERN(webkit_webrtc_endpoint_debug);
-#define GST_CAT_DEFAULT webkit_webrtc_endpoint_debug
+GST_DEBUG_CATEGORY(webkit_webrtc_incoming_video_debug);
+#define GST_CAT_DEFAULT webkit_webrtc_incoming_video_debug
 
 namespace WebCore {
 
 RealtimeIncomingVideoSourceGStreamer::RealtimeIncomingVideoSourceGStreamer(AtomString&& videoTrackId)
     : RealtimeIncomingSourceGStreamer(CaptureDevice { WTFMove(videoTrackId), CaptureDevice::DeviceType::Camera, emptyString() })
 {
+    static std::once_flag debugRegisteredFlag;
+    std::call_once(debugRegisteredFlag, [] {
+        GST_DEBUG_CATEGORY_INIT(webkit_webrtc_incoming_video_debug, "webkitwebrtcincomingvideo", 0, "WebKit WebRTC incoming video");
+    });
     static Atomic<uint64_t> sourceCounter = 0;
     gst_element_set_name(bin(), makeString("incoming-video-source-", sourceCounter.exchangeAdd(1)).ascii().data());
     GST_DEBUG_OBJECT(bin(), "New incoming video source created");
-
-    RealtimeMediaSourceSupportedConstraints constraints;
-    constraints.setSupportsWidth(true);
-    constraints.setSupportsHeight(true);
-    m_currentSettings = RealtimeMediaSourceSettings { };
-    m_currentSettings->setSupportedConstraints(WTFMove(constraints));
 
     auto sinkPad = adoptGRef(gst_element_get_static_pad(bin(), "sink"));
     gst_pad_add_probe(sinkPad.get(), static_cast<GstPadProbeType>(GST_PAD_PROBE_TYPE_BUFFER), [](GstPad*, GstPadProbeInfo* info, gpointer) -> GstPadProbeReturn {
@@ -51,11 +49,12 @@ RealtimeIncomingVideoSourceGStreamer::RealtimeIncomingVideoSourceGStreamer(AtomS
         videoFrameTimeMetadata->receiveTime = MonotonicTime::now().secondsSinceEpoch();
 
         auto* buffer = GST_BUFFER_CAST(GST_PAD_PROBE_INFO_DATA(info));
-        GstRTPBuffer rtpBuffer GST_RTP_BUFFER_INIT;
-        if (gst_rtp_buffer_map(buffer, GST_MAP_READ, &rtpBuffer)) {
-            videoFrameTimeMetadata->rtpTimestamp = gst_rtp_buffer_get_timestamp(&rtpBuffer);
-            gst_rtp_buffer_unmap(&rtpBuffer);
+        {
+            GstMappedRtpBuffer rtpBuffer(buffer, GST_MAP_READ);
+            if (rtpBuffer)
+                videoFrameTimeMetadata->rtpTimestamp = gst_rtp_buffer_get_timestamp(rtpBuffer.mappedData());
         }
+
         buffer = webkitGstBufferSetVideoFrameTimeMetadata(buffer, WTFMove(videoFrameTimeMetadata));
         GST_PAD_PROBE_INFO_DATA(info) = buffer;
         return GST_PAD_PROBE_OK;
@@ -69,14 +68,22 @@ const RealtimeMediaSourceSettings& RealtimeIncomingVideoSourceGStreamer::setting
     if (m_currentSettings)
         return m_currentSettings.value();
 
-    RealtimeMediaSourceSupportedConstraints constraints;
-    constraints.setSupportsWidth(true);
-    constraints.setSupportsHeight(true);
-
     RealtimeMediaSourceSettings settings;
+    RealtimeMediaSourceSupportedConstraints constraints;
+
     auto& size = this->size();
-    settings.setWidth(size.width());
-    settings.setHeight(size.height());
+    if (!size.isZero()) {
+        constraints.setSupportsWidth(true);
+        constraints.setSupportsHeight(true);
+        settings.setWidth(size.width());
+        settings.setHeight(size.height());
+    }
+
+    if (double frameRate = this->frameRate()) {
+        constraints.setSupportsFrameRate(true);
+        settings.setFrameRate(frameRate);
+    }
+
     settings.setSupportedConstraints(constraints);
 
     m_currentSettings = WTFMove(settings);
@@ -85,13 +92,26 @@ const RealtimeMediaSourceSettings& RealtimeIncomingVideoSourceGStreamer::setting
 
 void RealtimeIncomingVideoSourceGStreamer::settingsDidChange(OptionSet<RealtimeMediaSourceSettings::Flag> settings)
 {
-    if (settings.containsAny({ RealtimeMediaSourceSettings::Flag::Width, RealtimeMediaSourceSettings::Flag::Height }))
+    if (settings.containsAny({ RealtimeMediaSourceSettings::Flag::Width, RealtimeMediaSourceSettings::Flag::Height, RealtimeMediaSourceSettings::Flag::FrameRate }))
         m_currentSettings = std::nullopt;
 }
 
 void RealtimeIncomingVideoSourceGStreamer::dispatchSample(GRefPtr<GstSample>&& sample)
 {
+    ASSERT(isMainThread());
     auto* buffer = gst_sample_get_buffer(sample.get());
+    auto* caps = gst_sample_get_caps(sample.get());
+    if (auto size = getVideoResolutionFromCaps(caps))
+        setSize({ static_cast<int>(size->width()), static_cast<int>(size->height()) });
+
+    int frameRateNumerator, frameRateDenominator;
+    auto* structure = gst_caps_get_structure(caps, 0);
+    if (gst_structure_get_fraction(structure, "framerate", &frameRateNumerator, &frameRateDenominator)) {
+        double framerate;
+        gst_util_fraction_to_double(frameRateNumerator, frameRateDenominator, &framerate);
+        setFrameRate(framerate);
+    }
+
     videoFrameAvailable(VideoFrameGStreamer::create(WTFMove(sample), size(), fromGstClockTime(GST_BUFFER_PTS(buffer))), { });
 }
 
@@ -111,6 +131,8 @@ const GstStructure* RealtimeIncomingVideoSourceGStreamer::stats()
     });
     return m_stats.get();
 }
+
+#undef GST_CAT_DEFAULT
 
 } // namespace WebCore
 

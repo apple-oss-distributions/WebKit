@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2019-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -31,6 +31,7 @@
 namespace JSC {
 
 DEFINE_ALLOCATOR_WITH_HEAP_IDENTIFIER(MetadataTable);
+DEFINE_ALLOCATOR_WITH_HEAP_IDENTIFIER(UnlinkedMetadataTable);
 
 #if CPU(ADDRESS64)
 static_assert((UnlinkedMetadataTable::s_maxMetadataAlignment >=
@@ -42,6 +43,57 @@ FOR_EACH_BYTECODE_METADATA_ALIGNMENT(JSC_ALIGNMENT_CHECK)
 #define JSC_ALIGNMENT_CHECK(size) static_assert(size <= UnlinkedMetadataTable::s_maxMetadataAlignment);
 FOR_EACH_BYTECODE_METADATA_ALIGNMENT(JSC_ALIGNMENT_CHECK)
 #undef JSC_ALIGNMENT_CHECK
+#endif
+
+#if ENABLE(METADATA_STATISTICS)
+size_t MetadataStatistics::unlinkedMetadataCount = 0;
+size_t MetadataStatistics::size32MetadataCount = 0;
+size_t MetadataStatistics::totalMemory = 0;
+size_t MetadataStatistics::perOpcodeCount[NUMBER_OF_BYTECODE_WITH_METADATA] { 0 };
+size_t MetadataStatistics::numberOfCopiesFromLinking = 0;
+size_t MetadataStatistics::linkingCopyMemory = 0;
+
+void MetadataStatistics::reportMetadataStatistics()
+{
+    static constexpr bool verbose = true;
+
+    dataLogLn("\nMetadata statistics\n");
+
+    totalMemory += unlinkedMetadataCount * sizeof(UnlinkedMetadataTable::LinkingData);
+    totalMemory += size32MetadataCount * (UnlinkedMetadataTable::s_offset32TableSize);
+    totalMemory += linkingCopyMemory;
+    dataLogLn("total memory: ", totalMemory);
+    if (verbose)
+        dataLogLn("\t of which due to multiple linked copies: ", linkingCopyMemory);
+
+    dataLogLn("# of unlinked metadata tables created: ", unlinkedMetadataCount);
+    dataLogLn("# of which were 32bit: ", size32MetadataCount);
+    dataLogLn("# of copies from linking: ", numberOfCopiesFromLinking);
+    dataLogLn();
+
+    if (!verbose)
+        return;
+
+    dataLogLn("Per opcode statistics:");
+    std::array<unsigned, NUMBER_OF_BYTECODE_WITH_METADATA> opcodeIds;
+    std::array<size_t, NUMBER_OF_BYTECODE_WITH_METADATA> memoryUsagePerOpcode;
+    for (unsigned i = 0; i < NUMBER_OF_BYTECODE_WITH_METADATA; ++i) {
+        opcodeIds[i] = i;
+        memoryUsagePerOpcode[i] = perOpcodeCount[i] * metadataSize(static_cast<OpcodeID>(i));
+    }
+    std::sort(opcodeIds.begin(), opcodeIds.end(), [&](auto a, auto b) {
+        return memoryUsagePerOpcode[a] > memoryUsagePerOpcode[b];
+    });
+    for (unsigned i = 0; i < NUMBER_OF_BYTECODE_WITH_METADATA; ++i) {
+        auto id = opcodeIds[i];
+        auto numberOfEntries = perOpcodeCount[id];
+        if (!numberOfEntries)
+            continue;
+        dataLogLn(opcodeNames[id], ":");
+        dataLogLn("\tnumber of entries: ", numberOfEntries);
+        dataLogLn("\tmemory usage: ", memoryUsagePerOpcode[id]);
+    }
+}
 #endif
 
 void UnlinkedMetadataTable::finalize()
@@ -75,25 +127,46 @@ void UnlinkedMetadataTable::finalize()
             offset = roundUpToMultipleOf(alignment, offset);
 
             offset += numberOfEntries * metadataSize(static_cast<OpcodeID>(i));
+#if ENABLE(METADATA_STATISTICS)
+            MetadataStatistics::perOpcodeCount[i] += numberOfEntries;
+#endif
         }
         buffer[s_offsetTableEntries - 1] = offset;
         m_is32Bit = offset > UINT16_MAX;
     }
 
+#if ENABLE(METADATA_STATISTICS)
+    MetadataStatistics::unlinkedMetadataCount++;
+    if (m_is32Bit)
+        MetadataStatistics::size32MetadataCount++;
+    MetadataStatistics::totalMemory += offset;
+    static std::once_flag once;
+    std::call_once(once, [] {
+        std::atexit(MetadataStatistics::reportMetadataStatistics);
+    });
+#endif
+
+    unsigned valueProfileSize = m_numValueProfiles * sizeof(ValueProfile);
     if (m_is32Bit) {
-        m_rawBuffer = reinterpret_cast<uint8_t*>(MetadataTableMalloc::realloc(m_rawBuffer, s_offset16TableSize + s_offset32TableSize + sizeof(LinkingData)));
-        memmove(m_rawBuffer + sizeof(LinkingData) + s_offset16TableSize, m_rawBuffer + sizeof(LinkingData), s_offset32TableSize);
-        memset(m_rawBuffer + sizeof(LinkingData), 0, s_offset16TableSize);
-        Offset32* buffer = bitwise_cast<Offset32*>(m_rawBuffer + sizeof(LinkingData) + s_offset16TableSize);
-        // This adjustment does not break the alignment calculated for metadata in the above loop so long as s_offset32TableSize is rounded with 8.
-        for (unsigned i = 0; i < s_offsetTableEntries; i++)
-            buffer[i] += s_offset32TableSize;
+        // offset already accounts for s_offset16TableSize
+        uint8_t* newBuffer = reinterpret_cast_ptr<uint8_t*>(MetadataTableMalloc::malloc(valueProfileSize + sizeof(LinkingData) + s_offset32TableSize + offset));
+        memset(newBuffer, 0, valueProfileSize + sizeof(LinkingData) + s_offset16TableSize);
+        memset(newBuffer + valueProfileSize + sizeof(LinkingData) + s_offset16TableSize + s_offset32TableSize, 0, offset - s_offset16TableSize);
+        Offset32* buffer = bitwise_cast<Offset32*>(newBuffer + valueProfileSize + sizeof(LinkingData) + s_offset16TableSize);
+        for (unsigned i = 0; i < s_offsetTableEntries; ++i)
+            buffer[i] = preprocessBuffer()[i] + s_offset32TableSize;
+        MetadataTableMalloc::free(m_rawBuffer);
+        m_rawBuffer = newBuffer;
     } else {
-        Offset32* oldBuffer = bitwise_cast<Offset32*>(m_rawBuffer + sizeof(LinkingData));
-        Offset16* buffer = bitwise_cast<Offset16*>(m_rawBuffer + sizeof(LinkingData));
-        for (unsigned i = 0; i < s_offsetTableEntries; i++)
-            buffer[i] = oldBuffer[i];
-        m_rawBuffer = static_cast<uint8_t*>(MetadataTableMalloc::realloc(m_rawBuffer, s_offset16TableSize + sizeof(LinkingData)));
+        // offset already accounts for s_offset16TableSize
+        uint8_t* newBuffer = reinterpret_cast_ptr<uint8_t*>(MetadataTableMalloc::malloc(valueProfileSize + sizeof(LinkingData) + offset));
+        memset(newBuffer, 0, valueProfileSize + sizeof(LinkingData));
+        memset(newBuffer + valueProfileSize + sizeof(LinkingData) + s_offset16TableSize, 0, offset - s_offset16TableSize);
+        Offset16* buffer = bitwise_cast<Offset16*>(newBuffer + valueProfileSize + sizeof(LinkingData));
+        for (unsigned i = 0; i < s_offsetTableEntries; ++i)
+            buffer[i] = preprocessBuffer()[i];
+        MetadataTableMalloc::free(m_rawBuffer);
+        m_rawBuffer = newBuffer;
     }
 }
 

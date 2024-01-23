@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020-2022 Apple Inc.  All rights reserved.
+ * Copyright (C) 2020-2023 Apple Inc.  All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,37 +27,41 @@
 
 #if ENABLE(GPU_PROCESS)
 
-#include "QualifiedRenderingResourceIdentifier.h"
-#include "QualifiedResourceHeap.h"
-#include <WebCore/ProcessIdentifier.h>
+#include <WebCore/DisplayListResourceHeap.h>
+#include <WebCore/RenderingResourceIdentifier.h>
 
+namespace WebCore {
+class ImageBuffer;
+}
 namespace WebKit {
 
-class RemoteImageBuffer;
 class RemoteRenderingBackend;
 
 class RemoteResourceCache {
 public:
-    RemoteResourceCache(WebCore::ProcessIdentifier webProcessIdentifier);
+    RemoteResourceCache() = default;
 
-    void cacheImageBuffer(Ref<RemoteImageBuffer>&&, QualifiedRenderingResourceIdentifier);
-    void cacheNativeImage(Ref<WebCore::NativeImage>&&, QualifiedRenderingResourceIdentifier);
-    void cacheFont(Ref<WebCore::Font>&&, QualifiedRenderingResourceIdentifier);
-    void cacheDecomposedGlyphs(Ref<WebCore::DecomposedGlyphs>&&, QualifiedRenderingResourceIdentifier);
+    void cacheNativeImage(Ref<WebCore::NativeImage>&&);
+    void cacheFont(Ref<WebCore::Font>&&);
+    void cacheDecomposedGlyphs(Ref<WebCore::DecomposedGlyphs>&&);
+    void cacheGradient(Ref<WebCore::Gradient>&&);
+    void cacheFilter(Ref<WebCore::Filter>&&);
+    void cacheFontCustomPlatformData(Ref<WebCore::FontCustomPlatformData>&&);
 
-    RemoteImageBuffer* cachedImageBuffer(QualifiedRenderingResourceIdentifier) const;
-    RefPtr<RemoteImageBuffer> takeImageBuffer(QualifiedRenderingResourceIdentifier);
-    WebCore::NativeImage* cachedNativeImage(QualifiedRenderingResourceIdentifier) const;
-    WebCore::Font* cachedFont(QualifiedRenderingResourceIdentifier) const;
-    WebCore::DecomposedGlyphs* cachedDecomposedGlyphs(QualifiedRenderingResourceIdentifier) const;
-
-    std::optional<WebCore::SourceImage> cachedSourceImage(QualifiedRenderingResourceIdentifier) const;
+    RefPtr<WebCore::NativeImage> cachedNativeImage(WebCore::RenderingResourceIdentifier) const;
+    RefPtr<WebCore::Font> cachedFont(WebCore::RenderingResourceIdentifier) const;
+    RefPtr<WebCore::DecomposedGlyphs> cachedDecomposedGlyphs(WebCore::RenderingResourceIdentifier) const;
+    RefPtr<WebCore::Gradient> cachedGradient(WebCore::RenderingResourceIdentifier) const;
+    RefPtr<WebCore::Filter> cachedFilter(WebCore::RenderingResourceIdentifier) const;
+    RefPtr<WebCore::FontCustomPlatformData> cachedFontCustomPlatformData(WebCore::RenderingResourceIdentifier) const;
 
     void releaseAllResources();
-    bool releaseResource(QualifiedRenderingResourceIdentifier);
+    void releaseAllDrawingResources();
+    void releaseAllImageResources();
+    bool releaseRenderingResource(WebCore::RenderingResourceIdentifier);
 
 private:
-    QualifiedResourceHeap m_resourceHeap;
+    WebCore::DisplayList::ResourceHeap m_resourceHeap;
 };
 
 } // namespace WebKit

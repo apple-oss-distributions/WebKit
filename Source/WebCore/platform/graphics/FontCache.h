@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2006-2022 Apple Inc. All rights reserved.
+ * Copyright (C) 2006-2023 Apple Inc. All rights reserved.
  * Copyright (C) 2007-2008 Torch Mobile, Inc.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -104,7 +104,7 @@ public:
 
     // These methods are implemented by the platform.
     enum class PreferColoredFont : bool { No, Yes };
-    RefPtr<Font> systemFallbackForCharacters(const FontDescription&, const Font& originalFontData, IsForPlatformFont, PreferColoredFont, const UChar* characters, unsigned length);
+    RefPtr<Font> systemFallbackForCharacterCluster(const FontDescription&, const Font& originalFontData, IsForPlatformFont, PreferColoredFont, StringView);
     Vector<String> systemFontFamilies();
     void platformInit();
 
@@ -142,10 +142,7 @@ public:
     // On the other hand, if we're invalidating because the set of installed fonts changed,
     // or if some accessibility text settings were altered, we should run a style recalc
     // so the user can immediately see the effect of the new environment.
-    enum class ShouldRunInvalidationCallback : bool {
-        No,
-        Yes
-    };
+    enum class ShouldRunInvalidationCallback : bool { No, Yes };
     WEBCORE_EXPORT static void invalidateAllFontCaches(ShouldRunInvalidationCallback = ShouldRunInvalidationCallback::Yes);
 
     WEBCORE_EXPORT size_t fontCount();

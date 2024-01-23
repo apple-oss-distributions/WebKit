@@ -71,9 +71,8 @@ public:
     bool operator!() const { return m_gpr == InvalidGPRReg; }
     explicit operator bool() const { return m_gpr != InvalidGPRReg; }
 
-    constexpr bool operator==(JSValueRegs other) const { return m_gpr == other.m_gpr; }
-    constexpr bool operator!=(JSValueRegs other) const { return !(*this == other); }
-    
+    friend constexpr bool operator==(JSValueRegs, JSValueRegs) = default;
+
     constexpr GPRReg gpr() const { return m_gpr; }
     constexpr GPRReg tagGPR() const { return InvalidGPRReg; }
     constexpr GPRReg payloadGPR() const { return m_gpr; }
@@ -197,12 +196,7 @@ public:
             || static_cast<GPRReg>(m_payloadGPR) != InvalidGPRReg;
     }
 
-    constexpr bool operator==(JSValueRegs other) const
-    {
-        return m_tagGPR == other.m_tagGPR
-            && m_payloadGPR == other.m_payloadGPR;
-    }
-    constexpr bool operator!=(JSValueRegs other) const { return !(*this == other); }
+    friend constexpr bool operator==(JSValueRegs, JSValueRegs) = default;
     
     constexpr GPRReg tagGPR() const { return m_tagGPR; }
     constexpr GPRReg payloadGPR() const { return m_payloadGPR; }
@@ -588,7 +582,7 @@ public:
     static constexpr GPRReg returnValueGPR2 = ARMRegisters::r1; // regT1
     static constexpr GPRReg nonPreservedNonReturnGPR = ARMRegisters::r5;
     static constexpr GPRReg nonPreservedNonArgumentGPR0 = ARMRegisters::r5;
-    static constexpr GPRReg nonPreservedNonArgumentGPR1 = InvalidGPRReg;
+    static constexpr GPRReg nonPreservedNonArgumentGPR1 = ARMRegisters::r4;
 
     static constexpr GPRReg wasmScratchGPR0 = regT5;
     static constexpr GPRReg wasmScratchGPR1 = regT6;

@@ -84,7 +84,7 @@ MediaSourcePrivateGStreamer::AddStatus MediaSourcePrivateGStreamer::addSourceBuf
     DEBUG_LOG(LOGIDENTIFIER, contentType);
 
     // Once every SourceBuffer has had an initialization segment appended playback starts and it's too late to add new SourceBuffers.
-    if (m_playerPrivate.hasAllTracks())
+    if (m_hasAllTracks)
         return MediaSourcePrivateGStreamer::AddStatus::ReachedIdLimit;
 
     if (!SourceBufferPrivateGStreamer::isContentTypeSupported(contentType))
@@ -158,12 +158,20 @@ void MediaSourcePrivateGStreamer::setReadyState(MediaPlayer::ReadyState state)
     m_playerPrivate.setReadyState(state);
 }
 
-void MediaSourcePrivateGStreamer::seekCompleted()
+void MediaSourcePrivateGStreamer::waitForTarget(const SeekTarget& target, CompletionHandler<void(const MediaTime&)>&& completionHandler)
 {
-    // This call just informs us that the seek has been completed as far as MediaSource is concerned: that is,
-    // the samples for `currentTime` have been fed. This doesn't mean the seek is complete for the player, as
-    // they still have to be decoded and preroll has to occur before we let the "seeked" event happen.
-    // See MediaPlayerPrivateGStreamerMSE::asyncStateChangeDone().
+    if (m_mediaSource)
+        m_mediaSource->waitForTarget(target, WTFMove(completionHandler));
+    else
+        completionHandler(MediaTime::invalidTime());
+}
+
+void MediaSourcePrivateGStreamer::seekToTime(const MediaTime& time, CompletionHandler<void()>&& completionHandler)
+{
+    if (m_mediaSource)
+        m_mediaSource->seekToTime(time, WTFMove(completionHandler));
+    else
+        completionHandler();
 }
 
 MediaTime MediaSourcePrivateGStreamer::duration() const
@@ -207,11 +215,11 @@ void MediaSourcePrivateGStreamer::startPlaybackIfHasAllTracks()
     m_playerPrivate.startSource(tracks);
 }
 
-std::unique_ptr<PlatformTimeRanges> MediaSourcePrivateGStreamer::buffered()
+const PlatformTimeRanges& MediaSourcePrivateGStreamer::buffered()
 {
     if (m_mediaSource)
         return m_mediaSource->buffered();
-    return nullptr;
+    return PlatformTimeRanges::emptyRanges();
 }
 
 #if !RELEASE_LOG_DISABLED
@@ -222,5 +230,8 @@ WTFLogChannel& MediaSourcePrivateGStreamer::logChannel() const
 
 #endif
 
-}
-#endif
+#undef GST_CAT_DEFAULT
+
+} // namespace WebCore
+
+#endif // ENABLE(MEDIA_SOURCE) && USE(GSTREAMER)

@@ -15,7 +15,7 @@
 #include "compiler/translator/InitializeDll.h"
 #include "compiler/translator/length_limits.h"
 #ifdef ANGLE_ENABLE_HLSL
-#    include "compiler/translator/TranslatorHLSL.h"
+#    include "compiler/translator/hlsl/TranslatorHLSL.h"
 #endif  // ANGLE_ENABLE_HLSL
 #include "angle_gl.h"
 #include "compiler/translator/VariablePacker.h"
@@ -185,6 +185,7 @@ void InitBuiltInResources(ShBuiltInResources *resources)
     resources->NV_EGL_stream_consumer_external                = 0;
     resources->ARB_texture_rectangle                          = 0;
     resources->EXT_blend_func_extended                        = 0;
+    resources->EXT_conservative_depth                         = 0;
     resources->EXT_draw_buffers                               = 0;
     resources->EXT_frag_depth                                 = 0;
     resources->EXT_shader_texture_lod                         = 0;
@@ -990,38 +991,6 @@ uint32_t GetAdvancedBlendEquations(const ShHandle handle)
 // use by the underlying implementation). u is short for user-defined.
 const char kUserDefinedNamePrefix[] = "_u";
 
-namespace vk
-{
-// Interface block name containing the aggregate default uniforms
-const char kDefaultUniformsNameVS[]  = "defaultUniformsVS";
-const char kDefaultUniformsNameTCS[] = "defaultUniformsTCS";
-const char kDefaultUniformsNameTES[] = "defaultUniformsTES";
-const char kDefaultUniformsNameGS[]  = "defaultUniformsGS";
-const char kDefaultUniformsNameFS[]  = "defaultUniformsFS";
-const char kDefaultUniformsNameCS[]  = "defaultUniformsCS";
-
-// Interface block and variable names containing driver uniforms
-const char kDriverUniformsBlockName[] = "ANGLEUniformBlock";
-const char kDriverUniformsVarName[]   = "ANGLEUniforms";
-
-// Interface block array name used for atomic counter emulation
-const char kAtomicCountersBlockName[] = "ANGLEAtomicCounters";
-
-const char kXfbEmulationGetOffsetsFunctionName[] = "ANGLEGetXfbOffsets";
-const char kXfbEmulationCaptureFunctionName[]    = "ANGLECaptureXfb";
-const char kXfbEmulationBufferBlockName[]        = "ANGLEXfbBuffer";
-const char kXfbEmulationBufferName[]             = "ANGLEXfb";
-const char kXfbEmulationBufferFieldName[]        = "xfbOut";
-
-const char kTransformPositionFunctionName[] = "ANGLETransformPosition";
-
-const char kXfbExtensionPositionOutName[] = "ANGLEXfbPosition";
-
-// EXT_shader_framebuffer_fetch / EXT_shader_framebuffer_fetch_non_coherent
-const char kInputAttachmentName[] = "ANGLEInputAttachment";
-
-}  // namespace vk
-
 const char *BlockLayoutTypeToString(BlockLayoutType type)
 {
     switch (type)
@@ -1043,9 +1012,9 @@ const char *BlockTypeToString(BlockType type)
 {
     switch (type)
     {
-        case BlockType::BLOCK_BUFFER:
+        case BlockType::kBlockBuffer:
             return "buffer";
-        case BlockType::BLOCK_UNIFORM:
+        case BlockType::kBlockUniform:
             return "uniform";
         default:
             return "invalid";
@@ -1066,6 +1035,10 @@ const char *InterpolationTypeToString(InterpolationType type)
             return "flat";
         case InterpolationType::INTERPOLATION_NOPERSPECTIVE:
             return "noperspective";
+        case InterpolationType::INTERPOLATION_NOPERSPECTIVE_CENTROID:
+            return "noperspective centroid";
+        case InterpolationType::INTERPOLATION_NOPERSPECTIVE_SAMPLE:
+            return "noperspective sample";
         default:
             return "invalid";
     }

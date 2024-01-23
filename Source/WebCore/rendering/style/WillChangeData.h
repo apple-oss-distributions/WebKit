@@ -40,10 +40,6 @@ public:
     }
     
     bool operator==(const WillChangeData&) const;
-    bool operator!=(const WillChangeData& o) const
-    {
-        return !(*this == o);
-    }
 
     bool isAuto() const { return m_animatableFeatures.isEmpty(); }
     size_t numFeatures() const { return m_animatableFeatures.size(); }
@@ -116,10 +112,7 @@ private:
             }
         }
         
-        bool operator==(const AnimatableFeature& other) const
-        {
-            return m_feature == other.m_feature && m_cssPropertyID == other.m_cssPropertyID;
-        }
+        friend bool operator==(const AnimatableFeature&, const AnimatableFeature&) = default;
     };
 
     Vector<AnimatableFeature, 1> m_animatableFeatures;

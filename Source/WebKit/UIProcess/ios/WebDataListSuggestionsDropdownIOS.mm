@@ -29,13 +29,13 @@
 #if ENABLE(DATALIST_ELEMENT) && PLATFORM(IOS_FAMILY)
 
 #import "UIKitSPI.h"
-#import "UserInterfaceIdiom.h"
 #import "WKContentView.h"
 #import "WKContentViewInteraction.h"
 #import "WKFormPeripheral.h"
 #import "WKFormPopover.h"
 #import "WKWebViewPrivateForTesting.h"
 #import "WebPageProxy.h"
+#import <pal/system/ios/UserInterfaceIdiom.h>
 
 static const CGFloat maxVisibleSuggestions = 5;
 static const CGFloat suggestionsPopoverCellHeight = 44;
@@ -116,7 +116,7 @@ void WebDataListSuggestionsDropdownIOS::show(WebCore::DataListSuggestionInformat
     }
 #endif
 
-    if (currentUserInterfaceIdiomIsSmallScreen())
+    if (PAL::currentUserInterfaceIdiomIsSmallScreen())
         m_suggestionsControl = adoptNS([[WKDataListSuggestionsPicker alloc] initWithInformation:WTFMove(information) inView:m_contentView]);
     else
         m_suggestionsControl = adoptNS([[WKDataListSuggestionsPopover alloc] initWithInformation:WTFMove(information) inView:m_contentView]);
@@ -231,7 +231,10 @@ void WebDataListSuggestionsDropdownIOS::didSelectOption(const String& selectedOp
     [_pickerView setDataSource:self];
     [_pickerView setDelegate:self];
     [_pickerView setControl:self];
-    [_pickerView setSize:[UIKeyboard defaultSizeForInterfaceOrientation:view.interfaceOrientation]];
+
+    CGRect frame = [_pickerView frame];
+    frame.size = [UIKeyboard defaultSizeForInterfaceOrientation:view.interfaceOrientation];
+    [_pickerView setFrame:frame];
 
     return self;
 }

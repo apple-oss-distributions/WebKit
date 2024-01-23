@@ -58,7 +58,7 @@ struct NetworkSessionCreationParameters {
     static std::optional<NetworkSessionCreationParameters> decode(IPC::Decoder&);
     
     PAL::SessionID sessionID { PAL::SessionID::defaultSessionID() };
-    std::optional<UUID> dataStoreIdentifier;
+    Markable<WTF::UUID> dataStoreIdentifier;
     String boundInterfaceIdentifier;
     AllowsCellularAccess allowsCellularAccess { AllowsCellularAccess::Yes };
 #if PLATFORM(COCOA)
@@ -69,7 +69,7 @@ struct NetworkSessionCreationParameters {
     URL httpProxy;
     URL httpsProxy;
 #endif
-#if HAVE(CFNETWORK_ALTERNATIVE_SERVICE)
+#if HAVE(ALTERNATIVE_SERVICE)
     String alternativeServiceDirectory;
     SandboxExtension::Handle alternativeServiceDirectoryExtensionHandle;
 #endif
@@ -115,10 +115,14 @@ struct NetworkSessionCreationParameters {
 #if !HAVE(NSURLSESSION_WEBSOCKET)
     bool shouldAcceptInsecureCertificatesForWebSockets { false };
 #endif
+    bool isBlobRegistryTopOriginPartitioningEnabled { false };
 
-    UnifiedOriginStorageLevel unifiedOriginStorageLevel { UnifiedOriginStorageLevel::Basic };
+    UnifiedOriginStorageLevel unifiedOriginStorageLevel { UnifiedOriginStorageLevel::Standard };
     uint64_t perOriginStorageQuota;
-    uint64_t perThirdPartyOriginStorageQuota;
+    std::optional<double> originQuotaRatio;
+    std::optional<double> totalQuotaRatio;
+    std::optional<uint64_t> standardVolumeCapacity;
+    std::optional<uint64_t> volumeCapacityOverride;
     String localStorageDirectory;
     SandboxExtension::Handle localStorageDirectoryExtensionHandle;
     String indexedDBDirectory;
@@ -131,6 +135,7 @@ struct NetworkSessionCreationParameters {
     String serviceWorkerRegistrationDirectory;
     SandboxExtension::Handle serviceWorkerRegistrationDirectoryExtensionHandle;
     bool serviceWorkerProcessTerminationDelayEnabled { true };
+    bool inspectionForServiceWorkersAllowed { true };
 #endif
 
     ResourceLoadStatisticsParameters resourceLoadStatisticsParameters;

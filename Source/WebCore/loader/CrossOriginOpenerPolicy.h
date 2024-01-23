@@ -31,7 +31,7 @@
 namespace WebCore {
 
 class ContentSecurityPolicy;
-class Frame;
+class LocalFrame;
 class ResourceResponse;
 class ScriptExecutionContext;
 class SecurityOrigin;
@@ -54,8 +54,9 @@ enum class COOPDisposition : bool { Reporting , Enforce };
 // https://html.spec.whatwg.org/multipage/origin.html#cross-origin-opener-policy
 struct CrossOriginOpenerPolicy {
     CrossOriginOpenerPolicyValue value { CrossOriginOpenerPolicyValue::UnsafeNone };
-    String reportingEndpoint;
     CrossOriginOpenerPolicyValue reportOnlyValue { CrossOriginOpenerPolicyValue::UnsafeNone };
+
+    String reportingEndpoint;
     String reportOnlyReportingEndpoint;
 
     const String& reportingEndpointForDisposition(COOPDisposition) const;
@@ -63,8 +64,8 @@ struct CrossOriginOpenerPolicy {
 
     CrossOriginOpenerPolicy isolatedCopy() const &;
     CrossOriginOpenerPolicy isolatedCopy() &&;
-    template<class Encoder> void encode(Encoder&) const;
-    template<class Decoder> static std::optional<CrossOriginOpenerPolicy> decode(Decoder&);
+
+    friend bool operator==(const CrossOriginOpenerPolicy&, const CrossOriginOpenerPolicy&) = default;
 
     void addPolicyHeadersTo(ResourceResponse&) const;
 };
@@ -77,48 +78,6 @@ inline const String& CrossOriginOpenerPolicy::reportingEndpointForDisposition(CO
 inline bool CrossOriginOpenerPolicy::hasReportingEndpoint(COOPDisposition disposition) const
 {
     return !reportingEndpointForDisposition(disposition).isEmpty();
-}
-
-inline bool operator==(const CrossOriginOpenerPolicy& a, const CrossOriginOpenerPolicy& b)
-{
-    return a.value == b.value && a.reportingEndpoint == b.reportingEndpoint && a.reportOnlyValue == b.reportOnlyValue && a.reportOnlyReportingEndpoint == b.reportOnlyReportingEndpoint;
-}
-
-template<class Encoder>
-void CrossOriginOpenerPolicy::encode(Encoder& encoder) const
-{
-    encoder << value << reportingEndpoint << reportOnlyValue << reportOnlyReportingEndpoint;
-}
-
-template<class Decoder>
-std::optional<CrossOriginOpenerPolicy> CrossOriginOpenerPolicy::decode(Decoder& decoder)
-{
-    std::optional<CrossOriginOpenerPolicyValue> value;
-    decoder >> value;
-    if (!value)
-        return std::nullopt;
-
-    std::optional<String> reportingEndpoint;
-    decoder >> reportingEndpoint;
-    if (!reportingEndpoint)
-        return std::nullopt;
-
-    std::optional<CrossOriginOpenerPolicyValue> reportOnlyValue;
-    decoder >> reportOnlyValue;
-    if (!reportOnlyValue)
-        return std::nullopt;
-
-    std::optional<String> reportOnlyReportingEndpoint;
-    decoder >> reportOnlyReportingEndpoint;
-    if (!reportOnlyReportingEndpoint)
-        return std::nullopt;
-
-    return {{
-        *value,
-        WTFMove(*reportingEndpoint),
-        *reportOnlyValue,
-        WTFMove(*reportOnlyReportingEndpoint)
-    }};
 }
 
 // https://html.spec.whatwg.org/multipage/origin.html#coop-enforcement-result

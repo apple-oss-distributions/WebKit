@@ -189,7 +189,7 @@ bool Worker::virtualHasPendingActivity() const
 void Worker::didReceiveResponse(ResourceLoaderIdentifier identifier, const ResourceResponse& response)
 {
     const URL& responseURL = response.url();
-    if (!responseURL.protocolIsBlob() && !responseURL.protocolIs("file"_s) && !SecurityOrigin::create(responseURL)->isOpaque())
+    if (!responseURL.protocolIsBlob() && !responseURL.protocolIsFile() && !SecurityOrigin::create(responseURL)->isOpaque())
         m_contentSecurityPolicyResponseHeaders = ContentSecurityPolicyResponseHeaders(response);
     InspectorInstrumentation::didReceiveScriptResponse(scriptExecutionContext(), identifier);
 }
@@ -240,6 +240,22 @@ void Worker::dispatchEvent(Event& event)
         auto& errorEvent = downcast<ErrorEvent>(event);
         scriptExecutionContext()->reportException(errorEvent.message(), errorEvent.lineno(), errorEvent.colno(), errorEvent.filename(), nullptr, nullptr);
     }
+}
+
+void Worker::reportError(const String& errorMessage)
+{
+    if (m_wasTerminated)
+        return;
+
+    queueTaskKeepingObjectAlive(*this, TaskSource::DOMManipulation, [this, errorMessage] {
+        if (m_wasTerminated)
+            return;
+
+        auto event = Event::create(eventNames().errorEvent, Event::CanBubble::No, Event::IsCancelable::No);
+        AbstractWorker::dispatchEvent(event);
+        if (!event->defaultPrevented() && scriptExecutionContext())
+            scriptExecutionContext()->addConsoleMessage(makeUnique<Inspector::ConsoleMessage>(MessageSource::JS, MessageType::Log, MessageLevel::Error, errorMessage));
+    });
 }
 
 #if ENABLE(WEB_RTC)

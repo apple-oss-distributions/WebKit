@@ -26,6 +26,7 @@
 #include "config.h"
 #include "AuxiliaryProcessProxy.h"
 
+#include "AuxiliaryProcessCreationParameters.h"
 #include "AuxiliaryProcessMessages.h"
 #include "Logging.h"
 #include "OverrideLanguages.h"
@@ -49,13 +50,16 @@ namespace WebKit {
 AuxiliaryProcessProxy::AuxiliaryProcessProxy(bool alwaysRunsAtBackgroundPriority, Seconds responsivenessTimeout)
     : m_responsivenessTimer(*this, responsivenessTimeout)
     , m_alwaysRunsAtBackgroundPriority(alwaysRunsAtBackgroundPriority)
+#if USE(RUNNINGBOARD)
+    , m_timedActivityForIPC(3_s)
+#endif
 {
 }
 
 AuxiliaryProcessProxy::~AuxiliaryProcessProxy()
 {
-    if (m_connection)
-        m_connection->invalidate();
+    if (RefPtr connection = m_connection)
+        connection->invalidate();
 
     if (m_processLauncher) {
         m_processLauncher->invalidate();
@@ -139,7 +143,7 @@ void AuxiliaryProcessProxy::connect()
 
 void AuxiliaryProcessProxy::terminate()
 {
-    RELEASE_LOG(Process, "AuxiliaryProcessProxy::terminate: PID=%d", processIdentifier());
+    RELEASE_LOG(Process, "AuxiliaryProcessProxy::terminate: PID=%d", processID());
 
 #if PLATFORM(COCOA)
     if (m_connection && m_connection->kill())
@@ -188,7 +192,7 @@ bool AuxiliaryProcessProxy::wasTerminated() const
         break;
     }
 
-    auto pid = processIdentifier();
+    auto pid = processID();
     if (!pid)
         return true;
 
@@ -228,10 +232,10 @@ bool AuxiliaryProcessProxy::sendMessage(UniqueRef<IPC::Encoder>&& encoder, Optio
 
     case State::Running:
         if (asyncReplyHandler) {
-            if (connection()->sendMessageWithAsyncReply(WTFMove(encoder), WTFMove(*asyncReplyHandler), sendOptions))
+            if (connection()->sendMessageWithAsyncReply(WTFMove(encoder), WTFMove(*asyncReplyHandler), sendOptions) == IPC::Error::NoError)
                 return true;
         } else {
-            if (connection()->sendMessage(WTFMove(encoder), sendOptions))
+            if (connection()->sendMessage(WTFMove(encoder), sendOptions) == IPC::Error::NoError)
                 return true;
         }
         break;
@@ -293,22 +297,47 @@ void AuxiliaryProcessProxy::didFinishLaunching(ProcessLauncher*, IPC::Connection
 
 #if PLATFORM(MAC) && USE(RUNNINGBOARD)
     m_lifetimeActivity = throttler().foregroundActivity("Lifetime Activity"_s).moveToUniquePtr();
+    m_boostedJetsamAssertion = ProcessAssertion::create(xpc_connection_get_pid(connectionIdentifier.xpcConnection.get()), "Jetsam Boost"_s, ProcessAssertionType::BoostedJetsam);
 #endif
 
-    m_connection = IPC::Connection::createServerConnection(connectionIdentifier);
+    RefPtr connection = IPC::Connection::createServerConnection(connectionIdentifier);
+    m_connection = connection.copyRef();
 
-    connectionWillOpen(*m_connection);
-    m_connection->open(*this);
+    connectionWillOpen(*connection);
+    connection->open(*this);
+    connection->setOutgoingMessageQueueIsGrowingLargeCallback([weakThis = WeakPtr { *this }] {
+        ensureOnMainRunLoop([weakThis] {
+            if (weakThis)
+                weakThis->outgoingMessageQueueIsGrowingLarge();
+        });
+    });
 
     for (auto&& pendingMessage : std::exchange(m_pendingMessages, { })) {
         if (!shouldSendPendingMessage(pendingMessage))
             continue;
         if (pendingMessage.asyncReplyHandler)
-            m_connection->sendMessageWithAsyncReply(WTFMove(pendingMessage.encoder), WTFMove(*pendingMessage.asyncReplyHandler), pendingMessage.sendOptions);
+            connection->sendMessageWithAsyncReply(WTFMove(pendingMessage.encoder), WTFMove(*pendingMessage.asyncReplyHandler), pendingMessage.sendOptions);
         else
-            m_connection->sendMessage(WTFMove(pendingMessage.encoder), pendingMessage.sendOptions);
+            connection->sendMessage(WTFMove(pendingMessage.encoder), pendingMessage.sendOptions);
     }
 }
+
+void AuxiliaryProcessProxy::outgoingMessageQueueIsGrowingLarge()
+{
+#if USE(RUNNINGBOARD)
+    wakeUpTemporarilyForIPC();
+#endif
+}
+
+#if USE(RUNNINGBOARD)
+void AuxiliaryProcessProxy::wakeUpTemporarilyForIPC()
+{
+    // If we keep trying to send IPC to a suspended process, the outgoing message queue may grow large and result
+    // in increased memory usage. To avoid this, we wake up the process for a bit so we can drain the messages.
+    if (!ProcessThrottler::isValidBackgroundActivity(m_timedActivityForIPC.activity()))
+        m_timedActivityForIPC = throttler().backgroundActivity("IPC sending due to large outgoing queue"_s);
+}
+#endif
 
 void AuxiliaryProcessProxy::replyToPendingMessages()
 {
@@ -333,15 +362,16 @@ void AuxiliaryProcessProxy::shutDownProcess()
         return;
     }
 
-    if (!m_connection)
+    RefPtr connection = m_connection;
+    if (!connection)
         return;
 
-    processWillShutDown(*m_connection);
+    processWillShutDown(*connection);
 
     if (canSendMessage())
         send(Messages::AuxiliaryProcess::ShutDown(), 0);
 
-    m_connection->invalidate();
+    connection->invalidate();
     m_connection = nullptr;
     m_responsivenessTimer.invalidate();
 }
@@ -364,7 +394,7 @@ void AuxiliaryProcessProxy::connectionWillOpen(IPC::Connection&)
 
 void AuxiliaryProcessProxy::logInvalidMessage(IPC::Connection& connection, IPC::MessageName messageName)
 {
-    RELEASE_LOG_FAULT(IPC, "Received an invalid message '%" PUBLIC_LOG_STRING "' from the %" PUBLIC_LOG_STRING " process.", description(messageName), processName().characters());
+    RELEASE_LOG_FAULT(IPC, "Received an invalid message '%" PUBLIC_LOG_STRING "' from the %" PUBLIC_LOG_STRING " process with PID %d", description(messageName), processName().characters(), processID());
 }
 
 bool AuxiliaryProcessProxy::platformIsBeingDebugged() const
@@ -375,7 +405,7 @@ bool AuxiliaryProcessProxy::platformIsBeingDebugged() const
         return false;
 
     struct kinfo_proc info;
-    int mib[] = { CTL_KERN, KERN_PROC, KERN_PROC_PID, processIdentifier() };
+    int mib[] = { CTL_KERN, KERN_PROC, KERN_PROC_PID, processID() };
     size_t size = sizeof(info);
     if (sysctl(mib, std::size(mib), &info, &size, nullptr, 0) == -1)
         return false;
@@ -414,12 +444,12 @@ void AuxiliaryProcessProxy::startResponsivenessTimer(UseLazyStop useLazyStop)
 
 bool AuxiliaryProcessProxy::mayBecomeUnresponsive()
 {
-    return !platformIsBeingDebugged();
+    return !(platformIsBeingDebugged() || throttler().isSuspended());
 }
 
 void AuxiliaryProcessProxy::didBecomeUnresponsive()
 {
-    RELEASE_LOG_ERROR(Process, "AuxiliaryProcessProxy::didBecomeUnresponsive: %" PUBLIC_LOG_STRING " process with PID %d became unresponsive", processName().characters(), processIdentifier());
+    RELEASE_LOG_ERROR(Process, "AuxiliaryProcessProxy::didBecomeUnresponsive: %" PUBLIC_LOG_STRING " process with PID %d became unresponsive", processName().characters(), processID());
 }
 
 void AuxiliaryProcessProxy::checkForResponsiveness(CompletionHandler<void()>&& responsivenessHandler, UseLazyStop useLazyStop)
@@ -449,7 +479,7 @@ AuxiliaryProcessCreationParameters AuxiliaryProcessProxy::auxiliaryProcessParame
     return parameters;
 }
 
-std::optional<SandboxExtension::Handle> AuxiliaryProcessProxy::createMobileGestaltSandboxExtensionIfNeeded() const
+std::optional<SandboxExtensionHandle> AuxiliaryProcessProxy::createMobileGestaltSandboxExtensionIfNeeded() const
 {
 #if PLATFORM(IOS_FAMILY) && !PLATFORM(MACCATALYST)
     if (_MGCacheValid())
@@ -479,6 +509,11 @@ void AuxiliaryProcessProxy::platformStartConnectionTerminationWatchdog()
 void AuxiliaryProcessProxy::setRunningBoardThrottlingEnabled()
 {
     m_lifetimeActivity = nullptr;
+}
+
+bool AuxiliaryProcessProxy::runningBoardThrottlingEnabled()
+{
+    return !m_lifetimeActivity;
 }
 #endif
 

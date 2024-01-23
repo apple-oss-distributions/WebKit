@@ -29,14 +29,14 @@
 #include "CSSPropertyAnimation.h"
 #include "CSSPropertyParser.h"
 #include "CSSSelector.h"
-#include "CSSValueList.h"
 #include "CSSValuePool.h"
 #include "ComposedTreeAncestorIterator.h"
 #include "ComputedStyleExtractor.h"
 #include "DeprecatedCSSOMValue.h"
 #include "RenderBox.h"
 #include "RenderBoxModelObject.h"
-#include "RenderStyle.h"
+#include "RenderStyleInlines.h"
+#include "ShorthandSerializer.h"
 #include "StylePropertiesInlines.h"
 #include "StylePropertyShorthand.h"
 #include "StyleScope.h"
@@ -65,18 +65,6 @@ Ref<CSSComputedStyleDeclaration> CSSComputedStyleDeclaration::create(Element& el
     return adoptRef(*new CSSComputedStyleDeclaration(element, allowVisitedStyle, pseudoElementName));
 }
 
-void CSSComputedStyleDeclaration::ref()
-{
-    ++m_refCount;
-}
-
-void CSSComputedStyleDeclaration::deref()
-{
-    ASSERT(m_refCount);
-    if (!--m_refCount)
-        delete this;
-}
-
 String CSSComputedStyleDeclaration::cssText() const
 {
     return emptyString();
@@ -96,6 +84,8 @@ ExceptionOr<void> CSSComputedStyleDeclaration::setCssText(const String&)
 // https://developer.mozilla.org/en-US/docs/Web/API/Window/getComputedStyle#Notes
 RefPtr<CSSValue> CSSComputedStyleDeclaration::getPropertyCSSValue(CSSPropertyID propertyID, ComputedStyleExtractor::UpdateLayout updateLayout) const
 {
+    if (!isExposed(propertyID, settings()))
+        return nullptr;
     return ComputedStyleExtractor(m_element.ptr(), m_allowVisitedStyle, m_pseudoElementSpecifier).propertyValue(propertyID, updateLayout);
 }
 
@@ -116,6 +106,20 @@ const FixedVector<CSSPropertyID>& CSSComputedStyleDeclaration::exposedComputedCS
 
 String CSSComputedStyleDeclaration::getPropertyValue(CSSPropertyID propertyID) const
 {
+    auto canUseShorthandSerializerForPropertyValue = [&]() {
+        switch (propertyID) {
+        case CSSPropertyGridArea:
+        case CSSPropertyGridColumn:
+        case CSSPropertyGridRow:
+        case CSSPropertyGridTemplate:
+            return true;
+        default:
+            return false;
+        }
+    };
+    if (isShorthand(propertyID) && canUseShorthandSerializerForPropertyValue())
+        return serializeShorthandValue({ m_element.ptr(), m_allowVisitedStyle, m_pseudoElementSpecifier }, propertyID);
+
     auto value = getPropertyCSSValue(propertyID);
     if (!value)
         return emptyString(); // FIXME: Should this be null instead, as it is in StyleProperties::getPropertyValue?

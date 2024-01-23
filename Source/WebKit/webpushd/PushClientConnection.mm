@@ -26,7 +26,6 @@
 #import "config.h"
 #import "PushClientConnection.h"
 
-#import "AppBundleRequest.h"
 #import "CodeSigning.h"
 #import "DaemonEncoder.h"
 #import "DaemonUtilities.h"
@@ -38,21 +37,26 @@
 #import <wtf/Vector.h>
 #import <wtf/cocoa/Entitlements.h>
 
+#if PLATFORM(MAC)
+#import <bsm/libbsm.h>
+#import <pal/spi/cocoa/LaunchServicesSPI.h>
+#endif
+
 using WebKit::Daemon::Encoder;
 
 namespace WebPushD {
 
-Ref<ClientConnection> ClientConnection::create(xpc_connection_t connection)
+Ref<PushClientConnection> PushClientConnection::create(xpc_connection_t connection)
 {
-    return adoptRef(*new ClientConnection(connection));
+    return adoptRef(*new PushClientConnection(connection));
 }
 
-ClientConnection::ClientConnection(xpc_connection_t connection)
+PushClientConnection::PushClientConnection(xpc_connection_t connection)
     : m_xpcConnection(connection)
 {
 }
 
-void ClientConnection::updateConnectionConfiguration(const WebPushDaemonConnectionConfiguration& configuration)
+void PushClientConnection::updateConnectionConfiguration(const WebPushDaemonConnectionConfiguration& configuration)
 {
     if (configuration.hostAppAuditTokenData)
         setHostAppAuditTokenData(*configuration.hostAppAuditTokenData);
@@ -62,7 +66,7 @@ void ClientConnection::updateConnectionConfiguration(const WebPushDaemonConnecti
     m_useMockBundlesForTesting = configuration.useMockBundlesForTesting;
 }
 
-void ClientConnection::setHostAppAuditTokenData(const Vector<uint8_t>& tokenData)
+void PushClientConnection::setHostAppAuditTokenData(const Vector<uint8_t>& tokenData)
 {
     audit_token_t token;
     if (tokenData.size() != sizeof(token)) {
@@ -80,10 +84,10 @@ void ClientConnection::setHostAppAuditTokenData(const Vector<uint8_t>& tokenData
     }
 
     m_hostAppAuditToken = WTFMove(token);
-    Daemon::singleton().broadcastAllConnectionIdentities();
+    WebPushDaemon::singleton().broadcastAllConnectionIdentities();
 }
 
-WebCore::PushSubscriptionSetIdentifier ClientConnection::subscriptionSetIdentifier()
+WebCore::PushSubscriptionSetIdentifier PushClientConnection::subscriptionSetIdentifier()
 {
     return {
         hostAppCodeSigningIdentifier(),
@@ -92,7 +96,7 @@ WebCore::PushSubscriptionSetIdentifier ClientConnection::subscriptionSetIdentifi
     };
 }
 
-const String& ClientConnection::hostAppCodeSigningIdentifier()
+const String& PushClientConnection::hostAppCodeSigningIdentifier()
 {
     if (!m_hostAppCodeSigningIdentifier) {
 #if PLATFORM(MAC) && !USE(APPLE_INTERNAL_SDK)
@@ -102,14 +106,33 @@ const String& ClientConnection::hostAppCodeSigningIdentifier()
         if (!m_hostAppAuditToken)
             m_hostAppCodeSigningIdentifier = String();
         else
-            m_hostAppCodeSigningIdentifier = WebKit::codeSigningIdentifier(*m_hostAppAuditToken);
+            m_hostAppCodeSigningIdentifier = bundleIdentifierFromAuditToken(*m_hostAppAuditToken);
 #endif
     }
 
     return *m_hostAppCodeSigningIdentifier;
 }
 
-bool ClientConnection::hostAppHasPushEntitlement()
+String PushClientConnection::bundleIdentifierFromAuditToken(audit_token_t audit_token)
+{
+#if PLATFORM(MAC)
+    LSSessionID sessionID = (LSSessionID)audit_token_to_asid(audit_token);
+    auto auditTokenDataRef = adoptCF(CFDataCreate(kCFAllocatorDefault, (const UInt8 *)(&audit_token), sizeof(audit_token)));
+    CFTypeRef keys[] = { _kLSAuditTokenKey };
+    CFTypeRef values[] = { auditTokenDataRef.get() };
+    auto matchingAppsRef = adoptCF(_LSCopyMatchingApplicationsWithItems(sessionID, 1, keys, values));
+    if (matchingAppsRef && CFArrayGetCount(matchingAppsRef.get())) {
+        LSASNRef asnRef = (LSASNRef)CFArrayGetValueAtIndex(matchingAppsRef.get(), 0);
+        auto bundleIdentifierRef = adoptCF((CFStringRef)_LSCopyApplicationInformationItem(sessionID, asnRef, kCFBundleIdentifierKey));
+        if (bundleIdentifierRef && CFStringGetLength(bundleIdentifierRef.get()))
+            return bundleIdentifierRef.get();
+    }
+#endif // PLATFORM(MAC)
+
+    return WebKit::codeSigningIdentifier(audit_token);
+}
+
+bool PushClientConnection::hostAppHasPushEntitlement()
 {
     if (!m_hostAppHasPushEntitlement)
         m_hostAppHasPushEntitlement = hostHasEntitlement("com.apple.private.webkit.webpush"_s);
@@ -117,12 +140,12 @@ bool ClientConnection::hostAppHasPushEntitlement()
     return *m_hostAppHasPushEntitlement;
 }
 
-bool ClientConnection::hostAppHasPushInjectEntitlement()
+bool PushClientConnection::hostAppHasPushInjectEntitlement()
 {
     return hostHasEntitlement("com.apple.private.webkit.webpush.inject"_s);
 }
 
-bool ClientConnection::hostHasEntitlement(ASCIILiteral entitlement)
+bool PushClientConnection::hostHasEntitlement(ASCIILiteral entitlement)
 {
     if (!m_hostAppAuditToken)
         return false;
@@ -133,7 +156,7 @@ bool ClientConnection::hostHasEntitlement(ASCIILiteral entitlement)
 #endif
 }
 
-void ClientConnection::setDebugModeIsEnabled(bool enabled)
+void PushClientConnection::setDebugModeIsEnabled(bool enabled)
 {
     if (enabled == m_debugModeEnabled)
         return;
@@ -142,7 +165,7 @@ void ClientConnection::setDebugModeIsEnabled(bool enabled)
     broadcastDebugMessage(makeString("Turned Debug Mode ", m_debugModeEnabled ? "on" : "off"));
 }
 
-void ClientConnection::broadcastDebugMessage(const String& message)
+void PushClientConnection::broadcastDebugMessage(const String& message)
 {
     String messageIdentifier;
     auto signingIdentifier = hostAppCodeSigningIdentifier();
@@ -151,10 +174,10 @@ void ClientConnection::broadcastDebugMessage(const String& message)
     else
         messageIdentifier = makeString("[", signingIdentifier, " (", String::number(identifier()), ")] ");
 
-    Daemon::singleton().broadcastDebugMessage(makeString(messageIdentifier, message));
+    WebPushDaemon::singleton().broadcastDebugMessage(makeString(messageIdentifier, message));
 }
 
-void ClientConnection::sendDebugMessage(const String& message)
+void PushClientConnection::sendDebugMessage(const String& message)
 {
     // FIXME: We currently send the debug message twice.
     // After getting all debug message clients onto the encoder/decoder mechanism, remove the old style message.
@@ -166,55 +189,16 @@ void ClientConnection::sendDebugMessage(const String& message)
     sendDaemonMessage<DaemonMessageType::DebugMessage>(message);
 }
 
-void ClientConnection::enqueueAppBundleRequest(std::unique_ptr<AppBundleRequest>&& request)
-{
-    RELEASE_ASSERT(m_xpcConnection);
-    m_pendingBundleRequests.append(WTFMove(request));
-    maybeStartNextAppBundleRequest();
-}
-
-void ClientConnection::maybeStartNextAppBundleRequest()
-{
-    RELEASE_ASSERT(m_xpcConnection);
-
-    if (m_currentBundleRequest || m_pendingBundleRequests.isEmpty())
-        return;
-
-    m_currentBundleRequest = m_pendingBundleRequests.takeFirst();
-    m_currentBundleRequest->start();
-}
-
-void ClientConnection::didCompleteAppBundleRequest(AppBundleRequest& request)
-{
-    // If our connection was closed there should be no in-progress bundle requests.
-    RELEASE_ASSERT(m_xpcConnection);
-
-    ASSERT(m_currentBundleRequest.get() == &request);
-    m_currentBundleRequest = nullptr;
-
-    maybeStartNextAppBundleRequest();
-}
-
-void ClientConnection::connectionClosed()
+void PushClientConnection::connectionClosed()
 {
     broadcastDebugMessage("Connection closed"_s);
 
     RELEASE_ASSERT(m_xpcConnection);
     m_xpcConnection = nullptr;
-
-    if (m_currentBundleRequest) {
-        m_currentBundleRequest->cancel();
-        m_currentBundleRequest = nullptr;
-    }
-
-    Deque<std::unique_ptr<AppBundleRequest>> pendingBundleRequests;
-    pendingBundleRequests.swap(m_pendingBundleRequests);
-    for (auto& requst : pendingBundleRequests)
-        requst->cancel();
 }
 
 template<DaemonMessageType messageType, typename... Args>
-void ClientConnection::sendDaemonMessage(Args&&... args) const
+void PushClientConnection::sendDaemonMessage(Args&&... args) const
 {
     if (!m_xpcConnection)
         return;

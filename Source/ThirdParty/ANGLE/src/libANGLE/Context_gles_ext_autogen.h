@@ -105,11 +105,11 @@
     void bufferStorage(BufferBinding targetPacked, GLsizeiptr size, const void *data,              \
                        GLbitfield flags);                                                          \
     /* GL_EXT_clip_control */                                                                      \
-    void clipControl(GLenum origin, GLenum depth);                                                 \
     /* GL_EXT_clip_cull_distance */                                                                \
     /* GL_EXT_color_buffer_float */                                                                \
     /* GL_EXT_color_buffer_half_float */                                                           \
     /* GL_EXT_compressed_ETC1_RGB8_sub_texture */                                                  \
+    /* GL_EXT_conservative_depth */                                                                \
     /* GL_EXT_copy_image */                                                                        \
     /* GL_EXT_debug_label */                                                                       \
     void labelObject(GLenum type, GLuint object, GLsizei length, const GLchar *label);             \
@@ -117,6 +117,7 @@
     void insertEventMarker(GLsizei length, const GLchar *marker);                                  \
     void popGroupMarker();                                                                         \
     void pushGroupMarker(GLsizei length, const GLchar *marker);                                    \
+    /* GL_EXT_depth_clamp */                                                                       \
     /* GL_EXT_discard_framebuffer */                                                               \
     void discardFramebuffer(GLenum target, GLsizei numAttachments, const GLenum *attachments);     \
     /* GL_EXT_disjoint_timer_query */                                                              \
@@ -185,11 +186,11 @@
     /* GL_EXT_multisampled_render_to_texture2 */                                                   \
     /* GL_EXT_occlusion_query_boolean */                                                           \
     /* GL_EXT_polygon_offset_clamp */                                                              \
-    void polygonOffsetClamp(GLfloat factor, GLfloat units, GLfloat clamp);                         \
     /* GL_EXT_primitive_bounding_box */                                                            \
     /* GL_EXT_protected_textures */                                                                \
     /* GL_EXT_pvrtc_sRGB */                                                                        \
     /* GL_EXT_read_format_bgra */                                                                  \
+    /* GL_EXT_render_snorm */                                                                      \
     /* GL_EXT_robustness */                                                                        \
     /* GL_EXT_sRGB */                                                                              \
     /* GL_EXT_sRGB_write_control */                                                                \
@@ -219,6 +220,8 @@
     /* GL_EXT_tessellation_shader */                                                               \
     /* GL_EXT_texture_border_clamp */                                                              \
     /* GL_EXT_texture_buffer */                                                                    \
+    /* GL_EXT_texture_compression_astc_decode_mode */                                              \
+    /* GL_EXT_texture_compression_astc_decode_mode_rgb9e5 */                                       \
     /* GL_EXT_texture_compression_bptc */                                                          \
     /* GL_EXT_texture_compression_dxt1 */                                                          \
     /* GL_EXT_texture_compression_rgtc */                                                          \
@@ -226,8 +229,10 @@
     /* GL_EXT_texture_compression_s3tc_srgb */                                                     \
     /* GL_EXT_texture_cube_map_array */                                                            \
     /* GL_EXT_texture_filter_anisotropic */                                                        \
+    /* GL_EXT_texture_filter_minmax */                                                             \
     /* GL_EXT_texture_format_BGRA8888 */                                                           \
     /* GL_EXT_texture_format_sRGB_override */                                                      \
+    /* GL_EXT_texture_mirror_clamp_to_edge */                                                      \
     /* GL_EXT_texture_norm16 */                                                                    \
     /* GL_EXT_texture_rg */                                                                        \
     /* GL_EXT_texture_sRGB_R8 */                                                                   \
@@ -266,6 +271,7 @@
                            GLint dstY0, GLint dstX1, GLint dstY1, GLbitfield mask, GLenum filter); \
     /* GL_NV_pack_subimage */                                                                      \
     /* GL_NV_pixel_buffer_object */                                                                \
+    /* GL_NV_polygon_mode */                                                                       \
     /* GL_NV_read_depth */                                                                         \
     /* GL_NV_read_depth_stencil */                                                                 \
     /* GL_NV_read_stencil */                                                                       \
@@ -333,8 +339,8 @@
     void framebufferTextureMultiview(GLenum target, GLenum attachment, TextureID texturePacked,    \
                                      GLint level, GLint baseViewIndex, GLsizei numViews);          \
     /* GL_OVR_multiview2 */                                                                        \
+    /* GL_QCOM_render_shared_exponent */                                                           \
     /* GL_QCOM_shading_rate */                                                                     \
-    void shadingRateQCOM(GLenum rate);                                                             \
     /* GL_WEBGL_video_texture */                                                                   \
                                                                                                    \
     /* ANGLE Extensions */                                                                         \
@@ -344,14 +350,14 @@
                                               GLsizei count, GLsizei instanceCount,                \
                                               GLuint baseInstance);                                \
     void drawElementsInstancedBaseVertexBaseInstanceANGLE(                                         \
-        PrimitiveMode modePacked, GLsizei count, DrawElementsType typePacked,                      \
-        const GLvoid *indices, GLsizei instanceCount, GLint baseVertex, GLuint baseInstance);      \
+        PrimitiveMode modePacked, GLsizei count, DrawElementsType typePacked, const void *indices, \
+        GLsizei instanceCount, GLint baseVertex, GLuint baseInstance);                             \
     void multiDrawArraysInstancedBaseInstance(                                                     \
         PrimitiveMode modePacked, const GLint *firsts, const GLsizei *counts,                      \
         const GLsizei *instanceCounts, const GLuint *baseInstances, GLsizei drawcount);            \
     void multiDrawElementsInstancedBaseVertexBaseInstance(                                         \
         PrimitiveMode modePacked, const GLsizei *counts, DrawElementsType typePacked,              \
-        const GLvoid *const *indices, const GLsizei *instanceCounts, const GLint *baseVertices,    \
+        const void *const *indices, const GLsizei *instanceCounts, const GLint *baseVertices,      \
         const GLuint *baseInstances, GLsizei drawcount);                                           \
     /* GL_ANGLE_base_vertex_base_instance_shader_builtin */                                        \
     /* GL_ANGLE_client_arrays */                                                                   \
@@ -376,7 +382,6 @@
     /* GL_ANGLE_get_serialized_context_string */                                                   \
     /* GL_ANGLE_get_tex_level_parameter */                                                         \
     /* GL_ANGLE_logic_op */                                                                        \
-    void logicOpANGLE(LogicalOperation opcodePacked);                                              \
     /* GL_ANGLE_lossy_etc_decode */                                                                \
     /* GL_ANGLE_memory_object_flags */                                                             \
     void texStorageMemFlags2D(TextureType targetPacked, GLsizei levels, GLenum internalFormat,     \
@@ -408,18 +413,19 @@
                                   const GLsizei *counts, const GLsizei *instanceCounts,            \
                                   GLsizei drawcount);                                              \
     void multiDrawElements(PrimitiveMode modePacked, const GLsizei *counts,                        \
-                           DrawElementsType typePacked, const GLvoid *const *indices,              \
+                           DrawElementsType typePacked, const void *const *indices,                \
                            GLsizei drawcount);                                                     \
     void multiDrawElementsInstanced(PrimitiveMode modePacked, const GLsizei *counts,               \
-                                    DrawElementsType typePacked, const GLvoid *const *indices,     \
+                                    DrawElementsType typePacked, const void *const *indices,       \
                                     const GLsizei *instanceCounts, GLsizei drawcount);             \
     /* GL_ANGLE_multiview_multisample */                                                           \
+    /* GL_ANGLE_polygon_mode */                                                                    \
     /* GL_ANGLE_program_binary */                                                                  \
     /* GL_ANGLE_program_cache_control */                                                           \
     /* GL_ANGLE_provoking_vertex */                                                                \
-    void provokingVertex(ProvokingVertexConvention provokeModePacked);                             \
     /* GL_ANGLE_read_only_depth_stencil_feedback_loops */                                          \
     /* GL_ANGLE_relaxed_vertex_attribute_type */                                                   \
+    /* GL_ANGLE_renderability_validation */                                                        \
     /* GL_ANGLE_request_extension */                                                               \
     void requestExtension(const GLchar *name);                                                     \
     void disableExtension(const GLchar *name);                                                     \
@@ -475,18 +481,18 @@
                              const void *pixels);                                                  \
     void compressedTexImage2DRobust(                                                               \
         TextureTarget targetPacked, GLint level, GLenum internalformat, GLsizei width,             \
-        GLsizei height, GLint border, GLsizei imageSize, GLsizei dataSize, const GLvoid *data);    \
+        GLsizei height, GLint border, GLsizei imageSize, GLsizei dataSize, const void *data);      \
     void compressedTexSubImage2DRobust(                                                            \
         TextureTarget targetPacked, GLint level, GLsizei xoffset, GLsizei yoffset, GLsizei width,  \
-        GLsizei height, GLenum format, GLsizei imageSize, GLsizei dataSize, const GLvoid *data);   \
+        GLsizei height, GLenum format, GLsizei imageSize, GLsizei dataSize, const void *data);     \
     void compressedTexImage3DRobust(TextureTarget targetPacked, GLint level,                       \
                                     GLenum internalformat, GLsizei width, GLsizei height,          \
                                     GLsizei depth, GLint border, GLsizei imageSize,                \
-                                    GLsizei dataSize, const GLvoid *data);                         \
+                                    GLsizei dataSize, const void *data);                           \
     void compressedTexSubImage3DRobust(TextureTarget targetPacked, GLint level, GLint xoffset,     \
                                        GLint yoffset, GLint zoffset, GLsizei width,                \
                                        GLsizei height, GLsizei depth, GLenum format,               \
-                                       GLsizei imageSize, GLsizei dataSize, const GLvoid *data);   \
+                                       GLsizei imageSize, GLsizei dataSize, const void *data);     \
     void getQueryivRobust(QueryType targetPacked, GLenum pname, GLsizei bufSize, GLsizei *length,  \
                           GLint *params);                                                          \
     void getQueryObjectuivRobust(QueryID idPacked, GLenum pname, GLsizei bufSize, GLsizei *length, \
@@ -581,9 +587,16 @@
     void beginPixelLocalStorage(GLsizei n, const GLenum *loadops);                                 \
     void endPixelLocalStorage(GLsizei n, const GLenum *storeops);                                  \
     void pixelLocalStorageBarrier();                                                               \
+    void framebufferPixelLocalStorageInterrupt();                                                  \
+    void framebufferPixelLocalStorageRestore();                                                    \
     void getFramebufferPixelLocalStorageParameterfv(GLint plane, GLenum pname, GLfloat *params);   \
     void getFramebufferPixelLocalStorageParameteriv(GLint plane, GLenum pname, GLint *params);     \
+    void getFramebufferPixelLocalStorageParameterfvRobust(                                         \
+        GLint plane, GLenum pname, GLsizei bufSize, GLsizei *length, GLfloat *params);             \
+    void getFramebufferPixelLocalStorageParameterivRobust(                                         \
+        GLint plane, GLenum pname, GLsizei bufSize, GLsizei *length, GLint *params);               \
     /* GL_ANGLE_shader_pixel_local_storage_coherent */                                             \
+    /* GL_ANGLE_stencil_texturing */                                                               \
     /* GL_ANGLE_texture_compression_dxt3 */                                                        \
     /* GL_ANGLE_texture_compression_dxt5 */                                                        \
     /* GL_ANGLE_texture_external_update */                                                         \
@@ -618,7 +631,6 @@
                         GLboolean unpackFlipY, GLboolean unpackPremultiplyAlpha,                   \
                         GLboolean unpackUnmultiplyAlpha);                                          \
     /* GL_CHROMIUM_framebuffer_mixed_samples */                                                    \
-    void coverageModulation(GLenum components);                                                    \
     /* GL_CHROMIUM_lose_context */                                                                 \
     void loseContext(GraphicsResetStatus currentPacked, GraphicsResetStatus otherPacked);          \
     /* GL_CHROMIUM_sync_query */                                                                   \

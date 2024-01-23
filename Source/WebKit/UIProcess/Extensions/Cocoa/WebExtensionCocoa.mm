@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2022 Apple Inc. All rights reserved.
+ * Copyright (C) 2022-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -32,9 +32,12 @@
 
 #if ENABLE(WK_WEB_EXTENSIONS)
 
+#import "APIData.h"
 #import "CocoaHelpers.h"
 #import "FoundationSPI.h"
+#import "Logging.h"
 #import "_WKWebExtensionInternal.h"
+#import "_WKWebExtensionLocalization.h"
 #import "_WKWebExtensionPermission.h"
 #import <CoreFoundation/CFBundle.h>
 #import <UniformTypeIdentifiers/UTCoreTypes.h>
@@ -76,6 +79,7 @@ static NSString * const browserActionManifestKey = @"browser_action";
 static NSString * const pageActionManifestKey = @"page_action";
 
 static NSString * const defaultIconManifestKey = @"default_icon";
+static NSString * const defaultLocaleManifestKey = @"default_locale";
 static NSString * const defaultTitleManifestKey = @"default_title";
 static NSString * const defaultPopupManifestKey = @"default_popup";
 
@@ -140,15 +144,19 @@ WebExtension::WebExtension(NSURL *resourceBaseURL, NSError **outError)
 }
 
 WebExtension::WebExtension(NSDictionary *manifest, NSDictionary *resources)
-    : m_manifest([manifest copy])
-    , m_resources([resources mutableCopy])
-    , m_parsedManifest(true)
+    : m_resources([resources mutableCopy] ?: [NSMutableDictionary dictionary])
 {
     ASSERT(manifest);
+    ASSERT([NSJSONSerialization isValidJSONObject:manifest]);
+
+    NSData *manifestData = [NSJSONSerialization dataWithJSONObject:manifest options:0 error:nullptr];
+    RELEASE_ASSERT(manifestData);
+
+    [m_resources setObject:manifestData forKey:@"manifest.json"];
 }
 
 WebExtension::WebExtension(NSDictionary *resources)
-    : m_resources([resources mutableCopy])
+    : m_resources([resources mutableCopy] ?: [NSMutableDictionary dictionary])
 {
 }
 
@@ -186,7 +194,14 @@ NSDictionary *WebExtension::manifest()
     if (!parseManifest(manifestData))
         return nil;
 
-    // FIXME: <https://webkit.org/b/246488> Handle manifest localization.
+    NSString *defaultLocale = [m_manifest objectForKey:defaultLocaleManifestKey];
+    m_defaultLocale = [NSLocale localeWithLocaleIdentifier:defaultLocale];
+
+    m_localization = [[_WKWebExtensionLocalization alloc] initWithWebExtension:*this];
+
+    m_manifest = [m_localization.get() localizedDictionaryForDictionary:m_manifest.get()];
+    ASSERT(m_manifest);
+
     // FIXME: Handle Safari version compatibility check.
     // Likely do this version checking when the extension is added to the WKWebExtensionController,
     // since that will need delegated to the app.
@@ -194,11 +209,21 @@ NSDictionary *WebExtension::manifest()
     return m_manifest.get();
 }
 
+Ref<API::Data> WebExtension::serializeManifest()
+{
+    return API::Data::createWithoutCopying([NSJSONSerialization dataWithJSONObject:manifest() options:0 error:nullptr]);
+}
+
 double WebExtension::manifestVersion()
 {
     // Documentation: https://developer.mozilla.org/docs/Mozilla/Add-ons/WebExtensions/manifest.json/manifest_version
 
     return objectForKey<NSNumber>(manifest(), manifestVersionManifestKey).doubleValue;
+}
+
+Ref<API::Data> WebExtension::serializeLocalization()
+{
+    return API::Data::createWithoutCopying([NSJSONSerialization dataWithJSONObject:m_localization.get().localizationDictionary options:0 error:nullptr]);
 }
 
 #if PLATFORM(MAC)
@@ -275,8 +300,10 @@ NSURL *WebExtension::resourceFileURLForPath(NSString *path)
     NSURL *resourceURL = [NSURL fileURLWithPath:path.stringByRemovingPercentEncoding isDirectory:NO relativeToURL:m_resourceBaseURL.get()].URLByStandardizingPath;
 
     // Don't allow escaping the base URL with "../".
-    if (![resourceURL.absoluteString hasPrefix:m_resourceBaseURL.get().absoluteString])
+    if (![resourceURL.absoluteString hasPrefix:m_resourceBaseURL.get().absoluteString]) {
+        RELEASE_LOG_ERROR(Extensions, "Resource URL path escape attempt: %{private}@", resourceURL);
         return nil;
+    }
 
     return resourceURL;
 }
@@ -324,6 +351,9 @@ NSData *WebExtension::resourceDataForPath(NSString *path, CacheResult cacheResul
 
     if (NSString *cachedString = objectForKey<NSString>(m_resources, path))
         return [cachedString dataUsingEncoding:NSUTF8StringEncoding];
+
+    if (NSDictionary *cachedDictionary = objectForKey<NSDictionary>(m_resources, path))
+        return [NSJSONSerialization dataWithJSONObject:cachedDictionary options:0 error:nullptr];
 
     if ([path isEqualToString:generatedBackgroundPageFilename])
         return [generatedBackgroundContent() dataUsingEncoding:NSUTF8StringEncoding];
@@ -422,13 +452,12 @@ NSError *WebExtension::createError(Error error, NSString *customLocalizedDescrip
         break;
 
     case Error::InvalidManifest:
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wformat-nonliteral"
+ALLOW_NONLITERAL_FORMAT_BEGIN
         if (NSString *debugDescription = underlyingError.userInfo[NSDebugDescriptionErrorKey])
             localizedDescription = [NSString stringWithFormat:WEB_UI_STRING("Unable to parse manifest: %@", "WKWebExtensionErrorInvalidManifest description, because of a JSON error"), debugDescription];
         else
             localizedDescription = WEB_UI_STRING("Unable to parse manifest because of an unexpected format.", "WKWebExtensionErrorInvalidManifest description");
-#pragma clang diagnostic pop
+ALLOW_NONLITERAL_FORMAT_END
         break;
 
     case Error::UnsupportedManifestVersion:
@@ -458,13 +487,12 @@ NSError *WebExtension::createError(Error error, NSString *customLocalizedDescrip
         break;
 
     case Error::InvalidDeclarativeNetRequest:
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wformat-nonliteral"
+ALLOW_NONLITERAL_FORMAT_BEGIN
         if (NSString *debugDescription = underlyingError.userInfo[NSDebugDescriptionErrorKey])
             localizedDescription = [NSString stringWithFormat:WEB_UI_STRING("Unable to parse `declarativeNetRequest` rules: %@", "WKWebExtensionErrorInvalidDeclarativeNetRequest description, because of a JSON error"), debugDescription];
         else
             localizedDescription = WEB_UI_STRING("Unable to parse `declarativeNetRequest` rules because of an unexpected error.", "WKWebExtensionErrorInvalidDeclarativeNetRequest description");
-#pragma clang diagnostic pop
+ALLOW_NONLITERAL_FORMAT_END
         break;
 
     case Error::InvalidDescription:
@@ -511,9 +539,11 @@ NSError *WebExtension::createError(Error error, NSString *customLocalizedDescrip
     if (customLocalizedDescription.length)
         localizedDescription = customLocalizedDescription;
 
-    NSDictionary *userInfo = @{ NSLocalizedDescriptionKey: localizedDescription };
+    NSDictionary *userInfo;
     if (underlyingError)
         userInfo = @{ NSLocalizedDescriptionKey: localizedDescription, NSUnderlyingErrorKey: underlyingError };
+    else
+        userInfo = @{ NSLocalizedDescriptionKey: localizedDescription };
 
     return [[NSError alloc] initWithDomain:_WKWebExtensionErrorDomain code:errorCode userInfo:userInfo];
 }
@@ -549,6 +579,8 @@ void WebExtension::recordError(NSError *error, SuppressNotification suppressNoti
     if (!m_errors)
         m_errors = [NSMutableArray array];
 
+    RELEASE_LOG_ERROR(Extensions, "Error recorded: %{private}@", error);
+
     [m_errors addObject:error];
 
     if (suppressNotification == SuppressNotification::Yes)
@@ -574,10 +606,25 @@ NSArray *WebExtension::errors()
 
 NSString *WebExtension::webProcessDisplayName()
 {
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wformat-nonliteral"
+ALLOW_NONLITERAL_FORMAT_BEGIN
     return [NSString stringWithFormat:WEB_UI_STRING("%@ Web Extension", "Extension's process name that appears in Activity Monitor where the parameter is the name of the extension"), displayShortName()];
-#pragma clang diagnostic pop
+ALLOW_NONLITERAL_FORMAT_END
+}
+
+_WKWebExtensionLocalization *WebExtension::localization()
+{
+    if (!manifestParsedSuccessfully())
+        return nil;
+
+    return m_localization.get();
+}
+
+NSLocale *WebExtension::defaultLocale()
+{
+    if (!manifestParsedSuccessfully())
+        return nil;
+
+    return m_defaultLocale.get();
 }
 
 NSString *WebExtension::displayName()
@@ -799,7 +846,7 @@ NSString *WebExtension::pathForBestImageInIconsDictionary(NSDictionary *iconsDic
     if (NSString *resultPath = iconsDictionary[idealSizeString])
         return resultPath;
 
-#if PLATFORM(IOS)
+#if PLATFORM(IOS) || PLATFORM(VISION)
     // Check if the ideal 3x retina size exists. This will usually be called on 2x iOS devices when a 3x image might exist.
     // Since the ideal size is likly already 2x, multiply by 1.5x to get the 3x pixel size.
     idealSizeString = @(idealPixelSize * 1.5).stringValue;
@@ -837,7 +884,7 @@ CocoaImage *WebExtension::bestImageInIconsDictionary(NSDictionary *iconsDictiona
         return nil;
 
     NSUInteger standardPixelSize = idealPointSize;
-#if PLATFORM(IOS)
+#if PLATFORM(IOS) || PLATFORM(VISION)
     standardPixelSize *= UIScreen.mainScreen.scale;
 #endif
 
@@ -1021,7 +1068,7 @@ void WebExtension::populateBackgroundPropertiesIfNeeded()
     if (!m_backgroundContentIsPersistent && hasRequestedPermission(_WKWebExtensionPermissionWebRequest))
         recordError(createError(Error::InvalidBackgroundPersistence, WEB_UI_STRING("Non-persistent background content cannot listen to `webRequest` events.", "WKWebExtensionErrorInvalidBackgroundPersistence description for webRequest events")));
 
-#if PLATFORM(IOS)
+#if PLATFORM(IOS) || PLATFORM(VISION)
     if (m_backgroundContentIsPersistent)
         recordError(createError(Error::InvalidBackgroundPersistence, WEB_UI_STRING("Invalid `persistent` manifest entry. A non-persistent background is required on iOS and iPadOS.", "WKWebExtensionErrorInvalidBackgroundPersistence description for iOS")));
 #endif

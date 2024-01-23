@@ -55,43 +55,42 @@ RefPtr<RemoteImageDecoderAVF> RemoteImageDecoderAVFManager::createImageDecoder(F
 void RemoteImageDecoderAVFManager::deleteRemoteImageDecoder(const ImageDecoderIdentifier& identifier)
 {
     m_remoteImageDecoders.take(identifier);
-    if (m_gpuProcessConnection)
-        m_gpuProcessConnection->connection().send(Messages::RemoteImageDecoderAVFProxy::DeleteDecoder(identifier), 0);
+    if (auto gpuProcessConnection = m_gpuProcessConnection.get())
+        gpuProcessConnection->connection().send(Messages::RemoteImageDecoderAVFProxy::DeleteDecoder(identifier), 0);
 }
 
-RemoteImageDecoderAVFManager::RemoteImageDecoderAVFManager(WebProcess& process)
-    : m_process(process)
+Ref<RemoteImageDecoderAVFManager> RemoteImageDecoderAVFManager::create()
 {
+    return adoptRef(*new RemoteImageDecoderAVFManager);
 }
+
+RemoteImageDecoderAVFManager::RemoteImageDecoderAVFManager() = default;
 
 RemoteImageDecoderAVFManager::~RemoteImageDecoderAVFManager()
 {
-    if (m_gpuProcessConnection)
-        m_gpuProcessConnection->messageReceiverMap().removeMessageReceiver(Messages::RemoteImageDecoderAVFManager::messageReceiverName());
+    if (auto gpuProcessConnection = m_gpuProcessConnection.get())
+        gpuProcessConnection->messageReceiverMap().removeMessageReceiver(Messages::RemoteImageDecoderAVFManager::messageReceiverName());
 }
 
 void RemoteImageDecoderAVFManager::gpuProcessConnectionDidClose(GPUProcessConnection& connection)
 {
-    ASSERT(m_gpuProcessConnection == &connection);
-    connection.removeClient(*this);
-    m_gpuProcessConnection->messageReceiverMap().removeMessageReceiver(Messages::RemoteImageDecoderAVFManager::messageReceiverName());
+    ASSERT(m_gpuProcessConnection.get() == &connection);
+    if (auto gpuProcessConnection = m_gpuProcessConnection.get())
+        gpuProcessConnection->messageReceiverMap().removeMessageReceiver(Messages::RemoteImageDecoderAVFManager::messageReceiverName());
     m_gpuProcessConnection = nullptr;
     // FIXME: Do we need to do more when m_remoteImageDecoders is not empty to re-create them?
 }
 
-const char*  RemoteImageDecoderAVFManager::supplementName()
-{
-    return "RemoteImageDecoderAVFManager";
-}
-
 GPUProcessConnection& RemoteImageDecoderAVFManager::ensureGPUProcessConnection()
 {
-    if (!m_gpuProcessConnection) {
-        m_gpuProcessConnection = m_process.ensureGPUProcessConnection();
-        m_gpuProcessConnection->addClient(*this);
-        m_gpuProcessConnection->messageReceiverMap().addMessageReceiver(Messages::RemoteImageDecoderAVFManager::messageReceiverName(), *this);
+    auto gpuProcessConnection = m_gpuProcessConnection.get();
+    if (!gpuProcessConnection) {
+        gpuProcessConnection = &WebProcess::singleton().ensureGPUProcessConnection();
+        m_gpuProcessConnection = gpuProcessConnection;
+        gpuProcessConnection->addClient(*this);
+        gpuProcessConnection->messageReceiverMap().addMessageReceiver(Messages::RemoteImageDecoderAVFManager::messageReceiverName(), *this);
     }
-    return *m_gpuProcessConnection;
+    return *gpuProcessConnection;
 }
 
 void RemoteImageDecoderAVFManager::setUseGPUProcess(bool useGPUProcess)

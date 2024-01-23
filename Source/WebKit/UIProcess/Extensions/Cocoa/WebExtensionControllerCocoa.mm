@@ -33,9 +33,11 @@
 #if ENABLE(WK_WEB_EXTENSIONS)
 
 #import "CocoaHelpers.h"
+#import "Logging.h"
 #import "SandboxUtilities.h"
 #import "WebExtensionContext.h"
 #import "WebExtensionContextMessages.h"
+#import "WebExtensionContextParameters.h"
 #import "WebExtensionContextProxyMessages.h"
 #import "WebExtensionControllerMessages.h"
 #import "WebExtensionControllerProxyMessages.h"
@@ -63,12 +65,14 @@ bool WebExtensionController::load(WebExtensionContext& extensionContext, NSError
         *outError = nil;
 
     if (!m_extensionContexts.add(extensionContext)) {
+        RELEASE_LOG_ERROR(Extensions, "Extension context already loaded");
         if (outError)
             *outError = extensionContext.createError(WebExtensionContext::Error::AlreadyLoaded);
         return false;
     }
 
     if (!m_extensionContextBaseURLMap.add(extensionContext.baseURL(), extensionContext)) {
+        RELEASE_LOG_ERROR(Extensions, "Extension context already loaded with same base URL: %{private}@", (NSURL *)extensionContext.baseURL());
         m_extensionContexts.remove(extensionContext);
         if (outError)
             *outError = extensionContext.createError(WebExtensionContext::Error::BaseURLAlreadyInUse);
@@ -90,7 +94,7 @@ bool WebExtensionController::load(WebExtensionContext& extensionContext, NSError
 
     auto extensionDirectory = storageDirectory(extensionContext);
     if (!!extensionDirectory && !FileSystem::makeAllDirectories(extensionDirectory))
-        RELEASE_LOG(Extensions, "Failed to create directory %{public}s", extensionDirectory.utf8().data());
+        RELEASE_LOG_ERROR(Extensions, "Failed to create directory: %{private}@", (NSString *)extensionDirectory);
 
     if (!extensionContext.load(*this, extensionDirectory, outError)) {
         m_extensionContexts.remove(extensionContext);
@@ -115,6 +119,7 @@ bool WebExtensionController::unload(WebExtensionContext& extensionContext, NSErr
     Ref protectedExtensionContext = extensionContext;
 
     if (!m_extensionContexts.remove(extensionContext)) {
+        RELEASE_LOG_ERROR(Extensions, "Extension context not loaded");
         if (outError)
             *outError = extensionContext.createError(WebExtensionContext::Error::NotLoaded);
         return false;
@@ -149,8 +154,10 @@ void WebExtensionController::addPage(WebPageProxy& page)
     for (auto& entry : m_registeredSchemeHandlers)
         page.setURLSchemeHandlerForScheme(entry.value.copyRef(), entry.key);
 
-    addProcessPool(page.process().processPool());
-    addUserContentController(page.userContentController());
+    Ref pool = page.process().processPool();
+    addProcessPool(pool);
+    Ref controller = page.userContentController();
+    addUserContentController(controller);
 }
 
 void WebExtensionController::removePage(WebPageProxy& page)
@@ -158,8 +165,10 @@ void WebExtensionController::removePage(WebPageProxy& page)
     ASSERT(m_pages.contains(page));
     m_pages.remove(page);
 
-    removeProcessPool(page.process().processPool());
-    removeUserContentController(page.userContentController());
+    Ref pool = page.process().processPool();
+    removeProcessPool(pool);
+    Ref controller = page.userContentController();
+    removeUserContentController(controller);
 }
 
 void WebExtensionController::addProcessPool(WebProcessPool& processPool)
@@ -236,65 +245,70 @@ WebExtensionController::WebExtensionSet WebExtensionController::extensions() con
     return extensions;
 }
 
-// MARK: WebNavigation support
+// MARK: Web Navigation
 
 void WebExtensionController::didStartProvisionalLoadForFrame(WebPageProxyIdentifier pageID, WebCore::FrameIdentifier frameID, URL targetURL)
 {
-    auto listenerTypes = WebExtensionContext::EventListenerTypeSet { WebExtensionEventListenerType::WebNavigationOnBeforeNavigate };
+    auto eventType = WebExtensionEventListenerType::WebNavigationOnBeforeNavigate;
+    auto listenerTypes = WebExtensionContext::EventListenerTypeSet { eventType };
 
     for (auto& context : m_extensionContexts) {
         // FIXME: We need to turn pageID into a _WKWebExtensionTab and pass that here.
         if (!context->hasPermission(targetURL))
             continue;
 
-        context->fireEvents(listenerTypes, [context, pageID, frameID, targetURL] {
-            context->sendToProcessesForEvent(WebExtensionEventListenerType::WebNavigationOnBeforeNavigate, Messages::WebExtensionContextProxy::DispatchWebNavigationOnBeforeNavigateEvent(pageID, frameID, targetURL));
+        context->wakeUpBackgroundContentIfNecessaryToFireEvents(listenerTypes, [&] {
+            context->sendToProcessesForEvent(eventType, Messages::WebExtensionContextProxy::DispatchWebNavigationEvent(eventType, pageID, frameID, targetURL));
         });
     }
 }
 
 void WebExtensionController::didCommitLoadForFrame(WebPageProxyIdentifier pageID, WebCore::FrameIdentifier frameID, URL frameURL)
 {
-    auto listenerTypes = WebExtensionContext::EventListenerTypeSet { WebExtensionEventListenerType::WebNavigationOnCommitted, WebExtensionEventListenerType::WebNavigationOnDOMContentLoaded };
+    auto completedEventType = WebExtensionEventListenerType::WebNavigationOnCompleted;
+    auto contentLoadedtype = WebExtensionEventListenerType::WebNavigationOnDOMContentLoaded;
+    auto listenerTypes = WebExtensionContext::EventListenerTypeSet { completedEventType, contentLoadedtype };
 
     for (auto& context : m_extensionContexts) {
         // FIXME: We need to turn pageID into a _WKWebExtensionTab and pass that here.
         if (!context->hasPermission(frameURL))
             continue;
 
-        context->fireEvents(listenerTypes, [context, pageID, frameID, frameURL] {
-            context->sendToProcessesForEvent(WebExtensionEventListenerType::WebNavigationOnCommitted, Messages::WebExtensionContextProxy::DispatchWebNavigationOnCommittedEvent(pageID, frameID, frameURL));
-            context->sendToProcessesForEvent(WebExtensionEventListenerType::WebNavigationOnDOMContentLoaded, Messages::WebExtensionContextProxy::DispatchWebNavigationOnDOMContentLoadedEvent(pageID, frameID, frameURL));
+        context->wakeUpBackgroundContentIfNecessaryToFireEvents(listenerTypes, [&] {
+            context->sendToProcessesForEvent(completedEventType, Messages::WebExtensionContextProxy::DispatchWebNavigationEvent(completedEventType, pageID, frameID, frameURL));
+            context->sendToProcessesForEvent(contentLoadedtype, Messages::WebExtensionContextProxy::DispatchWebNavigationEvent(contentLoadedtype, pageID, frameID, frameURL));
         });
     }
 }
 
 void WebExtensionController::didFinishLoadForFrame(WebPageProxyIdentifier pageID, WebCore::FrameIdentifier frameID, URL frameURL)
 {
-    auto listenerTypes = WebExtensionContext::EventListenerTypeSet { WebExtensionEventListenerType::WebNavigationOnCompleted };
+    auto eventType = WebExtensionEventListenerType::WebNavigationOnCompleted;
+    auto listenerTypes = WebExtensionContext::EventListenerTypeSet { eventType };
 
     for (auto& context : m_extensionContexts) {
         // FIXME: We need to turn pageID into a _WKWebExtensionTab and pass that here.
         if (!context->hasPermission(frameURL))
             continue;
 
-        context->fireEvents(listenerTypes, [context, pageID, frameID, frameURL] {
-            context->sendToProcessesForEvent(WebExtensionEventListenerType::WebNavigationOnCompleted, Messages::WebExtensionContextProxy::DispatchWebNavigationOnCompletedEvent(pageID, frameID, frameURL));
+        context->wakeUpBackgroundContentIfNecessaryToFireEvents(listenerTypes, [&] {
+            context->sendToProcessesForEvent(eventType, Messages::WebExtensionContextProxy::DispatchWebNavigationEvent(eventType, pageID, frameID, frameURL));
         });
     }
 }
 
 void WebExtensionController::didFailLoadForFrame(WebPageProxyIdentifier pageID, WebCore::FrameIdentifier frameID, URL frameURL)
 {
-    auto listenerTypes = WebExtensionContext::EventListenerTypeSet { WebExtensionEventListenerType::WebNavigationOnErrorOccurred };
+    auto eventType = WebExtensionEventListenerType::WebNavigationOnErrorOccurred;
+    auto listenerTypes = WebExtensionContext::EventListenerTypeSet { eventType };
 
     for (auto& context : m_extensionContexts) {
         // FIXME: We need to turn pageID into a _WKWebExtensionTab and pass that here.
         if (!context->hasPermission(frameURL))
             continue;
 
-        context->fireEvents(listenerTypes, [context, pageID, frameID, frameURL] {
-            context->sendToProcessesForEvent(WebExtensionEventListenerType::WebNavigationOnErrorOccurred, Messages::WebExtensionContextProxy::DispatchWebNavigationOnErrorOccurredEvent(pageID, frameID, frameURL));
+        context->wakeUpBackgroundContentIfNecessaryToFireEvents(listenerTypes, [&] {
+            context->sendToProcessesForEvent(eventType, Messages::WebExtensionContextProxy::DispatchWebNavigationEvent(eventType, pageID, frameID, frameURL));
         });
     }
 }

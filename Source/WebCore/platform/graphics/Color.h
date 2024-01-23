@@ -127,7 +127,8 @@ public:
 
     Color semanticColor() const;
 
-    // Returns the underlying color if its type is SRGBA<uint8_t>.
+    // Returns the underlying color if its type is inline.
+    std::optional<PackedColor::RGBA> tryGetAsPackedInline() const;
     std::optional<SRGBA<uint8_t>> tryGetAsSRGBABytes() const;
 
 #if PLATFORM(GTK)
@@ -182,9 +183,9 @@ private:
 
     class OutOfLineComponents : public ThreadSafeRefCounted<OutOfLineComponents> {
     public:
-        static Ref<OutOfLineComponents> create(ColorComponents<float, 4> components)
+        static Ref<OutOfLineComponents> create(ColorComponents<float, 4>&& components)
         {
-            return adoptRef(*new OutOfLineComponents(components));
+            return adoptRef(*new OutOfLineComponents(WTFMove(components)));
         }
 
         float unresolvedAlpha() const { return m_components[3]; }
@@ -193,8 +194,8 @@ private:
         ColorComponents<float, 4> resolvedComponents() const { return resolveColorComponents(m_components); }
 
     private:
-        OutOfLineComponents(ColorComponents<float, 4> components)
-            : m_components(components)
+        OutOfLineComponents(ColorComponents<float, 4>&& components)
+            : m_components(WTFMove(components))
         {
         }
 
@@ -266,7 +267,6 @@ inline void add(Hasher& hasher, const Color& color)
 }
 
 bool operator==(const Color&, const Color&);
-bool operator!=(const Color&, const Color&);
 
 // One or both must be out of line colors.
 bool outOfLineComponentsEqual(const Color&, const Color&);
@@ -285,11 +285,6 @@ inline bool operator==(const Color& a, const Color& b)
     if (a.isOutOfLine() || b.isOutOfLine())
         return outOfLineComponentsEqual(a, b);
     return a.m_colorAndFlags == b.m_colorAndFlags;
-}
-
-inline bool operator!=(const Color& a, const Color& b)
-{
-    return !(a == b);
 }
 
 inline bool outOfLineComponentsEqual(const Color& a, const Color& b)
@@ -464,6 +459,13 @@ inline PackedColor::RGBA Color::asPackedInline() const
 {
     ASSERT(isInline());
     return decodedPackedInlineColor(m_colorAndFlags);
+}
+
+inline std::optional<PackedColor::RGBA> Color::tryGetAsPackedInline() const
+{
+    if (isInline())
+        return asPackedInline();
+    return std::nullopt;
 }
 
 inline std::optional<SRGBA<uint8_t>> Color::tryGetAsSRGBABytes() const

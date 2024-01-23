@@ -33,10 +33,14 @@
 #import "RemoteScrollingCoordinatorProxy.h"
 #import "ScrollingTreeFrameScrollingNodeRemoteMac.h"
 #import "ScrollingTreeOverflowScrollingNodeRemoteMac.h"
+#import <WebCore/FrameView.h>
+#import <WebCore/LocalFrameView.h>
+#import <WebCore/ScrollingThread.h>
 #import <WebCore/ScrollingTreeFixedNodeCocoa.h>
 #import <WebCore/ScrollingTreeOverflowScrollProxyNode.h>
 #import <WebCore/ScrollingTreePositionedNode.h>
 #import <WebCore/WebCoreCALayerExtras.h>
+#import <pal/spi/cocoa/QuartzCoreSPI.h>
 #import <wtf/text/TextStream.h>
 
 namespace WebKit {
@@ -50,24 +54,63 @@ Ref<RemoteScrollingTree> RemoteScrollingTree::create(RemoteScrollingCoordinatorP
 RemoteScrollingTreeMac::RemoteScrollingTreeMac(RemoteScrollingCoordinatorProxy& scrollingCoordinator)
     : RemoteScrollingTree(scrollingCoordinator)
 {
+    ASSERT(isMainRunLoop());
+    ScrollingThread::dispatch([protectedThis = Ref { *this }]() {
+        if ([CATransaction respondsToSelector:@selector(setDisableImplicitTransactionMainThreadAssert:)])
+            [CATransaction setDisableImplicitTransactionMainThreadAssert:YES];
+    });
 }
 
 RemoteScrollingTreeMac::~RemoteScrollingTreeMac() = default;
 
-void RemoteScrollingTreeMac::handleWheelEventPhase(ScrollingNodeID, PlatformWheelEventPhase)
+void RemoteScrollingTreeMac::handleWheelEventPhase(ScrollingNodeID nodeID, PlatformWheelEventPhase phase)
 {
-    // FIXME: Is this needed?
-}
-
-void RemoteScrollingTreeMac::hasNodeWithAnimatedScrollChanged(bool hasNodeWithAnimatedScroll)
-{
-    m_scrollingCoordinatorProxy.hasNodeWithAnimatedScrollChanged(hasNodeWithAnimatedScroll);
+    auto* targetNode = nodeForID(nodeID);
+    if (auto* node = dynamicDowncast<ScrollingTreeScrollingNode>(targetNode))
+        node->handleWheelEventPhase(phase);
 }
 
 void RemoteScrollingTreeMac::displayDidRefresh(PlatformDisplayID)
 {
+    ASSERT(ScrollingThread::isCurrentThread());
+
     Locker locker { m_treeLock };
     serviceScrollAnimations(MonotonicTime::now()); // FIXME: Share timestamp with the rest of the update.
+}
+
+void RemoteScrollingTreeMac::scrollingTreeNodeWillStartScroll(ScrollingNodeID nodeID)
+{
+    RunLoop::main().dispatch([protectedThis = Ref { *this }, this, nodeID] {
+        RemoteScrollingTree::scrollingTreeNodeWillStartScroll(nodeID);
+    });
+}
+
+void RemoteScrollingTreeMac::scrollingTreeNodeDidEndScroll(ScrollingNodeID nodeID)
+{
+    RunLoop::main().dispatch([protectedThis = Ref { *this }, this, nodeID] {
+        RemoteScrollingTree::scrollingTreeNodeDidEndScroll(nodeID);
+    });
+}
+
+void RemoteScrollingTreeMac::clearNodesWithUserScrollInProgress()
+{
+    RunLoop::main().dispatch([protectedThis = Ref { *this }, this] {
+        RemoteScrollingTree::clearNodesWithUserScrollInProgress();
+    });
+}
+
+void RemoteScrollingTreeMac::scrollingTreeNodeDidBeginScrollSnapping(ScrollingNodeID nodeID)
+{
+    RunLoop::main().dispatch([protectedThis = Ref { *this }, this, nodeID] {
+        RemoteScrollingTree::scrollingTreeNodeDidBeginScrollSnapping(nodeID);
+    });
+}
+
+void RemoteScrollingTreeMac::scrollingTreeNodeDidEndScrollSnapping(ScrollingNodeID nodeID)
+{
+    RunLoop::main().dispatch([protectedThis = Ref { *this }, this, nodeID] {
+        RemoteScrollingTree::scrollingTreeNodeDidEndScrollSnapping(nodeID);
+    });
 }
 
 Ref<ScrollingTreeNode> RemoteScrollingTreeMac::createScrollingTreeNode(ScrollingNodeType nodeType, ScrollingNodeID nodeID)
@@ -91,11 +134,267 @@ Ref<ScrollingTreeNode> RemoteScrollingTreeMac::createScrollingTreeNode(Scrolling
     return ScrollingTreeFixedNodeCocoa::create(*this, nodeID);
 }
 
-void RemoteScrollingTreeMac::handleMouseEvent(const WebCore::PlatformMouseEvent& event)
+void RemoteScrollingTreeMac::didCommitTree()
 {
-    if (!rootNode())
+    ASSERT(isMainRunLoop());
+
+    if (m_nodesWithPendingScrollAnimations.isEmpty() && m_nodesWithPendingKeyboardScrollAnimations.isEmpty())
         return;
-    static_cast<ScrollingTreeFrameScrollingNodeRemoteMac&>(*rootNode()).handleMouseEvent(event);
+
+    ScrollingThread::dispatch([protectedThis = Ref { *this }]() {
+        Locker treeLocker { protectedThis->m_treeLock };
+        protectedThis->startPendingScrollAnimations();
+    });
+}
+
+void RemoteScrollingTreeMac::startPendingScrollAnimations()
+{
+    ASSERT(ScrollingThread::isCurrentThread());
+    ASSERT(m_treeLock.isLocked());
+
+    auto nodesWithPendingScrollAnimations = std::exchange(m_nodesWithPendingScrollAnimations, { });
+
+    LOG_WITH_STREAM(Scrolling, stream << "RemoteScrollingTreeMac::startPendingScrollAnimations() - " << nodesWithPendingScrollAnimations.size() << " nodes with pending animations");
+
+    for (auto& [nodeID, data] : nodesWithPendingScrollAnimations) {
+        RefPtr targetNode = dynamicDowncast<ScrollingTreeScrollingNode>(nodeForID(nodeID));
+        if (!targetNode)
+            continue;
+
+        if (auto previousData = std::exchange(data.requestedDataBeforeAnimatedScroll, std::nullopt)) {
+            auto& [type, positionOrDeltaBeforeAnimatedScroll, scrollType, clamping] = *previousData;
+            targetNode->scrollTo(type == ScrollRequestType::DeltaUpdate ? (targetNode->currentScrollPosition() + std::get<FloatSize>(positionOrDeltaBeforeAnimatedScroll)) : std::get<FloatPoint>(positionOrDeltaBeforeAnimatedScroll), scrollType, clamping);
+        }
+
+        targetNode->startAnimatedScrollToPosition(data.destinationPosition(targetNode->currentScrollPosition()));
+    }
+
+    auto nodesWithPendingKeyboardScrollAnimations = std::exchange(m_nodesWithPendingKeyboardScrollAnimations, { });
+    for (const auto& [key, value] : nodesWithPendingKeyboardScrollAnimations) {
+        RefPtr targetNode = nodeForID(key);
+        if (!is<ScrollingTreeScrollingNode>(targetNode))
+            continue;
+
+        downcast<ScrollingTreeScrollingNode>(*targetNode).handleKeyboardScrollRequest(value);
+    }
+}
+
+void RemoteScrollingTreeMac::hasNodeWithAnimatedScrollChanged(bool hasNodeWithAnimatedScroll)
+{
+    ASSERT(ScrollingThread::isCurrentThread());
+
+    RunLoop::main().dispatch([strongThis = Ref { *this }, hasNodeWithAnimatedScroll] {
+        if (auto* scrollingCoordinatorProxy = strongThis->scrollingCoordinatorProxy())
+            scrollingCoordinatorProxy->hasNodeWithAnimatedScrollChanged(hasNodeWithAnimatedScroll);
+    });
+}
+
+void RemoteScrollingTreeMac::setRubberBandingInProgressForNode(ScrollingNodeID nodeID, bool isRubberBanding)
+{
+    ScrollingTree::setRubberBandingInProgressForNode(nodeID, isRubberBanding);
+
+    RunLoop::main().dispatch([strongThis = Ref { *this }, nodeID, isRubberBanding] {
+        if (auto* scrollingCoordinatorProxy = strongThis->scrollingCoordinatorProxy())
+            scrollingCoordinatorProxy->setRubberBandingInProgressForNode(nodeID, isRubberBanding);
+    });
+}
+
+void RemoteScrollingTreeMac::scrollingTreeNodeDidScroll(ScrollingTreeScrollingNode& node, ScrollingLayerPositionAction action)
+{
+    ScrollingTree::scrollingTreeNodeDidScroll(node, action);
+
+    std::optional<FloatPoint> layoutViewportOrigin;
+    if (is<ScrollingTreeFrameScrollingNode>(node))
+        layoutViewportOrigin = downcast<ScrollingTreeFrameScrollingNode>(node).layoutViewport().location();
+
+    auto nodeID = node.scrollingNodeID();
+    auto scrollPosition = node.currentScrollPosition();
+
+    // Happens when the this is called as a result of the scrolling tree commmit.
+    if (RunLoop::isMain()) {
+        if (auto* scrollingCoordinatorProxy = this->scrollingCoordinatorProxy())
+            scrollingCoordinatorProxy->scrollingTreeNodeDidScroll(nodeID, scrollPosition, layoutViewportOrigin, action);
+        return;
+    }
+
+    RunLoop::main().dispatch([strongThis = Ref { *this }, nodeID, scrollPosition, layoutViewportOrigin, action] {
+        if (auto* scrollingCoordinatorProxy = strongThis->scrollingCoordinatorProxy())
+            scrollingCoordinatorProxy->scrollingTreeNodeDidScroll(nodeID, scrollPosition, layoutViewportOrigin, action);
+    });
+}
+
+void RemoteScrollingTreeMac::scrollingTreeNodeDidStopAnimatedScroll(ScrollingTreeScrollingNode& node)
+{
+    // Happens when the this is called as a result of the scrolling tree commmit.
+    if (RunLoop::isMain()) {
+        if (auto* scrollingCoordinatorProxy = this->scrollingCoordinatorProxy())
+            scrollingCoordinatorProxy->scrollingTreeNodeDidStopAnimatedScroll(node.scrollingNodeID());
+        return;
+    }
+
+    ASSERT(ScrollingThread::isCurrentThread());
+
+    RunLoop::main().dispatch([strongThis = Ref { *this }, nodeID = node.scrollingNodeID()] {
+        if (auto* scrollingCoordinatorProxy = strongThis->scrollingCoordinatorProxy())
+            scrollingCoordinatorProxy->scrollingTreeNodeDidStopAnimatedScroll(nodeID);
+    });
+}
+
+bool RemoteScrollingTreeMac::scrollingTreeNodeRequestsScroll(ScrollingNodeID nodeID, const RequestedScrollData& request)
+{
+    if (request.animated == ScrollIsAnimated::Yes) {
+        ASSERT(m_treeLock.isLocked());
+        m_nodesWithPendingScrollAnimations.set(nodeID, request);
+        return true;
+    }
+    return false;
+}
+
+bool RemoteScrollingTreeMac::scrollingTreeNodeRequestsKeyboardScroll(ScrollingNodeID nodeID, const RequestedKeyboardScrollData& request)
+{
+    ASSERT(m_treeLock.isLocked());
+    m_nodesWithPendingKeyboardScrollAnimations.set(nodeID, request);
+    return true;
+}
+
+void RemoteScrollingTreeMac::currentSnapPointIndicesDidChange(ScrollingNodeID nodeID, std::optional<unsigned> horizontal, std::optional<unsigned> vertical)
+{
+    RunLoop::main().dispatch([strongThis = Ref { *this }, nodeID, horizontal, vertical] {
+        if (auto* scrollingCoordinatorProxy = strongThis->scrollingCoordinatorProxy())
+            scrollingCoordinatorProxy->currentSnapPointIndicesDidChange(nodeID, horizontal, vertical);
+    });
+}
+
+void RemoteScrollingTreeMac::reportExposedUnfilledArea(MonotonicTime time, unsigned unfilledArea)
+{
+    RunLoop::main().dispatch([strongThis = Ref { *this }, time, unfilledArea] {
+        if (auto* scrollingCoordinatorProxy = strongThis->scrollingCoordinatorProxy())
+            scrollingCoordinatorProxy->reportExposedUnfilledArea(time, unfilledArea);
+    });
+}
+
+void RemoteScrollingTreeMac::reportSynchronousScrollingReasonsChanged(MonotonicTime timestamp, OptionSet<SynchronousScrollingReason> reasons)
+{
+    RunLoop::main().dispatch([strongThis = Ref { *this }, timestamp, reasons] {
+        if (auto* scrollingCoordinatorProxy = strongThis->scrollingCoordinatorProxy())
+            scrollingCoordinatorProxy->reportSynchronousScrollingReasonsChanged(timestamp, reasons);
+    });
+}
+
+void RemoteScrollingTreeMac::receivedWheelEventWithPhases(PlatformWheelEventPhase phase, PlatformWheelEventPhase momentumPhase)
+{
+    RunLoop::main().dispatch([strongThis = Ref { *this }, phase, momentumPhase] {
+        if (auto* scrollingCoordinatorProxy = strongThis->scrollingCoordinatorProxy())
+            scrollingCoordinatorProxy->receivedWheelEventWithPhases(phase, momentumPhase);
+    });
+}
+
+void RemoteScrollingTreeMac::willSendEventForDefaultHandling(const PlatformWheelEvent&)
+{
+    ASSERT(ScrollingThread::isCurrentThread());
+
+    Locker locker { m_treeLock };
+    m_receivedBeganEventFromMainThread = false;
+}
+
+void RemoteScrollingTreeMac::waitForEventDefaultHandlingCompletion(const PlatformWheelEvent& wheelEvent)
+{
+    ASSERT(ScrollingThread::isCurrentThread());
+
+    if (!wheelEvent.isGestureStart())
+        return;
+
+    Locker locker { m_treeLock };
+
+    static constexpr auto maxAllowableEventProcessingDelay = 50_ms;
+    auto startTime = MonotonicTime::now();
+    auto timeoutTime = startTime + maxAllowableEventProcessingDelay;
+
+    bool receivedEvent = m_waitingForBeganEventCondition.waitUntil(m_treeLock, timeoutTime, [&] {
+        assertIsHeld(m_treeLock);
+        return m_receivedBeganEventFromMainThread;
+    });
+    if (!receivedEvent) {
+        // Timed out, go asynchronous.
+        setGestureState(WheelScrollGestureState::NonBlocking);
+    }
+
+    LOG_WITH_STREAM(Scrolling, stream << "RemoteScrollingTreeMac::waitForEventDefaultHandlingCompletion took " << (MonotonicTime::now() - startTime).milliseconds() << "ms - timed out " << !receivedEvent << " gesture state is " << gestureState());
+}
+
+void RemoteScrollingTreeMac::receivedEventAfterDefaultHandling(const WebCore::PlatformWheelEvent& wheelEvent, std::optional<WheelScrollGestureState> gestureState)
+{
+    LOG_WITH_STREAM(Scrolling, stream << "RemoteScrollingTreeMac::receivedEventAfterDefaultHandling - " << wheelEvent << " gestureState " << gestureState);
+
+    ASSERT(isMainRunLoop());
+
+    if (!wheelEvent.isGestureStart())
+        return;
+
+    Locker locker { m_treeLock };
+
+    if (m_receivedBeganEventFromMainThread)
+        return;
+
+    setGestureState(gestureState);
+
+    m_receivedBeganEventFromMainThread = true;
+    m_waitingForBeganEventCondition.notifyOne();
+}
+
+WheelEventHandlingResult RemoteScrollingTreeMac::handleWheelEventAfterDefaultHandling(const PlatformWheelEvent& wheelEvent, ScrollingNodeID targetNodeID, std::optional<WheelScrollGestureState> gestureState)
+{
+    LOG_WITH_STREAM(Scrolling, stream << "RemoteScrollingTreeMac::handleWheelEventAfterDefaultHandling - targetNodeID " << targetNodeID << " gestureState " << gestureState);
+
+    ASSERT(ScrollingThread::isCurrentThread());
+
+    if (!targetNodeID)
+        return WheelEventHandlingResult::unhandled();
+    
+    Locker locker { m_treeLock };
+
+    bool allowLatching = false;
+    OptionSet<WheelEventProcessingSteps> processingSteps;
+    if (gestureState.value_or(WheelScrollGestureState::Blocking) == WheelScrollGestureState::NonBlocking) {
+        allowLatching = true;
+        processingSteps = { WheelEventProcessingSteps::AsyncScrolling, WheelEventProcessingSteps::NonBlockingDOMEventDispatch };
+    }
+
+    SetForScope disallowLatchingScope(m_allowLatching, allowLatching);
+    RefPtr<ScrollingTreeNode> targetNode = nodeForID(targetNodeID);
+    return handleWheelEventWithNode(wheelEvent, processingSteps, targetNode.get(), EventTargeting::NodeOnly);
+}
+
+void RemoteScrollingTreeMac::deferWheelEventTestCompletionForReason(ScrollingNodeID nodeID, WheelEventTestMonitor::DeferReason reason)
+{
+    if (!isMonitoringWheelEvents())
+        return;
+
+    RunLoop::main().dispatch([strongThis = Ref { *this }, nodeID, reason] {
+        if (auto* scrollingCoordinatorProxy = strongThis->scrollingCoordinatorProxy())
+            scrollingCoordinatorProxy->deferWheelEventTestCompletionForReason(nodeID, reason);
+    });
+}
+
+void RemoteScrollingTreeMac::removeWheelEventTestCompletionDeferralForReason(ScrollingNodeID nodeID, WheelEventTestMonitor::DeferReason reason)
+{
+    if (!isMonitoringWheelEvents())
+        return;
+
+    RunLoop::main().dispatch([strongThis = Ref { *this }, nodeID, reason] {
+        if (auto* scrollingCoordinatorProxy = strongThis->scrollingCoordinatorProxy())
+            scrollingCoordinatorProxy->removeWheelEventTestCompletionDeferralForReason(nodeID, reason);
+    });
+}
+
+void RemoteScrollingTreeMac::lockLayersForHitTesting()
+{
+    m_layerHitTestMutex.lock();
+}
+
+void RemoteScrollingTreeMac::unlockLayersForHitTesting()
+{
+    m_layerHitTestMutex.unlock();
 }
 
 static ScrollingNodeID scrollingNodeIDForLayer(CALayer *layer)
@@ -153,37 +452,60 @@ static bool layerEventRegionContainsPoint(CALayer *layer, CGPoint localPoint)
 
 RefPtr<ScrollingTreeNode> RemoteScrollingTreeMac::scrollingNodeForPoint(FloatPoint point)
 {
-    auto* rootScrollingNode = rootNode();
+    RefPtr rootScrollingNode = rootNode();
     if (!rootScrollingNode)
         return nullptr;
 
+    ASSERT(m_layerHitTestMutex.isLocked());
+
     RetainPtr scrolledContentsLayer { static_cast<CALayer*>(rootScrollingNode->scrolledContentsLayer()) };
-    auto scrollPosition = rootScrollingNode->currentScrollPosition();
+
+    auto rootContentsLayerPosition = LocalFrameView::positionForRootContentLayer(rootScrollingNode->currentScrollPosition(), FloatPoint { 0, 0 }, rootScrollingNode->topContentInset(), rootScrollingNode->headerHeight());
     auto pointInContentsLayer = point;
-    pointInContentsLayer.moveBy(scrollPosition);
+    pointInContentsLayer.moveBy(rootContentsLayerPosition);
 
-    Vector<LayerAndPoint, 16> layersAtPoint;
-    collectDescendantLayersAtPoint(layersAtPoint, scrolledContentsLayer.get(), pointInContentsLayer, layerEventRegionContainsPoint);
+    bool hasAnyNonInteractiveScrollingLayers = false;
+    auto layersAtPoint = layersAtPointToCheckForScrolling(layerEventRegionContainsPoint, scrollingNodeIDForLayer, scrolledContentsLayer.get(), pointInContentsLayer, hasAnyNonInteractiveScrollingLayers);
 
-    LOG_WITH_STREAM(UIHitTesting, stream << "RemoteScrollingTreeMac " << this << " scrollingNodeForPoint " << point << " found " << layersAtPoint.size() << " layers");
+    LOG_WITH_STREAM(UIHitTesting, stream << "RemoteScrollingTreeMac " << this << " scrollingNodeForPoint " << point << " (converted to layer point " << pointInContentsLayer << ") found " << layersAtPoint.size() << " layers");
 #if !LOG_DISABLED
-    for (auto [layer, point] : WTF::makeReversedRange(layersAtPoint))
+    for (auto [layer, point] : layersAtPoint)
         LOG_WITH_STREAM(UIHitTesting, stream << " layer " << [layer description] << " scrolling node " << scrollingNodeIDForLayer(layer));
 #endif
 
     if (layersAtPoint.size()) {
-        auto* frontmostLayer = layersAtPoint.last().first;
-        for (auto [layer, point] : WTF::makeReversedRange(layersAtPoint)) {
-            auto nodeID = scrollingNodeIDForLayer(layer);
+        auto* frontmostLayer = layersAtPoint.first().first;
+        for (size_t i = 0 ; i < layersAtPoint.size() ; i++) {
+            auto [layer, point] = layersAtPoint[i];
 
-            auto* scrollingNode = nodeForID(nodeID);
-            if (!is<ScrollingTreeScrollingNode>(scrollingNode))
+            if (!layerEventRegionContainsPoint(layer, point))
                 continue;
 
-            if (isScrolledBy(*this, nodeID, frontmostLayer)) {
-                LOG_WITH_STREAM(UIHitTesting, stream << "RemoteScrollingTreeMac " << this << " scrollingNodeForPoint " << point << " found scrolling node " << nodeID);
+            auto scrollingNodeForLayer = [&] (auto layer, auto point) -> RefPtr<ScrollingTreeNode> {
+                UNUSED_PARAM(point);
+                auto nodeID = scrollingNodeIDForLayer(layer);
+                RefPtr scrollingNode = nodeForID(nodeID);
+                if (!is<ScrollingTreeScrollingNode>(scrollingNode))
+                    return nullptr;
+                if (isScrolledBy(*this, nodeID, frontmostLayer)) {
+                    LOG_WITH_STREAM(UIHitTesting, stream << "RemoteScrollingTreeMac " << this << " scrollingNodeForPoint " << point << " found scrolling node " << nodeID);
+                    return scrollingNode;
+                }
+                return nullptr;
+            };
+
+            if (RefPtr scrollingNode = scrollingNodeForLayer(layer, point))
                 return scrollingNode;
+
+            // This layer may be scrolled by some other layer further back which may itself be non-interactive.
+            if (hasAnyNonInteractiveScrollingLayers) {
+                for (size_t j = i + 1; j < layersAtPoint.size() ; j++) {
+                    auto [behindLayer, behindPoint] = layersAtPoint[j];
+                    if (RefPtr scrollingNode = scrollingNodeForLayer(behindLayer, behindPoint))
+                        return scrollingNode;
+                }
             }
+
         }
     }
 
@@ -197,6 +519,8 @@ OptionSet<EventListenerRegionType> RemoteScrollingTreeMac::eventListenerRegionTy
     auto* rootScrollingNode = rootNode();
     if (!rootScrollingNode)
         return { };
+
+    ASSERT(m_layerHitTestMutex.isLocked());
 
     auto rootContentsLayer = static_cast<ScrollingTreeFrameScrollingNodeMac*>(rootScrollingNode)->rootContentsLayer();
 
@@ -217,6 +541,22 @@ OptionSet<EventListenerRegionType> RemoteScrollingTreeMac::eventListenerRegionTy
     return eventRegion->eventListenerRegionTypesForPoint(roundedIntPoint(localPoint));
 }
 #endif
+
+void RemoteScrollingTreeMac::scrollingTreeNodeScrollbarVisibilityDidChange(ScrollingNodeID nodeID, ScrollbarOrientation orientation, bool isVisible)
+{
+    RunLoop::main().dispatch([strongThis = Ref { *this }, nodeID, orientation, isVisible] {
+        if (auto* scrollingCoordinatorProxy = strongThis->scrollingCoordinatorProxy())
+            scrollingCoordinatorProxy->scrollingTreeNodeScrollbarVisibilityDidChange(nodeID, orientation, isVisible);
+    });
+}
+
+void RemoteScrollingTreeMac::scrollingTreeNodeScrollbarMinimumThumbLengthDidChange(ScrollingNodeID nodeID, ScrollbarOrientation orientation, int minimumThumbLength)
+{
+    RunLoop::main().dispatch([strongThis = Ref { *this }, nodeID, orientation, minimumThumbLength] {
+        if (auto* scrollingCoordinatorProxy = strongThis->scrollingCoordinatorProxy())
+            scrollingCoordinatorProxy->scrollingTreeNodeScrollbarMinimumThumbLengthDidChange(nodeID, orientation, minimumThumbLength);
+    });
+}
 
 } // namespace WebKit
 

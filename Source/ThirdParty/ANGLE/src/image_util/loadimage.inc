@@ -111,6 +111,58 @@ inline void Load32FTo16F(const ImageLoadContext &context, size_t width, size_t h
     }
 }
 
+template <typename type,
+          size_t inputComponentCount,
+          size_t outputComponentCount,
+          bool normalized>
+inline void LoadToFloat(const ImageLoadContext &context, size_t width, size_t height, size_t depth,
+                         const uint8_t *input, size_t inputRowPitch, size_t inputDepthPitch,
+                         uint8_t *output, size_t outputRowPitch, size_t outputDepthPitch) {
+    typedef std::numeric_limits<type> NL;
+
+    for (size_t z = 0; z < depth; z++)
+    {
+        for (size_t y = 0; y < height; y++)
+        {
+            const type *source_line = priv::OffsetDataPointer<type>(input, y, z, inputRowPitch, inputDepthPitch);
+            float *dest_line = priv::OffsetDataPointer<float>(output, y, z, outputRowPitch, outputDepthPitch);
+
+            for (size_t x = 0; x < width; x++)
+            {
+                const type *source_pixel = source_line + x * inputComponentCount;
+                float *dest_pixel = dest_line + x * outputComponentCount;
+
+                for (size_t i = 0; i < inputComponentCount; i++)
+                {
+                    float result = 0;
+                    if (normalized)
+                    {
+                        if (NL::is_signed)
+                        {
+                            result = static_cast<float>(source_pixel[i]) / static_cast<float>(NL::max());
+                            result = result >= -1.0f ? result : -1.0f;
+                        }
+                        else
+                        {
+                            result = static_cast<float>(source_pixel[i]) / static_cast<float>(NL::max());
+                        }
+                    }
+                    else
+                    {
+                        result = static_cast<float>(source_pixel[i]);
+                    }
+                    dest_pixel[i] = result;
+                }
+
+                for (size_t j = inputComponentCount; j < outputComponentCount; j++)
+                {
+                    dest_pixel[j] = j == 3 ? 1.0f : 0.0f;
+                }
+            }
+        }
+    }
+}
+
 template <size_t blockWidth, size_t blockHeight, size_t blockDepth, size_t blockSize>
 inline void LoadCompressedToNative(const ImageLoadContext &context, size_t width, size_t height,
                                    size_t depth, const uint8_t *input, size_t inputRowPitch,
@@ -121,13 +173,31 @@ inline void LoadCompressedToNative(const ImageLoadContext &context, size_t width
     const size_t rows = (height + (blockHeight - 1)) / blockHeight;
     const size_t layers = (depth + (blockDepth - 1)) / blockDepth;
 
-    for (size_t z = 0; z < layers; ++z)
+    const size_t inputLayerSize = inputRowPitch * rows;
+    const size_t inputImageSize = inputDepthPitch * layers;
+
+    const size_t outputLayerSize = outputRowPitch * rows;
+    const size_t outputImageSize = outputDepthPitch * layers;
+
+    if (inputImageSize == outputImageSize)
     {
-        for (size_t y = 0; y < rows; ++y)
+        ASSERT(inputRowPitch == outputRowPitch);
+        ASSERT(inputLayerSize == outputLayerSize && inputLayerSize == inputDepthPitch && outputLayerSize == outputDepthPitch);
+        memcpy(output, input, inputImageSize);
+    }
+    else
+    {
+        // Note: this path should technically never be hit, but it is with the d3d backend.  Once
+        // the issue is fixed, this path should be removed.
+        // http://anglebug.com/8345
+        for (size_t z = 0; z < layers; ++z)
         {
-            const uint8_t *source = priv::OffsetDataPointer<uint8_t>(input, y, z, inputRowPitch, inputDepthPitch);
-            uint8_t *dest = priv::OffsetDataPointer<uint8_t>(output, y, z, outputRowPitch, outputDepthPitch);
-            memcpy(dest, source, columns * blockSize);
+            for (size_t y = 0; y < rows; ++y)
+            {
+                const uint8_t *source = priv::OffsetDataPointer<uint8_t>(input, y, z, inputRowPitch, inputDepthPitch);
+                uint8_t *dest = priv::OffsetDataPointer<uint8_t>(output, y, z, outputRowPitch, outputDepthPitch);
+                memcpy(dest, source, columns * blockSize);
+            }
         }
     }
 }

@@ -27,11 +27,12 @@
 #include "config.h"
 #include "GBMBufferSwapchain.h"
 
-#if USE(LIBGBM)
+#if USE(GBM)
 
 #include "DMABufColorSpace.h"
 #include "GBMDevice.h"
 #include <gbm.h>
+#include <wtf/SafeStrerror.h>
 
 namespace WebCore {
 
@@ -43,9 +44,46 @@ GBMBufferSwapchain::GBMBufferSwapchain(BufferSwapchainSize size)
 
 GBMBufferSwapchain::~GBMBufferSwapchain() = default;
 
+static inline bool isBufferFormatSupported(const DMABufFormat& format)
+{
+    switch (format.fourcc) {
+    case DMABufFormat::FourCC::XRGB8888:
+    case DMABufFormat::FourCC::XBGR8888:
+    case DMABufFormat::FourCC::RGBX8888:
+    case DMABufFormat::FourCC::BGRX8888:
+    case DMABufFormat::FourCC::ARGB8888:
+    case DMABufFormat::FourCC::ABGR8888:
+    case DMABufFormat::FourCC::RGBA8888:
+    case DMABufFormat::FourCC::BGRA8888:
+    case DMABufFormat::FourCC::I420:
+    case DMABufFormat::FourCC::YV12:
+    case DMABufFormat::FourCC::A420:
+    case DMABufFormat::FourCC::NV12:
+    case DMABufFormat::FourCC::NV21:
+    case DMABufFormat::FourCC::YUY2:
+    case DMABufFormat::FourCC::YVYU:
+    case DMABufFormat::FourCC::UYVY:
+    case DMABufFormat::FourCC::VYUY:
+    case DMABufFormat::FourCC::VUYA:
+    case DMABufFormat::FourCC::AYUV:
+    case DMABufFormat::FourCC::Y444:
+    case DMABufFormat::FourCC::Y41B:
+    case DMABufFormat::FourCC::Y42B:
+    case DMABufFormat::FourCC::P010:
+    case DMABufFormat::FourCC::P016:
+        return true;
+    default:
+        return false;
+    }
+}
+
 RefPtr<GBMBufferSwapchain::Buffer> GBMBufferSwapchain::getBuffer(const BufferDescription& description)
 {
-    auto& device = GBMDevice::singleton();
+    auto* device = GBMDevice::singleton().device();
+    if (!device) {
+        WTFLogAlways("Failed to get GBM buffer from swap chain: no GBM device found");
+        return nullptr;
+    }
 
     // If the description of the requested buffers has changed, update the description to the new one and wreck the existing buffers.
     // This should handle changes in format or dimension of the buffers.
@@ -54,49 +92,26 @@ RefPtr<GBMBufferSwapchain::Buffer> GBMBufferSwapchain::getBuffer(const BufferDes
         m_array.object = { };
     }
 
+    if (!isBufferFormatSupported(description.format)) {
+        WTFLogAlways("Failed to get GBM buffer from swap chain: unsupported format");
+        return nullptr;
+    }
+
     // Swapchain was asked to provide a buffer. The buffer array is traversed to find one.
     for (unsigned i = 0; i < m_array.size; ++i) {
         if (!m_array.object[i]) {
             // If no buffer was spawned yet at this location, we do that, and return it.
             auto buffer = adoptRef(*new Buffer(m_handleGenerator++, description));
-            m_array.object[i] = buffer.copyRef();
 
             // Fill out the buffer's description and plane information for known and supported formats.
-            switch (description.format.fourcc) {
-            case DMABufFormat::FourCC::XRGB8888:
-            case DMABufFormat::FourCC::XBGR8888:
-            case DMABufFormat::FourCC::RGBX8888:
-            case DMABufFormat::FourCC::BGRX8888:
-            case DMABufFormat::FourCC::ARGB8888:
-            case DMABufFormat::FourCC::ABGR8888:
-            case DMABufFormat::FourCC::RGBA8888:
-            case DMABufFormat::FourCC::BGRA8888:
-            case DMABufFormat::FourCC::I420:
-            case DMABufFormat::FourCC::YV12:
-            case DMABufFormat::FourCC::A420:
-            case DMABufFormat::FourCC::NV12:
-            case DMABufFormat::FourCC::NV21:
-            case DMABufFormat::FourCC::YUY2:
-            case DMABufFormat::FourCC::YVYU:
-            case DMABufFormat::FourCC::UYVY:
-            case DMABufFormat::FourCC::VYUY:
-            case DMABufFormat::FourCC::VUYA:
-            case DMABufFormat::FourCC::AYUV:
-            case DMABufFormat::FourCC::Y444:
-            case DMABufFormat::FourCC::Y41B:
-            case DMABufFormat::FourCC::Y42B:
-                buffer->m_description.format.numPlanes = description.format.numPlanes;
-                for (unsigned i = 0; i < buffer->m_description.format.numPlanes; ++i) {
-                    buffer->m_planes[i].fourcc = description.format.planes[i].fourcc;
-                    buffer->m_planes[i].width = description.format.planeWidth(i, description.width);
-                    buffer->m_planes[i].height = description.format.planeHeight(i, description.height);
-                }
-                break;
-            default:
-                return nullptr;
+            buffer->m_description.format.numPlanes = description.format.numPlanes;
+            for (unsigned i = 0; i < buffer->m_description.format.numPlanes; ++i) {
+                buffer->m_planes[i].fourcc = description.format.planes[i].fourcc;
+                buffer->m_planes[i].width = description.format.planeWidth(i, description.width);
+                buffer->m_planes[i].height = description.format.planeHeight(i, description.height);
             }
 
-            uint32_t boFlags = 0;
+            uint32_t boFlags = GBM_BO_USE_RENDERING;
             if (description.flags & BufferDescription::LinearStorage)
                 boFlags |= GBM_BO_USE_LINEAR;
 
@@ -105,12 +120,18 @@ RefPtr<GBMBufferSwapchain::Buffer> GBMBufferSwapchain::getBuffer(const BufferDes
             // over the software-decoded video data), but might not be required for backing e.g. ANGLE rendering.
             for (unsigned i = 0; i < buffer->m_description.format.numPlanes; ++i) {
                 auto& plane = buffer->m_planes[i];
-                plane.bo = gbm_bo_create(device.device(), plane.width, plane.height, uint32_t(plane.fourcc), boFlags);
+                plane.bo = gbm_bo_create(device, plane.width, plane.height, uint32_t(plane.fourcc), boFlags);
+                if (!plane.bo) {
+                    WTFLogAlways("Failed to get GBM buffer from swap chain: error creating plane %u of size %dx%d and format %u: %s\n",
+                        i, plane.width, plane.height, uint32_t(plane.fourcc), safeStrerror(errno).data());
+                    return nullptr;
+                }
                 plane.stride = gbm_bo_get_stride(plane.bo);
             }
 
             // Lock the buffer and return it.
             buffer->m_state.locked = true;
+            m_array.object[i] = buffer.copyRef();
             return buffer;
         }
 
@@ -139,6 +160,7 @@ RefPtr<GBMBufferSwapchain::Buffer> GBMBufferSwapchain::getBuffer(const BufferDes
         return buffer;
     }
 
+    WTFLogAlways("Failed to get GBM buffer from swap chain: no buffers available");
     return nullptr;
 }
 
@@ -163,7 +185,8 @@ DMABufObject GBMBufferSwapchain::Buffer::createDMABufObject(uintptr_t handle) co
         object.fd[i] = UnixFileDescriptor { gbm_bo_get_fd(m_planes[i].bo), UnixFileDescriptor::Adopt };
         object.offset[i] = 0;
         object.stride[i] = m_planes[i].stride;
-        object.modifier[i] = gbm_bo_get_modifier(m_planes[i].bo);
+        object.modifierPresent[i] = true;
+        object.modifierValue[i] = gbm_bo_get_modifier(m_planes[i].bo);
     }
 
     return object;
@@ -177,4 +200,4 @@ GBMBufferSwapchain::Buffer::PlaneData::~PlaneData()
 
 } // namespace WebCore
 
-#endif // USE(LIBGBM)
+#endif // USE(GBM)

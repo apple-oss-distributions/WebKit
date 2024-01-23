@@ -26,7 +26,9 @@
 #include "config.h"
 #include "WebSharedWorkerServerToContextConnection.h"
 
+#include "LoadedWebArchive.h"
 #include "Logging.h"
+#include "MessageSenderInlines.h"
 #include "NetworkConnectionToWebProcess.h"
 #include "NetworkProcess.h"
 #include "NetworkProcessProxyMessages.h"
@@ -90,11 +92,11 @@ void WebSharedWorkerServerToContextConnection::connectionIsNoLongerNeeded()
     m_connection.sharedWorkerServerToContextConnectionIsNoLongerNeeded();
 }
 
-void WebSharedWorkerServerToContextConnection::postExceptionToWorkerObject(WebCore::SharedWorkerIdentifier sharedWorkerIdentifier, const String& errorMessage, int lineNumber, int columnNumber, const String& sourceURL)
+void WebSharedWorkerServerToContextConnection::postErrorToWorkerObject(WebCore::SharedWorkerIdentifier sharedWorkerIdentifier, const String& errorMessage, int lineNumber, int columnNumber, const String& sourceURL, bool isErrorEvent)
 {
-    CONTEXT_CONNECTION_RELEASE_LOG("postExceptionToWorkerObject: sharedWorkerIdentifier=%" PRIu64, sharedWorkerIdentifier.toUInt64());
+    CONTEXT_CONNECTION_RELEASE_LOG("postErrorToWorkerObject: sharedWorkerIdentifier=%" PRIu64, sharedWorkerIdentifier.toUInt64());
     if (m_server)
-        m_server->postExceptionToWorkerObject(sharedWorkerIdentifier, errorMessage, lineNumber, columnNumber, sourceURL);
+        m_server->postErrorToWorkerObject(sharedWorkerIdentifier, errorMessage, lineNumber, columnNumber, sourceURL, isErrorEvent);
 }
 
 void WebSharedWorkerServerToContextConnection::sharedWorkerTerminated(WebCore::SharedWorkerIdentifier sharedWorkerIdentifier)
@@ -106,7 +108,10 @@ void WebSharedWorkerServerToContextConnection::sharedWorkerTerminated(WebCore::S
 
 void WebSharedWorkerServerToContextConnection::launchSharedWorker(WebSharedWorker& sharedWorker)
 {
-    m_connection.networkProcess().addAllowedFirstPartyForCookies(m_connection.webProcessIdentifier(), WebCore::RegistrableDomain::uncheckedCreateFromHost(sharedWorker.origin().topOrigin.host), LoadedWebArchive::No, [] { });
+    auto domain = WebCore::RegistrableDomain::uncheckedCreateFromHost(sharedWorker.origin().topOrigin.host());
+    if (auto* connection = m_connection.networkProcess().webProcessConnection(webProcessIdentifier()))
+        connection->addAllowedFirstPartyForCookies(domain);
+    m_connection.networkProcess().addAllowedFirstPartyForCookies(m_connection.webProcessIdentifier(), WTFMove(domain), LoadedWebArchive::No, [] { });
 
     CONTEXT_CONNECTION_RELEASE_LOG("launchSharedWorker: sharedWorkerIdentifier=%" PRIu64, sharedWorker.identifier().toUInt64());
     sharedWorker.markAsRunning();

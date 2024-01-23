@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2020-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,6 +27,7 @@
 
 #import "WKSecurityOriginInternal.h"
 #import "WKWebViewInternal.h"
+#import "WebFrameProxy.h"
 #import "WebPageProxy.h"
 #import "_WKFrameHandleInternal.h"
 #import "_WKFrameTreeNodeInternal.h"
@@ -43,26 +44,9 @@
     [super dealloc];
 }
 
-- (BOOL)isMainFrame
+- (WKFrameInfo *)info
 {
-    return _node->isMainFrame();
-}
-
-- (NSURLRequest *)request
-{
-    return _node->request().nsURLRequest(WebCore::HTTPBodyUpdatePolicy::DoNotUpdateHTTPBody);
-}
-
-- (WKSecurityOrigin *)securityOrigin
-{
-    auto& data = _node->securityOrigin();
-    auto apiOrigin = API::SecurityOrigin::create(data.protocol, data.host, data.port);
-    return retainPtr(wrapper(apiOrigin.get())).autorelease();
-}
-
-- (WKWebView *)webView
-{
-    return _node->page().cocoaView().autorelease();
+    return wrapper(API::FrameInfo::create(WebKit::FrameInfoData(_node->info()), &_node->page()));
 }
 
 - (NSArray<_WKFrameTreeNode *> *)childFrames
@@ -70,27 +54,6 @@
     return createNSArray(_node->childFrames(), [&] (auto& child) {
         return wrapper(API::FrameTreeNode::create(WebKit::FrameTreeNodeData(child), _node->page()));
     }).autorelease();
-}
-
-- (id)copyWithZone:(NSZone *)zone
-{
-    return [self retain];
-}
-
-- (_WKFrameHandle *)_handle
-{
-    return retainPtr(wrapper(_node->handle())).autorelease();
-}
-
-- (_WKFrameHandle *)_parentFrameHandle
-{
-    return retainPtr(wrapper(_node->parentFrameHandle())).autorelease();
-}
-
-- (pid_t)_processIdentifier
-{
-    auto* frame = WebKit::WebFrameProxy::webFrame(_node->handle()->frameID());
-    return frame ? frame->processIdentifier() : 0;
 }
 
 - (API::Object&)_apiObject

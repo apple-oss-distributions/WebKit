@@ -35,7 +35,6 @@
 #include "WebExtensionControllerConfiguration.h"
 #include "WebExtensionControllerIdentifier.h"
 #include "WebExtensionURLSchemeHandler.h"
-#include "WebPageProxy.h"
 #include "WebProcessProxy.h"
 #include "WebUserContentControllerProxy.h"
 #include <wtf/Forward.h>
@@ -43,7 +42,11 @@
 #include <wtf/WeakHashSet.h>
 
 OBJC_CLASS NSError;
-OBJC_CLASS _WKWebExtensionController;
+OBJC_PROTOCOL(_WKWebExtensionControllerDelegatePrivate);
+
+#ifdef __OBJC__
+#import "_WKWebExtensionController.h"
+#endif
 
 namespace WebKit {
 
@@ -77,7 +80,6 @@ public:
     WebExtensionControllerParameters parameters() const;
 
     bool operator==(const WebExtensionController& other) const { return (this == &other); }
-    bool operator!=(const WebExtensionController& other) const { return !(this == &other); }
 
     bool storageIsPersistent() const { return m_configuration->storageIsPersistent(); }
     String storageDirectory(WebExtensionContext&) const;
@@ -104,15 +106,16 @@ public:
     const WebExtensionContextSet& extensionContexts() const { return m_extensionContexts; }
     WebExtensionSet extensions() const;
 
-    template<typename T, typename U>
-    void sendToAllProcesses(const T& message, ObjectIdentifier<U> destinationID);
+    template<typename T>
+    void sendToAllProcesses(const T& message, const ObjectIdentifierGenericBase& destinationID);
 
 #ifdef __OBJC__
     _WKWebExtensionController *wrapper() const { return (_WKWebExtensionController *)API::ObjectImpl<API::Object::Type::WebExtensionController>::wrapper(); }
+    _WKWebExtensionControllerDelegatePrivate *delegate() const { return (_WKWebExtensionControllerDelegatePrivate *)wrapper().delegate; }
 #endif
 
 private:
-    // IPC::MessageReceiver.
+    // IPC::MessageReceiver
     void didReceiveMessage(IPC::Connection&, IPC::Decoder&) override;
 
     void addProcessPool(WebProcessPool&);
@@ -121,7 +124,7 @@ private:
     void addUserContentController(WebUserContentControllerProxy&);
     void removeUserContentController(WebUserContentControllerProxy&);
 
-    // MARK: webNavigation support.
+    // Web Navigation
     void didStartProvisionalLoadForFrame(WebPageProxyIdentifier, WebCore::FrameIdentifier, URL targetURL);
     void didCommitLoadForFrame(WebPageProxyIdentifier, WebCore::FrameIdentifier, URL);
     void didFinishLoadForFrame(WebPageProxyIdentifier, WebCore::FrameIdentifier, URL);
@@ -138,12 +141,12 @@ private:
     WebExtensionURLSchemeHandlerMap m_registeredSchemeHandlers;
 };
 
-template<typename T, typename U>
-void WebExtensionController::sendToAllProcesses(const T& message, ObjectIdentifier<U> destinationID)
+template<typename T>
+void WebExtensionController::sendToAllProcesses(const T& message, const ObjectIdentifierGenericBase& destinationID)
 {
     for (auto& process : allProcesses()) {
         if (process.canSendMessage())
-            process.send(T(message), destinationID);
+            process.send(T(message), destinationID.toUInt64());
     }
 }
 

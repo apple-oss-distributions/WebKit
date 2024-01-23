@@ -31,6 +31,7 @@
 #include "PlatformLayer.h"
 #include "SourceBufferParserWebM.h"
 #include "TimeRanges.h"
+#include "VideoFrameMetadata.h"
 #include "WebMResourceClient.h"
 #include <wtf/HashFunctions.h>
 #include <wtf/HashMap.h>
@@ -42,6 +43,7 @@
 
 OBJC_CLASS AVSampleBufferAudioRenderer;
 OBJC_CLASS AVSampleBufferDisplayLayer;
+OBJC_CLASS AVSampleBufferRenderSynchronizer;
 
 typedef struct __CVBuffer *CVPixelBufferRef;
 
@@ -117,8 +119,8 @@ private:
     MediaTime startTime() const final { return MediaTime::zeroTime(); }
     MediaTime initialTime() const final { return MediaTime::zeroTime(); }
 
-    void seek(const MediaTime&) final;
-    bool seeking() const final { return m_seeking; }
+    void seekToTarget(const SeekTarget&) final;
+    bool seeking() const final { return false; }
 
     void setRateDouble(double) final;
     double rate() const final { return m_rate; }
@@ -130,10 +132,9 @@ private:
     MediaPlayer::NetworkState networkState() const final { return m_networkState; }
     MediaPlayer::ReadyState readyState() const final { return m_readyState; }
 
-    std::unique_ptr<PlatformTimeRanges> seekable() const final;
     MediaTime maxMediaTimeSeekable() const final { return durationMediaTime(); }
     MediaTime minMediaTimeSeekable() const final { return startTime(); }
-    std::unique_ptr<PlatformTimeRanges> buffered() const final;
+    const PlatformTimeRanges& buffered() const final;
 
     void setBufferedRanges(PlatformTimeRanges);
     void updateBufferedFromTrackBuffers(bool);
@@ -251,10 +252,10 @@ private:
 
     friend class MediaPlayerFactoryWebM;
     static bool isAvailable();
-    static void getSupportedTypes(HashSet<String, ASCIICaseInsensitiveHash>&);
+    static void getSupportedTypes(HashSet<String>&);
     static MediaPlayer::SupportsType supportsType(const MediaEngineSupportParameters&);
 
-    MediaPlayer* m_player;
+    ThreadSafeWeakPtr<MediaPlayer> m_player;
     RetainPtr<AVSampleBufferRenderSynchronizer> m_synchronizer;
     RetainPtr<id> m_durationObserver;
     RetainPtr<CVPixelBufferRef> m_lastPixelBuffer;
@@ -266,7 +267,7 @@ private:
     Vector<RefPtr<VideoTrackPrivateWebM>> m_videoTracks;
     Vector<RefPtr<AudioTrackPrivateWebM>> m_audioTracks;
     HashMap<uint64_t, UniqueRef<TrackBuffer>, DefaultHash<uint64_t>, WTF::UnsignedWithZeroKeyHashTraits<uint64_t>> m_trackBufferMap;
-    RefPtr<TimeRanges> m_buffered { TimeRanges::create() };
+    PlatformTimeRanges m_buffered;
 
     RetainPtr<AVSampleBufferDisplayLayer> m_displayLayer;
     HashMap<uint64_t, RetainPtr<AVSampleBufferAudioRenderer>, DefaultHash<uint64_t>, WTF::UnsignedWithZeroKeyHashTraits<uint64_t>> m_audioRenderers;
@@ -308,7 +309,6 @@ private:
     bool m_hasAudio { false };
     bool m_hasVideo { false };
     bool m_hasAvailableVideoFrame { false };
-    bool m_seeking { false };
     bool m_visible { false };
     bool m_loadingProgressed { false };
     bool m_loadFinished { false };

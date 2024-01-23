@@ -65,7 +65,7 @@ static void releaseSharedBuffer(unsigned char*, const void* data)
     static_cast<const SharedBuffer*>(data)->deref();
 }
 
-void InjectedBundlePageLoaderClient::willLoadDataRequest(WebPage& page, const ResourceRequest& request, FragmentedSharedBuffer* sharedBuffer, const String& MIMEType, const String& encodingName, const URL& unreachableURL, API::Object* userData)
+void InjectedBundlePageLoaderClient::willLoadDataRequest(WebPage& page, const ResourceRequest& request, RefPtr<FragmentedSharedBuffer> sharedBuffer, const String& MIMEType, const String& encodingName, const URL& unreachableURL, API::Object* userData)
 {
     if (!m_client.willLoadDataRequest)
         return;
@@ -360,9 +360,9 @@ OptionSet<WebCore::LayoutMilestone> InjectedBundlePageLoaderClient::layoutMilest
     
     OptionSet<WebCore::LayoutMilestone> milestones;
     if (m_client.didFirstLayoutForFrame)
-        milestones.add(WebCore::DidFirstLayout);
+        milestones.add(WebCore::LayoutMilestone::DidFirstLayout);
     if (m_client.didFirstVisuallyNonEmptyLayoutForFrame)
-        milestones.add(WebCore::DidFirstVisuallyNonEmptyLayout);
+        milestones.add(WebCore::LayoutMilestone::DidFirstVisuallyNonEmptyLayout);
     return milestones;
 }
 

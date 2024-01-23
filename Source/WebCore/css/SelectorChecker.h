@@ -95,7 +95,8 @@ public:
         std::optional<StyleScrollbarState> scrollbarState;
         AtomString nameForHightlightPseudoElement;
         const ContainerNode* scope { nullptr };
-        bool matchesAllScopes { false };
+        const Element* hasScope { nullptr };
+        bool matchesAllHasScopes { false };
         Style::ScopeOrdinal styleScopeOrdinal { Style::ScopeOrdinal::Element };
         Style::SelectorMatchingState* selectorMatchingState { nullptr };
 
@@ -131,14 +132,14 @@ private:
 
 inline bool SelectorChecker::isCommonPseudoClassSelector(const CSSSelector* selector)
 {
-    if (selector->match() != CSSSelector::PseudoClass)
+    if (selector->match() != CSSSelector::Match::PseudoClass)
         return false;
     CSSSelector::PseudoClassType pseudoType = selector->pseudoClassType();
-    return pseudoType == CSSSelector::PseudoClassLink
-        || pseudoType == CSSSelector::PseudoClassAnyLink
-        || pseudoType == CSSSelector::PseudoClassAnyLinkDeprecated
-        || pseudoType == CSSSelector::PseudoClassVisited
-        || pseudoType == CSSSelector::PseudoClassFocus;
+    return pseudoType == CSSSelector::PseudoClassType::Link
+        || pseudoType == CSSSelector::PseudoClassType::AnyLink
+        || pseudoType == CSSSelector::PseudoClassType::AnyLinkDeprecated
+        || pseudoType == CSSSelector::PseudoClassType::Visited
+        || pseudoType == CSSSelector::PseudoClassType::Focus;
 }
 
 } // namespace WebCore

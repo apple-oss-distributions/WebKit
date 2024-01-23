@@ -61,6 +61,10 @@ localizedStrings["%s (Case Insensitive) @ Symbolic Breakpoint"] = "%s (Case Inse
 /* Label for the IP address of a proxy server used to retrieve a network resource. */
 localizedStrings["%s (Proxy) @ Resource Remote Address"] = "%s (Proxy)";
 localizedStrings["%s (default)"] = "%s (default)";
+/* Label modifier indicating that the local override maps to a directory on disk. */
+localizedStrings["%s (directory) @ Local Override Type"] = "%s (directory)";
+/* Label modifier indicating that the local override maps to a file on disk. */
+localizedStrings["%s (file) @ Local Override Type"] = "%s (file)";
 localizedStrings["%s (hidden)"] = "%s (hidden)";
 localizedStrings["%s Callback"] = "%s Callback";
 localizedStrings["%s Event Dispatched"] = "%s Event Dispatched";
@@ -79,7 +83,6 @@ localizedStrings["%s total"] = "%s total";
 localizedStrings["%s transferred"] = "%s transferred";
 /* Scope bar button that filter for dynamic resource loads, like from the 'fetch' method. */
 localizedStrings["%s/Fetch @ Network Tab Table Filter"] = "%s/Fetch";
-localizedStrings["%s:"] = "%s:";
 localizedStrings["(%s)"] = "(%s)";
 localizedStrings["(Action %s)"] = "(Action %s)";
 localizedStrings["(Disk)"] = "(Disk)";
@@ -114,7 +117,7 @@ localizedStrings["Accessibility @ User Preferences Overrides"] = "Accessibility"
 localizedStrings["Action"] = "Action";
 /* Tooltip for a time range bar that represents when a CSS animation/transition is running */
 localizedStrings["Active"] = "Active";
-localizedStrings["Ad Click Attribution Debug Mode"] = "Ad Click Attribution Debug Mode";
+localizedStrings["Ad Click Attribution debug mode"] = "Ad Click Attribution debug mode";
 localizedStrings["Add"] = "Add";
 localizedStrings["Add %s Rule"] = "Add %s Rule";
 localizedStrings["Add Action"] = "Add Action";
@@ -166,7 +169,7 @@ localizedStrings["All items in \u0022%s\u0022 must be non-empty strings"] = "All
 localizedStrings["All items in \u0022%s\u0022 must be valid DOM nodes"] = "All items in \u0022%s\u0022 must be valid DOM nodes";
 /* Label for setting that allows the user to inspect the Web Inspector user interface. */
 localizedStrings["Allow Inspecting Web Inspector @ Experimental Settings"] = "Allow Inspecting Web Inspector";
-localizedStrings["Allow Media Capture on Insecure Sites"] = "Allow Media Capture on Insecure Sites";
+localizedStrings["Allow media capture on insecure sites"] = "Allow media capture on insecure sites";
 /* Label for checkbox that controls whether network throttling functionality is enabled. */
 localizedStrings["Allow throttling"] = "Allow throttling";
 localizedStrings["Also defer evaluating breakpoint conditions, ignore counts, and actions until execution has continued outside of the related script instead of at the breakpoint\u2019s location."] = "Also defer evaluating breakpoint conditions, ignore counts, and actions until execution has continued outside of the related script instead of at the breakpoint\u2019s location.";
@@ -324,6 +327,10 @@ localizedStrings["Child"] = "Child";
 localizedStrings["Child Layers"] = "Child Layers";
 localizedStrings["Child added to "] = "Child added to ";
 localizedStrings["Children"] = "Children";
+/* Text of button that shows native UI to pick a directory on disk. */
+localizedStrings["Choose Directory @ Local Override Popover"] = "Choose Directory";
+/* Text of button that shows native UI to pick a file on disk. */
+localizedStrings["Choose File @ Local Override Popover"] = "Choose File";
 localizedStrings["Choose which badges are shown in the DOM tree"] = "Choose which badges are shown in the DOM tree";
 localizedStrings["Cipher"] = "Cipher";
 localizedStrings["Clamp to sRGB"] = "Clamp to sRGB";
@@ -381,6 +388,7 @@ localizedStrings["Comment"] = "Comment";
 localizedStrings["Common @ Font Details Sidebar Property Value"] = "Common";
 localizedStrings["Compare snapshots"] = "Compare snapshots";
 localizedStrings["Comparison of total memory size at the end of the selected time range to the maximum memory size in this recording"] = "Comparison of total memory size at the end of the selected time range to the maximum memory size in this recording";
+localizedStrings["Compatibility"] = "Compatibility";
 /* Composite phase timeline records, where graphic layers are combined */
 localizedStrings["Composite @ Timeline record"] = "Composite";
 localizedStrings["Composited"] = "Composited";
@@ -393,6 +401,8 @@ localizedStrings["Compute Shader"] = "Compute Shader";
 localizedStrings["Computed"] = "Computed";
 localizedStrings["Condition"] = "Condition";
 localizedStrings["Conditional expression"] = "Conditional expression";
+/* Part of the tooltip indicating that the hovered property is configurable. */
+localizedStrings["Configurable @ Object Tree Property"] = "Configurable";
 localizedStrings["Conic Gradient"] = "Conic Gradient";
 localizedStrings["Connecting"] = "Connecting";
 localizedStrings["Connection"] = "Connection";
@@ -437,6 +447,7 @@ localizedStrings["Copy Table"] = "Copy Table";
 localizedStrings["Copy as cURL"] = "Copy as cURL";
 /* Copy the URL, method, headers, etc. of the given network request in the format of a JS fetch expression. */
 localizedStrings["Copy as fetch"] = "Copy as fetch";
+localizedStrings["Core Features"] = "Core Features";
 localizedStrings["Could not capture screenshot"] = "Could not capture screenshot";
 localizedStrings["Could not fetch properties. Object may no longer exist."] = "Could not fetch properties. Object may no longer exist.";
 localizedStrings["Count"] = "Count";
@@ -451,7 +462,6 @@ localizedStrings["Create Request Local Override"] = "Create Request Local Overri
 localizedStrings["Create Resource"] = "Create Resource";
 localizedStrings["Create Response Local Override"] = "Create Response Local Override";
 localizedStrings["Create audit:"] = "Create audit:";
-localizedStrings["Cross-Origin Restrictions"] = "Cross-Origin Restrictions";
 localizedStrings["Current"] = "Current";
 localizedStrings["Current State"] = "Current State";
 localizedStrings["Custom"] = "Custom";
@@ -512,6 +522,8 @@ localizedStrings["Details"] = "Details";
 localizedStrings["Details @ Sidebar"] = "Details";
 /* Category label for detail sidebar settings. */
 localizedStrings["Details Sidebars: @ Settings Elements Pane"] = "Details Sidebars:";
+/* Category label for detail sidebar settings. */
+localizedStrings["Details Sidebars: @ Settings General Pane"] = "Details Sidebars:";
 localizedStrings["Device %d"] = "Device %d";
 localizedStrings["Device Settings"] = "Device Settings";
 localizedStrings["Diagnoses common accessibility problems affecting screen readers and other assistive technology."] = "Diagnoses common accessibility problems affecting screen readers and other assistive technology.";
@@ -522,23 +534,30 @@ localizedStrings["Diagonal Fractions @ Font Details Sidebar Property Value"] = "
 localizedStrings["Dimensions"] = "Dimensions";
 /* Section header for the group of CSS variables with dimensions as values */
 localizedStrings["Dimensions @ Computed style variables section"] = "Dimensions";
+/* Label for the input used for mapping the local override to a directory on disk. */
+localizedStrings["Directory @ Local Override Popopver"] = "Directory";
+/* Option for creating a local override for an entire directory. */
+localizedStrings["Directory @ Local Override Type"] = "Directory";
 localizedStrings["Disable All"] = "Disable All";
 localizedStrings["Disable Audit"] = "Disable Audit";
 localizedStrings["Disable Breakpoint"] = "Disable Breakpoint";
 localizedStrings["Disable Breakpoints"] = "Disable Breakpoints";
+localizedStrings["Disable CSS"] = "Disable CSS";
 localizedStrings["Disable Caches"] = "Disable Caches";
 localizedStrings["Disable Descendant Breakpoints"] = "Disable Descendant Breakpoints";
-localizedStrings["Disable Encryption"] = "Disable Encryption";
 localizedStrings["Disable Event Listener"] = "Disable Event Listener";
 localizedStrings["Disable Event Listeners"] = "Disable Event Listeners";
-localizedStrings["Disable ICE Candidate Restrictions"] = "Disable ICE Candidate Restrictions";
+localizedStrings["Disable ICE candidate restrictions"] = "Disable ICE candidate restrictions";
+localizedStrings["Disable Images"] = "Disable Images";
 localizedStrings["Disable Inspector Bootstrap Script"] = "Disable Inspector Bootstrap Script";
+localizedStrings["Disable JavaScript"] = "Disable JavaScript";
 localizedStrings["Disable Local Override"] = "Disable Local Override";
 localizedStrings["Disable Program"] = "Disable Program";
 localizedStrings["Disable Rule"] = "Disable Rule";
 localizedStrings["Disable all breakpoints (%s)"] = "Disable all breakpoints (%s)";
+localizedStrings["Disable cross-origin restrictions"] = "Disable cross-origin restrictions";
 localizedStrings["Disable paint flashing"] = "Disable paint flashing";
-localizedStrings["Disable:"] = "Disable:";
+localizedStrings["Disable site-specific hacks"] = "Disable site-specific hacks";
 localizedStrings["Disabled"] = "Disabled";
 /* Property value for `font-variant-ligatures: no-common-ligatures`. */
 localizedStrings["Disabled Common @ Font Details Sidebar Property Value"] = "Disabled Common";
@@ -587,6 +606,7 @@ localizedStrings["Edit Local Override\u2026"] = "Edit Local Override\u2026";
 localizedStrings["Edit \u201Cbox-shadow\u201D"] = "Edit \u201Cbox-shadow\u201D";
 localizedStrings["Edit \u201Ccubic-bezier\u201D function"] = "Edit \u201Ccubic-bezier\u201D function";
 localizedStrings["Edit \u201Cspring\u201D function"] = "Edit \u201Cspring\u201D function";
+localizedStrings["Edit \u201Csteps\u201D function"] = "Edit \u201Csteps\u201D function";
 localizedStrings["Edit configuration"] = "Edit configuration";
 localizedStrings["Edit custom gradient"] = "Edit custom gradient";
 /* Title of icon indiciating that the selected audit is being edited. */
@@ -637,13 +657,14 @@ localizedStrings["Enable Descendant Breakpoints"] = "Enable Descendant Breakpoin
 localizedStrings["Enable Event Listener"] = "Enable Event Listener";
 localizedStrings["Enable Event Listeners"] = "Enable Event Listeners";
 localizedStrings["Enable Inspector Bootstrap Script"] = "Enable Inspector Bootstrap Script";
+localizedStrings["Enable Intelligent Tracking Prevention debug mode"] = "Enable Intelligent Tracking Prevention debug mode";
 localizedStrings["Enable Local Override"] = "Enable Local Override";
+localizedStrings["Enable Private Click Measurement debug mode"] = "Enable Private Click Measurement debug mode";
 localizedStrings["Enable Program"] = "Enable Program";
 localizedStrings["Enable Rule"] = "Enable Rule";
 localizedStrings["Enable all breakpoints (%s)"] = "Enable all breakpoints (%s)";
 localizedStrings["Enable paint flashing"] = "Enable paint flashing";
 localizedStrings["Enable source maps"] = "Enable source maps";
-localizedStrings["Enable:"] = "Enable:";
 localizedStrings["Enabled"] = "Enabled";
 /* Label for column showing the list of enabled timelines. */
 localizedStrings["Enabled Timelines @ Timelines Tab"] = "Enabled Timelines";
@@ -663,6 +684,8 @@ localizedStrings["Ensure that only one live region is used on the page."] = "Ens
 localizedStrings["Ensure that only one main content section is used on the page."] = "Ensure that only one main content section is used on the page.";
 localizedStrings["Ensure that values for \u201C%s\u201D are valid."] = "Ensure that values for \u201C%s\u201D are valid.";
 localizedStrings["Entire Recording"] = "Entire Recording";
+/* Part of the tooltip indicating that the hovered property is enumerable. */
+localizedStrings["Enumerable @ Object Tree Property"] = "Enumerable";
 localizedStrings["Error"] = "Error";
 /* Title of icon indicating that the selected audit threw an error. */
 localizedStrings["Error @ Audit Tab - Test Case"] = "Error";
@@ -716,6 +739,10 @@ localizedStrings["Feature Properties @ Font Details Sidebar Section"] = "Feature
 localizedStrings["Fetch"] = "Fetch";
 /* Resources loaded via 'fetch' method */
 localizedStrings["Fetches"] = "Fetches";
+/* Label for the input used for mapping the local override to a file on disk. */
+localizedStrings["File @ Local Override Popopver"] = "File";
+/* Option for creating a local override for a single file. */
+localizedStrings["File @ Local Override Type"] = "File";
 localizedStrings["File or Resource"] = "File or Resource";
 localizedStrings["Filename"] = "Filename";
 localizedStrings["Filter"] = "Filter";
@@ -733,6 +760,8 @@ localizedStrings["Font"] = "Font";
 localizedStrings["Font @ Font Details Sidebar Title"] = "Font";
 /* A warning that is shown in the Font Details Sidebar when the font had to be synthesized to support the provided weight. */
 localizedStrings["Font was synthesized to be bold because no bold font is available."] = "Font was synthesized to be bold because no bold font is available.";
+/* A warning that is shown in the Font Details Sidebar when the font had to be synthesized to support the provided style. */
+localizedStrings["Font was synthesized to be oblique because no italic font is available."] = "Font was synthesized to be oblique because no italic font is available.";
 /* A warning that is shown in the Font Details Sidebar when the font had to be synthesized to support the provided style. */
 localizedStrings["Font was synthesized to be oblique because no oblique font is available."] = "Font was synthesized to be oblique because no oblique font is available.";
 localizedStrings["Fonts"] = "Fonts";
@@ -879,7 +908,6 @@ localizedStrings["Inset @ Box Shadow Editor"] = "Inset";
 localizedStrings["Inspector Bootstrap Script"] = "Inspector Bootstrap Script";
 localizedStrings["Inspector Style Sheet"] = "Inspector Style Sheet";
 localizedStrings["Instances"] = "Instances";
-localizedStrings["Intelligent Tracking Prevention Debug Mode"] = "Intelligent Tracking Prevention Debug Mode";
 localizedStrings["Invalid"] = "Invalid";
 localizedStrings["Inverted"] = "Inverted";
 localizedStrings["Invisible characters"] = "Invisible characters";
@@ -983,7 +1011,10 @@ localizedStrings["MSE Logging:"] = "MSE Logging:";
 localizedStrings["Main Thread"] = "Main Thread";
 localizedStrings["Main: %s"] = "Main: %s";
 localizedStrings["Manifest URL"] = "Manifest URL";
-localizedStrings["Map to File"] = "Map to File";
+/* Navigation item that changes the local override to fetch its content from a directory on disk. */
+localizedStrings["Map to Directory @ Resource Preview"] = "Map to Directory";
+/* Navigation item that changes the local override to fetch its content from a file on disk. */
+localizedStrings["Map to File @ Resource Preview"] = "Map to File";
 localizedStrings["Mapped to \u201C%s\u201D"] = "Mapped to \u201C%s\u201D";
 localizedStrings["Mass"] = "Mass";
 localizedStrings["Matching"] = "Matching";
@@ -992,6 +1023,8 @@ localizedStrings["Maximum"] = "Maximum";
 localizedStrings["Maximum CPU Usage: %s"] = "Maximum CPU Usage: %s";
 localizedStrings["Maximum Size: %s"] = "Maximum Size: %s";
 localizedStrings["Maximum maximum memory size in this recording"] = "Maximum maximum memory size in this recording";
+/* Max axis value @ Font Details Sidebar */
+localizedStrings["Maximum value of variation axis"] = "Maximum value of variation axis";
 localizedStrings["Media"] = "Media";
 localizedStrings["Media & Animations"] = "Media & Animations";
 localizedStrings["Media Element"] = "Media Element";
@@ -1010,6 +1043,8 @@ localizedStrings["Message"] = "Message";
 localizedStrings["Method"] = "Method";
 localizedStrings["Microtask Dispatched"] = "Microtask Dispatched";
 localizedStrings["Microtask Fired"] = "Microtask Fired";
+/* Min axis value @ Font Details Sidebar */
+localizedStrings["Minimum value of variation axis"] = "Minimum value of variation axis";
 localizedStrings["Missing result level"] = "Missing result level";
 localizedStrings["Mixed"] = "Mixed";
 localizedStrings["Modifications are saved automatically and will apply the next time the Console Snippet is run."] = "Modifications are saved automatically and will apply the next time the Console Snippet is run.";
@@ -1094,7 +1129,13 @@ localizedStrings["Nodes"] = "Nodes";
 localizedStrings["None"] = "None";
 /* Property value for any `normal` CSS value. */
 localizedStrings["Normal @ Font Details Sidebar Property Value"] = "Normal";
+/* Part of the tooltip indicating that the hovered property is not configurable. */
+localizedStrings["Not configurable @ Object Tree Property"] = "Not configurable";
+/* Part of the tooltip indicating that the hovered property is not enumerable. */
+localizedStrings["Not enumerable @ Object Tree Property"] = "Not enumerable";
 localizedStrings["Not found"] = "Not found";
+/* Part of the tooltip indicating that the hovered property is not writable. */
+localizedStrings["Not writable @ Object Tree Property"] = "Not writable";
 /* Title of icon indicating that the selected audit has not been run yet. */
 localizedStrings["Not yet run @ Audit Tab - Test Case"] = "Not yet run";
 /* Section header for the group of CSS variables with numbers as values */
@@ -1111,6 +1152,7 @@ localizedStrings["Observers:"] = "Observers:";
 localizedStrings["Off"] = "Off";
 /* Label for a preference that is turned off. */
 localizedStrings["Off @ User Preferences Overrides"] = "Off";
+localizedStrings["Offscreen2D"] = "Offscreen2D";
 /* Input label for the x-axis of the offset of a CSS box shadow */
 localizedStrings["Offset X @ Box Shadow Editor"] = "Offset X";
 /* Input label for the y-axis of the offset of a CSS box shadow */
@@ -1225,7 +1267,7 @@ localizedStrings["Previous Sibling"] = "Previous Sibling";
 localizedStrings["Primary Key"] = "Primary Key";
 localizedStrings["Primary Key \u2014 %s"] = "Primary Key \u2014 %s";
 localizedStrings["Priority"] = "Priority";
-localizedStrings["Private Click Measurement Debug Mode"] = "Private Click Measurement Debug Mode";
+localizedStrings["Privacy"] = "Privacy";
 localizedStrings["Probe Expression"] = "Probe Expression";
 localizedStrings["Probe Sample Recorded"] = "Probe Sample Recorded";
 localizedStrings["Probes"] = "Probes";
@@ -1321,8 +1363,6 @@ localizedStrings["Response"] = "Response";
 localizedStrings["Response (DOM Tree)"] = "Response (DOM Tree)";
 localizedStrings["Response (Object Tree)"] = "Response (Object Tree)";
 localizedStrings["Response (Text)"] = "Response (Text)";
-/* Text indicating that the local override will skip all network activity and instead immediately serve the response. */
-localizedStrings["Response (skip network) @ Local Override Type"] = "Response (skip network)";
 /* Text indicating that the local override intercepts the response phase of network activity. */
 localizedStrings["Response @ Local Override Type"] = "Response";
 localizedStrings["Response Cookies"] = "Response Cookies";
@@ -1382,7 +1422,7 @@ localizedStrings["Scheme"] = "Scheme";
 localizedStrings["Scope"] = "Scope";
 localizedStrings["Scope Chain"] = "Scope Chain";
 localizedStrings["Screen Shot %s-%s-%s at %s.%s.%s"] = "Screen Shot %s-%s-%s at %s.%s.%s";
-localizedStrings["Screen size:"] = "Screen size:";
+localizedStrings["Screen size"] = "Screen size";
 localizedStrings["Screenshots"] = "Screenshots";
 localizedStrings["Script"] = "Script";
 localizedStrings["Script Element %d"] = "Script Element %d";
@@ -1469,12 +1509,16 @@ localizedStrings["Show changes only for selected node"] = "Show changes only for
 localizedStrings["Show compositing borders"] = "Show compositing borders";
 /* Label for option to toggle the extended lines setting for CSS grid overlays */
 localizedStrings["Show extended lines @ Layout Panel Overlay Options"] = "Extended Grid Lines";
+localizedStrings["Show flexbox overlay"] = "Show flexbox overlay";
 localizedStrings["Show full certificate"] = "Show full certificate";
+localizedStrings["Show grid overlay"] = "Show grid overlay";
 localizedStrings["Show hidden tabs\u2026"] = "Show hidden tabs\u2026";
 /* Settings tab checkbox label for whether the independent styles sidebar should be shown */
 localizedStrings["Show independent Styles sidebar @ Settings Elements Pane"] = "Show independent Styles sidebar";
 localizedStrings["Show jump to effective property button"] = "Show jump to effective property button";
 localizedStrings["Show jump to variable declaration button"] = "Show jump to variable declaration button";
+/* Settings tab checkbox label for whether the details sidebars (on the right in LTR locales) are at the bottom */
+localizedStrings["Show on bottom when narrow @ Settings General Pane"] = "Show on bottom when narrow";
 localizedStrings["Show page rulers and node border lines"] = "Show page rulers and node border lines";
 localizedStrings["Show property syntax in documentation popover"] = "Show property syntax in documentation popover";
 localizedStrings["Show rulers"] = "Show rulers";
@@ -1488,7 +1532,6 @@ localizedStrings["Show type information"] = "Show type information";
 localizedStrings["Show:"] = "Show:";
 /* Property value for `font-variant-alternates: simplified`. */
 localizedStrings["Simplified Forms @ Font Details Sidebar Property Value"] = "Simplified Forms";
-localizedStrings["Site-specific Hacks"] = "Site-specific Hacks";
 localizedStrings["Size"] = "Size";
 /* Property title for `font-size`. */
 localizedStrings["Size @ Font Details Sidebar Property"] = "Size";
@@ -1575,6 +1618,8 @@ localizedStrings["Styles \u2014 Computed"] = "Styles \u2014 Computed";
 localizedStrings["Styles \u2014 Rules"] = "Styles \u2014 Rules";
 localizedStrings["Styles:"] = "Styles:";
 localizedStrings["Subject"] = "Subject";
+/* Label for the input of where to find the corresponding file within the mapped directory on disk. */
+localizedStrings["Subpath @ Local Override Popover"] = "Subpath";
 /* Property value for `font-variant-position: sub`. */
 localizedStrings["Subscript @ Font Details Sidebar Property Value"] = "Subscript";
 /* A submenu item of 'Break On' that breaks (pauses) before child DOM node is modified */
@@ -1598,6 +1643,8 @@ localizedStrings["Tabs"] = "Tabs";
 localizedStrings["Tabular Numerals @ Font Details Sidebar Property Value"] = "Tabular Numerals";
 /* A submenu item of 'Edit' to change DOM element's tag name */
 localizedStrings["Tag"] = "Tag";
+/* Tooltip for a variation axis tag that explains what the 4-character label represents. */
+localizedStrings["Tag tooltip @ Font Details Sidebar"] = "Variation axis tag";
 localizedStrings["Take snapshot"] = "Take snapshot";
 localizedStrings["Target"] = "Target";
 localizedStrings["Template Content"] = "Template Content";
@@ -1743,17 +1790,18 @@ localizedStrings["Update Font"] = "Update Font";
 localizedStrings["Update Image"] = "Update Image";
 localizedStrings["Update Local Override"] = "Update Local Override";
 localizedStrings["Usage: %s"] = "Usage: %s";
-localizedStrings["Use Mock Capture Devices"] = "Use Mock Capture Devices";
 localizedStrings["Use default media styles"] = "Use default media styles";
+localizedStrings["Use mock capture devices"] = "Use mock capture devices";
 localizedStrings["User Agent"] = "User Agent";
 localizedStrings["User Agent Style Sheet"] = "User Agent Style Sheet";
-localizedStrings["User Agent:"] = "User Agent:";
 localizedStrings["User Style Sheet"] = "User Style Sheet";
-localizedStrings["User preferences overriden"] = "User preferences overriden";
+localizedStrings["User preferences overridden"] = "User preferences overridden";
 localizedStrings["Valid From"] = "Valid From";
 localizedStrings["Valid Until"] = "Valid Until";
 localizedStrings["Value"] = "Value";
 localizedStrings["Variables"] = "Variables";
+/* Title of swatches section in Color Picker */
+localizedStrings["Variables @ Color Picker"] = "Variables";
 /* Section title for font variation properties. */
 localizedStrings["Variation Properties @ Font Details Sidebar Section"] = "Variation Properties";
 localizedStrings["Verbose"] = "Verbose";
@@ -1856,6 +1904,8 @@ localizedStrings["Worker: %s"] = "Worker: %s";
 /* Title for list of JavaScript web worker execution contexts */
 localizedStrings["Workers @ Execution Context Picker"] = "Workers";
 localizedStrings["Wrap lines to editor width"] = "Wrap lines to editor width";
+/* Part of the tooltip indicating that the hovered property is writable. */
+localizedStrings["Writable @ Object Tree Property"] = "Writable";
 localizedStrings["XBM"] = "XBM";
 localizedStrings["XHR"] = "XHR";
 localizedStrings["XHR Breakpoint\u2026"] = "XHR Breakpoint\u2026";
@@ -1906,6 +1956,10 @@ localizedStrings["invalid HAR"] = "invalid HAR";
 localizedStrings["invalid JSON"] = "invalid JSON";
 localizedStrings["key"] = "key";
 localizedStrings["line "] = "line ";
+/* Placeholder text indicating that no directory has been selected. */
+localizedStrings["no directory selected @ Local Override Popover"] = "no directory selected";
+/* Placeholder text indicating that no file has been selected. */
+localizedStrings["no file selected @ Local Override Popover"] = "no file selected";
 localizedStrings["non-array %s"] = "non-array %s";
 localizedStrings["non-integer %s"] = "non-integer %s";
 localizedStrings["non-number %s"] = "non-number %s";

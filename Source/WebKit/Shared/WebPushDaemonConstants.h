@@ -25,6 +25,8 @@
 
 #pragma once
 
+#ifdef __cplusplus
+
 namespace WebKit::WebPushD {
 
 // If an origin processes more than this many silent pushes, then it will be unsubscribed from push.
@@ -41,9 +43,9 @@ constexpr const char* protocolMessageTypeKey { "message type" };
 
 enum class MessageType : uint8_t {
     EchoTwice = 1,
-    RequestSystemNotificationPermission,
+    RequestSystemNotificationPermission_UNUSED,
     DeletePushAndNotificationRegistration,
-    GetOriginsWithPushAndNotificationPermissions,
+    GetOriginsWithPushAndNotificationPermissions_UNUSED,
     SetDebugModeIsEnabled,
     UpdateConnectionConfiguration,
     InjectPushMessageForTesting,
@@ -68,9 +70,9 @@ inline bool messageTypeSendsReply(MessageType messageType)
 {
     switch (messageType) {
     case MessageType::EchoTwice:
-    case MessageType::GetOriginsWithPushAndNotificationPermissions:
+    case MessageType::RequestSystemNotificationPermission_UNUSED:
     case MessageType::DeletePushAndNotificationRegistration:
-    case MessageType::RequestSystemNotificationPermission:
+    case MessageType::GetOriginsWithPushAndNotificationPermissions_UNUSED:
     case MessageType::GetPendingPushMessages:
     case MessageType::InjectPushMessageForTesting:
     case MessageType::InjectEncryptedPushMessageForTesting:
@@ -107,3 +109,5 @@ inline bool daemonMessageTypeSendsReply(DaemonMessageType messageType)
 }
 
 } // namespace WebKit::WebPushD
+
+#endif

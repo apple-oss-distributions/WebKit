@@ -488,7 +488,8 @@ bool JSArray::appendMemcpy(JSGlobalObject* globalObject, VM& vm, unsigned startI
 
     IndexingType type = indexingType();
     IndexingType otherType = otherArray->indexingType();
-    IndexingType copyType = mergeIndexingTypeForCopying(otherType);
+    bool allowPromotion = false;
+    IndexingType copyType = mergeIndexingTypeForCopying(otherType, allowPromotion);
     if (type == ArrayWithUndecided && copyType != NonArray) {
         if (copyType == ArrayWithInt32)
             convertUndecidedToInt32(vm);
@@ -1033,6 +1034,7 @@ bool JSArray::unshiftCountWithArrayStorage(JSGlobalObject* globalObject, unsigne
         Structure* structure = this->structure();
         ConcurrentJSLocker structureLock(structure->lock());
         Butterfly* newButterfly = storage->butterfly()->unshift(structure, count);
+
         storage = newButterfly->arrayStorage();
         storage->m_indexBias -= count;
         storage->setVectorLength(vectorLength + count);
@@ -1347,6 +1349,7 @@ bool JSArray::isIteratorProtocolFastAndNonObservable()
     return true;
 }
 
+template<AllocationFailureMode failureMode>
 inline JSArray* constructArray(ObjectInitializationScope& scope, Structure* arrayStructure, unsigned length)
 {
     JSArray* array = JSArray::tryCreateUninitializedRestricted(scope, arrayStructure, length);
@@ -1355,7 +1358,10 @@ inline JSArray* constructArray(ObjectInitializationScope& scope, Structure* arra
     // when making this change we should check that all clients of this
     // function will correctly handle an exception being thrown from here.
     // https://bugs.webkit.org/show_bug.cgi?id=169786
-    RELEASE_ASSERT(array);
+    if constexpr (failureMode == AllocationFailureMode::Assert)
+        RELEASE_ASSERT(array);
+    else if (!array)
+        return nullptr;
 
     // FIXME: We only need this for subclasses of Array because we might need to allocate a new structure to change
     // indexing types while initializing. If this triggered a GC then we might scan our currently uninitialized
@@ -1372,7 +1378,7 @@ JSArray* constructArray(JSGlobalObject* globalObject, Structure* arrayStructure,
     unsigned length = values.size();
     ObjectInitializationScope scope(vm);
 
-    JSArray* array = constructArray(scope, arrayStructure, length);
+    JSArray* array = constructArray<AllocationFailureMode::Assert>(scope, arrayStructure, length);
     for (unsigned i = 0; i < length; ++i)
         array->initializeIndex(scope, i, values.at(i));
     return array;
@@ -1383,7 +1389,7 @@ JSArray* constructArray(JSGlobalObject* globalObject, Structure* arrayStructure,
     VM& vm = globalObject->vm();
     ObjectInitializationScope scope(vm);
 
-    JSArray* array = constructArray(scope, arrayStructure, length);
+    JSArray* array = constructArray<AllocationFailureMode::Assert>(scope, arrayStructure, length);
     for (unsigned i = 0; i < length; ++i)
         array->initializeIndex(scope, i, values[i]);
     return array;
@@ -1392,9 +1398,15 @@ JSArray* constructArray(JSGlobalObject* globalObject, Structure* arrayStructure,
 JSArray* constructArrayNegativeIndexed(JSGlobalObject* globalObject, Structure* arrayStructure, const JSValue* values, unsigned length)
 {
     VM& vm = globalObject->vm();
+    auto throwScope = DECLARE_THROW_SCOPE(vm);
     ObjectInitializationScope scope(vm);
 
-    JSArray* array = constructArray(scope, arrayStructure, length);
+    JSArray* array = constructArray<AllocationFailureMode::ReturnNull>(scope, arrayStructure, length);
+    if (UNLIKELY(!array)) {
+        throwOutOfMemoryError(globalObject, throwScope);
+        return nullptr;
+    }
+
     for (int i = 0; i < static_cast<int>(length); ++i)
         array->initializeIndex(scope, i, values[-i]);
     return array;

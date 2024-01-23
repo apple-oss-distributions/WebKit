@@ -33,6 +33,7 @@
 #include "Document.h"
 #include "MediaList.h"
 #include "NodeRenderStyle.h"
+#include "RenderStyleInlines.h"
 #include "RenderView.h"
 #include "StyleRule.h"
 #include "StyleScope.h"
@@ -77,7 +78,7 @@ auto ContainerQueryEvaluator::featureEvaluationContextForQuery(const CQ::Contain
 
     return MQ::FeatureEvaluationContext {
         m_element->document(),
-        CSSToLengthConversionData { renderer.style(), m_element->document().documentElement()->renderStyle(), nullptr, &renderer.view() },
+        CSSToLengthConversionData { renderer.style(), m_element->document().documentElement()->renderStyle(), nullptr, &renderer.view(), container },
         &renderer
     };
 }
@@ -107,21 +108,31 @@ const Element* ContainerQueryEvaluator::selectContainer(OptionSet<CQ::Axis> axes
         RELEASE_ASSERT_NOT_REACHED();
     };
 
-    auto isContainerForQuery = [&](const Element& element) {
-        auto* style = element.existingComputedStyle();
+    auto isContainerForQuery = [&](const Element& candidateElement) {
+        auto* style = candidateElement.existingComputedStyle();
         if (!style)
             return false;
-        if (!isValidContainerForRequiredAxes(style->containerType(), element.renderer()))
+        if (!isValidContainerForRequiredAxes(style->containerType(), candidateElement.renderer()))
             return false;
         if (name.isEmpty())
             return true;
-        return style->containerNames().contains(name);
+        return style->containerNames().containsIf([&](auto& scopedName) {
+            // Names from the inner scopes are ignored.
+            // FIXME: Should names from inner scopes be allowed in some cases?
+            if (scopedName.scopeOrdinal > ScopeOrdinal::Element)
+                return false;
+            return scopedName.name == name;
+        });
     };
 
     auto findOriginatingElement = [&]() -> const Element* {
         // ::part() selectors can query its originating host, but not internal query containers inside the shadow tree.
-        if (scopeOrdinal <= ScopeOrdinal::ContainingHost)
-            return hostForScopeOrdinal(element, scopeOrdinal);
+        if (selectionMode == SelectionMode::PartPseudoElement) {
+            if (scopeOrdinal <= ScopeOrdinal::ContainingHost)
+                return hostForScopeOrdinal(element, scopeOrdinal);
+            ASSERT(scopeOrdinal == ScopeOrdinal::Element);
+            return element.shadowHost();
+        }
         // ::slotted() selectors can query containers inside the shadow tree, including the slot itself.
         if (scopeOrdinal >= ScopeOrdinal::FirstSlot && scopeOrdinal <= ScopeOrdinal::SlotLimit)
             return assignedSlotForScopeOrdinal(element, scopeOrdinal);

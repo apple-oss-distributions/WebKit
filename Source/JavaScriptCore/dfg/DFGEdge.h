@@ -160,19 +160,8 @@ public:
     bool operator!() const { return !isSet(); }
     explicit operator bool() const { return isSet(); }
     
-    bool operator==(Edge other) const
-    {
-#if USE(JSVALUE64)
-        return m_encodedWord == other.m_encodedWord;
-#else
-        return m_node == other.m_node && m_encodedWord == other.m_encodedWord;
-#endif
-    }
-    bool operator!=(Edge other) const
-    {
-        return !(*this == other);
-    }
-    
+    friend bool operator==(Edge, Edge) = default;
+
     void dump(PrintStream&) const;
     
     unsigned hash() const
@@ -234,14 +223,6 @@ inline bool operator==(Edge edge, Node* node)
 inline bool operator==(Node* node, Edge edge)
 {
     return edge.node() == node;
-}
-inline bool operator!=(Edge edge, Node* node)
-{
-    return edge.node() != node;
-}
-inline bool operator!=(Node* node, Edge edge)
-{
-    return edge.node() != node;
 }
 
 } } // namespace JSC::DFG

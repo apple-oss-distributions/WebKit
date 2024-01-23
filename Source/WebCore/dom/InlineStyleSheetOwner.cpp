@@ -86,7 +86,7 @@ InlineStyleSheetOwner::~InlineStyleSheetOwner()
 
 void InlineStyleSheetOwner::insertedIntoDocument(Element& element)
 {
-    m_styleScope = &Style::Scope::forNode(element);
+    m_styleScope = Style::Scope::forNode(element);
     m_styleScope->addStyleSheetCandidateNode(element, m_isParsingChildren);
 
     if (m_isParsingChildren)
@@ -96,11 +96,11 @@ void InlineStyleSheetOwner::insertedIntoDocument(Element& element)
 
 void InlineStyleSheetOwner::removedFromDocument(Element& element)
 {
-    if (m_styleScope) {
-        if (m_styleScope->hasPendingSheet(element))
-            m_styleScope->removePendingSheet(element);
-        m_styleScope->removeStyleSheetCandidateNode(element);
-        m_styleScope = nullptr;
+    if (auto* scope = m_styleScope.get()) {
+        if (scope->hasPendingSheet(element))
+            scope->removePendingSheet(element);
+        scope->removeStyleSheetCandidateNode(element);
+        scope = nullptr;
     }
     if (m_sheet)
         clearSheet();
@@ -111,9 +111,9 @@ void InlineStyleSheetOwner::clearDocumentData(Element& element)
     if (m_sheet)
         m_sheet->clearOwnerNode();
 
-    if (m_styleScope) {
-        m_styleScope->removeStyleSheetCandidateNode(element);
-        m_styleScope = nullptr;
+    if (auto* scope = m_styleScope.get()) {
+        scope->removeStyleSheetCandidateNode(element);
+        scope = nullptr;
     }
 }
 
@@ -145,14 +145,12 @@ void InlineStyleSheetOwner::clearSheet()
     sheet->clearOwnerNode();
 }
 
-inline bool isValidCSSContentType(Element& element, const AtomString& type)
+inline bool isValidCSSContentType(const AtomString& type)
 {
+    // https://html.spec.whatwg.org/multipage/semantics.html#update-a-style-block
     if (type.isEmpty())
         return true;
-    // FIXME: Should MIME types really be case sensitive in XML documents? Doesn't seem like they should,
-    // even though other things are case sensitive in that context. MIME types should never be case sensitive.
-    // We should verify this and then remove the isHTMLElement check here.
-    return element.isHTMLElement() ? equalLettersIgnoringASCIICase(type, "text/css"_s) : type == cssContentTypeAtom();
+    return equalLettersIgnoringASCIICase(type, "text/css"_s);
 }
 
 void InlineStyleSheetOwner::createSheet(Element& element, const String& text)
@@ -165,7 +163,7 @@ void InlineStyleSheetOwner::createSheet(Element& element, const String& text)
         clearSheet();
     }
 
-    if (!isValidCSSContentType(element, m_contentType))
+    if (!isValidCSSContentType(m_contentType))
         return;
 
     ASSERT(document.contentSecurityPolicy());
@@ -177,8 +175,8 @@ void InlineStyleSheetOwner::createSheet(Element& element, const String& text)
 
     auto mediaQueries = MQ::MediaQueryParser::parse(m_media, MediaQueryParserContext(document));
 
-    if (m_styleScope)
-        m_styleScope->addPendingSheet(element);
+    if (auto* scope = m_styleScope.get())
+        scope->addPendingSheet(element);
 
     auto cacheKey = makeInlineStyleSheetCacheKey(text, element);
     if (cacheKey) {
@@ -215,7 +213,7 @@ void InlineStyleSheetOwner::createSheet(Element& element, const String& text)
         inlineStyleSheetCache().add(*cacheKey, &m_sheet->contents());
 
         // Prevent pathological growth.
-        const size_t maximumInlineStyleSheetCacheSize = 50;
+        static constexpr auto maximumInlineStyleSheetCacheSize = 256;
         if (inlineStyleSheetCache().size() > maximumInlineStyleSheetCacheSize) {
             auto toRemove = inlineStyleSheetCache().random();
             toRemove->value->removedFromMemoryCache();
@@ -236,16 +234,16 @@ bool InlineStyleSheetOwner::sheetLoaded(Element& element)
     if (isLoading())
         return false;
 
-    if (m_styleScope)
-        m_styleScope->removePendingSheet(element);
+    if (auto* scope = m_styleScope.get())
+        scope->removePendingSheet(element);
 
     return true;
 }
 
 void InlineStyleSheetOwner::startLoadingDynamicSheet(Element& element)
 {
-    if (m_styleScope && !m_styleScope->hasPendingSheet(element))
-        m_styleScope->addPendingSheet(element);
+    if (auto* scope = m_styleScope.get(); scope && !scope->hasPendingSheet(element))
+        scope->addPendingSheet(element);
 }
 
 void InlineStyleSheetOwner::clearCache()

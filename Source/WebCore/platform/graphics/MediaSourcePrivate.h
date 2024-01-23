@@ -65,18 +65,16 @@ public:
     virtual MediaPlayer::ReadyState readyState() const = 0;
     virtual void setReadyState(MediaPlayer::ReadyState) = 0;
 
-    virtual void setIsSeeking(bool isSeeking) { m_isSeeking = isSeeking; }
-    virtual void waitForSeekCompleted() = 0;
-    virtual void seekCompleted() = 0;
+    virtual void waitForTarget(const SeekTarget&, CompletionHandler<void(const MediaTime&)>&&) = 0;
+    virtual void seekToTime(const MediaTime&, CompletionHandler<void()>&&) = 0;
 
     virtual void setTimeFudgeFactor(const MediaTime& fudgeFactor) { m_timeFudgeFactor = fudgeFactor; }
-
     MediaTime timeFudgeFactor() const { return m_timeFudgeFactor; }
-    bool isSeeking() const { return m_isSeeking; }
+
+    bool hasFutureTime(const MediaTime& currentTime, const MediaTime& duration, const PlatformTimeRanges&) const;
 
 private:
     MediaTime m_timeFudgeFactor;
-    bool m_isSeeking { false };
 };
 
 String convertEnumerationToString(MediaSourcePrivate::AddStatus);
@@ -96,6 +94,15 @@ struct LogArgument<WebCore::MediaSourcePrivate::AddStatus> {
     }
 };
 
+template<> struct EnumTraits<WebCore::MediaSourcePrivate::AddStatus> {
+    using values = EnumValues<
+        WebCore::MediaSourcePrivate::AddStatus,
+        WebCore::MediaSourcePrivate::AddStatus::Ok,
+        WebCore::MediaSourcePrivate::AddStatus::NotSupported,
+        WebCore::MediaSourcePrivate::AddStatus::ReachedIdLimit
+    >;
+};
+
 template <>
 struct LogArgument<WebCore::MediaSourcePrivate::EndOfStreamStatus> {
     static String toString(const WebCore::MediaSourcePrivate::EndOfStreamStatus status)
@@ -104,12 +111,12 @@ struct LogArgument<WebCore::MediaSourcePrivate::EndOfStreamStatus> {
     }
 };
 
-template<> struct EnumTraits<WebCore::MediaSourcePrivate::AddStatus> {
+template<> struct EnumTraits<WebCore::MediaSourcePrivate::EndOfStreamStatus> {
     using values = EnumValues<
-        WebCore::MediaSourcePrivate::AddStatus,
-        WebCore::MediaSourcePrivate::AddStatus::Ok,
-        WebCore::MediaSourcePrivate::AddStatus::NotSupported,
-        WebCore::MediaSourcePrivate::AddStatus::ReachedIdLimit
+        WebCore::MediaSourcePrivate::EndOfStreamStatus,
+        WebCore::MediaSourcePrivate::EndOfStreamStatus::EosNoError,
+        WebCore::MediaSourcePrivate::EndOfStreamStatus::EosNetworkError,
+        WebCore::MediaSourcePrivate::EndOfStreamStatus::EosDecodeError
     >;
 };
 

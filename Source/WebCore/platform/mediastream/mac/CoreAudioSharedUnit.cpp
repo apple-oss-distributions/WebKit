@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2022 Apple Inc. All rights reserved.
+ * Copyright (C) 2017-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -58,11 +58,11 @@ namespace WebCore {
 const UInt32 outputBus = 0;
 const UInt32 inputBus = 1;
 
-class CoreAudioSharedInternalUnit :  public CoreAudioSharedUnit::InternalUnit {
+class CoreAudioSharedInternalUnit final :  public CoreAudioSharedUnit::InternalUnit {
     WTF_MAKE_FAST_ALLOCATED;
 public:
     static Expected<UniqueRef<InternalUnit>, OSStatus> create(bool shouldUseVPIO);
-    explicit CoreAudioSharedInternalUnit(AudioUnit);
+    CoreAudioSharedInternalUnit(AudioUnit, bool shouldUseVPIO);
     ~CoreAudioSharedInternalUnit() final;
 
 private:
@@ -75,12 +75,22 @@ private:
     OSStatus render(AudioUnitRenderActionFlags*, const AudioTimeStamp*, UInt32, UInt32, AudioBufferList*) final;
     OSStatus defaultInputDevice(uint32_t*) final;
     OSStatus defaultOutputDevice(uint32_t*) final;
+    void storeVPIOUnitIfNeeded() final;
 
     AudioUnit m_ioUnit { nullptr };
+    bool m_shouldUseVPIO { false };
 };
 
 Expected<UniqueRef<CoreAudioSharedUnit::InternalUnit>, OSStatus> CoreAudioSharedInternalUnit::create(bool shouldUseVPIO)
 {
+    if (shouldUseVPIO) {
+        if (auto ioUnit = CoreAudioSharedUnit::unit().takeStoredVPIOUnit()) {
+            RELEASE_LOG(WebRTC, "Creating a CoreAudioSharedInternalUnit wilth a stored VPIO unit");
+            UniqueRef<CoreAudioSharedUnit::InternalUnit> result = makeUniqueRef<CoreAudioSharedInternalUnit>(ioUnit, shouldUseVPIO);
+            return result;
+        }
+    }
+
     OSType unitSubType = kAudioUnitSubType_VoiceProcessingIO;
     if (!shouldUseVPIO) {
 #if PLATFORM(MAC)
@@ -117,18 +127,26 @@ Expected<UniqueRef<CoreAudioSharedUnit::InternalUnit>, OSStatus> CoreAudioShared
 
     RELEASE_LOG(WebRTC, "Successfully created a CoreAudioSharedInternalUnit");
 
-    UniqueRef<CoreAudioSharedUnit::InternalUnit> result = makeUniqueRef<CoreAudioSharedInternalUnit>(ioUnit);
+    UniqueRef<CoreAudioSharedUnit::InternalUnit> result = makeUniqueRef<CoreAudioSharedInternalUnit>(ioUnit, shouldUseVPIO);
     return result;
 }
 
-CoreAudioSharedInternalUnit::CoreAudioSharedInternalUnit(AudioUnit ioUnit)
+CoreAudioSharedInternalUnit::CoreAudioSharedInternalUnit(AudioUnit ioUnit, bool shouldUseVPIO)
     : m_ioUnit(ioUnit)
+    , m_shouldUseVPIO(shouldUseVPIO)
 {
 }
 
 CoreAudioSharedInternalUnit::~CoreAudioSharedInternalUnit()
 {
-    PAL::AudioComponentInstanceDispose(m_ioUnit);
+    if (!CoreAudioSharedUnit::unit().iStoredVPIOUnit(m_ioUnit))
+        PAL::AudioComponentInstanceDispose(m_ioUnit);
+}
+
+void CoreAudioSharedInternalUnit::storeVPIOUnitIfNeeded()
+{
+    if (m_shouldUseVPIO)
+        CoreAudioSharedUnit::unit().setStoredVPIOUnit(m_ioUnit);
 }
 
 OSStatus CoreAudioSharedInternalUnit::initialize()
@@ -188,9 +206,9 @@ OSStatus CoreAudioSharedInternalUnit::defaultOutputDevice(uint32_t* deviceID)
 #if HAVE(AUDIO_OBJECT_PROPERTY_ELEMENT_MAIN)
         kAudioObjectPropertyElementMain
 #else
-        ALLOW_DEPRECATED_DECLARATIONS_BEGIN
+ALLOW_DEPRECATED_DECLARATIONS_BEGIN
         kAudioObjectPropertyElementMaster
-        ALLOW_DEPRECATED_DECLARATIONS_END
+ALLOW_DEPRECATED_DECLARATIONS_END
 #endif
     };
 
@@ -218,6 +236,13 @@ CoreAudioSharedUnit::CoreAudioSharedUnit()
 
 CoreAudioSharedUnit::~CoreAudioSharedUnit()
 {
+    ASSERT(!m_storedVPIOUnit);
+}
+
+void CoreAudioSharedUnit::setStoredVPIOUnit(AudioUnit unit)
+{
+    ASSERT(!m_storedVPIOUnit);
+    m_storedVPIOUnit = unit;
 }
 
 void CoreAudioSharedUnit::resetSampleRate()
@@ -546,6 +571,16 @@ OSStatus CoreAudioSharedUnit::reconfigureAudioUnit()
             return err;
         }
     }
+
+#if PLATFORM(MAC)
+    m_ioUnit->storeVPIOUnitIfNeeded();
+    auto scopeVPIOUnit = makeScopeExit([this] {
+        if (auto unit = takeStoredVPIOUnit()) {
+            RELEASE_LOG_INFO(WebRTC, "CoreAudioSharedUnit::reconfigureAudioUnit disposing VPIO unit");
+            PAL::AudioComponentInstanceDispose(unit);
+        }
+    });
+#endif
 
     cleanupAudioUnit();
     if (auto err = setupAudioUnit())

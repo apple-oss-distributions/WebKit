@@ -25,12 +25,14 @@
 
 #pragma once
 
+#include "APIData.h"
 #include "AccessibilityPreferences.h"
 #include "AuxiliaryProcessCreationParameters.h"
 #include "CacheModel.h"
 #include "SandboxExtension.h"
 #include "TextCheckerState.h"
 #include "UserData.h"
+
 #include "WebProcessDataStoreParameters.h"
 #include <WebCore/CrossOriginMode.h>
 #include <wtf/HashMap.h>
@@ -40,14 +42,18 @@
 #include <wtf/text/StringHash.h>
 #include <wtf/text/WTFString.h>
 
+#if PLATFORM(COCOA) || PLATFORM(GTK)
+#include <WebCore/ScreenProperties.h>
+#endif
+
 #if PLATFORM(COCOA)
 #include <WebCore/PlatformScreen.h>
-#include <WebCore/ScreenProperties.h>
 #include <wtf/MachSendRight.h>
 #endif
 
 #if PLATFORM(IOS_FAMILY)
 #include <WebCore/RenderThemeIOS.h>
+#include <pal/system/ios/UserInterfaceIdiom.h>
 #endif
 
 #if PLATFORM(GTK) || PLATFORM(WPE)
@@ -55,6 +61,7 @@
 #endif
 
 #if PLATFORM(GTK)
+#include "DMABufRendererBufferMode.h"
 #include "GtkSettingsState.h"
 #endif
 
@@ -62,22 +69,9 @@ namespace API {
 class Data;
 }
 
-namespace IPC {
-class Decoder;
-class Encoder;
-}
-
 namespace WebKit {
 
 struct WebProcessCreationParameters {
-    WebProcessCreationParameters();
-    ~WebProcessCreationParameters();
-    WebProcessCreationParameters(WebProcessCreationParameters&&);
-    WebProcessCreationParameters& operator=(WebProcessCreationParameters&&);
-
-    void encode(IPC::Encoder&) const;
-    static WARN_UNUSED_RETURN bool decode(IPC::Decoder&, WebProcessCreationParameters&);
-
     AuxiliaryProcessCreationParameters auxiliaryProcessParameters;
     String injectedBundlePath;
     SandboxExtension::Handle injectedBundlePathExtensionHandle;
@@ -87,9 +81,6 @@ struct WebProcessCreationParameters {
 
 #if PLATFORM(COCOA) && ENABLE(REMOTE_INSPECTOR)
     Vector<SandboxExtension::Handle> enableRemoteWebInspectorExtensionHandles;
-#endif
-#if ENABLE(MEDIA_STREAM)
-    SandboxExtension::Handle audioCaptureExtensionHandle;
 #endif
 
     Vector<String> urlSchemesRegisteredAsEmptyDocument;
@@ -176,6 +167,9 @@ struct WebProcessCreationParameters {
 
 #if PLATFORM(COCOA)
     Vector<String> mediaMIMETypes;
+#endif
+
+#if PLATFORM(COCOA) || PLATFORM(GTK)
     WebCore::ScreenProperties screenProperties;
 #endif
 
@@ -195,7 +189,7 @@ struct WebProcessCreationParameters {
 
     std::optional<WebProcessDataStoreParameters> websiteDataStoreParameters;
     
-#if PLATFORM(IOS)
+#if PLATFORM(IOS) || PLATFORM(VISION)
     Vector<SandboxExtension::Handle> compilerServiceExtensionHandles;
 #endif
 
@@ -213,13 +207,19 @@ struct WebProcessCreationParameters {
     Vector<SandboxExtension::Handle> dynamicIOKitExtensionHandles;
 #endif
 
+#if PLATFORM(VISION)
+    // FIXME: Remove when GPU Process is fully enabled.
+    Vector<SandboxExtension::Handle> metalCacheDirectoryExtensionHandles;
+#endif
+
 #if PLATFORM(COCOA)
     bool systemHasBattery { false };
     bool systemHasAC { false };
+    bool strictSecureDecodingForAllObjCEnabled { false };
 #endif
 
 #if PLATFORM(IOS_FAMILY)
-    bool currentUserInterfaceIdiomIsSmallScreen { false };
+    PAL::UserInterfaceIdiom currentUserInterfaceIdiom { PAL::UserInterfaceIdiom::Default };
     bool supportsPictureInPicture { false };
     WebCore::RenderThemeIOS::CSSValueToSystemColorMap cssValueToSystemColorMap;
     WebCore::Color focusRingColor;
@@ -227,7 +227,12 @@ struct WebProcessCreationParameters {
     String contentSizeCategory;
 #endif
 
+#if USE(GBM)
+    String renderDeviceFile;
+#endif
+
 #if PLATFORM(GTK)
+    OptionSet<DMABufRendererBufferMode> dmaBufRendererBufferMode;
     bool useSystemAppearanceForScrollbars { false };
     GtkSettingsState gtkSettings;
 #endif
@@ -248,6 +253,7 @@ struct WebProcessCreationParameters {
 
 #if PLATFORM(GTK) || PLATFORM(WPE)
     std::optional<MemoryPressureHandler::Configuration> memoryPressureHandlerConfiguration;
+    bool disableFontHintingForTesting { false };
 #endif
 
 #if USE(GLIB)

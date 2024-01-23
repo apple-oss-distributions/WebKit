@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013-2022 Apple Inc. All rights reserved.
+ * Copyright (C) 2013-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -29,6 +29,7 @@
 #import "WebKit2Initialize.h"
 #import <JavaScriptCore/ExecutableAllocator.h>
 #import <wtf/OSObjectPtr.h>
+#import <wtf/WTFProcess.h>
 #import <wtf/cocoa/RuntimeApplicationChecksCocoa.h>
 
 #if !USE(RUNNINGBOARD)
@@ -102,6 +103,7 @@ void XPCServiceInitializer(OSObjectPtr<xpc_connection_t> connection, xpc_object_
             JSC::Options::useLLIntICs() = false;
             JSC::Options::useZombieMode() = true;
             JSC::Options::allowDoubleShape() = false;
+            JSC::Options::alwaysHaveABadTime() = true;
             optionsChanged = true;
         } else if (xpc_dictionary_get_bool(initializerMessage, "disable-jit")) {
             JSC::Options::initialize();
@@ -131,15 +133,15 @@ void XPCServiceInitializer(OSObjectPtr<xpc_connection_t> connection, xpc_object_
     InitializeWebKit2();
 
     if (!delegate.checkEntitlements())
-        exit(EXIT_FAILURE);
+        exitProcess(EXIT_FAILURE);
 
     AuxiliaryProcessInitializationParameters parameters;
 
     if (!delegate.getConnectionIdentifier(parameters.connectionIdentifier))
-        exit(EXIT_FAILURE);
+        exitProcess(EXIT_FAILURE);
 
     if (!delegate.getClientIdentifier(parameters.clientIdentifier))
-        exit(EXIT_FAILURE);
+        exitProcess(EXIT_FAILURE);
 
     // The host process may not have a bundle identifier (e.g. a command line app), so don't require one.
     delegate.getClientBundleIdentifier(parameters.clientBundleIdentifier);
@@ -148,14 +150,14 @@ void XPCServiceInitializer(OSObjectPtr<xpc_connection_t> connection, xpc_object_
 
     WebCore::ProcessIdentifier processIdentifier;
     if (!delegate.getProcessIdentifier(processIdentifier))
-        exit(EXIT_FAILURE);
+        exitProcess(EXIT_FAILURE);
     parameters.processIdentifier = processIdentifier;
 
     if (!delegate.getClientProcessName(parameters.uiProcessName))
-        exit(EXIT_FAILURE);
+        exitProcess(EXIT_FAILURE);
 
     if (!delegate.getExtraInitializationData(parameters.extraInitializationData))
-        exit(EXIT_FAILURE);
+        exitProcess(EXIT_FAILURE);
 
     // Set the task default voucher to the current value (as propagated by XPC).
     voucher_replace_default_voucher();

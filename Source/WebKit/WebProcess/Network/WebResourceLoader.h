@@ -100,10 +100,10 @@ private:
     WebCore::MainFrameMainResource mainFrameMainResource() const;
     
 #if ENABLE(SHAREABLE_RESOURCE)
-    void didReceiveResource(const ShareableResource::Handle&);
+    void didReceiveResource(ShareableResource::Handle&&);
 #endif
 
-#if ENABLE(CONTENT_FILTERING_IN_NETWORKING_PROCESS)
+#if ENABLE(CONTENT_FILTERING)
     void contentFilterDidBlockLoad(const WebCore::ContentFilterUnblockHandler&, String&& unblockRequestDeniedScript, const WebCore::ResourceError&, const URL& blockedPageURL, WebCore::SubstituteData&&);
 #endif
     

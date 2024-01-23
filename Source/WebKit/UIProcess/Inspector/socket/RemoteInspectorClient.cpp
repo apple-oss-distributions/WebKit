@@ -32,6 +32,7 @@
 #include "APIInspectorConfiguration.h"
 #include "RemoteWebInspectorUIProxy.h"
 #include <wtf/MainThread.h>
+#include <wtf/NeverDestroyed.h>
 #include <wtf/text/Base64.h>
 
 namespace WebKit {
@@ -85,7 +86,7 @@ public:
         m_inspectorClient.closeFromFrontend(m_connectionID, m_targetID);
     }
 
-    Ref<API::InspectorConfiguration> configurationForRemoteInspector(RemoteWebInspectorUIProxy&)
+    Ref<API::InspectorConfiguration> configurationForRemoteInspector(RemoteWebInspectorUIProxy&) override
     {
         return API::InspectorConfiguration::create();
     }

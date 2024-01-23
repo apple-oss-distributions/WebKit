@@ -26,6 +26,7 @@
 #pragma once
 
 #include "InlineFormattingState.h"
+#include "InlineLineTypes.h"
 #include "LayoutElementBox.h"
 #include <wtf/text/StringBuilder.h>
 
@@ -36,14 +37,17 @@ class InlineTextBox;
 class InlineItemsBuilder {
 public:
     InlineItemsBuilder(const ElementBox& formattingContextRoot, InlineFormattingState&);
-    InlineItems build();
+    void build(InlineItemPosition startPosition);
 
 private:
-    void collectInlineItems(InlineItems&);
+    void collectInlineItems(InlineItems&, FormattingState::OutOfFlowBoxList&, InlineItemPosition startPosition);
+    using LayoutQueue = Vector<CheckedRef<const Box>>;
+    LayoutQueue initializeLayoutQueue(InlineItemPosition startPosition);
+    bool traverseUntilDamaged(LayoutQueue&, const Box& subtreeRoot, const Box& firstDamagedLayoutBox);
     void breakAndComputeBidiLevels(InlineItems&);
     void computeInlineTextItemWidths(InlineItems&);
 
-    void handleTextContent(const InlineTextBox&, InlineItems&);
+    void handleTextContent(const InlineTextBox&, InlineItems&, std::optional<size_t> partialContentOffset);
     void handleInlineBoxStart(const Box&, InlineItems&);
     void handleInlineBoxEnd(const Box&, InlineItems&);
     void handleInlineLevelBox(const Box&, InlineItems&);
@@ -56,6 +60,7 @@ private:
     // FIXME: We should not need this here. This is only required by the out of flow boxes.
     InlineFormattingState& m_formattingState;
     bool m_contentRequiresVisualReordering { false };
+    bool m_isNonBidiTextAndForcedLineBreakOnlyContent { true };
 };
 
 }

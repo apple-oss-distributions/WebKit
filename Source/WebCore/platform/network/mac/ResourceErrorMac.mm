@@ -28,19 +28,11 @@
 
 #import <CoreFoundation/CFError.h>
 #import <Foundation/Foundation.h>
+#import <pal/spi/cocoa/NetworkSPI.h>
 #import <wtf/BlockObjCExceptions.h>
 #import <wtf/NeverDestroyed.h>
 #import <wtf/URL.h>
 #import <wtf/text/WTFString.h>
-
-#if USE(APPLE_INTERNAL_SDK) && __has_include(<WebKitAdditions/ResourceErrorMacAdditions.mm>)
-#import <WebKitAdditions/ResourceErrorMacAdditions.mm>
-#else
-static bool dueToCompromisingNetworkConnectionIntegrity(NSError *)
-{
-    return false;
-}
-#endif
 
 @interface NSError (WebExtras)
 - (NSString *)_web_localizedDescription;
@@ -120,8 +112,8 @@ static RetainPtr<NSError> createNSErrorFromResourceErrorBase(const ResourceError
 
 ResourceError::ResourceError(NSError *nsError)
     : ResourceErrorBase(Type::Null)
-    , m_dataIsUpToDate(false)
     , m_platformError(nsError)
+    , m_dataIsUpToDate(false)
 {
     mapPlatformError();
 }
@@ -141,6 +133,45 @@ const String& ResourceError::getCFErrorDomainCFNetwork() const
 {
     static const NeverDestroyed<String> errorDomain(kCFErrorDomainCFNetwork);
     return errorDomain.get();
+}
+
+ResourceError::ErrorRecoveryMethod ResourceError::errorRecoveryMethod() const
+{
+    lazyInit();
+
+    bool isRecoverableError { false };
+    if ([m_domain isEqualToString:NSURLErrorDomain]) {
+        switch (m_errorCode) {
+        case NSURLErrorTimedOut:
+        case NSURLErrorCannotFindHost:
+        case NSURLErrorCannotConnectToHost:
+        case NSURLErrorNetworkConnectionLost:
+        case NSURLErrorHTTPTooManyRedirects:
+        case NSURLErrorResourceUnavailable:
+        case NSURLErrorRedirectToNonExistentLocation:
+        case NSURLErrorBadServerResponse:
+        case NSURLErrorZeroByteResource:
+        case NSURLErrorCannotDecodeRawData:
+        case NSURLErrorCannotDecodeContentData:
+        case NSURLErrorCannotParseResponse:
+        case NSURLErrorSecureConnectionFailed:
+        case NSURLErrorServerCertificateHasBadDate:
+        case NSURLErrorServerCertificateUntrusted:
+        case NSURLErrorServerCertificateHasUnknownRoot:
+        case NSURLErrorServerCertificateNotYetValid:
+        case NSURLErrorClientCertificateRejected:
+        case NSURLErrorClientCertificateRequired:
+            isRecoverableError = true;
+        }
+    } else if ([m_domain isEqualToString:@"WebKitErrorDomain"]) {
+        // FIXME: These literals should be moved into a central location that is shared with WebKit::API.
+        constexpr auto httpsUpgradeRedirectLoop { 304 };
+        isRecoverableError = m_errorCode == httpsUpgradeRedirectLoop;
+    }
+
+    if (isRecoverableError && m_failingURL.protocolIs("https"_s) && (!m_failingURL.port() || WTF::isDefaultPortForProtocol(m_failingURL.port().value(), m_failingURL.protocol())))
+        return ResourceError::ErrorRecoveryMethod::HTTPFallback;
+    return ResourceError::ErrorRecoveryMethod::NoRecovery;
 }
 
 void ResourceError::mapPlatformError()
@@ -177,7 +208,6 @@ void ResourceError::platformLazyInit()
     m_localizedDescription = m_failingURL.string();
     BEGIN_BLOCK_OBJC_EXCEPTIONS
     m_localizedDescription = [m_platformError _web_localizedDescription];
-    m_compromisedNetworkConnectionIntegrity = dueToCompromisingNetworkConnectionIntegrity(m_platformError.get());
     END_BLOCK_OBJC_EXCEPTIONS
 
     m_dataIsUpToDate = true;
@@ -219,5 +249,32 @@ ResourceError::operator CFErrorRef() const
 {
     return cfError();
 }
+
+#if ENABLE(ADVANCED_PRIVACY_PROTECTIONS)
+
+bool ResourceError::blockedKnownTracker() const
+{
+    for (NSError *underlyingError in nsError().underlyingErrors) {
+        if ([underlyingError.userInfo[@"_NSURLErrorBlockedTrackerFailureKey"] boolValue])
+            return true;
+    }
+    return false;
+}
+
+String ResourceError::blockedTrackerHostName() const
+{
+    ASSERT(blockedKnownTracker());
+
+    for (NSError *underlyingError in nsError().underlyingErrors) {
+        if (id failingPath = underlyingError.userInfo[@"_NSURLErrorNWPathKey"]) {
+            auto failingEndpoint = adoptNS(nw_path_copy_effective_remote_endpoint(failingPath));
+            if (auto* hostName = nw_endpoint_get_known_tracker_name(failingEndpoint.get()))
+                return String::fromUTF8(hostName);
+        }
+    }
+    return { };
+}
+
+#endif // ENABLE(ADVANCED_PRIVACY_PROTECTIONS)
 
 } // namespace WebCore

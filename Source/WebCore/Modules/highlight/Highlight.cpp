@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019-2022 Apple Inc. All rights reserved.
+ * Copyright (C) 2019-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -30,69 +30,86 @@
 #include "JSDOMSetLike.h"
 #include "JSStaticRange.h"
 #include "NodeTraversal.h"
+#include "Range.h"
 #include "RenderBlockFlow.h"
 #include "StaticRange.h"
 
 namespace WebCore {
 
-Highlight::Highlight(Ref<StaticRange>&& range)
+void Highlight::repaintRange(const AbstractRange& range)
 {
-    auto myRange = WTFMove(range);
-    addToSetLike(myRange.get());
-}
-
-Ref<Highlight> Highlight::create(StaticRange& range)
-{
-    return adoptRef(*new Highlight(range));
-}
-
-void Highlight::initializeSetLike(DOMSetAdapter& set)
-{
-    for (auto& rangeData : m_rangesData)
-        set.add<IDLInterface<StaticRange>>(rangeData->range);
-}
-
-static void repaintRange(const SimpleRange& range)
-{
-    // FIXME: Unclear precisely why we need to handle out of order cases here, but not unordered cases.
-    auto sortedRange = range;
-    if (is_gt(treeOrder<ComposedTree>(range.start, range.end)))
+    auto sortedRange = makeSimpleRange(range);
+    if (is_gt(treeOrder<ComposedTree>(sortedRange.start, sortedRange.end)))
         std::swap(sortedRange.start, sortedRange.end);
-    for (auto& node : intersectingNodes(sortedRange)) {
-        if (auto renderer = node.renderer())
+    for (Ref node : intersectingNodes(sortedRange)) {
+        if (auto renderer = node->renderer())
             renderer->repaint();
     }
 }
 
-bool Highlight::removeFromSetLike(const StaticRange& range)
+Ref<Highlight> Highlight::create(FixedVector<std::reference_wrapper<WebCore::AbstractRange>>&& initialRanges)
 {
-    return m_rangesData.removeFirstMatching([&range](const Ref<HighlightRangeData>& current) {
+    return adoptRef(*new Highlight(WTFMove(initialRanges)));
+}
+
+Highlight::Highlight(FixedVector<std::reference_wrapper<WebCore::AbstractRange>>&& initialRanges)
+{
+    m_highlightRanges.reserveInitialCapacity(initialRanges.size());
+    for (auto& range : initialRanges) {
+        repaintRange(range.get());
+        m_highlightRanges.uncheckedAppend(HighlightRange::create(Ref { range.get() }));
+    }
+}
+
+void Highlight::initializeSetLike(DOMSetAdapter& set)
+{
+    for (auto& highlightRange : m_highlightRanges)
+        set.add<IDLInterface<AbstractRange>>(highlightRange->range());
+}
+
+bool Highlight::removeFromSetLike(const AbstractRange& range)
+{
+    return m_highlightRanges.removeFirstMatching([&range](const Ref<HighlightRange>& current) {
         repaintRange(range);
-        return current.get().range.get() == range;
+        return &current->range() == &range;
     });
 }
 
 void Highlight::clearFromSetLike()
 {
-    for (auto& data : m_rangesData)
-        repaintRange(data->range);
-    m_rangesData.clear();
+    for (auto& highlightRange : m_highlightRanges)
+        repaintRange(highlightRange->range());
+    m_highlightRanges.clear();
 }
 
-bool Highlight::addToSetLike(StaticRange& range)
+bool Highlight::addToSetLike(AbstractRange& range)
 {
-    if (notFound != m_rangesData.findIf([&range](const Ref<HighlightRangeData>& current) { return current.get().range.get() == range; }))
-        return false;
-    repaintRange(range);
-    m_rangesData.append(HighlightRangeData::create(range));
-    return true;
+    auto index = m_highlightRanges.findIf([&range](const Ref<HighlightRange>& current) {
+        return &current->range() == &range;
+    });
+    if (index == notFound) {
+        repaintRange(range);
+        m_highlightRanges.append(HighlightRange::create(range));
+        return true;
+    }
+    // Move to last since SetLike is an ordered set.
+    m_highlightRanges.append(WTFMove(m_highlightRanges[index]));
+    m_highlightRanges.remove(index);
+    return false;
 }
 
 void Highlight::repaint()
 {
-    for (auto& data : m_rangesData)
-        repaintRange(data->range);
+    for (auto& highlightRange : m_highlightRanges)
+        repaintRange(highlightRange->range());
 }
 
+void Highlight::setPriority(int priority)
+{
+    if (m_priority == priority)
+        return;
+    m_priority = priority;
+    repaint();
 }
 
+} // namespace WebCore

@@ -18,9 +18,14 @@
 namespace egl
 {
 
-Sync::Sync(rx::EGLImplFactory *factory, EGLenum type, const AttributeMap &attribs)
+Sync::Sync(rx::EGLImplFactory *factory,
+           const egl::SyncID &id,
+           EGLenum type,
+           const AttributeMap &attribs)
     : mLabel(nullptr),
+      mId(id),
       mType(type),
+      mAttributeMap(attribs),
       mCondition(EGL_SYNC_PRIOR_COMMANDS_COMPLETE_KHR),
       mNativeFenceFD(
           attribs.getAsInt(EGL_SYNC_NATIVE_FENCE_FD_ANDROID, EGL_NO_NATIVE_FENCE_FD_ANDROID))
@@ -50,6 +55,12 @@ Sync::Sync(rx::EGLImplFactory *factory, EGLenum type, const AttributeMap &attrib
         (mNativeFenceFD != EGL_NO_NATIVE_FENCE_FD_ANDROID))
     {
         mCondition = EGL_SYNC_NATIVE_FENCE_SIGNALED_ANDROID;
+    }
+
+    // Per extension spec: Signaling Condition.
+    if (mType == EGL_SYNC_METAL_SHARED_EVENT_ANGLE)
+    {
+        mCondition = attribs.getAsInt(EGL_SYNC_CONDITION, EGL_SYNC_PRIOR_COMMANDS_COMPLETE_KHR);
     }
 }
 

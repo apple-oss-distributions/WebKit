@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015 Apple Inc.  All rights reserved.
+ * Copyright (C) 2015-2023 Apple Inc.  All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -34,40 +34,15 @@
 #if PLATFORM(COCOA)
 
 #if USE(APPLE_INTERNAL_SDK)
-#include <CoreMedia/CMNotificationCenter.h>
 #include <CoreMedia/FigThreadPlatform.h>
 #else
-typedef struct opaqueCMNotificationCenter *CMNotificationCenterRef;
-typedef void (*CMNotificationCallback)(CMNotificationCenterRef inCenter, const void *inListener, CFStringRef inNotificationName, const void *inNotifyingObject, CFTypeRef inNotificationPayload);
 typedef void (*FigThreadAbortAction)(void* refcon);
 typedef struct OpaqueFigThreadAbortActionToken* FigThreadAbortActionToken;
 #endif
 
 WTF_EXTERN_C_BEGIN
-CMNotificationCenterRef CMNotificationCenterGetDefaultLocalCenter(void);
-OSStatus CMNotificationCenterAddListener(CMNotificationCenterRef inCenter, const void *inListener, CMNotificationCallback inCallBack, CFStringRef inNotificationName, const void *inObjectToObserve, UInt32 inFlags);
-OSStatus CMNotificationCenterRemoveListener(CMNotificationCenterRef inCenter, const void *inListener, CMNotificationCallback inCallBack, CFStringRef inNotificationName, const void *inObject);
 OSStatus FigThreadRegisterAbortAction(FigThreadAbortAction, void* refcon, FigThreadAbortActionToken*);
 void FigThreadUnregisterAbortAction(FigThreadAbortActionToken);
 WTF_EXTERN_C_END
 
 #endif // PLATFORM(COCOA)
-
-#if PLATFORM(WIN)
-
-typedef struct OpaqueCMBlockBuffer* CMBlockBufferRef;
-typedef const struct opaqueCMFormatDescription* CMFormatDescriptionRef;
-typedef struct opaqueCMSampleBuffer* CMSampleBufferRef;
-
-#ifndef CMSAMPLEBUFFER_H
-WTF_EXTERN_C_BEGIN
-#pragma pack(push, 4)
-typedef struct {
-    CMTime duration;
-    CMTime presentationTimeStamp;
-    CMTime decodeTimeStamp;
-} CMSampleTimingInfo;
-#pragma pack(pop)
-WTF_EXTERN_C_END
-#endif
-#endif // PLATFORM(WIN)

@@ -30,6 +30,10 @@
 #import <pal/spi/cocoa/QuartzCoreSPI.h>
 #import <wtf/cocoa/TypeCastsCocoa.h>
 
+#if ENABLE(CG_DISPLAY_LIST_BACKED_IMAGE_BUFFER)
+#import <WebKitAdditions/CGDisplayListImageBufferAdditions.h>
+#endif
+
 @implementation CALayer (WebCoreCALayerExtras)
 
 - (void)web_disableAllActions
@@ -119,6 +123,29 @@
     return CGRectIntersectsRect(self.mask.bounds, rectInMask);
 }
 
+- (void)_web_clearContents
+{
+    self.contents = nil;
+    self.contentsOpaque = NO;
+
+#if ENABLE(CG_DISPLAY_LIST_BACKED_IMAGE_BUFFER)
+    [self _web_clearCGDisplayListIfNeeded];
+#endif
+
+}
+
+#if ENABLE(CG_DISPLAY_LIST_BACKED_IMAGE_BUFFER)
+- (void)_web_clearCGDisplayListIfNeeded
+{
+    if (![self valueForKeyPath:WKCGDisplayListContentsKey])
+        return;
+    [self setValue:nil forKeyPath:WKCGDisplayListContentsKey];
+    [self setValue:nil forKeyPath:WKCGDisplayListPortsKey];
+    [self setValue:@NO forKeyPath:WKCGDisplayListEnabledKey];
+    [self setValue:@NO forKeyPath:WKCGDisplayListBifurcationEnabledKey];
+}
+#endif
+
 @end
 
 namespace WebCore {
@@ -150,7 +177,10 @@ void collectDescendantLayersAtPoint(Vector<LayerAndPoint, 16>& layersAtPoint, CA
             if (![layerWithResolvedAnimations containsPoint:subviewPoint])
                 return false;
 
-            return pointInLayerFunction(layer, subviewPoint);
+            if (pointInLayerFunction)
+                return pointInLayerFunction(layer, subviewPoint);
+
+            return true;
         }();
 
         if (handlesEvent)
@@ -159,6 +189,23 @@ void collectDescendantLayersAtPoint(Vector<LayerAndPoint, 16>& layersAtPoint, CA
         if ([layer sublayers])
             collectDescendantLayersAtPoint(layersAtPoint, layer, subviewPoint, pointInLayerFunction);
     };
+}
+
+Vector<LayerAndPoint, 16> layersAtPointToCheckForScrolling(std::function<bool(CALayer*, CGPoint)> layerEventRegionContainsPoint, std::function<uint64_t(CALayer*)> scrollingNodeIDForLayer, CALayer* layer, const FloatPoint& point, bool& hasAnyNonInteractiveScrollingLayers)
+{
+    Vector<LayerAndPoint, 16> layersAtPoint;
+    collectDescendantLayersAtPoint(layersAtPoint, layer, point, [&] (auto layer, auto point) {
+        if (layerEventRegionContainsPoint(layer, point))
+            return true;
+        if (scrollingNodeIDForLayer(layer)) {
+            hasAnyNonInteractiveScrollingLayers = true;
+            return true;
+        }
+        return false;
+    });
+    // Hit-test front to back.
+    layersAtPoint.reverse();
+    return layersAtPoint;
 }
 
 } // namespace WebCore

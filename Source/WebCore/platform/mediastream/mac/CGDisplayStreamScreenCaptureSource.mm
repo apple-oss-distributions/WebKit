@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2021 Apple Inc. All rights reserved.
+ * Copyright (C) 2017-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -75,15 +75,15 @@ static std::optional<CGDirectDisplayID> updateDisplayID(CGDirectDisplayID displa
     return std::nullopt;
 }
 
-Expected<UniqueRef<DisplayCaptureSourceCocoa::Capturer>, String> CGDisplayStreamScreenCaptureSource::create(const String& deviceID)
+Expected<UniqueRef<DisplayCaptureSourceCocoa::Capturer>, CaptureSourceError> CGDisplayStreamScreenCaptureSource::create(const String& deviceID)
 {
     auto displayID = parseInteger<uint32_t>(deviceID);
     if (!displayID)
-        return makeUnexpected("Invalid display device ID"_s);
+        return makeUnexpected(CaptureSourceError { "Invalid display device ID"_s, MediaAccessDenialReason::PermissionDenied });
 
     auto actualDisplayID = updateDisplayID(displayID.value());
     if (!actualDisplayID)
-        return makeUnexpected("Invalid display ID"_s);
+        return makeUnexpected(CaptureSourceError { "Invalid display device ID"_s, MediaAccessDenialReason::PermissionDenied });
 
     return UniqueRef<DisplayCaptureSourceCocoa::Capturer>(makeUniqueRef<CGDisplayStreamScreenCaptureSource>(actualDisplayID.value()));
 }
@@ -132,7 +132,7 @@ RetainPtr<CGDisplayStreamRef> CGDisplayStreamScreenCaptureSource::createDisplayS
     ASSERT(frameRate());
     ALWAYS_LOG_IF(loggerPtr(), LOGIDENTIFIER, "frame rate ", frameRate(), ", size ", width, "x", height);
 
-    ALLOW_DEPRECATED_DECLARATIONS_BEGIN
+ALLOW_DEPRECATED_DECLARATIONS_BEGIN
     NSDictionary* streamOptions = @{
         (__bridge NSString *)kCGDisplayStreamMinimumFrameTime : @(1 / frameRate()),
         (__bridge NSString *)kCGDisplayStreamQueueDepth : @(screenQueueMaximumLength),
@@ -141,7 +141,7 @@ RetainPtr<CGDisplayStreamRef> CGDisplayStreamScreenCaptureSource::createDisplayS
     };
 
     auto stream = adoptCF(CGDisplayStreamCreateWithDispatchQueue(m_displayID, width, height, preferedPixelBufferFormat(), (__bridge CFDictionaryRef)streamOptions, captureQueue(), frameAvailableHandler()));
-    ALLOW_DEPRECATED_DECLARATIONS_END
+ALLOW_DEPRECATED_DECLARATIONS_END
     return stream;
 }
 
@@ -207,6 +207,17 @@ void CGDisplayStreamScreenCaptureSource::screenCaptureDevices(Vector<CaptureDevi
         displayDevice.setEnabled(CGDisplayIDToOpenGLDisplayMask(displayID));
         displays.append(WTFMove(displayDevice));
     }
+}
+
+std::optional<CaptureDevice> CGDisplayStreamScreenCaptureSource::screenCaptureDeviceForMainDisplay()
+{
+    auto screenID = displayID([NSScreen mainScreen]);
+    if (!CGDisplayIDToOpenGLDisplayMask(screenID))
+        return std::nullopt;
+
+    CaptureDevice device(String::number(screenID), CaptureDevice::DeviceType::Screen, makeString("Screen 0"));
+    device.setEnabled(true);
+    return { WTFMove(device) };
 }
 
 } // namespace WebCore

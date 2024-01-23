@@ -48,6 +48,11 @@ BackgroundProcessResponsivenessTimer::~BackgroundProcessResponsivenessTimer()
 {
 }
 
+Ref<WebProcessProxy> BackgroundProcessResponsivenessTimer::protectedWebProcessProxy() const
+{
+    return const_cast<WebProcessProxy&>(m_webProcessProxy.get());
+}
+
 void BackgroundProcessResponsivenessTimer::updateState()
 {
     if (!shouldBeActive()) {
@@ -93,7 +98,7 @@ void BackgroundProcessResponsivenessTimer::responsivenessCheckTimerFired()
     ASSERT(!m_timeoutTimer.isActive());
 
     m_timeoutTimer.startOneShot(responsivenessTimeout);
-    m_webProcessProxy.send(Messages::WebProcess::BackgroundResponsivenessPing(), 0);
+    protectedWebProcessProxy()->send(Messages::WebProcess::BackgroundResponsivenessPing(), 0);
 }
 
 void BackgroundProcessResponsivenessTimer::timeoutTimerFired()
@@ -101,6 +106,11 @@ void BackgroundProcessResponsivenessTimer::timeoutTimerFired()
     ASSERT(shouldBeActive());
 
     scheduleNextResponsivenessCheck();
+
+    // This shouldn't happen but still check to be 100% sure we don't report
+    // suspended processes as unresponsive.
+    if (protectedWebProcessProxy()->throttler().isSuspended())
+        return;
 
     if (!m_isResponsive)
         return;
@@ -123,10 +133,10 @@ void BackgroundProcessResponsivenessTimer::setResponsive(bool isResponsive)
     client().didChangeIsResponsive();
 
     if (m_isResponsive) {
-        RELEASE_LOG_ERROR(PerformanceLogging, "Notifying the client that background WebProcess with pid %d has become responsive again", m_webProcessProxy.processIdentifier());
+        RELEASE_LOG_ERROR(PerformanceLogging, "Notifying the client that background WebProcess with pid %d has become responsive again", m_webProcessProxy->processID());
         client().didBecomeResponsive();
     } else {
-        RELEASE_LOG_ERROR(PerformanceLogging, "Notifying the client that background WebProcess with pid %d has become unresponsive", m_webProcessProxy.processIdentifier());
+        RELEASE_LOG_ERROR(PerformanceLogging, "Notifying the client that background WebProcess with pid %d has become unresponsive", m_webProcessProxy->processID());
         client().didBecomeUnresponsive();
     }
 }
@@ -134,13 +144,16 @@ void BackgroundProcessResponsivenessTimer::setResponsive(bool isResponsive)
 bool BackgroundProcessResponsivenessTimer::shouldBeActive() const
 {
 #if !PLATFORM(IOS_FAMILY)
-    if (m_webProcessProxy.visiblePageCount())
+    auto webProcess = protectedWebProcessProxy();
+    if (webProcess->visiblePageCount())
         return false;
-    if (m_webProcessProxy.isStandaloneServiceWorkerProcess())
+    if (webProcess->throttler().isSuspended())
+        return false;
+    if (webProcess->isStandaloneServiceWorkerProcess())
         return true;
-    return m_webProcessProxy.pageCount();
+    return webProcess->pageCount();
 #else
-    // Disable background process responsiveness checking on iOS since such processes usually get suspended.
+    // Disable background process responsiveness checking when using RunningBoard since such processes usually get suspended.
     return false;
 #endif
 }
@@ -160,7 +173,7 @@ void BackgroundProcessResponsivenessTimer::scheduleNextResponsivenessCheck()
 
 ResponsivenessTimer::Client& BackgroundProcessResponsivenessTimer::client() const
 {
-    return m_webProcessProxy;
+    return const_cast<WebProcessProxy&>(m_webProcessProxy.get());
 }
 
 } // namespace WebKit

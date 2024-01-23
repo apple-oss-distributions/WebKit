@@ -1,6 +1,6 @@
 /*
  * (C) 1999-2003 Lars Knoll (knoll@kde.org)
- * Copyright (C) 2004-2021 Apple Inc. All rights reserved.
+ * Copyright (C) 2004-2023 Apple Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -36,12 +36,23 @@
 
 namespace WebCore {
 
+CSSImageValue::CSSImageValue()
+    : CSSValue(ImageClass)
+    , m_isInvalid(true)
+{
+}
+
 CSSImageValue::CSSImageValue(ResolvedURL&& location, LoadedFromOpaqueSource loadedFromOpaqueSource, AtomString&& initiatorType)
     : CSSValue(ImageClass)
     , m_location(WTFMove(location))
     , m_initiatorType(WTFMove(initiatorType))
     , m_loadedFromOpaqueSource(loadedFromOpaqueSource)
 {
+}
+
+Ref<CSSImageValue> CSSImageValue::create()
+{
+    return adoptRef(*new CSSImageValue);
 }
 
 Ref<CSSImageValue> CSSImageValue::create(ResolvedURL location, LoadedFromOpaqueSource loadedFromOpaqueSource, AtomString initiatorType)
@@ -119,13 +130,15 @@ bool CSSImageValue::equals(const CSSImageValue& other) const
 
 String CSSImageValue::customCSSText() const
 {
+    if (m_isInvalid)
+        return ""_s;
     return serializeURL(m_location.specifiedURLString);
 }
 
 Ref<DeprecatedCSSOMValue> CSSImageValue::createDeprecatedCSSOMWrapper(CSSStyleDeclaration& styleDeclaration) const
 {
-    // NOTE: We expose CSSImageValues as URI primitive values in CSSOM to maintain old behavior.
-    return DeprecatedCSSOMPrimitiveValue::create(CSSPrimitiveValue::create(m_location.resolvedURL.string(), CSSUnitType::CSS_URI), styleDeclaration);
+    // We expose CSSImageValues as URI primitive values in CSSOM to maintain old behavior.
+    return DeprecatedCSSOMPrimitiveValue::create(CSSPrimitiveValue::createURI(m_location.resolvedURL.string()), styleDeclaration);
 }
 
 bool CSSImageValue::knownToBeOpaque(const RenderElement& renderer) const

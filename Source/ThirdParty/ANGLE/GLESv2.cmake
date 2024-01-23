@@ -57,6 +57,7 @@ set(libangle_common_headers
     "src/common/mathutil.h"
     "src/common/matrix_utils.h"
     "src/common/platform.h"
+    "src/common/platform_helpers.h"
     "src/common/string_utils.h"
     "src/common/system_utils.h"
     "src/common/tls.h"
@@ -83,6 +84,7 @@ set(libangle_common_sources
     "src/common/event_tracer.cpp"
     "src/common/mathutil.cpp"
     "src/common/matrix_utils.cpp"
+    "src/common/platform_helpers.cpp"
     "src/common/string_utils.cpp"
     "src/common/system_utils.cpp"
     "src/common/tls.cpp"
@@ -123,14 +125,16 @@ if(is_apple)
         "src/common/apple/SoftLinking.h"
         "src/common/apple/apple_platform.h"
         "src/common/apple_platform_utils.mm"
-        "src/common/gl/cgl/FunctionsCGL.cpp"
-        "src/common/gl/cgl/FunctionsCGL.h"
         "src/common/system_utils_apple.cpp"
         "src/common/system_utils_posix.cpp"
     )
 
     if(is_mac)
-        list(APPEND libangle_common_sources "src/common/system_utils_mac.cpp")
+        list(APPEND libangle_common_sources
+            "src/common/gl/cgl/FunctionsCGL.cpp"
+            "src/common/gl/cgl/FunctionsCGL.h"
+            "src/common/system_utils_mac.cpp"
+        )
     endif()
 
     if(is_ios)
@@ -157,6 +161,7 @@ set(libangle_image_util_headers
     "src/image_util/imageformats.h"
     "src/image_util/loadimage.h"
     "src/image_util/loadimage.inc"
+    "src/image_util/storeimage.h"
 )
 
 set(libangle_image_util_sources
@@ -166,6 +171,7 @@ set(libangle_image_util_sources
     "src/image_util/loadimage_astc.cpp"
     "src/image_util/loadimage_etc.cpp"
     "src/image_util/loadimage_paletted.cpp"
+    "src/image_util/storeimage_paletted.cpp"
 )
 
 if(angle_has_astc_encoder)
@@ -229,11 +235,11 @@ set(libangle_includes
     "include/KHR/khrplatform.h"
     "include/WGL/wgl.h"
     "include/platform/Feature.h"
-    "include/platform/FeaturesD3D_autogen.h"
-    "include/platform/FeaturesGL_autogen.h"
-    "include/platform/FeaturesMtl_autogen.h"
-    "include/platform/FeaturesVk_autogen.h"
-    "include/platform/FrontendFeatures_autogen.h"
+    "include/platform/autogen/FeaturesD3D_autogen.h"
+    "include/platform/autogen/FeaturesGL_autogen.h"
+    "include/platform/autogen/FeaturesMtl_autogen.h"
+    "include/platform/autogen/FeaturesVk_autogen.h"
+    "include/platform/autogen/FrontendFeatures_autogen.h"
     "include/platform/PlatformMethods.h"
     "include/vulkan/vulkan_fuchsia_ext.h"
 )
@@ -271,6 +277,7 @@ set(libangle_headers
     "src/libANGLE/GLES1Renderer.h"
     "src/libANGLE/GLES1Shaders.inc"
     "src/libANGLE/GLES1State.h"
+    "src/libANGLE/GlobalMutex.h"
     "src/libANGLE/HandleAllocator.h"
     "src/libANGLE/Image.h"
     "src/libANGLE/ImageIndex.h"
@@ -298,6 +305,8 @@ set(libangle_headers
     "src/libANGLE/Sampler.h"
     "src/libANGLE/Semaphore.h"
     "src/libANGLE/Shader.h"
+    "src/libANGLE/ShareGroup.h"
+    "src/libANGLE/ContextMutex.h"
     "src/libANGLE/SizedMRUCache.h"
     "src/libANGLE/State.h"
     "src/libANGLE/Stream.h"
@@ -314,6 +323,8 @@ set(libangle_headers
     "src/libANGLE/VertexAttribute.inc"
     "src/libANGLE/angletypes.h"
     "src/libANGLE/angletypes.inc"
+    "src/libANGLE/context_private_call_gles_autogen.h"
+    "src/libANGLE/context_private_call_gl_autogen.h"
     "src/libANGLE/entry_points_utils.cpp"
     "src/libANGLE/entry_points_utils.h"
     "src/libANGLE/features.h"
@@ -343,6 +354,7 @@ set(libangle_headers
     "src/libANGLE/renderer/MemoryObjectImpl.h"
     "src/libANGLE/renderer/OverlayImpl.h"
     "src/libANGLE/renderer/ProgramImpl.h"
+    "src/libANGLE/renderer/ProgramExecutableImpl.h"
     "src/libANGLE/renderer/ProgramPipelineImpl.h"
     "src/libANGLE/renderer/QueryImpl.h"
     "src/libANGLE/renderer/RenderbufferImpl.h"
@@ -350,6 +362,7 @@ set(libangle_headers
     "src/libANGLE/renderer/SamplerImpl.h"
     "src/libANGLE/renderer/SemaphoreImpl.h"
     "src/libANGLE/renderer/ShaderImpl.h"
+    "src/libANGLE/renderer/ShareGroupImpl.h"
     "src/libANGLE/renderer/StreamProducerImpl.h"
     "src/libANGLE/renderer/SurfaceImpl.h"
     "src/libANGLE/renderer/SyncImpl.h"
@@ -392,7 +405,7 @@ set(libangle_sources
     "src/libANGLE/Compiler.cpp"
     "src/libANGLE/Config.cpp"
     "src/libANGLE/Context.cpp"
-    "src/libANGLE/Context_gl.cpp"
+    "src/libANGLE/ContextMutex.cpp"
     "src/libANGLE/Context_gles_1_0.cpp"
     "src/libANGLE/Debug.cpp"
     "src/libANGLE/Device.cpp"
@@ -404,6 +417,7 @@ set(libangle_sources
     "src/libANGLE/FramebufferAttachment.cpp"
     "src/libANGLE/GLES1Renderer.cpp"
     "src/libANGLE/GLES1State.cpp"
+    "src/libANGLE/GlobalMutex.cpp"
     "src/libANGLE/HandleAllocator.cpp"
     "src/libANGLE/Image.cpp"
     "src/libANGLE/ImageIndex.cpp"
@@ -429,6 +443,7 @@ set(libangle_sources
     "src/libANGLE/Sampler.cpp"
     "src/libANGLE/Semaphore.cpp"
     "src/libANGLE/Shader.cpp"
+    "src/libANGLE/ShareGroup.cpp"
     "src/libANGLE/State.cpp"
     "src/libANGLE/Stream.cpp"
     "src/libANGLE/Surface.cpp"
@@ -440,6 +455,7 @@ set(libangle_sources
     "src/libANGLE/VertexArray.cpp"
     "src/libANGLE/VertexAttribute.cpp"
     "src/libANGLE/angletypes.cpp"
+    "src/libANGLE/context_private_call_gles.cpp"
     "src/libANGLE/es3_copy_conversion_table_autogen.cpp"
     "src/libANGLE/format_map_autogen.cpp"
     "src/libANGLE/format_map_desktop.cpp"
@@ -476,10 +492,6 @@ set(libangle_sources
     "src/libANGLE/validationES31.cpp"
     "src/libANGLE/validationES32.cpp"
     "src/libANGLE/validationESEXT.cpp"
-    "src/libANGLE/validationGL1.cpp"
-    "src/libANGLE/validationGL2.cpp"
-    "src/libANGLE/validationGL3.cpp"
-    "src/libANGLE/validationGL4.cpp"
 )
 
 set(cl_includes
@@ -502,6 +514,15 @@ set(cl_includes
     "include/CL/cl_va_api_media_sharing_intel.h"
     "include/CL/cl_version.h"
     "include/CL/opencl.h"
+)
+
+set(libangle_gl_sources
+    "src/libANGLE/Context_gl.cpp"
+    "src/libANGLE/context_private_call_gl.cpp"
+    "src/libANGLE/validationGL1.cpp"
+    "src/libANGLE/validationGL2.cpp"
+    "src/libANGLE/validationGL3.cpp"
+    "src/libANGLE/validationGL4.cpp"
 )
 
 set(libangle_cl_headers
@@ -563,11 +584,7 @@ set(libangle_cl_sources
     "src/libANGLE/validationCL.cpp"
 )
 
-set(libangle_mac_sources
-    "src/libANGLE/renderer/driver_utils_mac.mm"
-    "src/libANGLE/renderer/gl/apple/DisplayApple_api.cpp"
-    "src/libANGLE/renderer/gl/apple/DisplayApple_api.h"
-)
+set(libangle_mac_sources "src/libANGLE/renderer/driver_utils_mac.mm")
 # The frame capture headers are always visible to libANGLE.
 
 list(APPEND libangle_sources
@@ -618,6 +635,8 @@ set(libangle_capture_sources
 )
 
 set(libglesv2_sources
+    "src/libGLESv2/egl_context_lock_autogen.h"
+    "src/libGLESv2/egl_context_lock_impl.h"
     "src/libGLESv2/egl_ext_stubs.cpp"
     "src/libGLESv2/egl_ext_stubs_autogen.h"
     "src/libGLESv2/egl_stubs.cpp"

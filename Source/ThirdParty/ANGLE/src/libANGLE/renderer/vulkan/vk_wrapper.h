@@ -425,6 +425,9 @@ class Image final : public WrappedObject<Image, VkImage>
                               uint32_t mipLevel,
                               uint32_t arrayLayer,
                               VkSubresourceLayout *outSubresourceLayout) const;
+
+  private:
+    friend class ImageMemorySuballocator;
 };
 
 class ImageView final : public WrappedObject<ImageView, VkImageView>
@@ -520,6 +523,7 @@ class Allocation final : public WrappedObject<Allocation, VmaAllocation>
 
   private:
     friend class Allocator;
+    friend class ImageMemorySuballocator;
 };
 
 class RenderPass final : public WrappedObject<RenderPass, VkRenderPass>
@@ -757,21 +761,18 @@ ANGLE_INLINE void CommandBuffer::blitImage(const Image &srcImage,
 
 ANGLE_INLINE VkResult CommandBuffer::begin(const VkCommandBufferBeginInfo &info)
 {
-    ANGLE_TRACE_EVENT0("gpu.angle", "CommandBuffer::begin");
     ASSERT(valid());
     return vkBeginCommandBuffer(mHandle, &info);
 }
 
 ANGLE_INLINE VkResult CommandBuffer::end()
 {
-    ANGLE_TRACE_EVENT0("gpu.angle", "CommandBuffer::end");
     ASSERT(valid());
     return vkEndCommandBuffer(mHandle);
 }
 
 ANGLE_INLINE VkResult CommandBuffer::reset()
 {
-    ANGLE_TRACE_EVENT0("gpu.angle", "CommandBuffer::reset");
     ASSERT(valid());
     return vkResetCommandBuffer(mHandle, 0);
 }
@@ -1384,7 +1385,7 @@ ANGLE_INLINE VkResult Image::bindMemory(VkDevice device, const vk::DeviceMemory 
 ANGLE_INLINE VkResult Image::bindMemory2(VkDevice device, const VkBindImageMemoryInfoKHR &bindInfo)
 {
     ASSERT(valid());
-    return vkBindImageMemory2KHR(device, 1, &bindInfo);
+    return vkBindImageMemory2(device, 1, &bindInfo);
 }
 
 ANGLE_INLINE void Image::getSubresourceLayout(VkDevice device,
@@ -1487,7 +1488,6 @@ ANGLE_INLINE VkResult DeviceMemory::map(VkDevice device,
                                         VkMemoryMapFlags flags,
                                         uint8_t **mapPointer) const
 {
-    ANGLE_TRACE_EVENT0("gpu.angle", "DeviceMemory::map");
     ASSERT(valid());
     return vkMapMemory(device, mHandle, offset, size, flags, reinterpret_cast<void **>(mapPointer));
 }
@@ -1861,7 +1861,7 @@ ANGLE_INLINE void SamplerYcbcrConversion::destroy(VkDevice device)
 {
     if (valid())
     {
-        vkDestroySamplerYcbcrConversionKHR(device, mHandle, nullptr);
+        vkDestroySamplerYcbcrConversion(device, mHandle, nullptr);
         mHandle = VK_NULL_HANDLE;
     }
 }
@@ -1870,7 +1870,7 @@ ANGLE_INLINE VkResult
 SamplerYcbcrConversion::init(VkDevice device, const VkSamplerYcbcrConversionCreateInfo &createInfo)
 {
     ASSERT(!valid());
-    return vkCreateSamplerYcbcrConversionKHR(device, &createInfo, nullptr, &mHandle);
+    return vkCreateSamplerYcbcrConversion(device, &createInfo, nullptr, &mHandle);
 }
 
 // Event implementation.

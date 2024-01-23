@@ -30,10 +30,10 @@
 
 #import "FocusedElementInformation.h"
 #import "UIKitSPI.h"
-#import "UserInterfaceIdiom.h"
 #import "WKContentViewInteraction.h"
 #import "WebPageProxy.h"
 #import <WebCore/ColorCocoa.h>
+#import <pal/system/ios/UserInterfaceIdiom.h>
 #import <wtf/cocoa/VectorCocoa.h>
 
 #pragma mark - WKColorPicker
@@ -158,7 +158,8 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
 - (instancetype)initWithView:(WKContentView *)view
 {
     RetainPtr<NSObject <WKFormControl>> control = adoptNS([[WKColorPicker alloc] initWithView:view]);
-    return [super initWithView:view control:WTFMove(control)];
+    self = [super initWithView:view control:WTFMove(control)];
+    return self;
 }
 
 @end

@@ -502,13 +502,13 @@ ScrollbarButtonPressAction ScrollbarThemeGtk::handleMousePressEvent(Scrollbar&, 
             "gtk-primary-button-warps-slider",
             &warpSlider, nullptr);
         // The shift key or middle/right button reverses the sense.
-        if (event.shiftKey() || event.button() != LeftButton)
+        if (event.shiftKey() || event.button() != MouseButton::Left)
             warpSlider = !warpSlider;
         return warpSlider ?
             ScrollbarButtonPressAction::CenterOnThumb:
             ScrollbarButtonPressAction::Scroll;
     case ThumbPart:
-        if (event.button() != RightButton)
+        if (event.button() != MouseButton::Right)
             return ScrollbarButtonPressAction::StartDrag;
         break;
     case BackButtonStartPart:
@@ -523,10 +523,13 @@ ScrollbarButtonPressAction ScrollbarThemeGtk::handleMousePressEvent(Scrollbar&, 
     return ScrollbarButtonPressAction::None;
 }
 
-int ScrollbarThemeGtk::scrollbarThickness(ScrollbarControlSize controlSize, ScrollbarExpansionState expansionState)
+int ScrollbarThemeGtk::scrollbarThickness(ScrollbarWidth scrollbarWidth, ScrollbarExpansionState expansionState)
 {
     if (!m_useSystemAppearance)
-        return ScrollbarThemeAdwaita::scrollbarThickness(controlSize, expansionState);
+        return ScrollbarThemeAdwaita::scrollbarThickness(scrollbarWidth, expansionState);
+
+    if (scrollbarWidth == ScrollbarWidth::None)
+        return 0;
 
     auto& scrollbarWidget = static_cast<RenderThemeScrollbar&>(RenderThemeScrollbar::getOrCreate(RenderThemeScrollbar::Type::VerticalScrollbarRight));
     scrollbarWidget.scrollbar().setState(GTK_STATE_FLAG_PRELIGHT);

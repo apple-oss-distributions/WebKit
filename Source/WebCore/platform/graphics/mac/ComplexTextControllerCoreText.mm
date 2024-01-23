@@ -106,7 +106,7 @@ ComplexTextController::ComplexTextRun::ComplexTextRun(CTRunRef ctRun, const Font
             stream << " empty";
         else {
             for (unsigned i = 0; i < m_glyphCount; ++i)
-                stream << " " << m_glyphs[i];
+                stream << " " << m_glyphOrigins[i];
         }
         stream << "\n";
         stream << "Offsets:";
@@ -178,6 +178,7 @@ void ComplexTextController::collectComplexTextRunsForCharacters(const UChar* cp,
 
     LOG_WITH_STREAM(TextShaping,
         stream << "Complex shaping " << length << " code units with info " << String(adoptCF(CFCopyDescription(stringAttributes.get())).get()) << ".\n";
+        stream << "Font attributes: " << String(adoptCF(CFCopyDescription(adoptCF(CTFontDescriptorCopyAttributes(adoptCF(CTFontCopyFontDescriptor(font->platformData().ctFont())).get())).get())).get()) << "\n";
         stream << "Code Units:";
         for (unsigned i = 0; i < length; ++i)
             stream << " " << cp[i];
@@ -228,16 +229,15 @@ void ComplexTextController::collectComplexTextRunsForCharacters(const UChar* cp,
         // Therefore, we only need to inspect which font was actually used if isSystemFallback is true.
         if (isSystemFallback) {
             CFDictionaryRef runAttributes = CTRunGetAttributes(ctRun);
-            CTFontRef runCTFont = static_cast<CTFontRef>(CFDictionaryGetValue(runAttributes, kCTFontAttributeName));
+            auto runCTFont = static_cast<CTFontRef>(CFDictionaryGetValue(runAttributes, kCTFontAttributeName));
             ASSERT(runCTFont && CFGetTypeID(runCTFont) == CTFontGetTypeID());
-            RetainPtr<CFTypeRef> runFontEqualityObject = FontPlatformData::objectForEqualityCheck(runCTFont);
-            if (!safeCFEqual(runFontEqualityObject.get(), font->platformData().objectForEqualityCheck().get())) {
+            if (!safeCFEqual(runCTFont, font->platformData().ctFont())) {
                 // Begin trying to see if runFont matches any of the fonts in the fallback list.
                 for (unsigned i = 0; !m_font.fallbackRangesAt(i).isNull(); ++i) {
                     runFont = m_font.fallbackRangesAt(i).fontForCharacter(baseCharacter);
                     if (!runFont)
                         continue;
-                    if (safeCFEqual(runFont->platformData().objectForEqualityCheck().get(), runFontEqualityObject.get()))
+                    if (safeCFEqual(runFont->platformData().ctFont(), runCTFont))
                         break;
                     runFont = nullptr;
                 }

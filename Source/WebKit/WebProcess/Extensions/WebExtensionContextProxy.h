@@ -29,6 +29,7 @@
 
 #include "MessageReceiver.h"
 #include "WebExtensionContextParameters.h"
+#include "WebExtensionEventListenerType.h"
 #include "WebPageProxyIdentifier.h"
 #include <WebCore/DOMWrapperWorld.h>
 #include <WebCore/FrameIdentifier.h>
@@ -36,10 +37,16 @@
 #include <wtf/Forward.h>
 #include <wtf/WeakHashSet.h>
 
+OBJC_CLASS NSDictionary;
+OBJC_CLASS _WKWebExtensionLocalization;
+
 namespace WebKit {
 
 class WebExtensionAPINamespace;
+class WebExtensionMatchPattern;
 class WebFrame;
+struct WebExtensionAlarmParameters;
+struct WebExtensionWindowParameters;
 
 class WebExtensionContextProxy final : public RefCounted<WebExtensionContextProxy>, public IPC::MessageReceiver {
     WTF_MAKE_FAST_ALLOCATED;
@@ -47,7 +54,7 @@ class WebExtensionContextProxy final : public RefCounted<WebExtensionContextProx
 
 public:
     static RefPtr<WebExtensionContextProxy> get(WebExtensionContextIdentifier);
-    static Ref<WebExtensionContextProxy> getOrCreate(WebExtensionContextParameters);
+    static Ref<WebExtensionContextProxy> getOrCreate(const WebExtensionContextParameters&);
 
     ~WebExtensionContextProxy();
 
@@ -56,7 +63,6 @@ public:
     WebExtensionContextIdentifier identifier() { return m_identifier; }
 
     bool operator==(const WebExtensionContextProxy& other) const { return (this == &other); }
-    bool operator!=(const WebExtensionContextProxy& other) const { return !(this == &other); }
 
     const URL& baseURL() { return m_baseURL; }
     const String& uniqueIdentifier() const { return m_uniqueIdentifier; }
@@ -65,6 +71,11 @@ public:
 
     double manifestVersion() { return m_manifestVersion; }
     bool supportsManifestVersion(double version) { return manifestVersion() >= version; }
+
+    _WKWebExtensionLocalization *localization() { return m_localization.get(); }
+
+    static RetainPtr<_WKWebExtensionLocalization> parseLocalization(API::Data&);
+    static RetainPtr<NSDictionary> parseJSON(API::Data&);
 
     bool inTestingMode() { return m_testingMode; }
 
@@ -77,21 +88,27 @@ public:
     void enumerateContentScriptNamespaceObjects(const Function<void(WebExtensionAPINamespace&)>& function) { ASSERT(contentScriptWorld()); enumerateNamespaceObjects(function, *contentScriptWorld()); };
 
 private:
-    explicit WebExtensionContextProxy(WebExtensionContextParameters);
+    explicit WebExtensionContextProxy(const WebExtensionContextParameters&);
 
-    // webNavigation support
-    void dispatchWebNavigationOnBeforeNavigateEvent(WebPageProxyIdentifier, WebCore::FrameIdentifier, URL);
-    void dispatchWebNavigationOnCommittedEvent(WebPageProxyIdentifier, WebCore::FrameIdentifier, URL);
-    void dispatchWebNavigationOnDOMContentLoadedEvent(WebPageProxyIdentifier, WebCore::FrameIdentifier, URL);
-    void dispatchWebNavigationOnCompletedEvent(WebPageProxyIdentifier, WebCore::FrameIdentifier, URL);
-    void dispatchWebNavigationOnErrorOccurredEvent(WebPageProxyIdentifier, WebCore::FrameIdentifier, URL);
+    // Alarms
+    void dispatchAlarmsEvent(const WebExtensionAlarmParameters&);
 
-    // IPC::MessageReceiver.
+    // Permissions
+    void dispatchPermissionsEvent(WebExtensionEventListenerType, HashSet<String> permissions, HashSet<String> origins);
+
+    // Web Navigation
+    void dispatchWebNavigationEvent(WebExtensionEventListenerType, WebPageProxyIdentifier, WebCore::FrameIdentifier, URL);
+
+    // Windows
+    void dispatchWindowsEvent(WebExtensionEventListenerType, std::optional<WebExtensionWindowParameters>);
+
+    // IPC::MessageReceiver
     void didReceiveMessage(IPC::Connection&, IPC::Decoder&) override;
 
     WebExtensionContextIdentifier m_identifier;
     URL m_baseURL;
     String m_uniqueIdentifier;
+    RetainPtr<_WKWebExtensionLocalization> m_localization;
     RetainPtr<NSDictionary> m_manifest;
     double m_manifestVersion { 0 };
     bool m_testingMode { false };

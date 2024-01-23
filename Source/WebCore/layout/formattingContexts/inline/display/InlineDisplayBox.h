@@ -94,7 +94,7 @@ struct Box {
         First = 1 << 0,
         Last  = 1 << 1
     };
-    Box(size_t lineIndex, Type, const Layout::Box&, UBiDiLevel, const FloatRect&, const FloatRect& inkOverflow, Expansion, std::optional<Text> = std::nullopt, bool hasContent = true, OptionSet<PositionWithinInlineLevelBox> = { });
+    Box(size_t lineIndex, Type, const Layout::Box&, UBiDiLevel, const FloatRect&, const FloatRect& inkOverflow, Expansion, std::optional<Text> = std::nullopt, bool hasContent = true, bool isFullyTruncated = false, OptionSet<PositionWithinInlineLevelBox> = { });
 
     bool isText() const { return m_type == Type::Text || isWordSeparator(); }
     bool isWordSeparator() const { return m_type == Type::WordSeparator; }
@@ -113,7 +113,7 @@ struct Box {
 
     UBiDiLevel bidiLevel() const { return m_bidiLevel; }
 
-    bool isHorizontal() const { return style().isHorizontalWritingMode(); }
+    inline bool isHorizontal() const;
 
     bool hasContent() const { return m_hasContent; }
     bool isVisible() const { return !isFullyTruncated() && style().visibility() == Visibility::Visible; }
@@ -187,6 +187,7 @@ struct Box {
     const Layout::Box& layoutBox() const { return m_layoutBox; }
     const RenderStyle& style() const { return !lineIndex() ? layoutBox().firstLineStyle() : layoutBox().style(); }
 
+    void moveToLine(unsigned lineIndex) { m_lineIndex = lineIndex; }
     size_t lineIndex() const { return m_lineIndex; }
     // These functions tell you whether this display box is the first/last for the associated inline level box (Layout::Box) and not whether it's the first/last box on the line.
     // (e.g. always true for atomic boxes, but inline boxes spanning over multiple lines can produce individual first/last boxes).
@@ -201,7 +202,7 @@ private:
     FloatRect m_unflippedVisualRect;
     FloatRect m_inkOverflow;
 
-    const unsigned m_lineIndex { 0 };
+    unsigned m_lineIndex { 0 };
 
     float m_horizontalExpansion { 0 };
     
@@ -217,7 +218,7 @@ private:
     Text m_text;
 };
 
-inline Box::Box(size_t lineIndex, Type type, const Layout::Box& layoutBox, UBiDiLevel bidiLevel, const FloatRect& physicalRect, const FloatRect& inkOverflow, Expansion expansion, std::optional<Text> text, bool hasContent, OptionSet<PositionWithinInlineLevelBox> positionWithinInlineLevelBox)
+inline Box::Box(size_t lineIndex, Type type, const Layout::Box& layoutBox, UBiDiLevel bidiLevel, const FloatRect& physicalRect, const FloatRect& inkOverflow, Expansion expansion, std::optional<Text> text, bool hasContent, bool isFullyTruncated, OptionSet<PositionWithinInlineLevelBox> positionWithinInlineLevelBox)
     : m_layoutBox(layoutBox)
     , m_unflippedVisualRect(physicalRect)
     , m_inkOverflow(inkOverflow)
@@ -229,6 +230,7 @@ inline Box::Box(size_t lineIndex, Type type, const Layout::Box& layoutBox, UBiDi
     , m_hasContent(hasContent)
     , m_isFirstForLayoutBox(positionWithinInlineLevelBox.contains(PositionWithinInlineLevelBox::First))
     , m_isLastForLayoutBox(positionWithinInlineLevelBox.contains(PositionWithinInlineLevelBox::Last))
+    , m_isFullyTruncated(isFullyTruncated)
     , m_text(text ? WTFMove(*text) : Text { })
 {
 }
@@ -252,6 +254,24 @@ inline FloatRect Box::visibleRectIgnoringBlockDirection(const Box& box, const Fl
     visualRectIgnoringBlockDirection.shiftMaxXEdgeTo(visibleBoxRight);
 
     return visualRectIgnoringBlockDirection;
+}
+
+inline bool operator==(const Box::Text& a, const Box::Text& b)
+{
+    return a.start() == b.start()
+        && a.length() == b.length()
+        && a.renderedContent() == b.renderedContent();
+}
+
+inline bool operator==(const Box& a, const Box& b)
+{
+    return &a.layoutBox() == &b.layoutBox()
+        && a.style() == b.style()
+        && a.lineIndex() == b.lineIndex()
+        && a.bidiLevel() == b.bidiLevel()
+        && a.visualRectIgnoringBlockDirection() == b.visualRectIgnoringBlockDirection()
+        && a.inkOverflow() == b.inkOverflow()
+        && (!a.isTextOrSoftLineBreak() || (a.text() == b.text()));
 }
 
 }

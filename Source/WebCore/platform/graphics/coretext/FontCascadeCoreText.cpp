@@ -2,7 +2,7 @@
  * Copyright (C) 1999 Lars Knoll (knoll@kde.org)
  *           (C) 1999 Antti Koivisto (koivisto@kde.org)
  *           (C) 2000 Dirk Mueller (mueller@kde.org)
- * Copyright (C) 2003-2022 Apple Inc.
+ * Copyright (C) 2003-2023 Apple Inc.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -34,11 +34,7 @@
 #include <pal/spi/cg/CoreGraphicsSPI.h>
 #include <wtf/MathExtras.h>
 
-#if PLATFORM(COCOA)
 #include <pal/spi/cf/CoreTextSPI.h>
-#else
-#include <pal/spi/win/CoreTextSPIWin.h>
-#endif
 
 namespace WebCore {
 
@@ -110,8 +106,6 @@ AffineTransform computeVerticalTextMatrix(const Font& font, const AffineTransfor
     ASSERT_UNUSED(font, font.platformData().orientation() == FontOrientation::Vertical);
     return computeBaseVerticalTextMatrix(previousTextMatrix);
 }
-
-#if !PLATFORM(WIN)
 
 static void fillVectorWithHorizontalGlyphPositions(Vector<CGPoint, 256>& positions, CGContextRef context, const CGSize* advances, unsigned count, const FloatPoint& point)
 {
@@ -354,10 +348,7 @@ void FontCascade::drawGlyphs(GraphicsContext& context, const Font& font, const G
     setCGFontRenderingMode(context);
     CGContextSetFontSize(cgContext, platformData.size());
 
-    FloatSize shadowOffset;
-    float shadowBlur;
-    Color shadowColor;
-    context.getShadow(shadowOffset, shadowBlur, shadowColor);
+    auto shadow = context.dropShadow();
 
     AffineTransform contextCTM = context.getCTM();
     float syntheticBoldOffset = font.syntheticBoldOffset();
@@ -370,16 +361,16 @@ void FontCascade::drawGlyphs(GraphicsContext& context, const Font& font, const G
         }
     };
 
-    bool hasSimpleShadow = context.textDrawingMode() == TextDrawingMode::Fill && shadowColor.isValid() && !shadowBlur && !platformData.isColorBitmapFont() && (!context.shadowsIgnoreTransforms() || contextCTM.isIdentityOrTranslationOrFlipped()) && !context.isInTransparencyLayer();
+    bool hasSimpleShadow = context.textDrawingMode() == TextDrawingMode::Fill && shadow && shadow->color.isValid() && !shadow->radius && !platformData.isColorBitmapFont() && (!context.shadowsIgnoreTransforms() || contextCTM.isIdentityOrTranslationOrFlipped()) && !context.isInTransparencyLayer();
     if (hasSimpleShadow) {
         // Paint simple shadows ourselves instead of relying on CG shadows, to avoid losing subpixel antialiasing.
         context.clearShadow();
         Color fillColor = context.fillColor();
-        Color shadowFillColor = shadowColor.colorWithAlphaMultipliedBy(fillColor.alphaAsFloat());
+        Color shadowFillColor = shadow->color.colorWithAlphaMultipliedBy(fillColor.alphaAsFloat());
         context.setFillColor(shadowFillColor);
-        float shadowTextX = point.x() + shadowOffset.width();
+        float shadowTextX = point.x() + shadow->offset.width();
         // If shadows are ignoring transforms, then we haven't applied the Y coordinate flip yet, so down is negative.
-        float shadowTextY = point.y() + shadowOffset.height() * (context.shadowsIgnoreTransforms() ? -1 : 1);
+        float shadowTextY = point.y() + shadow->offset.height() * (context.shadowsIgnoreTransforms() ? -1 : 1);
         showGlyphsWithAdvances(FloatPoint(shadowTextX, shadowTextY), font, cgContext, glyphs, advances, numGlyphs, textMatrix);
         if (syntheticBoldOffset)
             showGlyphsWithAdvances(FloatPoint(shadowTextX + syntheticBoldOffset, shadowTextY), font, cgContext, glyphs, advances, numGlyphs, textMatrix);
@@ -392,7 +383,7 @@ void FontCascade::drawGlyphs(GraphicsContext& context, const Font& font, const G
         showGlyphsWithAdvances(FloatPoint(point.x() + syntheticBoldOffset, point.y()), font, cgContext, glyphs, advances, numGlyphs, textMatrix);
 
     if (hasSimpleShadow)
-        context.setShadow(shadowOffset, shadowBlur, shadowColor);
+        context.setDropShadow(*shadow);
 
 #if !PLATFORM(IOS_FAMILY)
     if (shouldSmoothFonts != originalShouldUseFontSmoothing)
@@ -409,25 +400,31 @@ bool FontCascade::primaryFontIsSystemFont() const
     return isSystemFont(fontData.platformData().ctFont());
 }
 
-// FIXME: Use this on all ports.
-const Font* FontCascade::fontForCombiningCharacterSequence(const UChar* characters, size_t length) const
+const Font* FontCascade::fontForCombiningCharacterSequence(StringView stringView) const
 {
-    UChar32 baseCharacter;
-    size_t baseCharacterLength = 0;
-    U16_NEXT(characters, baseCharacterLength, length, baseCharacter);
+    auto codePoints = stringView.codePoints();
+    auto codePointsIterator = codePoints.begin();
+
+    ASSERT(!stringView.isEmpty());
+    UChar32 baseCharacter = *codePointsIterator;
+    ++codePointsIterator;
+    bool isOnlySingleCodePoint = codePointsIterator == codePoints.end();
 
     GlyphData baseCharacterGlyphData = glyphDataForCharacter(baseCharacter, false, NormalVariant);
 
     if (!baseCharacterGlyphData.glyph)
         return nullptr;
 
-    if (length == baseCharacterLength)
+    if (isOnlySingleCodePoint)
         return baseCharacterGlyphData.font;
 
     bool triedBaseCharacterFont = false;
 
     for (unsigned i = 0; !fallbackRangesAt(i).isNull(); ++i) {
-        const Font* font = fallbackRangesAt(i).fontForCharacter(baseCharacter);
+        auto& fontRanges = fallbackRangesAt(i);
+        if (fontRanges.isGeneric() && isPrivateUseAreaCharacter(baseCharacter))
+            continue;
+        const Font* font = fontRanges.fontForCharacter(baseCharacter);
         if (!font)
             continue;
 #if PLATFORM(IOS_FAMILY)
@@ -454,16 +451,67 @@ const Font* FontCascade::fontForCombiningCharacterSequence(const UChar* characte
         if (font == baseCharacterGlyphData.font)
             triedBaseCharacterFont = true;
 
-        if (font->canRenderCombiningCharacterSequence(characters, length))
+        if (font->canRenderCombiningCharacterSequence(stringView))
             return font;
     }
 
-    if (!triedBaseCharacterFont && baseCharacterGlyphData.font && baseCharacterGlyphData.font->canRenderCombiningCharacterSequence(characters, length))
+    if (!triedBaseCharacterFont && baseCharacterGlyphData.font && baseCharacterGlyphData.font->canRenderCombiningCharacterSequence(stringView))
         return baseCharacterGlyphData.font;
 
     return Font::systemFallback();
 }
 
-#endif
+ResolvedEmojiPolicy FontCascade::resolveEmojiPolicy(FontVariantEmoji fontVariantEmoji, UChar32 character)
+{
+    // You may think that this function should be different between macOS and iOS. And you may even be right!
+    //
+    // For "unqualified" characters on https://unicode.org/Public/emoji/latest/emoji-test.txt the apparent behavior
+    // of macOS and iOS is different. Both OSes cascade through the default cascade list, but on macOS,
+    // STIXTwo is ahead of AppleColorEmoji in the list. On iOS, however, AppleColorEmoji is really early in the list
+    // (it appears before almost everything else). So the observed effect is that a lot of these "unqualified"
+    // characters will be emoji style on iOS whereas they will be text style on macOS.
+    //
+    // On the other hand, when Unicode says that a character is Emoji_Presentation, then it needs to be rendered a
+    // emoji style, regardless of which OS you're on. Them's the rules.
+    //
+    // The fact that this function is the same on macOS and iOS is a somewhat-intentional choice. We *could* gather up
+    // all the characters that apparently render differently on macOS and iOS, and force them to maintain those
+    // differences here. However, that has 2 downsides:
+    // 1. Having a big list of characters in WebKit source code is unmaintanable. And generating it at build time is a
+    //        bit of a science project, given Apple's internal build system.
+    // 2. More importantly, it probably isn't what authors want. If authors have their own font-family fallback list,
+    //        they probably don't want us to sidestep _most_ of it in search of an emoji font, just because of the
+    //        particular order of Core Text's native cascade list for native apps.
+    //
+    // So, where we end up here is a situation where these characters will get platform-specific rendering, but only if
+    // the author is using `font-family: system-ui` or we end up falling off the end of the fallback list altogether.
+    // Otherwise, we honor the author's given font-family list. This is probably the best of both words:
+    // 1. If we have a positive signal from Unicode that a character has gotta be rendered in emoji style, then we'll
+    //        honor that,
+    // 2. In all other cases we'll honor the author's fallback list...
+    // 3. Unless the author has (intentionally or unintentionally) asked us to perform a platform-specific fallback
+    //        (via either asking for system-ui or by falling off the end of the list).
 
+    switch (fontVariantEmoji) {
+    case FontVariantEmoji::Normal:
+    case FontVariantEmoji::Unicode:
+        // https://www.unicode.org/reports/tr51/#Presentation_Style
+        // There had been no clear line for implementers between three categories of Unicode characters:
+        // 1. emoji-default: those expected to have an emoji presentation by default, but can also have a text presentation
+        // 2. text-default: those expected to have a text presentation by default, but could also have an emoji presentation
+        // 3. text-only: those that should only have a text presentation
+        // These categories can be distinguished using properties listed in Annex A: Emoji Properties and Data Files.
+        // The first category are characters with Emoji=Yes and Emoji_Presentation=Yes.
+        // The second category are characters with Emoji=Yes and Emoji_Presentation=No.
+        // The third category are characters with Emoji=No.
+        if (u_hasBinaryProperty(character, UCHAR_EMOJI_PRESENTATION))
+            return ResolvedEmojiPolicy::RequireEmoji;
+        return ResolvedEmojiPolicy::NoPreference;
+    case FontVariantEmoji::Text:
+        return ResolvedEmojiPolicy::RequireText;
+    case FontVariantEmoji::Emoji:
+        return ResolvedEmojiPolicy::RequireEmoji;
+    }
 }
+
+} // namespace WebCore

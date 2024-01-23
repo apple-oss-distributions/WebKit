@@ -24,61 +24,169 @@
  */
 
 #include "config.h"
+
 #include "RemoteImageBuffer.h"
 
 #if ENABLE(GPU_PROCESS)
 
-#include "PlatformImageBufferShareableBackend.h"
-#include "RemoteDisplayListRecorder.h"
+#include "IPCSemaphore.h"
+#include "RemoteImageBufferMessages.h"
+#include "StreamConnectionWorkQueue.h"
+#include <WebCore/GraphicsContext.h>
+
+#define MESSAGE_CHECK(assertion, message) do { \
+    if (UNLIKELY(!(assertion))) { \
+        m_backend->terminateWebProcess(message); \
+        return; \
+    } \
+} while (0)
 
 namespace WebKit {
-using namespace WebCore;
 
-RemoteImageBuffer::RemoteImageBuffer(const ImageBufferBackend::Parameters& parameters, const ImageBufferBackend::Info& info, std::unique_ptr<ImageBufferBackend>&& backend, RemoteRenderingBackend& remoteRenderingBackend, QualifiedRenderingResourceIdentifier renderingResourceIdentifier)
-    : ImageBuffer(parameters, info, WTFMove(backend), renderingResourceIdentifier.object())
-    , m_renderingResourceIdentifier(renderingResourceIdentifier)
-    , m_remoteDisplayList({ RemoteDisplayListRecorder::create(*this, renderingResourceIdentifier, renderingResourceIdentifier.processIdentifier(), remoteRenderingBackend) })
-    , m_renderingResourcesRequest(ScopedRenderingResourcesRequest::acquire())
+Ref<RemoteImageBuffer> RemoteImageBuffer::create(Ref<WebCore::ImageBuffer> imageBuffer, RemoteRenderingBackend& backend)
+{
+    auto instance = adoptRef(*new RemoteImageBuffer(WTFMove(imageBuffer), backend));
+    instance->startListeningForIPC();
+    return instance;
+}
+
+RemoteImageBuffer::RemoteImageBuffer(Ref<WebCore::ImageBuffer> imageBuffer, RemoteRenderingBackend& backend)
+    : m_backend(&backend)
+    , m_imageBuffer(WTFMove(imageBuffer))
 {
 }
 
 RemoteImageBuffer::~RemoteImageBuffer()
 {
     // Volatile image buffers do not have contexts.
-    if (this->volatilityState() == VolatilityState::Volatile)
+    if (m_imageBuffer->volatilityState() == WebCore::VolatilityState::Volatile)
         return;
-    if (!m_backend)
+    if (!m_imageBuffer->backend())
         return;
     // Unwind the context's state stack before destruction, since calls to restore may not have
     // been flushed yet, or the web process may have terminated.
-    while (context().stackSize())
-        context().restore();
+    auto& context = m_imageBuffer->context();
+    while (context.stackSize())
+        context.restore();
 }
 
-void RemoteImageBuffer::setOwnershipIdentity(const ProcessIdentity& resourceOwner)
+void RemoteImageBuffer::startListeningForIPC()
 {
-    if (m_backend)
-        m_backend->setOwnershipIdentity(resourceOwner);
+    m_backend->streamConnection().startReceivingMessages(*this, Messages::RemoteImageBuffer::messageReceiverName(), identifier().toUInt64());
 }
 
-RefPtr<RemoteImageBuffer> RemoteImageBuffer::createTransfer(std::unique_ptr<ImageBufferBackend>&& backend, const ImageBufferBackend::Info& backendInfo, RemoteRenderingBackend& remoteRenderingBackend, QualifiedRenderingResourceIdentifier renderingResourceIdentifier)
+void RemoteImageBuffer::stopListeningForIPC()
 {
-    auto context = WebCore::ImageBufferCreationContext { nullptr
-#if HAVE(IOSURFACE)
-        , &remoteRenderingBackend.ioSurfacePool()
-#endif
-    };
-    backend->transferToNewContext(context);
-    auto* sharing = backend->toBackendSharing();
-    ASSERT(sharing && is<ImageBufferBackendHandleSharing>(sharing));
-
-    auto backendHandle = downcast<ImageBufferBackendHandleSharing>(*sharing).createBackendHandle();
-
-    auto imageBuffer = adoptRef(new RemoteImageBuffer(backend->parameters() , backendInfo, WTFMove(backend), remoteRenderingBackend, renderingResourceIdentifier));
-
-    remoteRenderingBackend.didCreateImageBufferBackend(WTFMove(backendHandle), renderingResourceIdentifier, *imageBuffer->m_remoteDisplayList.get());
-    return imageBuffer;
+    if (auto backend = std::exchange(m_backend, { }))
+        backend->streamConnection().stopReceivingMessages(Messages::RemoteImageBuffer::messageReceiverName(), identifier().toUInt64());
 }
+
+void RemoteImageBuffer::getPixelBuffer(WebCore::PixelBufferFormat destinationFormat, WebCore::IntRect srcRect, CompletionHandler<void()>&& completionHandler)
+{
+    assertIsCurrent(workQueue());
+    auto memory = m_backend->sharedMemoryForGetPixelBuffer();
+    MESSAGE_CHECK(memory, "No shared memory for getPixelBufferForImageBuffer"_s);
+    MESSAGE_CHECK(PixelBuffer::supportedPixelFormat(destinationFormat.pixelFormat), "Pixel format not supported"_s);
+    auto pixelBuffer = m_imageBuffer->getPixelBuffer(destinationFormat, srcRect);
+    if (pixelBuffer) {
+        MESSAGE_CHECK(pixelBuffer->sizeInBytes() <= memory->size(), "Shmem for return of getPixelBuffer is too small"_s);
+        memcpy(memory->data(), pixelBuffer->bytes(), pixelBuffer->sizeInBytes());
+    } else
+        memset(memory->data(), 0, memory->size());
+    completionHandler();
+}
+
+void RemoteImageBuffer::getPixelBufferWithNewMemory(SharedMemory::Handle&& handle, WebCore::PixelBufferFormat destinationFormat, WebCore::IntRect srcRect, CompletionHandler<void()>&& completionHandler)
+{
+    assertIsCurrent(workQueue());
+    m_backend->setSharedMemoryForGetPixelBuffer(nullptr);
+    auto sharedMemory = WebKit::SharedMemory::map(WTFMove(handle), WebKit::SharedMemory::Protection::ReadWrite);
+    MESSAGE_CHECK(sharedMemory, "Shared memory could not be mapped."_s);
+    m_backend->setSharedMemoryForGetPixelBuffer(WTFMove(sharedMemory));
+    getPixelBuffer(WTFMove(destinationFormat), WTFMove(srcRect), WTFMove(completionHandler));
+}
+
+void RemoteImageBuffer::putPixelBuffer(Ref<WebCore::PixelBuffer> pixelBuffer, WebCore::IntRect srcRect, WebCore::IntPoint destPoint, WebCore::AlphaPremultiplication destFormat)
+{
+    assertIsCurrent(workQueue());
+    m_imageBuffer->putPixelBuffer(pixelBuffer, srcRect, destPoint, destFormat);
+}
+
+void RemoteImageBuffer::getShareableBitmap(WebCore::PreserveResolution preserveResolution, CompletionHandler<void(ShareableBitmap::Handle&&)>&& completionHandler)
+{
+    assertIsCurrent(workQueue());
+    ShareableBitmap::Handle handle;
+    [&]() {
+        auto backendSize = m_imageBuffer->backendSize();
+        auto logicalSize = m_imageBuffer->logicalSize();
+        auto resultSize = preserveResolution == PreserveResolution::Yes ? backendSize : m_imageBuffer->truncatedLogicalSize();
+        auto bitmap = ShareableBitmap::create({ resultSize, m_imageBuffer->colorSpace() });
+        if (!bitmap)
+            return;
+        auto context = bitmap->createGraphicsContext();
+        if (!context)
+            return;
+        context->drawImageBuffer(m_imageBuffer.get(), WebCore::FloatRect { { }, resultSize }, FloatRect { { }, logicalSize }, { CompositeOperator::Copy });
+        if (auto bitmapHandle = bitmap->createHandle())
+            handle = WTFMove(*bitmapHandle);
+    }();
+    completionHandler(WTFMove(handle));
+}
+
+void RemoteImageBuffer::getFilteredImage(Ref<WebCore::Filter> filter, CompletionHandler<void(ShareableBitmap::Handle&&)>&& completionHandler)
+{
+    assertIsCurrent(workQueue());
+    ShareableBitmap::Handle handle;
+    [&]() {
+        auto image = m_imageBuffer->filteredImage(filter);
+        if (!image)
+            return;
+        auto imageSize = image->size();
+        auto bitmap = ShareableBitmap::create({ IntSize(imageSize), m_imageBuffer->colorSpace() });
+        if (!bitmap)
+            return;
+        auto context = bitmap->createGraphicsContext();
+        if (!context)
+            return;
+        context->drawImage(*image, FloatPoint());
+        if (auto bitmapHandle = bitmap->createHandle())
+            handle = WTFMove(*bitmapHandle);
+    }();
+    completionHandler(WTFMove(handle));
+}
+
+void RemoteImageBuffer::convertToLuminanceMask()
+{
+    assertIsCurrent(workQueue());
+    m_imageBuffer->convertToLuminanceMask();
+}
+
+void RemoteImageBuffer::transformToColorSpace(const WebCore::DestinationColorSpace& colorSpace)
+{
+    assertIsCurrent(workQueue());
+    m_imageBuffer->transformToColorSpace(colorSpace);
+}
+
+void RemoteImageBuffer::flushContext(IPC::Semaphore&& semaphore)
+{
+    assertIsCurrent(workQueue());
+    m_imageBuffer->flushDrawingContext();
+    semaphore.signal();
+}
+
+void RemoteImageBuffer::flushContextSync(CompletionHandler<void()>&& completionHandler)
+{
+    assertIsCurrent(workQueue());
+    m_imageBuffer->flushDrawingContext();
+    completionHandler();
+}
+
+IPC::StreamConnectionWorkQueue& RemoteImageBuffer::workQueue() const
+{
+    return m_backend->workQueue();
+}
+
+#undef MESSAGE_CHECK
 
 } // namespace WebKit
 

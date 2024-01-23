@@ -25,7 +25,6 @@
 
 #pragma once
 
-#include <WebCore/FrameFlattening.h>
 #include <wtf/Forward.h>
 
 #if PLATFORM(IOS_FAMILY)
@@ -66,6 +65,8 @@ bool defaultUseLegacyBackgroundSizeShorthandBehavior();
 bool defaultAllowDisplayOfInsecureContent();
 bool defaultAllowRunningOfInsecureContent();
 bool defaultShouldConvertInvalidURLsToBlank();
+bool defaultPopoverAttributeEnabled();
+bool defaultSearchInputIncrementalAttributeAndSearchEventEnabled();
 
 #if PLATFORM(MAC)
 bool defaultPassiveWheelListenersAsDefaultOnDocument();

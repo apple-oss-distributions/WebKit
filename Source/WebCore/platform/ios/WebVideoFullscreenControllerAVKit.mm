@@ -28,17 +28,16 @@
 
 #if PLATFORM(IOS_FAMILY)
 
-#import "FrameView.h"
 #import "HTMLVideoElement.h"
+#import "LocalFrameView.h"
 #import "Logging.h"
 #import "MediaSelectionOption.h"
 #import "PlaybackSessionInterfaceAVKit.h"
 #import "PlaybackSessionModelMediaElement.h"
 #import "RenderVideo.h"
 #import "TimeRanges.h"
-#import "VideoFullscreenChangeObserver.h"
 #import "VideoFullscreenInterfaceAVKit.h"
-#import "VideoFullscreenModelVideoElement.h"
+#import "VideoPresentationModelVideoElement.h"
 #import "WebCoreThreadRun.h"
 #import <QuartzCore/CoreAnimation.h>
 #import <UIKit/UIView.h>
@@ -98,12 +97,10 @@ class VideoFullscreenControllerContext;
 @end
 
 class VideoFullscreenControllerContext final
-    : private VideoFullscreenModel
-    , private VideoFullscreenModelClient
-    , private VideoFullscreenChangeObserver
+    : public VideoPresentationModel
+    , private VideoPresentationModelClient
     , private PlaybackSessionModel
-    , private PlaybackSessionModelClient
-    , public ThreadSafeRefCounted<VideoFullscreenControllerContext> {
+    , private PlaybackSessionModelClient {
 
 public:
     static Ref<VideoFullscreenControllerContext> create()
@@ -122,19 +119,7 @@ public:
 private:
     VideoFullscreenControllerContext() { }
 
-    // VideoFullscreenChangeObserver
-    void requestUpdateInlineRect() final;
-    void requestVideoContentLayer() final;
-    void returnVideoContentLayer() final;
-    void didSetupFullscreen() final;
-    void failedToEnterFullscreen() final { }
-    void didEnterFullscreen(const FloatSize&) final { }
-    void willExitFullscreen() final;
-    void didExitFullscreen() final;
-    void didCleanupFullscreen() final;
-    void fullscreenMayReturnToInline() final;
-
-    // VideoFullscreenModelClient
+    // VideoPresentationModelClient
     void hasVideoChanged(bool) override;
     void videoDimensionsChanged(const FloatSize&) override;
 
@@ -196,9 +181,9 @@ private:
     void mutedChanged(bool) override;
     void volumeChanged(double) override;
 
-    // VideoFullscreenModel
-    void addClient(VideoFullscreenModelClient&) override;
-    void removeClient(VideoFullscreenModelClient&) override;
+    // VideoPresentationModel
+    void addClient(VideoPresentationModelClient&) override;
+    void removeClient(VideoPresentationModelClient&) override;
     void requestFullscreenMode(HTMLMediaElementEnums::VideoFullscreenMode, bool finishedWithMedia = false) override;
     void setVideoLayerFrame(FloatRect) override;
     void setVideoLayerGravity(MediaPlayerEnums::VideoGravity) override;
@@ -215,10 +200,20 @@ private:
     void willExitPictureInPicture() final;
     void didExitPictureInPicture() final;
 
+    void requestUpdateInlineRect() final;
+    void requestVideoContentLayer() final;
+    void returnVideoContentLayer() final;
+    void returnVideoView() final { }
+    void didSetupFullscreen() final;
+    void willExitFullscreen() final;
+    void didExitFullscreen() final;
+    void didCleanupFullscreen() final;
+    void fullscreenMayReturnToInline() final;
+
     HashSet<PlaybackSessionModelClient*> m_playbackClients;
-    HashSet<VideoFullscreenModelClient*> m_fullscreenClients;
+    HashSet<VideoPresentationModelClient*> m_presentationClients;
     RefPtr<VideoFullscreenInterfaceAVKit> m_interface;
-    RefPtr<VideoFullscreenModelVideoElement> m_fullscreenModel;
+    RefPtr<VideoPresentationModelVideoElement> m_presentationModel;
     RefPtr<PlaybackSessionModelMediaElement> m_playbackModel;
     RefPtr<HTMLVideoElement> m_videoElement;
     RetainPtr<UIView> m_videoFullscreenView;
@@ -230,19 +225,17 @@ VideoFullscreenControllerContext::~VideoFullscreenControllerContext()
     auto notifyClientsModelWasDestroyed = [this] {
         while (!m_playbackClients.isEmpty())
             (*m_playbackClients.begin())->modelDestroyed();
-        while (!m_fullscreenClients.isEmpty())
-            (*m_fullscreenClients.begin())->modelDestroyed();
     };
     if (isUIThread()) {
         WebThreadLock();
         notifyClientsModelWasDestroyed();
         m_playbackModel = nullptr;
-        m_fullscreenModel = nullptr;
+        m_presentationModel = nullptr;
     } else
         WorkQueue::main().dispatchSync(WTFMove(notifyClientsModelWasDestroyed));
 }
 
-#pragma mark VideoFullscreenChangeObserver
+#pragma mark VideoPresentationModel
 
 void VideoFullscreenControllerContext::requestUpdateInlineRect()
 {
@@ -265,7 +258,7 @@ void VideoFullscreenControllerContext::requestVideoContentLayer()
     ASSERT(isUIThread());
     WebThreadRun([protectedThis = Ref { *this }, this, videoFullscreenLayer = retainPtr([m_videoFullscreenView layer])] () mutable {
         [videoFullscreenLayer setBackgroundColor:cachedCGColor(WebCore::Color::transparentBlack).get()];
-        m_fullscreenModel->setVideoFullscreenLayer(videoFullscreenLayer.get(), [protectedThis = WTFMove(protectedThis), this] () mutable {
+        m_presentationModel->setVideoFullscreenLayer(videoFullscreenLayer.get(), [protectedThis = WTFMove(protectedThis), this] () mutable {
             RunLoop::main().dispatch([protectedThis = WTFMove(protectedThis), this] {
                 if (!m_interface)
                     return;
@@ -285,7 +278,7 @@ void VideoFullscreenControllerContext::returnVideoContentLayer()
     ASSERT(isUIThread());
     WebThreadRun([protectedThis = Ref { *this }, this, videoFullscreenLayer = retainPtr([m_videoFullscreenView layer])] () mutable {
         [videoFullscreenLayer setBackgroundColor:cachedCGColor(WebCore::Color::transparentBlack).get()];
-        m_fullscreenModel->setVideoFullscreenLayer(nil, [protectedThis = WTFMove(protectedThis), this] () mutable {
+        m_presentationModel->setVideoFullscreenLayer(nil, [protectedThis = WTFMove(protectedThis), this] () mutable {
             RunLoop::main().dispatch([protectedThis = WTFMove(protectedThis), this] {
                 if (!m_interface)
                     return;
@@ -309,7 +302,7 @@ void VideoFullscreenControllerContext::didSetupFullscreen()
 #else
     WebThreadRun([protectedThis = Ref { *this }, this, videoFullscreenLayer = retainPtr([m_videoFullscreenView layer])] () mutable {
         [videoFullscreenLayer setBackgroundColor:cachedCGColor(WebCore::Color::transparentBlack)];
-        m_fullscreenModel->setVideoFullscreenLayer(videoFullscreenLayer.get(), [protectedThis = WTFMove(protectedThis), this] () mutable {
+        m_presentationModel->setVideoFullscreenLayer(videoFullscreenLayer.get(), [protectedThis = WTFMove(protectedThis), this] () mutable {
             RunLoop::main().dispatch([protectedThis = WTFMove(protectedThis), this] {
                 m_interface->enterFullscreen();
             });
@@ -323,7 +316,7 @@ void VideoFullscreenControllerContext::willExitFullscreen()
 #if PLATFORM(WATCHOS)
     ASSERT(isUIThread());
     WebThreadRun([protectedThis = Ref { *this }, this] () mutable {
-        m_fullscreenModel->willExitFullscreen();
+        m_presentationModel->willExitFullscreen();
     });
 #endif
 }
@@ -337,7 +330,7 @@ void VideoFullscreenControllerContext::didExitFullscreen()
     });
 #else
     WebThreadRun([protectedThis = Ref { *this }, this] () mutable {
-        m_fullscreenModel->setVideoFullscreenLayer(nil, [protectedThis = WTFMove(protectedThis), this] () mutable {
+        m_presentationModel->setVideoFullscreenLayer(nil, [protectedThis = WTFMove(protectedThis), this] () mutable {
             RunLoop::main().dispatch([protectedThis = WTFMove(protectedThis), this] {
                 m_interface->cleanupFullscreen();
             });
@@ -349,18 +342,17 @@ void VideoFullscreenControllerContext::didExitFullscreen()
 void VideoFullscreenControllerContext::didCleanupFullscreen()
 {
     ASSERT(isUIThread());
-    m_interface->setVideoFullscreenModel(nullptr);
-    m_interface->setVideoFullscreenChangeObserver(nullptr);
+    m_interface->setVideoPresentationModel(nullptr);
     m_interface = nullptr;
     m_videoFullscreenView = nil;
 
     WebThreadRun([protectedThis = Ref { *this }, this] {
-        m_fullscreenModel->setVideoFullscreenLayer(nil);
-        m_fullscreenModel->setVideoElement(nullptr);
+        m_presentationModel->setVideoFullscreenLayer(nil);
+        m_presentationModel->setVideoElement(nullptr);
         m_playbackModel->setMediaElement(nullptr);
         m_playbackModel->removeClient(*this);
-        m_fullscreenModel->removeClient(*this);
-        m_fullscreenModel = nullptr;
+        m_presentationModel->removeClient(*this);
+        m_presentationModel = nullptr;
         m_videoElement = nullptr;
 
         [m_controller didFinishFullscreen:this];
@@ -441,7 +433,7 @@ void VideoFullscreenControllerContext::hasVideoChanged(bool hasVideo)
         return;
     }
 
-    for (auto& client : m_fullscreenClients)
+    for (auto& client : m_presentationClients)
         client->hasVideoChanged(hasVideo);
 }
 
@@ -454,7 +446,7 @@ void VideoFullscreenControllerContext::videoDimensionsChanged(const FloatSize& v
         return;
     }
 
-    for (auto& client : m_fullscreenClients)
+    for (auto& client : m_presentationClients)
         client->videoDimensionsChanged(videoDimensions);
 }
 
@@ -562,28 +554,28 @@ void VideoFullscreenControllerContext::volumeChanged(double volume)
     for (auto& client : m_playbackClients)
         client->volumeChanged(volume);
 }
-#pragma mark VideoFullscreenModel
+#pragma mark VideoPresentationModel
 
-void VideoFullscreenControllerContext::addClient(VideoFullscreenModelClient& client)
+void VideoFullscreenControllerContext::addClient(VideoPresentationModelClient& client)
 {
     ASSERT(isUIThread());
-    ASSERT(!m_fullscreenClients.contains(&client));
-    m_fullscreenClients.add(&client);
+    ASSERT(!m_presentationClients.contains(&client));
+    m_presentationClients.add(&client);
 }
 
-void VideoFullscreenControllerContext::removeClient(VideoFullscreenModelClient& client)
+void VideoFullscreenControllerContext::removeClient(VideoPresentationModelClient& client)
 {
     ASSERT(isUIThread());
-    ASSERT(m_fullscreenClients.contains(&client));
-    m_fullscreenClients.remove(&client);
+    ASSERT(m_presentationClients.contains(&client));
+    m_presentationClients.remove(&client);
 }
 
 void VideoFullscreenControllerContext::requestFullscreenMode(HTMLMediaElementEnums::VideoFullscreenMode mode, bool finishedWithMedia)
 {
     ASSERT(isUIThread());
     WebThreadRun([protectedThis = Ref { *this }, this, mode, finishedWithMedia] {
-        if (m_fullscreenModel)
-            m_fullscreenModel->requestFullscreenMode(mode, finishedWithMedia);
+        if (m_presentationModel)
+            m_presentationModel->requestFullscreenMode(mode, finishedWithMedia);
     });
 }
 
@@ -600,8 +592,8 @@ void VideoFullscreenControllerContext::setVideoLayerFrame(FloatRect frame)
 
         [videoFullscreenLayer setSublayerTransform:CATransform3DIdentity];
 
-        if (m_fullscreenModel)
-            m_fullscreenModel->setVideoLayerFrame(frame);
+        if (m_presentationModel)
+            m_presentationModel->setVideoLayerFrame(frame);
         [CATransaction commit];
     });
 }
@@ -610,8 +602,8 @@ void VideoFullscreenControllerContext::setVideoLayerGravity(MediaPlayerEnums::Vi
 {
     ASSERT(isUIThread());
     WebThreadRun([protectedThis = Ref { *this }, this, videoGravity] {
-        if (m_fullscreenModel)
-            m_fullscreenModel->setVideoLayerGravity(videoGravity);
+        if (m_presentationModel)
+            m_presentationModel->setVideoLayerGravity(videoGravity);
     });
 }
 
@@ -619,15 +611,15 @@ void VideoFullscreenControllerContext::fullscreenModeChanged(HTMLMediaElementEnu
 {
     ASSERT(isUIThread());
     WebThreadRun([protectedThis = Ref { *this }, this, mode] {
-        if (m_fullscreenModel)
-            m_fullscreenModel->fullscreenModeChanged(mode);
+        if (m_presentationModel)
+            m_presentationModel->fullscreenModeChanged(mode);
     });
 }
 
 bool VideoFullscreenControllerContext::hasVideo() const
 {
     ASSERT(isUIThread());
-    return m_fullscreenModel ? m_fullscreenModel->hasVideo() : false;
+    return m_presentationModel ? m_presentationModel->hasVideo() : false;
 }
 
 bool VideoFullscreenControllerContext::isMuted() const
@@ -657,42 +649,42 @@ bool VideoFullscreenControllerContext::isPictureInPictureSupported() const
 void VideoFullscreenControllerContext::willEnterPictureInPicture()
 {
     ASSERT(isUIThread());
-    for (auto* client : m_fullscreenClients)
+    for (auto* client : m_presentationClients)
         client->willEnterPictureInPicture();
 }
 
 void VideoFullscreenControllerContext::didEnterPictureInPicture()
 {
     ASSERT(isUIThread());
-    for (auto* client : m_fullscreenClients)
+    for (auto* client : m_presentationClients)
         client->didEnterPictureInPicture();
 }
 
 void VideoFullscreenControllerContext::failedToEnterPictureInPicture()
 {
     ASSERT(isUIThread());
-    for (auto* client : m_fullscreenClients)
+    for (auto* client : m_presentationClients)
         client->failedToEnterPictureInPicture();
 }
 
 void VideoFullscreenControllerContext::willExitPictureInPicture()
 {
     ASSERT(isUIThread());
-    for (auto* client : m_fullscreenClients)
+    for (auto* client : m_presentationClients)
         client->willExitPictureInPicture();
 }
 
 void VideoFullscreenControllerContext::didExitPictureInPicture()
 {
     ASSERT(isUIThread());
-    for (auto* client : m_fullscreenClients)
+    for (auto* client : m_presentationClients)
         client->didExitPictureInPicture();
 }
 
 FloatSize VideoFullscreenControllerContext::videoDimensions() const
 {
     ASSERT(isUIThread());
-    return m_fullscreenModel ? m_fullscreenModel->videoDimensions() : FloatSize();
+    return m_presentationModel ? m_presentationModel->videoDimensions() : FloatSize();
 }
 
 #pragma mark - PlaybackSessionModel
@@ -1000,15 +992,15 @@ void VideoFullscreenControllerContext::setUpFullscreen(HTMLVideoElement& videoEl
     m_playbackModel->addClient(*this);
     m_playbackModel->setMediaElement(m_videoElement.get());
 
-    m_fullscreenModel = VideoFullscreenModelVideoElement::create();
-    m_fullscreenModel->addClient(*this);
-    m_fullscreenModel->setVideoElement(m_videoElement.get());
+    m_presentationModel = VideoPresentationModelVideoElement::create();
+    m_presentationModel->addClient(*this);
+    m_presentationModel->setVideoElement(m_videoElement.get());
 
     bool allowsPictureInPicture = m_videoElement->webkitSupportsPresentationMode(HTMLVideoElement::VideoPresentationMode::PictureInPicture);
 
     IntRect videoElementClientRect = elementRectInWindow(m_videoElement.get());
     FloatRect videoLayerFrame = FloatRect(FloatPoint(), videoElementClientRect.size());
-    m_fullscreenModel->setVideoLayerFrame(videoLayerFrame);
+    m_presentationModel->setVideoLayerFrame(videoLayerFrame);
 
     FloatSize videoDimensions = { (float)videoElement.videoWidth(), (float)videoElement.videoHeight() };
 
@@ -1018,8 +1010,7 @@ void VideoFullscreenControllerContext::setUpFullscreen(HTMLVideoElement& videoEl
 
         Ref<PlaybackSessionInterfaceAVKit> sessionInterface = PlaybackSessionInterfaceAVKit::create(*this);
         m_interface = VideoFullscreenInterfaceAVKit::create(sessionInterface.get());
-        m_interface->setVideoFullscreenChangeObserver(this);
-        m_interface->setVideoFullscreenModel(this);
+        m_interface->setVideoPresentationModel(this);
 
         m_videoFullscreenView = adoptNS([PAL::allocUIViewInstance() init]);
 

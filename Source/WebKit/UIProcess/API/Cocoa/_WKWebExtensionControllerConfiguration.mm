@@ -33,8 +33,8 @@
 #import "WebExtensionControllerConfiguration.h"
 #import <WebCore/WebCoreObjCExtras.h>
 
-static constexpr NSString *persistentCodingKey = @"persistent";
-static constexpr NSString *identifierCodingKey = @"identifier";
+static NSString * const persistentCodingKey = @"persistent";
+static NSString * const identifierCodingKey = @"identifier";
 
 @implementation _WKWebExtensionControllerConfiguration
 
@@ -57,14 +57,16 @@ static constexpr NSString *identifierCodingKey = @"identifier";
 
 + (instancetype)configurationWithIdentifier:(NSUUID *)identifier
 {
-    NSParameterAssert(identifier);
+    NSParameterAssert([identifier isKindOfClass:NSUUID.class]);
 
-    return WebKit::WebExtensionControllerConfiguration::create(identifier)->wrapper();
+    auto uuid = WTF::UUID::fromNSUUID(identifier);
+    RELEASE_ASSERT(uuid);
+    return WebKit::WebExtensionControllerConfiguration::create(*uuid)->wrapper();
 }
 
 - (void)encodeWithCoder:(NSCoder *)coder
 {
-    NSParameterAssert(coder);
+    NSParameterAssert([coder isKindOfClass:NSCoder.class]);
 
     [coder encodeObject:self.identifier forKey:identifierCodingKey];
     [coder encodeBool:self.persistent forKey:persistentCodingKey];
@@ -72,7 +74,7 @@ static constexpr NSString *identifierCodingKey = @"identifier";
 
 - (instancetype)initWithCoder:(NSCoder *)coder
 {
-    NSParameterAssert(coder);
+    NSParameterAssert([coder isKindOfClass:NSCoder.class]);
 
     if (!(self = [super init]))
         return nil;
@@ -82,8 +84,9 @@ static constexpr NSString *identifierCodingKey = @"identifier";
     NSUUID *identifier = [coder decodeObjectOfClass:NSUUID.class forKey:identifierCodingKey];
     BOOL persistent = [coder decodeBoolForKey:persistentCodingKey];
 
-    if (identifier)
-        API::Object::constructInWrapper<WebKit::WebExtensionControllerConfiguration>(self, identifier);
+    auto uuid = WTF::UUID::fromNSUUID(identifier);
+    if (uuid)
+        API::Object::constructInWrapper<WebKit::WebExtensionControllerConfiguration>(self, *uuid);
     else
         API::Object::constructInWrapper<WebKit::WebExtensionControllerConfiguration>(self, persistent ? IsPersistent::Yes : IsPersistent::No);
 

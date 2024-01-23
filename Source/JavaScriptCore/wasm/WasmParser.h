@@ -243,7 +243,7 @@ ALWAYS_INLINE bool Parser<SuccessType>::parseImmByteArray16(v128_t& result)
 {
     if (length() < 16 || m_offset > length() - 16)
         return false;
-    std::copy(source() + m_offset, source() + m_offset + 16, result.u8x16);
+    std::copy_n(source() + m_offset, 16, result.u8x16);
     m_offset += 16;
     return true;
 }
@@ -415,9 +415,11 @@ ALWAYS_INLINE bool Parser<SuccessType>::parseExternalKind(ExternalKind& result)
     return true;
 }
 
-ALWAYS_INLINE I32InitExpr makeI32InitExpr(uint8_t opcode, uint32_t bits)
+ALWAYS_INLINE I32InitExpr makeI32InitExpr(uint8_t opcode, bool isExtendedConstantExpression, uint32_t bits)
 {
     RELEASE_ASSERT(opcode == I32Const || opcode == GetGlobal);
+    if (isExtendedConstantExpression)
+        return I32InitExpr::extendedExpression(bits);
     if (opcode == I32Const)
         return I32InitExpr::constValue(bits);
     return I32InitExpr::globalImport(bits);

@@ -21,7 +21,7 @@
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
 # THE POSSIBILITY OF SUCH DAMAGE.
 
-#if ENABLE(GPU_PROCESS)
+#if ENABLE(GPU_PROCESS) && ENABLE(VIDEO)
 
 messages -> MediaPlayerPrivateRemote NotRefCounted {
     NetworkStateChanged(struct WebKit::RemoteMediaPlayerState state)
@@ -29,6 +29,7 @@ messages -> MediaPlayerPrivateRemote NotRefCounted {
     FirstVideoFrameAvailable()
     VolumeChanged(double volume)
     MuteChanged(bool mute)
+    Seeked(MediaTime mediaTime)
     TimeChanged(struct WebKit::RemoteMediaPlayerState state)
     DurationChanged(struct WebKit::RemoteMediaPlayerState state)
     RateChanged(double rate)

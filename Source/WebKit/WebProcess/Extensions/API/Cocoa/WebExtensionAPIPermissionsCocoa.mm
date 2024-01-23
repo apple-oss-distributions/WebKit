@@ -30,8 +30,13 @@
 #import "config.h"
 #import "WebExtensionAPIPermissions.h"
 
+#import "CocoaHelpers.h"
+#import "Logging.h"
+#import "MessageSenderInlines.h"
 #import "WebExtension.h"
+#import "WebExtensionAPINamespace.h"
 #import "WebExtensionContextMessages.h"
+#import "WebExtensionUtilities.h"
 #import "WebProcess.h"
 #import <wtf/cocoa/VectorCocoa.h>
 
@@ -39,12 +44,12 @@
 
 namespace WebKit {
 
-static NSString *permissionsKey = @"permissions";
-static NSString *originsKey = @"origins";
+static NSString * const permissionsKey = @"permissions";
+static NSString * const originsKey = @"origins";
 
 void WebExtensionAPIPermissions::getAll(Ref<WebExtensionCallbackHandler>&& callback)
 {
-    RELEASE_LOG(Extensions, "permissions.getAll()");
+    // Documentation: https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions/API/permissions/getAll
 
     WebProcess::singleton().sendWithAsyncReply(Messages::WebExtensionContext::PermissionsGetAll(), [protectedThis = Ref { *this }, callback = WTFMove(callback)](Vector<String> permissions, Vector<String> origins) {
         callback->call(@{
@@ -54,44 +59,54 @@ void WebExtensionAPIPermissions::getAll(Ref<WebExtensionCallbackHandler>&& callb
     }, extensionContext().identifier().toUInt64());
 }
 
-void WebExtensionAPIPermissions::contains(NSDictionary *details, Ref<WebExtensionCallbackHandler>&& callback, NSString **)
+void WebExtensionAPIPermissions::contains(NSDictionary *details, Ref<WebExtensionCallbackHandler>&& callback, NSString **outExceptionString)
 {
-    RELEASE_LOG(Extensions, "permissions.contains()");
+    // Documentation: https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions/API/permissions/contains
+
+    static NSString * const apiName = @"permissions.contains()";
 
     HashSet<String> permissions, origins;
     WebExtension::MatchPatternSet matchPatterns;
-    parseDetailsDictionary(details, permissions, origins);
-
-    NSString *errorMessage;
-    if (!validatePermissionsDetails(permissions, origins, matchPatterns, @"contains()", &errorMessage)) {
-        callback->reportError(errorMessage);
+    if (!parseDetailsDictionary(details, permissions, origins, apiName, outExceptionString))
         return;
-    }
+
+    if (!validatePermissionsDetails(permissions, origins, matchPatterns, apiName, outExceptionString))
+        return;
 
     WebProcess::singleton().sendWithAsyncReply(Messages::WebExtensionContext::PermissionsContains(permissions, origins), [protectedThis = Ref { *this }, callback = WTFMove(callback)](bool containsPermissions) {
         callback->call(containsPermissions ? @YES : @NO);
     }, extensionContext().identifier().toUInt64());
 }
 
-void WebExtensionAPIPermissions::request(NSDictionary *details, Ref<WebExtensionCallbackHandler>&& callback, NSString **)
+void WebExtensionAPIPermissions::request(NSDictionary *details, Ref<WebExtensionCallbackHandler>&& callback, NSString **outExceptionString)
 {
-    RELEASE_LOG(Extensions, "permissions.request()");
+    // Documentation: https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions/API/permissions/request
+
+    static NSString * const apiName = @"permissions.request()";
 
     HashSet<String> permissions, origins;
-    parseDetailsDictionary(details, permissions, origins);
+    if (!parseDetailsDictionary(details, permissions, origins, apiName, outExceptionString))
+        return;
 
     NSString *errorMessage;
     WebExtension::MatchPatternSet matchPatterns;
 
-    if (!validatePermissionsDetails(permissions, origins, matchPatterns, @"request()", &errorMessage)) {
-        callback->reportError(errorMessage);
+    if (!validatePermissionsDetails(permissions, origins, matchPatterns, apiName, &errorMessage)) {
+        // Chrome reports this error as callback error and not an exception, so do the same.
+        callback->reportError(toErrorString(apiName, nil, errorMessage));
         return;
     }
 
-    // FIXME: <https://webkit.org/b/250135> Check to see if the request is being made from a user gesture.
+    if (!WebCore::UserGestureIndicator::processingUserGesture()) {
+        // Chrome reports this error as callback error and not an exception, so do the same.
+        callback->reportError(toErrorString(apiName, nil, @"must be called during a user gesture"));
+        return;
+    }
 
-    if (!verifyRequestedPermissions(permissions, matchPatterns, @"request()", &errorMessage)) {
-        callback->reportError(errorMessage);
+    if (!verifyRequestedPermissions(permissions, matchPatterns, apiName, &errorMessage)) {
+        // Chrome reports these errors as callback errors and not exceptions, so do the same. Instead of round tripping
+        // to the UI process, we can answer this here and report the error right away.
+        callback->reportError(toErrorString(apiName, nil, errorMessage));
         return;
     }
 
@@ -100,55 +115,107 @@ void WebExtensionAPIPermissions::request(NSDictionary *details, Ref<WebExtension
     }, extensionContext().identifier().toUInt64());
 }
 
-void WebExtensionAPIPermissions::remove(NSDictionary *details, Ref<WebExtensionCallbackHandler>&& callback, NSString **)
+void WebExtensionAPIPermissions::remove(NSDictionary *details, Ref<WebExtensionCallbackHandler>&& callback, NSString **outExceptionString)
 {
-    RELEASE_LOG(Extensions, "permissions.remove()");
+    // Documentation: https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions/API/permissions/remove
+
+    static NSString * const apiName = @"permissions.remove()";
 
     HashSet<String> permissions, origins;
-    parseDetailsDictionary(details, permissions, origins);
+    if (!parseDetailsDictionary(details, permissions, origins, apiName, outExceptionString))
+        return;
+
+    NSString *errorMessage;
+    WebExtension::MatchPatternSet matchPatterns;
+    if (!validatePermissionsDetails(permissions, origins, matchPatterns, apiName, &errorMessage)) {
+        // Chrome reports this error as callback error and not an exception, so do the same.
+        callback->reportError(toErrorString(apiName, nil, errorMessage));
+        return;
+    }
+
+    if (!verifyRequestedPermissions(permissions, matchPatterns, apiName, &errorMessage)) {
+        // Chrome reports this error as callback error and not an exception, so do the same.
+        callback->reportError(toErrorString(apiName, nil, errorMessage));
+        return;
+    }
 
     WebProcess::singleton().sendWithAsyncReply(Messages::WebExtensionContext::PermissionsRemove(permissions, origins), [protectedThis = Ref { *this }, callback = WTFMove(callback)](bool success) {
         callback->call(success ? @YES : @NO);
     }, extensionContext().identifier().toUInt64());
 }
 
-void WebExtensionAPIPermissions::parseDetailsDictionary(NSDictionary *details, HashSet<String>& permissions, HashSet<String>& origins)
+bool WebExtensionAPIPermissions::parseDetailsDictionary(NSDictionary *details, HashSet<String>& permissions, HashSet<String>& origins, NSString *callingAPIName, NSString **outExceptionString)
 {
-    for (NSString *permission in details[permissionsKey])
+    static NSArray<NSString *> *optionalKeys = @[
+        permissionsKey,
+        originsKey,
+    ];
+
+    static NSDictionary<NSString *, id> *types = @{
+        permissionsKey: @[ NSString.class ],
+        originsKey: @[ NSString.class ],
+    };
+
+    if (!validateDictionary(details, permissionsKey, nil, optionalKeys, types, outExceptionString))
+        return false;
+
+    for (NSString *permission in objectForKey<NSArray>(details, permissionsKey, true, NSString.class))
         permissions.add(permission);
 
-    for (NSString *origin in details[originsKey])
+    for (NSString *origin in objectForKey<NSArray>(details, originsKey, true, NSString.class))
         origins.add(origin);
+
+    return true;
 }
 
 bool WebExtensionAPIPermissions::verifyRequestedPermissions(HashSet<String>& permissions, HashSet<Ref<WebExtensionMatchPattern>>& matchPatterns, NSString *callingAPIName, NSString **outExceptionString)
 {
-    WebExtension extension = WebExtension(extensionContext().manifest());
-    HashSet<String> allowedPermissions = extension.requestedPermissions();
+    auto extension = WebExtension::create(extensionContext().manifest(), @{ });
+    HashSet<String> allowedPermissions = extension->requestedPermissions();
+    WebExtension::MatchPatternSet allowedHostPermissions = extension->allRequestedMatchPatterns();
 
-    if ([callingAPIName isEqualToString:@"remove()"]) {
-        if (bool requestingToRemoveFunctionalPermissions = permissions.size() && permissions.isSubset(allowedPermissions)) {
-            *outExceptionString = @"Required permissions cannot be removed.";
+    if ([callingAPIName isEqualToString:@"permissions.remove()"]) {
+        if (bool requestingToRemoveFunctionalPermissions = permissions.size() && permissions.intersectionWith(allowedPermissions).size()) {
+            *outExceptionString = toErrorString(nil, permissionsKey, @"required permissions cannot be removed");
             return false;
+        }
+
+        for (auto& requestedPattern : matchPatterns) {
+            for (auto& allowedPattern : allowedHostPermissions) {
+                if (allowedPattern->matchesPattern(requestedPattern, { WebExtensionMatchPattern::Options::IgnorePaths })) {
+                    *outExceptionString = toErrorString(nil, originsKey, @"required permissions cannot be removed");
+                    return false;
+                }
+            }
         }
     }
 
-    allowedPermissions.add(extension.optionalPermissions().begin(), extension.optionalPermissions().end());
+    allowedPermissions.add(extension->optionalPermissions().begin(), extension->optionalPermissions().end());
+    allowedHostPermissions.add(extension->optionalPermissionMatchPatterns().begin(), extension->optionalPermissionMatchPatterns().end());
 
-    bool requestingPermissionsNotDefinedInManifest = permissions.size() && !permissions.isSubset(allowedPermissions);
+    bool requestingPermissionsNotDeclaredInManifest = (permissions.size() && !permissions.isSubset(allowedPermissions)) || (matchPatterns.size() && !allowedHostPermissions.size());
+    if (requestingPermissionsNotDeclaredInManifest) {
+        if ([callingAPIName isEqualToString:@"permissions.remove()"])
+            *outExceptionString = toErrorString(nil, permissionsKey, @"only permissions specified in the manifest may be removed");
+        else
+            *outExceptionString = toErrorString(nil, permissionsKey, @"only permissions specified in the manifest may be requested");
+        return false;
+    }
 
-    WebExtension::MatchPatternSet allowedPatterns = extension.requestedPermissionMatchPatterns();
     for (auto& requestedPattern : matchPatterns) {
-        bool requestingAllowedOrigin = false;
-        for (auto& allowedPattern : allowedPatterns) {
-            if (requestedPattern->matchesPattern(allowedPattern, { WebExtensionMatchPattern::Options::IgnorePaths })) {
-                requestingAllowedOrigin = true;
+        bool matchFound = false;
+        for (auto& allowedPattern : allowedHostPermissions) {
+            if (allowedPattern->matchesPattern(requestedPattern, { WebExtensionMatchPattern::Options::IgnorePaths })) {
+                matchFound = true;
                 break;
             }
         }
 
-        if (!requestingAllowedOrigin || requestingPermissionsNotDefinedInManifest) {
-            *outExceptionString = [callingAPIName isEqualToString:@"remove()"] ? @"Only permissions specified in the manifest may be removed" : @"Only permissions specified in the manifest may be requested.";
+        if (!matchFound) {
+            if ([callingAPIName isEqualToString:@"permissions.remove()"])
+                *outExceptionString = toErrorString(nil, originsKey, @"only permissions specified in the manifest may be removed");
+            else
+                *outExceptionString = toErrorString(nil, originsKey, @"only permissions specified in the manifest may be requested");
             return false;
         }
     }
@@ -160,16 +227,15 @@ bool WebExtensionAPIPermissions::validatePermissionsDetails(HashSet<String>& per
 {
     for (auto& permission : permissions) {
         if (!WebExtension::supportedPermissions().contains(permission)) {
-            *outExceptionString = [NSString stringWithFormat:@"Invalid permission (%@) passed to %@.", static_cast<NSString *>(permission), callingAPIName];
+            *outExceptionString = toErrorString(nil, permissionsKey, @"'%@' is not a valid permission", (NSString *)permission);
             return false;
         }
     }
 
-    NSError *error;
     for (auto& origin : origins) {
-        auto pattern = WebExtensionMatchPattern::getOrCreate(static_cast<NSString *>(origin));
+        auto pattern = WebExtensionMatchPattern::getOrCreate(origin);
         if (!pattern || !pattern->isSupported()) {
-            *outExceptionString = [NSString stringWithFormat:@"Invalid origin (%@) passed to %@. %@", static_cast<NSString *>(origin), callingAPIName, error];
+            *outExceptionString = toErrorString(nil, originsKey, @"'%@' is not a valid pattern", (NSString *)origin);
             return false;
         }
 
@@ -181,18 +247,49 @@ bool WebExtensionAPIPermissions::validatePermissionsDetails(HashSet<String>& per
 
 WebExtensionAPIEvent& WebExtensionAPIPermissions::onAdded()
 {
+    // Documentation: https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions/API/permissions/onAdded
+
     if (!m_onAdded)
-        m_onAdded = WebExtensionAPIEvent::create(forMainWorld(), runtime(), extensionContext());
+        m_onAdded = WebExtensionAPIEvent::create(forMainWorld(), runtime(), extensionContext(), WebExtensionEventListenerType::PermissionsOnAdded);
 
     return *m_onAdded;
 }
 
 WebExtensionAPIEvent& WebExtensionAPIPermissions::onRemoved()
 {
+    // Documentation: https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions/API/permissions/onRemoved
+
     if (!m_onRemoved)
-        m_onRemoved = WebExtensionAPIEvent::create(forMainWorld(), runtime(), extensionContext());
+        m_onRemoved = WebExtensionAPIEvent::create(forMainWorld(), runtime(), extensionContext(), WebExtensionEventListenerType::PermissionsOnRemoved);
 
     return *m_onRemoved;
+}
+
+void WebExtensionContextProxy::dispatchPermissionsEvent(WebExtensionEventListenerType type, HashSet<String> permissions, HashSet<String> origins)
+{
+    auto *permissionDetails = toAPIArray(permissions);
+    auto *originDetails = toAPIArray(origins);
+    auto *details = @{ permissionsKey: permissionDetails, originsKey: originDetails };
+
+    enumerateNamespaceObjects([&](auto& namespaceObject) {
+        auto& permissionsObject = namespaceObject.permissions();
+
+        switch (type) {
+        case WebExtensionEventListenerType::PermissionsOnAdded:
+            // Documentation: https://developer.mozilla.org/docs/Mozilla/Add-ons/WebExtensions/API/permissions/onAdded
+            permissionsObject.onAdded().invokeListenersWithArgument(details);
+            break;
+
+        case WebExtensionEventListenerType::PermissionsOnRemoved:
+            // Documentation: https://developer.mozilla.org/docs/Mozilla/Add-ons/WebExtensions/API/permissions/onRemoved
+            permissionsObject.onRemoved().invokeListenersWithArgument(details);
+            break;
+
+        default:
+            ASSERT_NOT_REACHED();
+            break;
+        }
+    });
 }
 
 } // namespace WebKit

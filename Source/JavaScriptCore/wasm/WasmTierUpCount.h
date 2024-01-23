@@ -25,7 +25,7 @@
 
 #pragma once
 
-#if ENABLE(WEBASSEMBLY_B3JIT)
+#if ENABLE(WEBASSEMBLY_OMGJIT)
 
 #include "CompilationResult.h"
 #include "ExecutionCounter.h"
@@ -70,6 +70,7 @@ public:
     Lock& getLock() { return m_lock; }
 
     OSREntryData& addOSREntryData(uint32_t functionIndex, uint32_t loopIndex, StackMap&&);
+    OSREntryData& osrEntryData(uint32_t loopIndex);
 
     void optimizeAfterWarmUp(uint32_t functionIndex)
     {
@@ -136,4 +137,4 @@ public:
     
 } } // namespace JSC::Wasm
 
-#endif // ENABLE(WEBASSEMBLY_B3JIT)
+#endif // ENABLE(WEBASSEMBLY_OMGJIT)

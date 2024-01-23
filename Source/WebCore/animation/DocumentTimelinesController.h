@@ -40,8 +40,9 @@ class Document;
 class DocumentTimeline;
 class WebAnimation;
 
+DECLARE_ALLOCATOR_WITH_HEAP_IDENTIFIER(DocumentTimelinesController);
 class DocumentTimelinesController {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_FAST_ALLOCATED_WITH_HEAP_IDENTIFIER(DocumentTimelinesController);
 public:
     explicit DocumentTimelinesController(Document&);
     ~DocumentTimelinesController();
@@ -57,14 +58,9 @@ public:
 
     WEBCORE_EXPORT void suspendAnimations();
     WEBCORE_EXPORT void resumeAnimations();
-    WEBCORE_EXPORT bool animationsAreSuspended() const;
+    bool animationsAreSuspended() const { return m_isSuspended; }
 
 private:
-    struct AnimationsToProcess {
-        Vector<RefPtr<WebAnimation>> animationsToRemove;
-        Vector<RefPtr<CSSTransition>> completedTransitions;
-    };
-
     ReducedResolutionSeconds liveCurrentTime() const;
     void cacheCurrentTime(ReducedResolutionSeconds);
     void maybeClearCachedCurrentTime();

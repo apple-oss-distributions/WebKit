@@ -124,7 +124,7 @@ const char *ParamBuffer::getNextParamName()
 {
     static const char *kParamNames[] = {"p0",  "p1",  "p2",  "p3",  "p4",  "p5",  "p6",  "p7",
                                         "p8",  "p9",  "p10", "p11", "p12", "p13", "p14", "p15",
-                                        "p16", "p17", "p18", "p19", "p20", "p21"};
+                                        "p16", "p17", "p18", "p19", "p20", "p21", "p22"};
     ASSERT(mParamCaptures.size() < ArraySize(kParamNames));
     return kParamNames[mParamCaptures.size()];
 }
@@ -435,11 +435,11 @@ void WriteParamValueReplay<ParamType::TUniformLocation>(std::ostream &os,
     os << "gUniformLocations[";
 
     // Find the program from the call parameters.
-    std::vector<gl::ShaderProgramID> programIDs;
-    if (FindShaderProgramIDsInCall(call, programIDs))
+    std::vector<gl::ShaderProgramID> shaderProgramIDs;
+    if (FindResourceIDsInCall<gl::ShaderProgramID>(call, shaderProgramIDs))
     {
-        ASSERT(programIDs.size() == 1);
-        os << programIDs[0].value;
+        ASSERT(shaderProgramIDs.size() == 1);
+        os << shaderProgramIDs[0].value;
     }
     else
     {
@@ -524,7 +524,7 @@ void WriteParamValueReplay<ParamType::Tegl_DisplayPointer>(std::ostream &os,
                                                            const CallCapture &call,
                                                            egl::Display *value)
 {
-    os << "EGL_NO_DISPLAY";
+    os << "gEGLDisplay";
 }
 
 template <>
@@ -544,11 +544,11 @@ void WriteParamValueReplay<ParamType::TEGLClientBuffer>(std::ostream &os,
 }
 
 template <>
-void WriteParamValueReplay<ParamType::Tegl_SyncPointer>(std::ostream &os,
-                                                        const CallCapture &call,
-                                                        egl::Sync *value)
+void WriteParamValueReplay<ParamType::Tegl_SyncID>(std::ostream &os,
+                                                   const CallCapture &call,
+                                                   egl::SyncID value)
 {
-    os << "EGL_NO_SYNC_KHR";
+    os << "gEGLSyncMap[" << value.value << "]";
 }
 
 template <>
@@ -612,17 +612,25 @@ void WriteParamValueReplay<ParamType::TEGLTimeKHR>(std::ostream &os,
     os << value << "ul";
 }
 
-bool FindShaderProgramIDsInCall(const CallCapture &call, std::vector<gl::ShaderProgramID> &idsOut)
+template <typename ParamValueType>
+bool FindResourceIDsInCall(const CallCapture &call, std::vector<ParamValueType> &idsOut)
 {
+    const ParamType paramType = ParamValueTrait<ParamValueType>::typeID;
     for (const ParamCapture &param : call.params.getParamCaptures())
     {
-        // Only checking for programs right now, but could be expanded to all ResourceTypes
-        if (param.type == ParamType::TShaderProgramID)
+        if (param.type == paramType)
         {
-            idsOut.push_back(param.value.ShaderProgramIDVal);
+            const ParamValueType id = AccessParamValue<ParamValueType>(paramType, param.value);
+            idsOut.push_back(id);
         }
     }
 
     return !idsOut.empty();
 }
+
+// Explicit instantiation
+template bool FindResourceIDsInCall<gl::TextureID>(const CallCapture &call,
+                                                   std::vector<gl::TextureID> &idsOut);
+template bool FindResourceIDsInCall<gl::ShaderProgramID>(const CallCapture &call,
+                                                         std::vector<gl::ShaderProgramID> &idsOut);
 }  // namespace angle

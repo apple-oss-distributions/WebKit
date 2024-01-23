@@ -40,8 +40,8 @@ OBJC_CLASS PDFDocument;
 OBJC_CLASS PDFSelection;
 
 namespace WebCore {
-class Frame;
 class HTMLPlugInElement;
+class LocalFrame;
 }
 
 namespace WebKit {
@@ -56,7 +56,7 @@ class PluginView final : public WebCore::PluginViewBase {
 public:
     static RefPtr<PluginView> create(WebCore::HTMLPlugInElement&, const URL&, const String& contentType, bool shouldUseManualLoader);
 
-    WebCore::Frame* frame() const;
+    WebCore::LocalFrame* frame() const;
 
     bool isBeingDestroyed() const;
 
@@ -122,6 +122,7 @@ private:
     // WebCore::PluginViewBase
     PlatformLayer* platformLayer() const final;
     bool scroll(WebCore::ScrollDirection, WebCore::ScrollGranularity) final;
+    WebCore::ScrollPosition scrollPositionForTesting() const final;
     WebCore::Scrollbar* horizontalScrollbar() final;
     WebCore::Scrollbar* verticalScrollbar() final;
     bool wantsWheelEvents() final;
@@ -130,7 +131,7 @@ private:
 
     // WebCore::Widget
     void setFrameRect(const WebCore::IntRect&) final;
-    void paint(WebCore::GraphicsContext&, const WebCore::IntRect&, WebCore::Widget::SecurityOriginPaintPolicy, WebCore::EventRegionContext*) final;
+    void paint(WebCore::GraphicsContext&, const WebCore::IntRect&, WebCore::Widget::SecurityOriginPaintPolicy, WebCore::RegionContext*) final;
     void invalidateRect(const WebCore::IntRect&) final;
     void frameRectsChanged() final;
     void setParent(WebCore::ScrollView*) final;

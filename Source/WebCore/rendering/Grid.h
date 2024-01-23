@@ -87,7 +87,8 @@ public:
     bool needsItemsPlacement() const { return m_needsItemsPlacement; };
 
     void setupGridForMasonryLayout();
-
+    unsigned maxRows() const { return m_maxRows; }
+    unsigned maxColumns() const { return m_maxColumns; }
 private:
     void ensureStorageForRow(unsigned row);
 
@@ -123,7 +124,7 @@ public:
 
     RenderBox* nextGridItem();
     bool isEmptyAreaEnough(unsigned rowSpan, unsigned columnSpan) const;
-    std::unique_ptr<GridArea> nextEmptyGridArea(unsigned fixedTrackSpan, unsigned varyingTrackSpan);
+    std::optional<GridArea> nextEmptyGridArea(unsigned fixedTrackSpan, unsigned varyingTrackSpan);
 
     GridTrackSizingDirection direction() const
     {

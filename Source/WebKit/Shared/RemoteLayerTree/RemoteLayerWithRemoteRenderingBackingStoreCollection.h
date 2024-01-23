@@ -39,12 +39,13 @@ public:
     RemoteLayerWithRemoteRenderingBackingStoreCollection(RemoteLayerTreeContext&);
     virtual ~RemoteLayerWithRemoteRenderingBackingStoreCollection() = default;
 
+    void gpuProcessConnectionWasDestroyed() final;
+
 private:
     RefPtr<WebCore::ImageBuffer> allocateBufferForBackingStore(const RemoteLayerBackingStore&) final;
     
     RemoteRenderingBackendProxy& remoteRenderingBackendProxy();
 
-    bool backingStoreNeedsDisplay(const RemoteLayerBackingStore&) final;
     void prepareBackingStoresForDisplay(RemoteLayerTreeTransaction&) final;
 
     bool collectBackingStoreBufferIdentifiersToMarkVolatile(RemoteLayerBackingStore&, OptionSet<VolatilityMarkingBehavior>, MonotonicTime now, Vector<WebCore::RenderingResourceIdentifier>&);

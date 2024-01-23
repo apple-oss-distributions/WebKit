@@ -704,7 +704,8 @@ let InjectedScript = class InjectedScript extends PrototypelessObjectBase
 
     _forEachPropertyDescriptor(object, collectionMode, callback, {nativeGettersAsValues, includeProto})
     {
-        if (InjectedScriptHost.subtype(object) === "proxy")
+        let subtype = RemoteObject.subtype(object);
+        if (subtype === "proxy" || subtype === "weakref")
             return;
 
         let nameProcessed = new @Set;
@@ -768,15 +769,16 @@ let InjectedScript = class InjectedScript extends PrototypelessObjectBase
             }
         }
 
-        function processProperty(o, propertyName, isOwnProperty)
+        function processProperty(o, propertyName, isOwnProperty, isPrivate)
         {
             if (nameProcessed.@has(propertyName))
                 return InjectedScript.PropertyFetchAction.Continue;
 
             nameProcessed.@add(propertyName);
 
-            let name = toString(propertyName);
-            let symbol = isSymbol(propertyName) ? propertyName : null;
+            // Private fields are implemented as hidden symbols, so don't treat them like regular `Symbol`.
+            let name = isPrivate ? propertyName.description : toString(propertyName);
+            let symbol = (!isPrivate && isSymbol(propertyName)) ? propertyName : null;
 
             let descriptor = @Object.@getOwnPropertyDescriptor(o, propertyName);
             if (!descriptor) {
@@ -800,17 +802,31 @@ let InjectedScript = class InjectedScript extends PrototypelessObjectBase
                 descriptor.isOwn = true;
             if (symbol)
                 descriptor.symbol = symbol;
+            if (isPrivate)
+                descriptor.isPrivate = true;
             return processDescriptor(descriptor, isOwnProperty);
         }
 
         let isArrayLike = false;
         try {
-            isArrayLike = RemoteObject.subtype(object) === "array" && @isFinite(object.length) && object.length > 0;
+            isArrayLike = subtype === "array" && @isFinite(object.length) && object.length > 0;
         } catch { }
 
         for (let o = object; isDefined(o); o = @Object.@getPrototypeOf(o)) {
             let isOwnProperty = o === object;
             let shouldBreak = false;
+
+            let privatePropertySymbols = InjectedScriptHost.getOwnPrivatePropertySymbols(o);
+            for (let i = 0; i < privatePropertySymbols.length; ++i) {
+                let privatePropertySymbol = privatePropertySymbols[i];
+                let result = processProperty(o, privatePropertySymbol, isOwnProperty, true);
+                shouldBreak = result === InjectedScript.PropertyFetchAction.Stop;
+                if (shouldBreak)
+                    break;
+            }
+
+            if (shouldBreak)
+                break;
 
             // FIXME: <https://webkit.org/b/201861> Web Inspector: show autocomplete entries for non-index properties on arrays
             if (isArrayLike && isOwnProperty) {
@@ -1028,6 +1044,9 @@ let RemoteObject = class RemoteObject extends PrototypelessObjectBase
             if (subtype === "proxy") {
                 this.preview = this._generatePreview(InjectedScriptHost.proxyTargetValue(object));
                 this.preview.lossless = false;
+            } else if (subtype === "weakref") {
+                this.preview = this._generatePreview(InjectedScriptHost.weakRefTargetValue(object));
+                this.preview.lossless = false;
             } else
                 this.preview = this._generatePreview(object, @undefined, columnNames);
         }
@@ -1109,6 +1128,9 @@ let RemoteObject = class RemoteObject extends PrototypelessObjectBase
 
         if (subtype === "proxy")
             return "Proxy";
+
+        if (subtype === "weakref")
+            return "WeakRef";
 
         if (subtype === "node")
             return RemoteObject.nodePreview(value);
@@ -1294,6 +1316,9 @@ let RemoteObject = class RemoteObject extends PrototypelessObjectBase
                 preview.lossless = false;
                 return InjectedScript.PropertyFetchAction.Stop;
             }
+
+            if (descriptor.isPrivate)
+                property.isPrivate = true;
 
             if (internal)
                 property.internal = true;

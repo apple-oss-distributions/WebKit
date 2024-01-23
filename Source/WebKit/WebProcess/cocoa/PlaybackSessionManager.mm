@@ -29,6 +29,8 @@
 #if PLATFORM(IOS_FAMILY) || (PLATFORM(MAC) && ENABLE(VIDEO_PRESENTATION_MODE))
 
 #import "Attachment.h"
+#import "Logging.h"
+#import "MessageSenderInlines.h"
 #import "PlaybackSessionManagerMessages.h"
 #import "PlaybackSessionManagerProxyMessages.h"
 #import "WebCoreArgumentCoders.h"
@@ -43,6 +45,7 @@
 #import <WebCore/TimeRanges.h>
 #import <WebCore/UserGestureIndicator.h>
 #import <mach/mach_port.h>
+#import <wtf/LoggerHelper.h>
 
 namespace WebKit {
 using namespace WebCore;
@@ -164,12 +167,18 @@ Ref<PlaybackSessionManager> PlaybackSessionManager::create(WebPage& page)
 
 PlaybackSessionManager::PlaybackSessionManager(WebPage& page)
     : m_page(&page)
+#if !RELEASE_LOG_DISABLED
+    , m_logger(page.logger())
+    , m_logIdentifier(page.logIdentifier())
+#endif
 {
+    ALWAYS_LOG(LOGIDENTIFIER);
     WebProcess::singleton().addMessageReceiver(Messages::PlaybackSessionManager::messageReceiverName(), page.identifier(), *this);
 }
 
 PlaybackSessionManager::~PlaybackSessionManager()
 {
+    ALWAYS_LOG(LOGIDENTIFIER);
     for (auto& [model, interface] : m_contextMap.values()) {
         model->removeClient(*interface);
         model->setMediaElement(nullptr);
@@ -187,6 +196,7 @@ PlaybackSessionManager::~PlaybackSessionManager()
 
 void PlaybackSessionManager::invalidate()
 {
+    ALWAYS_LOG(LOGIDENTIFIER);
     ASSERT(m_page);
     WebProcess::singleton().removeMessageReceiver(Messages::PlaybackSessionManager::messageReceiverName(), m_page->identifier());
     m_page = nullptr;
@@ -221,14 +231,23 @@ PlaybackSessionInterfaceContext& PlaybackSessionManager::ensureInterface(Playbac
 
 void PlaybackSessionManager::removeContext(PlaybackSessionContextIdentifier contextId)
 {
-    auto& [model, interface] = ensureModelAndInterface(contextId);
+    auto [model, interface] = m_contextMap.get(contextId);
+    ASSERT(model);
+    ASSERT(interface);
+    if (!model || !interface)
+        return;
 
-    RefPtr<HTMLMediaElement> mediaElement = model->mediaElement();
-    model->setMediaElement(nullptr);
     model->removeClient(*interface);
     interface->invalidate();
-    m_mediaElements.remove(mediaElement.get());
     m_contextMap.remove(contextId);
+
+    RefPtr mediaElement = model->mediaElement();
+    ASSERT(mediaElement);
+    if (!mediaElement)
+        return;
+
+    model->setMediaElement(nullptr);
+    m_mediaElements.remove(*mediaElement);
 }
 
 void PlaybackSessionManager::addClientForContext(PlaybackSessionContextIdentifier contextId)
@@ -245,28 +264,22 @@ void PlaybackSessionManager::removeClientForContext(PlaybackSessionContextIdenti
 
 void PlaybackSessionManager::setUpPlaybackControlsManager(WebCore::HTMLMediaElement& mediaElement)
 {
-    auto foundIterator = m_mediaElements.find(&mediaElement);
-    if (foundIterator != m_mediaElements.end()) {
-        auto contextId = foundIterator->value;
-        if (m_controlsManagerContextId == contextId)
-            return;
-
-        auto previousContextId = m_controlsManagerContextId;
-        m_controlsManagerContextId = contextId;
-        if (previousContextId)
-            removeClientForContext(previousContextId);
-    } else {
-        auto contextId = m_mediaElements.ensure(&mediaElement, [&] {
-            return PlaybackSessionContextIdentifier::generate();
-        }).iterator->value;
-
-        auto previousContextId = m_controlsManagerContextId;
-        m_controlsManagerContextId = contextId;
-        if (previousContextId)
-            removeClientForContext(previousContextId);
-
+    auto contextId = mediaElement.identifier();
+    auto result = m_mediaElements.add(mediaElement);
+    if (result.isNewEntry) {
         ensureModel(contextId).setMediaElement(&mediaElement);
+#if !RELEASE_LOG_DISABLED
+        sendLogIdentifierForMediaElement(mediaElement);
+#endif
     }
+
+    if (m_controlsManagerContextId == contextId)
+        return;
+
+    auto previousContextId = m_controlsManagerContextId;
+    m_controlsManagerContextId = contextId;
+    if (previousContextId)
+        removeClientForContext(previousContextId);
 
     addClientForContext(m_controlsManagerContextId);
 
@@ -300,10 +313,7 @@ void PlaybackSessionManager::mediaEngineChanged()
 
 PlaybackSessionContextIdentifier PlaybackSessionManager::contextIdForMediaElement(WebCore::HTMLMediaElement& mediaElement)
 {
-    auto addResult = m_mediaElements.ensure(&mediaElement, [&] {
-        return PlaybackSessionContextIdentifier::generate();
-    });
-    auto contextId = addResult.iterator->value;
+    auto contextId = mediaElement.identifier();
     ensureModel(contextId).setMediaElement(&mediaElement);
     return contextId;
 }
@@ -496,8 +506,7 @@ void PlaybackSessionManager::selectLegibleMediaOption(PlaybackSessionContextIden
 
 void PlaybackSessionManager::handleControlledElementIDRequest(PlaybackSessionContextIdentifier contextId)
 {
-    auto element = ensureModel(contextId).mediaElement();
-    if (element)
+    if (RefPtr element = ensureModel(contextId).mediaElement())
         m_page->send(Messages::PlaybackSessionManagerProxy::HandleControlledElementIDResponse(contextId, element->getIdAttribute()));
 }
 
@@ -536,6 +545,19 @@ void PlaybackSessionManager::sendRemoteCommand(PlaybackSessionContextIdentifier 
     UserGestureIndicator indicator(ProcessingUserGesture);
     ensureModel(contextId).sendRemoteCommand(command, argument);
 }
+
+#if !RELEASE_LOG_DISABLED
+void PlaybackSessionManager::sendLogIdentifierForMediaElement(HTMLMediaElement& mediaElement)
+{
+    auto contextId = contextIdForMediaElement(mediaElement);
+    m_page->send(Messages::PlaybackSessionManagerProxy::SetLogIdentifier(contextId, reinterpret_cast<uint64_t>(mediaElement.logIdentifier())));
+}
+
+WTFLogChannel& PlaybackSessionManager::logChannel() const
+{
+    return WebKit2LogFullscreen;
+}
+#endif
 
 } // namespace WebKit
 

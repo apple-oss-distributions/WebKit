@@ -219,16 +219,7 @@ struct JSTextPosition {
 
     operator int() const { return offset; }
 
-    bool operator==(const JSTextPosition& other) const
-    {
-        return line == other.line
-            && offset == other.offset
-            && lineStartOffset == other.lineStartOffset;
-    }
-    bool operator!=(const JSTextPosition& other) const
-    {
-        return !(*this == other);
-    }
+    friend bool operator==(const JSTextPosition&, const JSTextPosition&) = default;
 
     int column() const { return offset - lineStartOffset; }
     void checkConsistency()

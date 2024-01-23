@@ -32,10 +32,13 @@
 #include "CursorData.h"
 #include "CursorList.h"
 #include "Document.h"
-#include "RenderStyle.h"
+#include "FillLayer.h"
+#include "RenderStyleInlines.h"
 #include "SVGURIReference.h"
 #include "Settings.h"
+#include "ShapeValue.h"
 #include "StyleImage.h"
+#include "StyleReflection.h"
 #include "TransformFunctions.h"
 
 namespace WebCore {
@@ -89,7 +92,7 @@ void loadPendingResources(RenderStyle& style, Document& document, const Element*
 
     loadPendingImage(document, style.listStyleImage(), element);
     loadPendingImage(document, style.borderImageSource(), element);
-    loadPendingImage(document, style.maskBoxImageSource(), element);
+    loadPendingImage(document, style.maskBorderSource(), element);
 
     if (auto* reflection = style.boxReflect())
         loadPendingImage(document, reflection->mask().image(), element);

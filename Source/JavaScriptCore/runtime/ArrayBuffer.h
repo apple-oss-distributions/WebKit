@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2009-2021 Apple Inc. All rights reserved.
+ * Copyright (C) 2009-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -30,6 +30,7 @@
 #include "GCIncomingRefCounted.h"
 #include "Watchpoint.h"
 #include "Weak.h"
+#include "WeakImpl.h"
 #include <wtf/CagedPtr.h>
 #include <wtf/CheckedArithmetic.h>
 #include <wtf/PackedRefPtr.h>
@@ -219,6 +220,8 @@ public:
         return contents;
     }
 
+    JS_EXPORT_PRIVATE void shareWith(ArrayBufferContents&);
+
 private:
     void reset()
     {
@@ -242,7 +245,6 @@ private:
     
     void makeShared();
     void copyTo(ArrayBufferContents&);
-    void shareWith(ArrayBufferContents&);
 
     using DataType = CagedPtr<Gigacage::Primitive, void, tagCagedPtr>;
     DataType m_data { nullptr };
@@ -259,13 +261,16 @@ public:
     JS_EXPORT_PRIVATE static Ref<ArrayBuffer> create(size_t numElements, unsigned elementByteSize);
     JS_EXPORT_PRIVATE static Ref<ArrayBuffer> create(ArrayBuffer&);
     JS_EXPORT_PRIVATE static Ref<ArrayBuffer> create(const void* source, size_t byteLength);
+    JS_EXPORT_PRIVATE static Ref<ArrayBuffer> create(std::span<uint8_t>);
     JS_EXPORT_PRIVATE static Ref<ArrayBuffer> create(ArrayBufferContents&&);
+    JS_EXPORT_PRIVATE static Ref<ArrayBuffer> create(const Vector<uint8_t>&);
     JS_EXPORT_PRIVATE static Ref<ArrayBuffer> createAdopted(const void* data, size_t byteLength);
     JS_EXPORT_PRIVATE static Ref<ArrayBuffer> createFromBytes(const void* data, size_t byteLength, ArrayBufferDestructorFunction&&);
     JS_EXPORT_PRIVATE static Ref<ArrayBuffer> createShared(Ref<SharedArrayBufferContents>&&);
     JS_EXPORT_PRIVATE static RefPtr<ArrayBuffer> tryCreate(size_t numElements, unsigned elementByteSize, std::optional<size_t> maxByteLength = std::nullopt);
     JS_EXPORT_PRIVATE static RefPtr<ArrayBuffer> tryCreate(ArrayBuffer&);
     JS_EXPORT_PRIVATE static RefPtr<ArrayBuffer> tryCreate(const void* source, size_t byteLength);
+    JS_EXPORT_PRIVATE static RefPtr<ArrayBuffer> tryCreate(std::span<uint8_t>);
     JS_EXPORT_PRIVATE static RefPtr<ArrayBuffer> tryCreateShared(VM&, size_t numElements, unsigned elementByteSize, size_t maxByteLength);
 
     // Only for use by Uint8ClampedArray::tryCreateUninitialized and FragmentedSharedBuffer::tryCreateArrayBuffer.
@@ -319,6 +324,8 @@ public:
 
     Expected<int64_t, GrowFailReason> grow(VM&, size_t newByteLength);
     Expected<int64_t, GrowFailReason> resize(VM&, size_t newByteLength);
+
+    Vector<uint8_t> toVector() const { return { static_cast<const uint8_t*>(data()), byteLength() }; };
 
 private:
     static Ref<ArrayBuffer> create(size_t numElements, unsigned elementByteSize, ArrayBufferContents::InitializationPolicy);

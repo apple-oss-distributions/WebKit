@@ -36,21 +36,21 @@
 namespace WebKit {
 using namespace WebCore;
 
-static HashMap<uint64_t, VisitedLinkTableController*>& visitedLinkTableControllers()
+static HashMap<uint64_t, WeakPtr<VisitedLinkTableController>>& visitedLinkTableControllers()
 {
-    static NeverDestroyed<HashMap<uint64_t, VisitedLinkTableController*>> visitedLinkTableControllers;
-
+    static NeverDestroyed<HashMap<uint64_t, WeakPtr<VisitedLinkTableController>>> visitedLinkTableControllers;
+    RELEASE_ASSERT(isMainRunLoop());
     return visitedLinkTableControllers;
 }
 
 Ref<VisitedLinkTableController> VisitedLinkTableController::getOrCreate(uint64_t identifier)
 {
     auto& visitedLinkTableControllerPtr = visitedLinkTableControllers().add(identifier, nullptr).iterator->value;
-    if (visitedLinkTableControllerPtr)
-        return *visitedLinkTableControllerPtr;
+    if (RefPtr ptr = visitedLinkTableControllerPtr.get())
+        return *ptr;
 
     auto visitedLinkTableController = adoptRef(*new VisitedLinkTableController(identifier));
-    visitedLinkTableControllerPtr = visitedLinkTableController.ptr();
+    visitedLinkTableControllerPtr = visitedLinkTableController.get();
 
     return visitedLinkTableController;
 }
@@ -80,13 +80,12 @@ void VisitedLinkTableController::addVisitedLink(Page& page, SharedStringHash lin
     if (m_visitedLinkTable.contains(linkHash))
         return;
 
-    auto& webPage = WebPage::fromCorePage(page);
-    WebProcess::singleton().parentProcessConnection()->send(Messages::VisitedLinkStore::AddVisitedLinkHashFromPage(webPage.webPageProxyIdentifier(), linkHash), m_identifier);
+    WebProcess::singleton().parentProcessConnection()->send(Messages::VisitedLinkStore::AddVisitedLinkHashFromPage(WebPage::fromCorePage(page)->webPageProxyIdentifier(), linkHash), m_identifier);
 }
 
-void VisitedLinkTableController::setVisitedLinkTable(const SharedMemory::Handle& handle)
+void VisitedLinkTableController::setVisitedLinkTable(SharedMemory::Handle&& handle)
 {
-    auto sharedMemory = SharedMemory::map(handle, SharedMemory::Protection::ReadOnly);
+    auto sharedMemory = SharedMemory::map(WTFMove(handle), SharedMemory::Protection::ReadOnly);
     if (!sharedMemory)
         return;
 

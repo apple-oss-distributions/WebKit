@@ -50,7 +50,7 @@ public:
     WEBCORE_EXPORT static void resetDevices();
     WEBCORE_EXPORT static void setMockCaptureDevicesInterrupted(bool isCameraInterrupted, bool isMicrophoneInterrupted);
 
-    WEBCORE_EXPORT void triggerMockMicrophoneConfigurationChange();
+    WEBCORE_EXPORT void triggerMockCaptureConfigurationChange(bool forMicrophone, bool forDisplay);
 
     void setMockAudioCaptureEnabled(bool isEnabled) { m_isMockAudioCaptureEnabled = isEnabled; }
     void setMockVideoCaptureEnabled(bool isEnabled) { m_isMockVideoCaptureEnabled = isEnabled; }
@@ -90,7 +90,6 @@ private:
     private:
         const Vector<CaptureDevice>& captureDevices() final { return MockRealtimeMediaSourceCenter::displayDevices(); }
         std::optional<CaptureDevice> captureDeviceWithPersistentID(CaptureDevice::DeviceType type, const String& id) final { return MockRealtimeMediaSourceCenter::captureDeviceWithPersistentID(type, id); }
-        void windowDevices(Vector<DisplayCaptureManager::WindowCaptureDevice>&) final;
     };
 
     MockAudioCaptureDeviceManager m_audioCaptureDeviceManager;

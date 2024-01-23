@@ -42,12 +42,14 @@ struct SameSizeAsFontCascadeDescription {
     Vector<void*> vector;
     Vector<void*> vector2;
     FontPalette palette;
+    FontSizeAdjust sizeAdjust;
     FontVariantAlternates alternates;
     AtomString string;
     AtomString string2;
     int16_t fontSelectionRequest[3];
     float size;
-    Markable<float, FloatMarkableTraits> sizeAdjust;
+    TextSpacingTrim textSpacingTrim;
+    TextAutospace textAutospace;
     unsigned bitfields1;
     unsigned bitfields2 : 22;
     void* array;

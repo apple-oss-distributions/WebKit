@@ -20,7 +20,7 @@
  * PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY
  * OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
 #pragma once
@@ -32,7 +32,6 @@
 #include "NativeImage.h"
 #include "PlatformTimeRanges.h"
 #include "ProcessIdentity.h"
-#include "VideoFrame.h"
 #include <optional>
 #include <wtf/CompletionHandler.h>
 
@@ -42,11 +41,13 @@
 
 namespace WebCore {
 
+class VideoFrame;
+
 class MediaPlayerPrivateInterface {
     WTF_MAKE_NONCOPYABLE(MediaPlayerPrivateInterface); WTF_MAKE_FAST_ALLOCATED;
 public:
-    MediaPlayerPrivateInterface() = default;
-    virtual ~MediaPlayerPrivateInterface() = default;
+    WEBCORE_EXPORT MediaPlayerPrivateInterface();
+    WEBCORE_EXPORT virtual ~MediaPlayerPrivateInterface();
 
     virtual void load(const String&) { }
     virtual void load(const URL& url, const ContentType&, const String&) { load(url.string()); }
@@ -67,7 +68,7 @@ public:
         if (prepare)
             prepareForRendering();
     }
-    
+
     virtual void prepareToPlay() { }
     virtual PlatformLayer* platformLayer() const { return nullptr; }
 
@@ -81,6 +82,12 @@ public:
     virtual void videoFullscreenStandbyChanged() { }
 #endif
 
+    using LayerHostingContextIDCallback = CompletionHandler<void(LayerHostingContextID)>;
+    virtual void requestHostingContextID(LayerHostingContextIDCallback&& completionHandler) { completionHandler({ }); }
+    virtual LayerHostingContextID hostingContextID() const { return 0; }
+    virtual FloatSize videoLayerSize() const { return { }; }
+    virtual void setVideoLayerSizeFenced(const FloatSize&, WTF::MachSendRight&&) { }
+
 #if PLATFORM(IOS_FAMILY)
     virtual NSArray *timedMetadata() const { return nil; }
     virtual String accessLog() const { return emptyString(); }
@@ -89,7 +96,7 @@ public:
     virtual long platformErrorCode() const { return 0; }
 
     virtual void play() = 0;
-    virtual void pause() = 0;    
+    virtual void pause() = 0;
     virtual void setBufferingPolicy(MediaPlayer::BufferingPolicy) { }
 
     virtual bool supportsPictureInPicture() const { return false; }
@@ -116,16 +123,13 @@ public:
     virtual float currentTime() const { return 0; }
     virtual double currentTimeDouble() const { return currentTime(); }
     virtual MediaTime currentMediaTime() const { return MediaTime::createWithDouble(currentTimeDouble()); }
+    virtual bool currentMediaTimeMayProgress() const { return readyState() >= MediaPlayer::ReadyState::HaveFutureData; }
 
     virtual bool setCurrentTimeDidChangeCallback(MediaPlayer::CurrentTimeDidChangeCallback&&) { return false; }
 
     virtual MediaTime getStartDate() const { return MediaTime::createWithDouble(std::numeric_limits<double>::quiet_NaN()); }
 
-    virtual void seek(float) { }
-    virtual void seekDouble(double time) { seek(time); }
-    virtual void seek(const MediaTime& time) { seekDouble(time.toDouble()); }
-    virtual void seekWithTolerance(const MediaTime& time, const MediaTime&, const MediaTime&) { seek(time); }
-
+    virtual void seekToTarget(const SeekTarget&) = 0;
     virtual bool seeking() const = 0;
 
     virtual MediaTime startTime() const { return MediaTime::zeroTime(); }
@@ -149,7 +153,7 @@ public:
 
     virtual void setMuted(bool) { }
 
-    virtual bool hasClosedCaptions() const { return false; }    
+    virtual bool hasClosedCaptions() const { return false; }
     virtual void setClosedCaptionsVisible(bool) { }
 
     virtual double maxFastForwardRate() const { return std::numeric_limits<double>::infinity(); }
@@ -158,12 +162,12 @@ public:
     virtual MediaPlayer::NetworkState networkState() const = 0;
     virtual MediaPlayer::ReadyState readyState() const = 0;
 
-    virtual std::unique_ptr<PlatformTimeRanges> seekable() const { return maxMediaTimeSeekable() == MediaTime::zeroTime() ? makeUnique<PlatformTimeRanges>() : makeUnique<PlatformTimeRanges>(minMediaTimeSeekable(), maxMediaTimeSeekable()); }
+    WEBCORE_EXPORT virtual const PlatformTimeRanges& seekable() const;
     virtual float maxTimeSeekable() const { return 0; }
     virtual MediaTime maxMediaTimeSeekable() const { return MediaTime::createWithDouble(maxTimeSeekable()); }
     virtual double minTimeSeekable() const { return 0; }
     virtual MediaTime minMediaTimeSeekable() const { return MediaTime::createWithDouble(minTimeSeekable()); }
-    virtual std::unique_ptr<PlatformTimeRanges> buffered() const = 0;
+    virtual const PlatformTimeRanges& buffered() const = 0;
     virtual double seekableTimeRangesLastModifiedTime() const { return 0; }
     virtual double liveUpdateInterval() const { return 0; }
 
@@ -186,7 +190,7 @@ public:
     virtual void willBeAskedToPaintGL() { }
 #endif
 
-    virtual RefPtr<VideoFrame> videoFrameForCurrentTime() { return nullptr; }
+    virtual RefPtr<VideoFrame> videoFrameForCurrentTime();
     virtual RefPtr<NativeImage> nativeImageForCurrentTime() { return nullptr; }
     virtual DestinationColorSpace colorSpace() = 0;
     virtual bool shouldGetNativeImageForCanvasDrawing() const { return true; }
@@ -290,7 +294,7 @@ public:
         if (!duration)
             return 0;
 
-        unsigned long long extra = totalBytes() * buffered()->totalDuration().toDouble() / duration.toDouble();
+        unsigned long long extra = totalBytes() * buffered().totalDuration().toDouble() / duration.toDouble();
         return static_cast<unsigned>(extra);
     }
 
@@ -328,7 +332,7 @@ public:
     virtual bool playAtHostTime(const MonotonicTime&) { return false; }
     virtual bool pauseAtHostTime(const MonotonicTime&) { return false; }
 
-    virtual std::optional<VideoFrameMetadata> videoFrameMetadata() { return { }; }
+    virtual std::optional<VideoFrameMetadata> videoFrameMetadata();
     virtual void startVideoFrameMetadataGathering() { }
     virtual void stopVideoFrameMetadataGathering() { }
 
@@ -339,6 +343,11 @@ public:
     virtual String errorMessage() const { return { }; }
 
     virtual void renderVideoWillBeDestroyed() { }
+
+    virtual void isLoopingChanged() { }
+
+protected:
+    mutable PlatformTimeRanges m_seekable;
 };
 
 }

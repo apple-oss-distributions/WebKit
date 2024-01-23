@@ -90,8 +90,22 @@ static float getAVSpeechUtteranceMaximumSpeechRate()
         return nil;
 
     m_synthesizerObject = synthesizer;
+
+#if HAVE(AVSPEECHSYNTHESIS_VOICES_CHANGE_NOTIFICATION)
+    [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(availableVoicesDidChange) name:AVSpeechSynthesisAvailableVoicesDidChangeNotification object:nil];
+#endif
+
     return self;
 }
+
+#if HAVE(AVSPEECHSYNTHESIS_VOICES_CHANGE_NOTIFICATION)
+
+- (void)availableVoicesDidChange
+{
+    m_synthesizerObject->voicesDidChange();
+}
+
+#endif
 
 - (float)mapSpeechRateToPlatformRate:(float)rate
 {
@@ -279,7 +293,15 @@ void PlatformSpeechSynthesizer::initializeVoiceList()
         return;
 
     BEGIN_BLOCK_OBJC_EXCEPTIONS
-    for (AVSpeechSynthesisVoice *voice in [PAL::getAVSpeechSynthesisVoiceClass() speechVoices]) {
+    NSArray<AVSpeechSynthesisVoice *> *voices = nil;
+    // SpeechSynthesis replaces on-device compact with higher quality compact voices. These
+    // are not available to WebKit so we're losing these default voices for WebSpeech.
+    if ([PAL::getAVSpeechSynthesisVoiceClass() respondsToSelector:@selector(speechVoicesIncludingSuperCompact)])
+        voices = [PAL::getAVSpeechSynthesisVoiceClass() speechVoicesIncludingSuperCompact];
+    else
+        voices = [PAL::getAVSpeechSynthesisVoiceClass() speechVoices];
+
+    for (AVSpeechSynthesisVoice *voice in voices) {
         NSString *language = [voice language];
         bool isDefault = true;
         NSString *voiceURI = [voice identifier];

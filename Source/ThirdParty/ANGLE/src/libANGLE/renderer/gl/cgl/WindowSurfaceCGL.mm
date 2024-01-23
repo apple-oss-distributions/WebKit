@@ -6,25 +6,27 @@
 
 // WindowSurfaceCGL.cpp: CGL implementation of egl::Surface for windows
 
-#include "common/platform.h"
+#import "libANGLE/renderer/gl/cgl/WindowSurfaceCGL.h"
 
-#if defined(ANGLE_PLATFORM_MACOS) || defined(ANGLE_PLATFORM_MACCATALYST)
+#import <Cocoa/Cocoa.h>
+#import <OpenGL/OpenGL.h>
+#import <QuartzCore/QuartzCore.h>
 
-#    include "libANGLE/renderer/gl/cgl/WindowSurfaceCGL.h"
+#import "common/debug.h"
+#import "common/gl/cgl/FunctionsCGL.h"
+#import "libANGLE/Context.h"
+#import "libANGLE/renderer/gl/FramebufferGL.h"
+#import "libANGLE/renderer/gl/RendererGL.h"
+#import "libANGLE/renderer/gl/StateManagerGL.h"
+#import "libANGLE/renderer/gl/cgl/DisplayCGL.h"
 
-#    import <Cocoa/Cocoa.h>
-#    include <OpenGL/OpenGL.h>
-#    import <QuartzCore/QuartzCore.h>
+#ifdef ANGLE_OUTSIDE_WEBKIT
+#    define SWAP_CGL_LAYER_NAME ANGLESwapCGLLayer
+#else
+#    define SWAP_CGL_LAYER_NAME WebSwapCGLLayer
+#endif
 
-#    include "common/debug.h"
-#    include "common/gl/cgl/FunctionsCGL.h"
-#    include "libANGLE/Context.h"
-#    include "libANGLE/renderer/gl/FramebufferGL.h"
-#    include "libANGLE/renderer/gl/RendererGL.h"
-#    include "libANGLE/renderer/gl/StateManagerGL.h"
-#    include "libANGLE/renderer/gl/cgl/DisplayCGL.h"
-
-@interface WebSwapCGLLayer : CAOpenGLLayer {
+@interface SWAP_CGL_LAYER_NAME : CAOpenGLLayer {
     CGLContextObj mDisplayContext;
 
     bool initialized;
@@ -38,7 +40,7 @@
             withFunctions:(const rx::FunctionsGL *)functions;
 @end
 
-@implementation WebSwapCGLLayer
+@implementation SWAP_CGL_LAYER_NAME
 - (id)initWithSharedState:(rx::SharedSwapState *)swapState
               withContext:(CGLContextObj)displayContext
             withFunctions:(const rx::FunctionsGL *)functions
@@ -220,9 +222,9 @@ egl::Error WindowSurfaceCGL::initialize(const egl::Display *display)
     mSwapState.lastRendered   = &mSwapState.textures[1];
     mSwapState.beingPresented = &mSwapState.textures[2];
 
-    mSwapLayer = [[WebSwapCGLLayer alloc] initWithSharedState:&mSwapState
-                                                  withContext:mContext
-                                                withFunctions:mFunctions];
+    mSwapLayer = [[SWAP_CGL_LAYER_NAME alloc] initWithSharedState:&mSwapState
+                                                      withContext:mContext
+                                                    withFunctions:mFunctions];
     [mLayer addSublayer:mSwapLayer];
     [mSwapLayer setContentsScale:[mLayer contentsScale]];
 
@@ -365,5 +367,3 @@ egl::Error WindowSurfaceCGL::detachFromFramebuffer(const gl::Context *context,
 }
 
 }  // namespace rx
-
-#endif  // defined(ANGLE_PLATFORM_MACOS) || defined(ANGLE_PLATFORM_MACCATALYST)

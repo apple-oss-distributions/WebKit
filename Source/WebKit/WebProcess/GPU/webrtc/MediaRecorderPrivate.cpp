@@ -48,14 +48,20 @@ namespace WebKit {
 using namespace PAL;
 using namespace WebCore;
 
+Ref<MediaRecorderPrivate> MediaRecorderPrivate::create(WebCore::MediaStreamPrivate& stream, const WebCore::MediaRecorderPrivateOptions& options)
+{
+    return adoptRef(*new MediaRecorderPrivate(stream, options));
+}
+
 MediaRecorderPrivate::MediaRecorderPrivate(MediaStreamPrivate& stream, const MediaRecorderPrivateOptions& options)
     : m_identifier(MediaRecorderIdentifier::generate())
     , m_stream(stream)
     , m_connection(WebProcess::singleton().ensureGPUProcessConnection().connection())
     , m_options(options)
     , m_hasVideo(stream.hasVideo())
+    , m_gpuProcessDidCloseObserver(GPUProcessDidCloseObserver::create(*this))
 {
-    WebProcess::singleton().ensureGPUProcessConnection().addClient(*this);
+    WebProcess::singleton().ensureGPUProcessConnection().addClient(m_gpuProcessDidCloseObserver.get());
 }
 
 void MediaRecorderPrivate::startRecording(StartRecordingCallback&& callback)
@@ -64,7 +70,7 @@ void MediaRecorderPrivate::startRecording(StartRecordingCallback&& callback)
     // Currently we only choose the first track as the recorded track.
 
     auto selectedTracks = MediaRecorderPrivate::selectTracks(m_stream);
-    m_connection->sendWithAsyncReply(Messages::RemoteMediaRecorderManager::CreateRecorder { m_identifier, !!selectedTracks.audioTrack, !!selectedTracks.videoTrack, m_options }, [this, weakThis = WeakPtr { *this }, audioTrack = RefPtr { selectedTracks.audioTrack }, videoTrack = RefPtr { selectedTracks.videoTrack }, callback = WTFMove(callback)](auto&& exception, String&& mimeType, unsigned audioBitRate, unsigned videoBitRate) mutable {
+    m_connection->sendWithAsyncReply(Messages::RemoteMediaRecorderManager::CreateRecorder { m_identifier, !!selectedTracks.audioTrack, !!selectedTracks.videoTrack, m_options }, [weakThis = WeakPtr { *this }, audioTrack = RefPtr { selectedTracks.audioTrack }, videoTrack = RefPtr { selectedTracks.videoTrack }, callback = WTFMove(callback)](auto&& exception, String&& mimeType, unsigned audioBitRate, unsigned videoBitRate) mutable {
         if (!weakThis) {
             callback(Exception { InvalidStateError }, 0, 0);
             return;
@@ -73,11 +79,11 @@ void MediaRecorderPrivate::startRecording(StartRecordingCallback&& callback)
             callback(Exception { exception->code, WTFMove(exception->message) }, 0, 0);
             return;
         }
-        if (!m_isStopped) {
+        if (!weakThis->m_isStopped) {
             if (audioTrack)
-                setAudioSource(&audioTrack->source());
+                weakThis->setAudioSource(&audioTrack->source());
             if (videoTrack)
-                setVideoSource(&videoTrack->source());
+                weakThis->setVideoSource(&videoTrack->source());
         }
         callback(WTFMove(mimeType), audioBitRate, videoBitRate);
     }, 0);
@@ -86,7 +92,6 @@ void MediaRecorderPrivate::startRecording(StartRecordingCallback&& callback)
 MediaRecorderPrivate::~MediaRecorderPrivate()
 {
     m_connection->send(Messages::RemoteMediaRecorderManager::ReleaseRecorder { m_identifier }, 0);
-    WebProcess::singleton().ensureGPUProcessConnection().removeClient(*this);
 }
 
 void MediaRecorderPrivate::videoFrameAvailable(VideoFrame& videoFrame, VideoFrameTimeMetadata)
@@ -97,14 +102,14 @@ void MediaRecorderPrivate::videoFrameAvailable(VideoFrame& videoFrame, VideoFram
             m_blackFrameSize = WebCore::IntSize { static_cast<int>(size.width()), static_cast<int>(size.height()) };
         }
         SharedVideoFrame sharedVideoFrame { videoFrame.presentationTime(), videoFrame.isMirrored(), videoFrame.rotation(), *m_blackFrameSize };
-        m_connection->send(Messages::RemoteMediaRecorder::VideoFrameAvailable { sharedVideoFrame }, m_identifier);
+        m_connection->send(Messages::RemoteMediaRecorder::VideoFrameAvailable { WTFMove(sharedVideoFrame) }, m_identifier);
         return;
     }
 
     m_blackFrameSize = { };
     auto sharedVideoFrame = m_sharedVideoFrameWriter.write(videoFrame,
         [this](auto& semaphore) { m_connection->send(Messages::RemoteMediaRecorder::SetSharedVideoFrameSemaphore { semaphore }, m_identifier); },
-        [this](auto& handle) { m_connection->send(Messages::RemoteMediaRecorder::SetSharedVideoFrameMemory { handle }, m_identifier); }
+        [this](auto&& handle) { m_connection->send(Messages::RemoteMediaRecorder::SetSharedVideoFrameMemory { WTFMove(handle) }, m_identifier); }
     );
     if (sharedVideoFrame)
         m_connection->send(Messages::RemoteMediaRecorder::VideoFrameAvailable { WTFMove(*sharedVideoFrame) }, m_identifier);
@@ -177,7 +182,7 @@ const String& MediaRecorderPrivate::mimeType() const
     return m_hasVideo ? videoMP4 : audioMP4;
 }
 
-void MediaRecorderPrivate::gpuProcessConnectionDidClose(GPUProcessConnection&)
+void MediaRecorderPrivate::gpuProcessConnectionDidClose()
 {
     m_sharedVideoFrameWriter.disable();
 }

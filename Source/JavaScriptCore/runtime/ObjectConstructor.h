@@ -48,10 +48,7 @@ public:
 
     DECLARE_INFO;
 
-    static Structure* createStructure(VM& vm, JSGlobalObject* globalObject, JSValue prototype)
-    {
-        return Structure::create(vm, globalObject, prototype, TypeInfo(InternalFunctionType, StructureFlags), info());
-    }
+    inline static Structure* createStructure(VM&, JSGlobalObject*, JSValue);
 
 private:
     ObjectConstructor(VM&, Structure*);
@@ -78,7 +75,7 @@ inline JSFinalObject* constructEmptyObject(JSGlobalObject* globalObject, JSObjec
 
 inline JSFinalObject* constructEmptyObject(JSGlobalObject* globalObject)
 {
-    return constructEmptyObject(getVM(globalObject), globalObject->objectStructureForObjectConstructor());
+    return JSFinalObject::createDefaultEmptyObject(globalObject);
 }
 
 inline JSObject* constructObject(JSGlobalObject* globalObject, JSValue arg)
@@ -162,7 +159,7 @@ JS_EXPORT_PRIVATE JSObject* objectConstructorFreeze(JSGlobalObject*, JSObject*);
 JS_EXPORT_PRIVATE JSObject* objectConstructorSeal(JSGlobalObject*, JSObject*);
 JSValue objectConstructorGetOwnPropertyDescriptor(JSGlobalObject*, JSObject*, const Identifier&);
 JSValue objectConstructorGetOwnPropertyDescriptors(JSGlobalObject*, JSObject*);
-JSArray* ownPropertyKeys(JSGlobalObject*, JSObject*, PropertyNameMode, DontEnumPropertiesMode, std::optional<CachedPropertyNamesKind>);
+JSArray* ownPropertyKeys(JSGlobalObject*, JSObject*, PropertyNameMode, DontEnumPropertiesMode);
 bool toPropertyDescriptor(JSGlobalObject*, JSValue, PropertyDescriptor&);
 void objectAssignGeneric(JSGlobalObject*, VM&, JSObject* target, JSObject* source);
 

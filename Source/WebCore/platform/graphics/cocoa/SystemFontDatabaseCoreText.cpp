@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2022 Apple Inc. All rights reserved.
+ * Copyright (C) 2018-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -31,6 +31,7 @@
 #include "FontCascadeDescription.h"
 #include "FontMetricsNormalization.h"
 
+#include <pal/system/ios/UserInterfaceIdiom.h>
 #include <wtf/cf/TypeCastsCF.h>
 
 namespace WebCore {
@@ -87,13 +88,8 @@ RetainPtr<CTFontRef> SystemFontDatabaseCoreText::createTextStyleFont(const Casca
     auto descriptor = adoptCF(CTFontDescriptorCreateWithTextStyle(parameters.fontName.string().createCFString().get(), contentSizeCategory(), localeString.get()));
     // FIXME: Use createFontByApplyingWeightWidthItalicsAndFallbackBehavior().
     CTFontSymbolicTraits traits = (parameters.weight >= kCTFontWeightSemibold ? kCTFontTraitBold : 0)
-#if HAVE(LEVEL_2_SYSTEM_FONT_WIDTH_VALUES) || HAVE(LEVEL_3_SYSTEM_FONT_WIDTH_VALUES)
         | (parameters.width >= kCTFontWidthSemiExpanded ? kCTFontTraitExpanded : 0)
         | (parameters.width <= kCTFontWidthSemiCondensed ? kCTFontTraitCondensed : 0)
-#else
-        | (parameters.width >= kCTFontWidthExpanded ? kCTFontTraitExpanded : 0)
-        | (parameters.width <= kCTFontWidthCondensed ? kCTFontTraitCondensed : 0)
-#endif
         | (parameters.italic ? kCTFontTraitItalic : 0);
     if (traits)
         descriptor = adoptCF(CTFontDescriptorCreateCopyWithSymbolicTraits(descriptor.get(), traits, traits));
@@ -216,7 +212,6 @@ static CGFloat mapWidth(FontSelectionValue width)
         FontSelectionValue input;
         CGFloat output;
     } piecewisePoints[] = {
-#if HAVE(LEVEL_3_SYSTEM_FONT_WIDTH_VALUES)
         {FontSelectionValue(37.5f), kCTFontWidthUltraCompressed},
         {FontSelectionValue(50), kCTFontWidthExtraCompressed}, // ultra condensed
         {FontSelectionValue(62.5f), kCTFontWidthExtraCondensed},
@@ -226,18 +221,6 @@ static CGFloat mapWidth(FontSelectionValue width)
         {FontSelectionValue(112.5f), kCTFontWidthSemiExpanded},
         {FontSelectionValue(125), kCTFontWidthExpanded},
         {FontSelectionValue(150), kCTFontWidthExtraExpanded},
-#elif HAVE(LEVEL_2_SYSTEM_FONT_WIDTH_VALUES)
-        {FontSelectionValue(62.5f), kCTFontWidthExtraCondensed},
-        {FontSelectionValue(75), kCTFontWidthCondensed},
-        {FontSelectionValue(87.5f), kCTFontWidthSemiCondensed},
-        {FontSelectionValue(100), kCTFontWidthStandard},
-        {FontSelectionValue(112.5f), kCTFontWidthSemiExpanded},
-        {FontSelectionValue(125), kCTFontWidthExpanded}
-#else // level 1
-        {FontSelectionValue(75), kCTFontWidthCondensed},
-        {FontSelectionValue(100), kCTFontWidthStandard},
-        {FontSelectionValue(125), kCTFontWidthExpanded}
-#endif
     };
     for (size_t i = 0; i < std::size(piecewisePoints) - 1; ++i) {
         auto& previous = piecewisePoints[i];
@@ -398,6 +381,22 @@ static inline FontSelectionValue cssWeightOfSystemFontDescriptor(CTFontDescripto
     return FontSelectionValue(normalizeCTWeight(result));
 }
 
+static CTFontTextStylePlatform fontPlatform()
+{
+#if PLATFORM(VISION)
+    // FIXME (rdar://113714083): Adopt the real versions of these when they're in the SDK.
+    static constexpr CTFontTextStylePlatform WKCTFontTextStylePlatformVision = (CTFontTextStylePlatform)5;
+    static constexpr CTFontTextStylePlatform WKCTFontTextStylePlatformVisionLegacy = (CTFontTextStylePlatform)6;
+    if (PAL::currentUserInterfaceIdiomIsVisionLegacy())
+        return WKCTFontTextStylePlatformVisionLegacy;
+    if (PAL::currentUserInterfaceIdiomIsVisionOrVisionLegacy())
+        return WKCTFontTextStylePlatformVision;
+    return kCTFontTextStylePlatformPhone;
+#else
+    return kCTFontTextStylePlatformDefault;
+#endif
+}
+
 auto SystemFontDatabase::platformSystemFontShorthandInfo(FontShorthand fontShorthand) -> SystemFontShorthandInfo
 {
     auto interrogateFontDescriptorShorthandItem = [] (CTFontDescriptorRef fontDescriptor, const String& family) {
@@ -410,7 +409,7 @@ auto SystemFontDatabase::platformSystemFontShorthandInfo(FontShorthand fontShort
 
     auto interrogateTextStyleShorthandItem = [] (CFStringRef textStyle) {
         CGFloat weight = 0;
-        float size = CTFontDescriptorGetTextStyleSize(textStyle, contentSizeCategory(), kCTFontTextStylePlatformDefault, &weight, nullptr);
+        float size = CTFontDescriptorGetTextStyleSize(textStyle, contentSizeCategory(), fontPlatform(), &weight, nullptr);
         auto cssWeight = normalizeCTWeight(weight);
         return SystemFontShorthandInfo { textStyle, size, FontSelectionValue(cssWeight) };
     };

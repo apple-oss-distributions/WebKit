@@ -42,12 +42,9 @@ void WebProcessProxy::platformGetLaunchOptions(ProcessLauncher::LaunchOptions& l
     launchOptions.extraInitializationData.set("enable-sandbox"_s, m_processPool->sandboxEnabled() ? "true"_s : "false"_s);
 
     if (m_processPool->sandboxEnabled()) {
-        WebsiteDataStore* dataStore = websiteDataStore();
-        if (!dataStore) {
-            // Prewarmed processes don't have a WebsiteDataStore yet, so use the primary WebsiteDataStore from the WebProcessPool.
-            // The process won't be used if current WebsiteDataStore is different than the WebProcessPool primary one.
-            dataStore = WebsiteDataStore::defaultDataStore().ptr();
-        }
+        // Prewarmed processes don't have a WebsiteDataStore yet, so use the primary WebsiteDataStore from the WebProcessPool.
+        // The process won't be used if current WebsiteDataStore is different than the WebProcessPool primary one.
+        WebsiteDataStore* dataStore = isPrewarmed() ? WebsiteDataStore::defaultDataStore().ptr() : websiteDataStore();
 
         ASSERT(dataStore);
         dataStore->resolveDirectoriesIfNecessary();
@@ -71,7 +68,7 @@ void WebProcessProxy::sendMessageToWebContext(UserMessage&& message)
 
 void WebProcessProxy::platformSuspendProcess()
 {
-    auto id = processIdentifier();
+    auto id = processID();
     if (!id)
         return;
 
@@ -81,7 +78,7 @@ void WebProcessProxy::platformSuspendProcess()
 
 void WebProcessProxy::platformResumeProcess()
 {
-    auto id = processIdentifier();
+    auto id = processID();
     if (!id)
         return;
 

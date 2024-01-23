@@ -174,8 +174,7 @@ void TextureMapperLayer::paint(TextureMapper& textureMapper)
     textureMapper.setDepthRange(data.zNear, data.zFar);
 
     TextureMapperPaintOptions options(textureMapper);
-    options.textureMapper.bindSurface(0);
-
+    options.surface = textureMapper.currentSurface();
     paintRecursive(options);
 }
 
@@ -677,8 +676,8 @@ void TextureMapperLayer::paintIntoSurface(TextureMapperPaintOptions& options)
 
     bool hasMask = !!m_state.maskLayer;
     bool hasReplicaMask = options.replicaLayer == this && m_state.replicaLayer->m_state.maskLayer;
-    bool defersLastFilter = !hasMask && !hasReplicaMask;
-    options.surface = options.surface->applyFilters(options.textureMapper, m_currentFilters, defersLastFilter);
+    bool defersLastFilterPass = !hasMask && !hasReplicaMask;
+    options.surface = options.surface->applyFilters(options.textureMapper, m_currentFilters, defersLastFilterPass);
     options.textureMapper.bindSurface(options.surface.get());
     if (hasMask)
         m_state.maskLayer->applyMask(options);

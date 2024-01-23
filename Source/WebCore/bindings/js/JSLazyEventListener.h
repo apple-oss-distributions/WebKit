@@ -26,16 +26,16 @@
 namespace WebCore {
 
 class ContainerNode;
-class DOMWindow;
 class Document;
 class Element;
+class LocalDOMWindow;
 class QualifiedName;
 
 class JSLazyEventListener final : public JSEventListener {
 public:
     static RefPtr<JSLazyEventListener> create(Element&, const QualifiedName& attributeName, const AtomString& attributeValue);
     static RefPtr<JSLazyEventListener> create(Document&, const QualifiedName& attributeName, const AtomString& attributeValue);
-    static RefPtr<JSLazyEventListener> create(DOMWindow&, const QualifiedName& attributeName, const AtomString& attributeValue);
+    static RefPtr<JSLazyEventListener> create(LocalDOMWindow&, const QualifiedName& attributeName, const AtomString& attributeValue);
 
     virtual ~JSLazyEventListener();
 
@@ -60,6 +60,7 @@ private:
     URL m_sourceURL;
     TextPosition m_sourcePosition;
     WeakPtr<ContainerNode, WeakPtrImplWithEventTargetData> m_originalNode;
+    JSC::SourceTaintedOrigin m_sourceTaintedOrigin;
 };
 
 } // namespace WebCore

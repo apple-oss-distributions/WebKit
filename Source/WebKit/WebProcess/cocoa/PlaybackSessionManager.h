@@ -38,6 +38,7 @@
 #include <wtf/HashMap.h>
 #include <wtf/RefCounted.h>
 #include <wtf/RefPtr.h>
+#include <wtf/WeakHashSet.h>
 
 namespace IPC {
 class Connection;
@@ -67,7 +68,7 @@ public:
     void invalidate() { m_manager = nullptr; }
 
 private:
-    friend class VideoFullscreenInterfaceContext;
+    friend class VideoPresentationInterfaceContext;
 
     // PlaybackSessionModelClient
     void durationChanged(double) final;
@@ -97,7 +98,7 @@ class PlaybackSessionManager : public RefCounted<PlaybackSessionManager>, privat
 public:
     static Ref<PlaybackSessionManager> create(WebPage&);
     virtual ~PlaybackSessionManager();
-    
+
     void invalidate();
 
     void didReceiveMessage(IPC::Connection&, IPC::Decoder&) final;
@@ -109,9 +110,13 @@ public:
 
     WebCore::HTMLMediaElement* currentPlaybackControlsElement() const;
 
+#if !RELEASE_LOG_DISABLED
+    void sendLogIdentifierForMediaElement(WebCore::HTMLMediaElement&);
+#endif
+
 private:
     friend class PlaybackSessionInterfaceContext;
-    friend class VideoFullscreenManager;
+    friend class VideoPresentationManager;
 
     explicit PlaybackSessionManager(WebPage&);
 
@@ -165,11 +170,23 @@ private:
     void setPlayingOnSecondScreen(PlaybackSessionContextIdentifier, bool value);
     void sendRemoteCommand(PlaybackSessionContextIdentifier, WebCore::PlatformMediaSession::RemoteControlCommandType, const WebCore::PlatformMediaSession::RemoteCommandArgument&);
 
-    WebPage* m_page;
-    HashMap<WebCore::HTMLMediaElement*, PlaybackSessionContextIdentifier> m_mediaElements;
+#if !RELEASE_LOG_DISABLED
+    const Logger& logger() const { return m_logger; }
+    const void* logIdentifier() const { return m_logIdentifier; }
+    const char* logClassName() const { return "VideoPresentationManager"; }
+    WTFLogChannel& logChannel() const;
+#endif
+
+    WeakPtr<WebPage> m_page;
+    WeakHashSet<WebCore::HTMLMediaElement, WebCore::WeakPtrImplWithEventTargetData> m_mediaElements;
     HashMap<PlaybackSessionContextIdentifier, ModelInterfaceTuple> m_contextMap;
     PlaybackSessionContextIdentifier m_controlsManagerContextId;
     HashCountedSet<PlaybackSessionContextIdentifier> m_clientCounts;
+
+#if !RELEASE_LOG_DISABLED
+    Ref<const Logger> m_logger;
+    const void* m_logIdentifier;
+#endif
 };
 
 } // namespace WebKit

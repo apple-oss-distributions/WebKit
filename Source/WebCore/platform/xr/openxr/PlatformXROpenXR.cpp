@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2020 Igalia, S.L.
+ * Copyright (C) 2020-2023 Apple Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -53,8 +54,6 @@ OpenXRDevice::OpenXRDevice(XrInstance instance, XrSystemId system, Ref<WorkQueue
 {
 }
 
-OpenXRDevice::~OpenXRDevice() = default;
-
 void OpenXRDevice::initialize(CompletionHandler<void()>&& callback)
 {
     ASSERT(isMainThread());
@@ -102,14 +101,13 @@ void OpenXRDevice::initializeTrackingAndRendering(const WebCore::SecurityOriginD
         RETURN_IF_FAILED(result, "xrGetOpenGLGraphicsRequirementsKHR", m_instance);
 
         m_graphicsBinding = createStructure<XrGraphicsBindingEGLMNDX, XR_TYPE_GRAPHICS_BINDING_EGL_MNDX>();
-        m_egl = GLContextEGL::createSharingContext(PlatformDisplay::sharedDisplay());
+        m_egl = GLContext::createSharing(PlatformDisplay::sharedDisplay());
         if (!m_egl) {
             LOG(XR, "Failed to create EGL context");
             return;
         }
 
-        auto& context = static_cast<GLContext&>(*m_egl);
-        context.makeContextCurrent();
+        m_egl->makeContextCurrent();
 
         GraphicsContextGLAttributes attributes;
         attributes.depth = false;
@@ -123,7 +121,7 @@ void OpenXRDevice::initializeTrackingAndRendering(const WebCore::SecurityOriginD
         }
 
         m_graphicsBinding.display = PlatformDisplay::sharedDisplay().eglDisplay();
-        m_graphicsBinding.context = context.platformContext();
+        m_graphicsBinding.context = m_egl->platformContext();
         m_graphicsBinding.config = m_egl->config();
         m_graphicsBinding.getProcAddress = m_extensions.methods().getProcAddressFunc;
 
@@ -500,8 +498,9 @@ void OpenXRDevice::endSession()
         return;
 
     // Notify did end event
-    callOnMainThread([this, weakThis = WeakPtr { *this }]() {
-        if (!weakThis)
+    callOnMainThread([this, weakThis = ThreadSafeWeakPtr { *this }]() {
+        auto strongThis = weakThis.get();
+        if (!strongThis)
             return;
         if (m_trackingAndRenderingClient)
             m_trackingAndRenderingClient->sessionDidEnd();
@@ -589,8 +588,9 @@ void OpenXRDevice::updateInteractionProfile()
 
     didNotifyInputInitialization = true;
     auto inputSources = m_input->collectInputSources(m_frameState);
-    callOnMainThread([this, weakThis = WeakPtr { *this }, inputSources = WTFMove(inputSources)]() mutable {
-        if (!weakThis)
+    callOnMainThread([this, weakThis = ThreadSafeWeakPtr { *this }, inputSources = WTFMove(inputSources)]() mutable {
+        auto strongThis = weakThis.get();
+        if (!strongThis)
             return;
         if (m_trackingAndRenderingClient)
             m_trackingAndRenderingClient->sessionDidInitializeInputSources(WTFMove(inputSources));

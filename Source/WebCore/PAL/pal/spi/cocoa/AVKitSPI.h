@@ -33,7 +33,7 @@
 #import <UIKit/UIKit.h>
 #endif
 
-#if !PLATFORM(WATCHOS) && USE(APPLE_INTERNAL_SDK)
+#if !PLATFORM(WATCHOS) && !PLATFORM(APPLETV) && USE(APPLE_INTERNAL_SDK)
 #import <AVKit/AVValueTiming.h>
 #else
 NS_ASSUME_NONNULL_BEGIN
@@ -67,7 +67,7 @@ IGNORE_WARNINGS_END
 #import <AVKit/AVPlayerViewController_WebKitOnly.h>
 #endif
 
-#if PLATFORM(IOS) || PLATFORM(MACCATALYST)
+#if PLATFORM(IOS) || PLATFORM(MACCATALYST) || PLATFORM(VISION)
 #import <AVKit/AVBackgroundView.h>
 #endif
 
@@ -138,6 +138,10 @@ NS_ASSUME_NONNULL_END
 #import <AppKit/NSResponder.h>
 @interface AVPlayerController : NSResponder <NSUserInterfaceValidations>
 @end
+#endif
+
+#if PLATFORM(WATCHOS)
+#import <AVKit/AVPlayerViewController.h> // not part of AVKit's umbrella header
 #endif
 
 @interface AVPlayerController ()
@@ -401,3 +405,17 @@ NS_ASSUME_NONNULL_END
 
 #endif // HAVE(PIP_CONTROLLER)
 
+#if PLATFORM(VISION)
+
+// FIXME: rdar://111125392 – import SPI using a header, following rdar://111123290.
+
+typedef NS_OPTIONS(NSUInteger, AVPlayerViewControllerFullScreenBehaviors) {
+    AVPlayerViewControllerFullScreenBehaviorHostContentInline = 1 << 3,
+};
+
+@interface AVPlayerViewController ()
+@property (nonatomic) BOOL prefersRoomDimming;
+@property (nonatomic) AVPlayerViewControllerFullScreenBehaviors fullScreenBehaviors;
+@end
+
+#endif // PLATFORM(VISION)

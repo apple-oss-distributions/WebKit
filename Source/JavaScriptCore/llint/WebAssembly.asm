@@ -152,7 +152,7 @@ macro checkSwitchToJIT(increment, action)
 end
 
 macro checkSwitchToJITForPrologue(codeBlockRegister)
-    if WEBASSEMBLY_B3JIT
+    if WEBASSEMBLY_OMGJIT
     checkSwitchToJIT(
         5,
         macro()
@@ -201,7 +201,7 @@ end
 end
 
 macro checkSwitchToJITForLoop()
-    if WEBASSEMBLY_B3JIT
+    if WEBASSEMBLY_OMGJIT
     checkSwitchToJIT(
         1,
         macro()
@@ -229,7 +229,7 @@ macro checkSwitchToJITForLoop()
 end
 
 macro checkSwitchToJITForEpilogue()
-    if WEBASSEMBLY_B3JIT
+    if WEBASSEMBLY_OMGJIT
     checkSwitchToJIT(
         10,
         macro ()
@@ -371,7 +371,7 @@ macro wasmPrologue()
     storep wasmInstance, CodeBlock[cfr]
     loadp Callee[cfr], ws0
 if JSVALUE64
-    andp ~(constexpr JSValue::WasmTag), ws0
+    andp ~(constexpr JSValue::NativeCalleeTag), ws0
 end
     leap WTFConfig + constexpr WTF::offsetOfWTFConfigLowestAccessibleAddress, ws1
     loadp [ws1], ws1
@@ -389,8 +389,7 @@ if not JSVALUE64
 end
 
     bpa ws1, cfr, .stackOverflow
-    loadp Wasm::Instance::m_vm[wasmInstance], ws0
-    bpbeq VM::m_softStackLimit[ws0], ws1, .stackHeightOK
+    bpbeq Wasm::Instance::m_softStackLimit[wasmInstance], ws1, .stackHeightOK
 
 .stackOverflow:
     throwException(StackOverflow)
@@ -458,7 +457,7 @@ end
 
 # Tier up immediately, while saving full vectors in argument FPRs
 macro wasmPrologueSIMD()
-if WEBASSEMBLY_B3JIT and not ARMv7
+if WEBASSEMBLY_OMGJIT and not ARMv7
     preserveCallerPCAndCFR()
     preserveCalleeSavesUsedByWasm()
     reloadMemoryRegistersFromInstance(wasmInstance, ws0, ws1)
@@ -466,7 +465,7 @@ if WEBASSEMBLY_B3JIT and not ARMv7
     storep wasmInstance, CodeBlock[cfr]
     loadp Callee[cfr], ws0
 if JSVALUE64
-    andp ~(constexpr JSValue::WasmTag), ws0
+    andp ~(constexpr JSValue::NativeCalleeTag), ws0
 end
     leap WTFConfig + constexpr WTF::offsetOfWTFConfigLowestAccessibleAddress, ws1
     loadp [ws1], ws1
@@ -485,8 +484,7 @@ if not JSVALUE64
 end
 
     bpa ws1, cfr, .stackOverflow
-    loadp Wasm::Instance::m_vm[wasmInstance], ws0
-    bpbeq VM::m_softStackLimit[ws0], ws1, .stackHeightOK
+    bpbeq Wasm::Instance::m_softStackLimit[wasmInstance], ws1, .stackHeightOK
 
 .stackOverflow:
     throwException(StackOverflow)
@@ -1708,7 +1706,6 @@ wasmOp(i32_eq, WasmI32Eq, macro(ctx)
     mloadi(ctx, m_lhs, t0)
     mloadi(ctx, m_rhs, t1)
     cieq t0, t1, t2
-    andi 1, t2
     returni(ctx, t2)
 end)
 
@@ -1716,7 +1713,6 @@ wasmOp(i32_ne, WasmI32Ne, macro(ctx)
     mloadi(ctx, m_lhs, t0)
     mloadi(ctx, m_rhs, t1)
     cineq t0, t1, t2
-    andi 1, t2
     returni(ctx, t2)
 end)
 
@@ -1724,7 +1720,6 @@ wasmOp(i32_lt_s, WasmI32LtS, macro(ctx)
     mloadi(ctx, m_lhs, t0)
     mloadi(ctx, m_rhs, t1)
     cilt t0, t1, t2
-    andi 1, t2
     returni(ctx, t2)
 end)
 
@@ -1732,7 +1727,6 @@ wasmOp(i32_le_s, WasmI32LeS, macro(ctx)
     mloadi(ctx, m_lhs, t0)
     mloadi(ctx, m_rhs, t1)
     cilteq t0, t1, t2
-    andi 1, t2
     returni(ctx, t2)
 end)
 
@@ -1740,7 +1734,6 @@ wasmOp(i32_lt_u, WasmI32LtU, macro(ctx)
     mloadi(ctx, m_lhs, t0)
     mloadi(ctx, m_rhs, t1)
     cib t0, t1, t2
-    andi 1, t2
     returni(ctx, t2)
 end)
 
@@ -1748,7 +1741,6 @@ wasmOp(i32_le_u, WasmI32LeU, macro(ctx)
     mloadi(ctx, m_lhs, t0)
     mloadi(ctx, m_rhs, t1)
     cibeq t0, t1, t2
-    andi 1, t2
     returni(ctx, t2)
 end)
 
@@ -1756,7 +1748,6 @@ wasmOp(i32_gt_s, WasmI32GtS, macro(ctx)
     mloadi(ctx, m_lhs, t0)
     mloadi(ctx, m_rhs, t1)
     cigt t0, t1, t2
-    andi 1, t2
     returni(ctx, t2)
 end)
 
@@ -1764,7 +1755,6 @@ wasmOp(i32_ge_s, WasmI32GeS, macro(ctx)
     mloadi(ctx, m_lhs, t0)
     mloadi(ctx, m_rhs, t1)
     cigteq t0, t1, t2
-    andi 1, t2
     returni(ctx, t2)
 end)
 
@@ -1772,7 +1762,6 @@ wasmOp(i32_gt_u, WasmI32GtU, macro(ctx)
     mloadi(ctx, m_lhs, t0)
     mloadi(ctx, m_rhs, t1)
     cia t0, t1, t2
-    andi 1, t2
     returni(ctx, t2)
 end)
 
@@ -1780,7 +1769,6 @@ wasmOp(i32_ge_u, WasmI32GeU, macro(ctx)
     mloadi(ctx, m_lhs, t0)
     mloadi(ctx, m_rhs, t1)
     ciaeq t0, t1, t2
-    andi 1, t2
     returni(ctx, t2)
 end)
 

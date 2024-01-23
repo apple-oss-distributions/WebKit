@@ -45,7 +45,7 @@ class SecurityOrigin;
 
 class SubresourceLoader final : public ResourceLoader {
 public:
-    WEBCORE_EXPORT static void create(Frame&, CachedResource&, ResourceRequest&&, const ResourceLoaderOptions&, CompletionHandler<void(RefPtr<SubresourceLoader>&&)>&&);
+    WEBCORE_EXPORT static void create(LocalFrame&, CachedResource&, ResourceRequest&&, const ResourceLoaderOptions&, CompletionHandler<void(RefPtr<SubresourceLoader>&&)>&&);
 
     virtual ~SubresourceLoader();
 
@@ -72,7 +72,7 @@ public:
     void resetRequestCountTracker(CachedResourceLoader& loader, const CachedResource& resource) { m_requestCountTracker = RequestCountTracker { loader, resource }; }
 
 private:
-    SubresourceLoader(Frame&, CachedResource&, const ResourceLoaderOptions&);
+    SubresourceLoader(LocalFrame&, CachedResource&, const ResourceLoaderOptions&);
 
     void init(ResourceRequest&&, CompletionHandler<void(bool)>&&) override;
 
@@ -119,7 +119,7 @@ private:
 
     class RequestCountTracker {
 #if !COMPILER(MSVC)
-        WTF_MAKE_FAST_ALLOCATED;
+        WTF_MAKE_FAST_ALLOCATED_WITH_HEAP_IDENTIFIER(Loader);
 #endif
     public:
         RequestCountTracker(CachedResourceLoader&, const CachedResource&);

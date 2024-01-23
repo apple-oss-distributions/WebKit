@@ -28,6 +28,7 @@
 #if ENABLE(WEB_AUTHN)
 
 #include "LocalConnection.h"
+#include <WebCore/AuthenticatorAssertionResponse.h>
 #include <WebCore/MockWebAuthenticationConfiguration.h>
 
 namespace WebKit {
@@ -40,7 +41,6 @@ private:
     void verifyUser(const String&, WebCore::ClientDataType, SecAccessControlRef, WebCore::UserVerificationRequirement,  UserVerificationCallback&&) final;
     void verifyUser(SecAccessControlRef, LAContext *, CompletionHandler<void(UserVerification)>&&) final;
     RetainPtr<SecKeyRef> createCredentialPrivateKey(LAContext *, SecAccessControlRef, const String& secAttrLabel, NSData *secAttrApplicationTag) const final;
-    void getAttestation(SecKeyRef, NSData *authData, NSData *hash, AttestationCallback&&) const final;
     void filterResponses(Vector<Ref<WebCore::AuthenticatorAssertionResponse>>&) const final;
 
     WebCore::MockWebAuthenticationConfiguration m_configuration;

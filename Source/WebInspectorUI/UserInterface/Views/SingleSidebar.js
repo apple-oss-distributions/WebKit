@@ -43,8 +43,8 @@ WI.SingleSidebar = class SingleSidebar extends WI.Sidebar
             this.addSubview(this._navigationBar);
         }
 
-        this._resizer = new WI.Resizer(WI.Resizer.RuleOrientation.Vertical, this);
-        this.element.insertBefore(this._resizer.element, this.element.firstChild);
+        this._widthResizer = new WI.Resizer(WI.Resizer.RuleOrientation.Vertical, this);
+        this.element.insertBefore(this._widthResizer.element, this.element.firstChild);
     }
 
     // Public
@@ -89,6 +89,9 @@ WI.SingleSidebar = class SingleSidebar extends WI.Sidebar
         console.assert(sidebarPanel.navigationItem);
         this._navigationBar.insertNavigationItem(sidebarPanel.navigationItem, index);
 
+        if (this.collapsed)
+            return;
+
         this._recalculateWidth();   
     }
 
@@ -99,6 +102,9 @@ WI.SingleSidebar = class SingleSidebar extends WI.Sidebar
 
         console.assert(sidebarPanel.navigationItem);
         this._navigationBar.removeNavigationItem(sidebarPanel.navigationItem);
+
+        if (this.collapsed)
+            return;
 
         this._recalculateWidth();
     }
@@ -140,11 +146,21 @@ WI.SingleSidebar = class SingleSidebar extends WI.Sidebar
 
     resizerDragStarted(resizer)
     {
+        super.resizerDragStarted(resizer);
+        
+        if (resizer !== this._widthResizer)
+            return;
+        
         this._widthBeforeResize = this.width;
     }
 
     resizerDragging(resizer, positionDelta)
     {
+        super.resizerDragging(resizer);
+        
+        if (resizer !== this._widthResizer)
+            return;
+        
         if (this._side === WI.Sidebar.Sides.Leading)
             positionDelta *= -1;
 
@@ -160,7 +176,9 @@ WI.SingleSidebar = class SingleSidebar extends WI.Sidebar
 
     resizerDragEnded(resizer)
     {
-        if (this._widthBeforeResize === this.width)
+        super.resizerDragEnded(resizer);
+        
+        if (resizer !== this._widthResizer || this._widthBeforeResize === this.width)
             return;
 
         if (!this.collapsed && this._navigationBar)
@@ -174,6 +192,8 @@ WI.SingleSidebar = class SingleSidebar extends WI.Sidebar
 
     _recalculateWidth(newWidth = this.width)
     {
+        console.assert(newWidth);
+
         // Need to add 1 because of the 1px border-inline-start or border-inline-end.
         newWidth = Math.ceil(Number.constrain(newWidth, this.minimumWidth + 1, this.maximumWidth));
         this.element.style.width = `${newWidth}px`;

@@ -33,13 +33,10 @@
 #include "EditingBehaviorType.h"
 #include "FontGenericFamilies.h"
 #include "FontLoadTimingOverride.h"
-#include "FontRenderingMode.h"
 #include "ForcedAccessibilityValue.h"
 #include "FourCC.h"
-#include "FrameFlattening.h"
 #include "HTMLParserScriptingFlagPolicy.h"
 #include "MediaPlayerEnums.h"
-#include "PDFImageCachingPolicy.h"
 #include "StorageBlockingPolicy.h"
 #include "StorageMap.h"
 #include "TextDirection.h"
@@ -64,10 +61,10 @@ class Page;
 class SettingsBase {
     WTF_MAKE_NONCOPYABLE(SettingsBase); WTF_MAKE_FAST_ALLOCATED;
 public:
-    void pageDestroyed() { m_page = nullptr; }
 
 #if ENABLE(MEDIA_SOURCE)
     WEBCORE_EXPORT static bool platformDefaultMediaSourceEnabled();
+    WEBCORE_EXPORT static uint64_t defaultMaximumSourceBufferSize();
 #endif
 
     static const unsigned defaultMaximumHTMLParserDOMTreeDepth = 512;
@@ -170,7 +167,7 @@ protected:
     void sampleBufferContentKeySessionSupportEnabledChanged();
 #endif
 
-    Page* m_page;
+    WeakPtr<Page> m_page;
 
     Seconds m_minimumDOMTimerInterval;
 

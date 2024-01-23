@@ -34,31 +34,41 @@
 #import <WebCore/ClientOrigin.h>
 #import <WebCore/ResourceRequest.h>
 #import <WebCore/ResourceResponse.h>
-#import <WebCore/WebSocketChannel.h>
+#import <WebCore/ThreadableWebSocketChannel.h>
 #import <wtf/BlockPtr.h>
 
 namespace WebKit {
 
 using namespace WebCore;
 
-WebSocketTask::WebSocketTask(NetworkSocketChannel& channel, WebPageProxyIdentifier pageID, WeakPtr<SessionSet>&& sessionSet, const WebCore::ResourceRequest& request, const WebCore::ClientOrigin& clientOrigin, RetainPtr<NSURLSessionWebSocketTask>&& task)
-    : m_channel(channel)
+WebSocketTask::WebSocketTask(NetworkSocketChannel& channel, WebPageProxyIdentifier webProxyPageID, std::optional<FrameIdentifier> frameID, std::optional<PageIdentifier> pageID, WeakPtr<SessionSet>&& sessionSet, const WebCore::ResourceRequest& request, const WebCore::ClientOrigin& clientOrigin, RetainPtr<NSURLSessionWebSocketTask>&& task, ShouldRelaxThirdPartyCookieBlocking shouldRelaxThirdPartyCookieBlocking, WebCore::StoredCredentialsPolicy storedCredentialsPolicy)
+    : NetworkTaskCocoa(*channel.session(), shouldRelaxThirdPartyCookieBlocking)
+    , m_channel(channel)
     , m_task(WTFMove(task))
+    , m_webProxyPageID(webProxyPageID)
+    , m_frameID(frameID)
     , m_pageID(pageID)
     , m_sessionSet(WTFMove(sessionSet))
     , m_partition(request.cachePartition())
+    , m_storedCredentialsPolicy(storedCredentialsPolicy)
 {
     // We use topOrigin in case of service worker websocket connections, for which pageID does not link to a real page.
     // In that case, let's only call the callback for same origin loads.
     if (clientOrigin.topOrigin == clientOrigin.clientOrigin)
         m_topOrigin = clientOrigin.topOrigin;
 
+#if ENABLE(TRACKING_PREVENTION)
+    bool shouldBlockCookies = storedCredentialsPolicy == WebCore::StoredCredentialsPolicy::EphemeralStateless;
+    if (auto* networkStorageSession = networkSession() ? networkSession()->networkStorageSession() : nullptr) {
+        if (!shouldBlockCookies)
+            shouldBlockCookies = networkStorageSession->shouldBlockCookies(request, frameID, pageID, shouldRelaxThirdPartyCookieBlocking);
+    }
+    if (shouldBlockCookies)
+        blockCookies();
+#endif
+
     readNextMessage();
     m_channel.didSendHandshakeRequest(ResourceRequest { [m_task currentRequest] });
-}
-
-WebSocketTask::~WebSocketTask()
-{
 }
 
 void WebSocketTask::readNextMessage()
@@ -79,7 +89,7 @@ void WebSocketTask::readNextMessage()
             }
 
             m_channel.didReceiveMessageError([error localizedDescription]);
-            didClose(WebCore::WebSocketChannel::CloseEventCodeAbnormalClosure, emptyString());
+            didClose(WebCore::ThreadableWebSocketChannel::CloseEventCodeAbnormalClosure, emptyString());
             return;
         }
         if (message.type == NSURLSessionWebSocketMessageTypeString)
@@ -146,7 +156,7 @@ void WebSocketTask::sendData(const IPC::DataReference& data, CompletionHandler<v
 
 void WebSocketTask::close(int32_t code, const String& reason)
 {
-    if (code == WebCore::WebSocketChannel::CloseEventCodeNotSpecified)
+    if (code == WebCore::ThreadableWebSocketChannel::CloseEventCodeNotSpecified)
         code = NSURLSessionWebSocketCloseCodeInvalid;
     auto utf8 = reason.utf8();
     auto nsData = adoptNS([[NSData alloc] initWithBytes:utf8.data() length:utf8.length()]);
@@ -167,6 +177,10 @@ NetworkSessionCocoa* WebSocketTask::networkSession()
     return static_cast<NetworkSessionCocoa*>(m_channel.session());
 }
 
+NSURLSessionTask* WebSocketTask::task() const
+{
+    return m_task.get();
 }
 
+}
 #endif

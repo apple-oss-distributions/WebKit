@@ -156,21 +156,27 @@ def flattened_target(target_name: str, descs: dict, stop_at_lib: bool =True) -> 
                     existing = flattened.get(k, [])
                     if isinstance(existing, str):
                       existing = [existing]
-                    flattened[k] = sortedi(set(existing + v))
+                    # Use temporary sets then sort them to avoid a bottleneck here
+                    if not isinstance(existing, set):
+                        flattened[k] = set(existing)
+                    flattened[k].update(v)
                 else:
                     #flattened.setdefault(k, v)
                     pass
         return (deps,)
 
     dag_traverse(descs[target_name]['deps'], pre)
+
+    for k, v in flattened.items():
+        if isinstance(v, set):
+            flattened[k] = sortedi(v)
     return flattened
 
 # ------------------------------------------------------------------------------
 # Check that includes are valid. (gn's version of this check doesn't seem to work!)
 
-INCLUDE_REGEX = re.compile(b'(?:^|\\n) *# *include +([<"])([^>"]+)[>"]')
-assert INCLUDE_REGEX.match(b'#include "foo"')
-assert INCLUDE_REGEX.match(b'\n#include "foo"')
+INCLUDE_REGEX = re.compile(b'^ *# *include +([<"])([^>"]+)[>"].*$', re.MULTILINE)
+assert INCLUDE_REGEX.findall(b' #  include <foo>  //comment\n#include "bar"') == [(b'<', b'foo'), (b'"', b'bar')]
 
 # Most of these are ignored because this script does not currently handle
 # #includes in #ifdefs properly, so they will erroneously be marked as being
@@ -178,12 +184,11 @@ assert INCLUDE_REGEX.match(b'\n#include "foo"')
 IGNORED_INCLUDES = {
     b'absl/container/flat_hash_map.h',
     b'absl/container/flat_hash_set.h',
-    b'compiler/translator/TranslatorESSL.h',
-    b'compiler/translator/TranslatorGLSL.h',
-    b'compiler/translator/TranslatorHLSL.h',
-    b'compiler/translator/TranslatorMetal.h',
-    b'compiler/translator/TranslatorMetalDirect.h',
-    b'compiler/translator/TranslatorVulkan.h',
+    b'compiler/translator/glsl/TranslatorESSL.h',
+    b'compiler/translator/glsl/TranslatorGLSL.h',
+    b'compiler/translator/hlsl/TranslatorHLSL.h',
+    b'compiler/translator/msl/TranslatorMSL.h',
+    b'compiler/translator/spirv/TranslatorSPIRV.h',
     b'contrib/optimizations/slide_hash_neon.h',
     b'dirent_on_windows.h',
     b'dlopen_fuchsia.h',
@@ -192,7 +197,6 @@ IGNORED_INCLUDES = {
     b'libANGLE/renderer/d3d/DeviceD3D.h',
     b'libANGLE/renderer/d3d/DisplayD3D.h',
     b'libANGLE/renderer/d3d/RenderTargetD3D.h',
-    b'libANGLE/renderer/gl/apple/DisplayApple_api.h',
     b'libANGLE/renderer/gl/cgl/DisplayCGL.h',
     b'libANGLE/renderer/gl/eagl/DisplayEAGL.h',
     b'libANGLE/renderer/gl/egl/android/DisplayAndroid.h',
@@ -227,6 +231,7 @@ IGNORED_INCLUDES = {
     b'vulkan_ios.h',
     b'vulkan_macos.h',
     b'vulkan_metal.h',
+    b'vulkan_sci.h',
     b'vulkan_vi.h',
     b'vulkan_wayland.h',
     b'vulkan_win32.h',
@@ -274,6 +279,7 @@ IGNORED_INCLUDE_PREFIXES = {
 
 IGNORED_DIRECTORIES = {
     '//buildtools/third_party/libc++',
+    '//third_party/libc++/src',
     '//third_party/abseil-cpp',
     '//third_party/SwiftShader',
 }

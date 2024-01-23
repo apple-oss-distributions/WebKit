@@ -1,7 +1,8 @@
 /*
  * Copyright (C) 2002 Lars Knoll (knoll@kde.org)
  *           (C) 2002 Dirk Mueller (mueller@kde.org)
- * Copyright (C) 2003, 2006, 2008, 2010 Apple Inc. All rights reserved.
+ * Copyright (C) 2003-2023 Apple Inc. All rights reserved.
+ * Copyright (C) 2015 Google Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -22,12 +23,13 @@
 #include "config.h"
 #include "AutoTableLayout.h"
 
+#include "RenderBoxInlines.h"
 #include "RenderChildIterator.h"
 #include "RenderFlexibleBox.h"
 #include "RenderGrid.h"
-#include "RenderTable.h"
-#include "RenderTableCell.h"
+#include "RenderTableCellInlines.h"
 #include "RenderTableCol.h"
+#include "RenderTableInlines.h"
 #include "RenderTableSection.h"
 #include "RenderView.h"
 
@@ -87,10 +89,12 @@ void AutoTableLayout::recalcColumn(unsigned effCol)
                     // FIXME: Other browsers have a lower limit for the cell's max width. 
                     const float cCellMaxWidth = 32760;
                     Length cellLogicalWidth = cell->styleOrColLogicalWidth();
-                    if (cellLogicalWidth.value() > cCellMaxWidth)
-                        cellLogicalWidth.setValue(LengthType::Fixed, cCellMaxWidth);
-                    if (cellLogicalWidth.isNegative())
-                        cellLogicalWidth.setValue(LengthType::Fixed, 0);
+                    if (cellLogicalWidth.isFixed()) {
+                        if (cellLogicalWidth.value() > cCellMaxWidth)
+                            cellLogicalWidth.setValue(LengthType::Fixed, cCellMaxWidth);
+                        if (cellLogicalWidth.isNegative())
+                            cellLogicalWidth.setValue(LengthType::Fixed, 0);
+                    }
                     switch (cellLogicalWidth.type()) {
                     case LengthType::Fixed:
                         // ignore width=0
@@ -113,6 +117,9 @@ void AutoTableLayout::recalcColumn(unsigned effCol)
                         m_hasPercent = true;
                         if (cellLogicalWidth.isPositive() && (!columnLayout.logicalWidth.isPercent() || cellLogicalWidth.percent() > columnLayout.logicalWidth.percent()))
                             columnLayout.logicalWidth = cellLogicalWidth;
+                        break;
+                    case LengthType::Calculated:
+                        columnLayout.logicalWidth = Length { };
                         break;
                     default:
                         break;
@@ -153,7 +160,8 @@ void AutoTableLayout::fullRecalc()
             groupLogicalWidth = column->style().logicalWidth();
         else {
             Length colLogicalWidth = column->style().logicalWidth();
-            if (colLogicalWidth.isAuto())
+            // FIXME: calc() on tables should be handled consistently with other lengths.
+            if (colLogicalWidth.isCalculated() || colLogicalWidth.isAuto())
                 colLogicalWidth = groupLogicalWidth;
             if ((colLogicalWidth.isFixed() || colLogicalWidth.isPercentOrCalculated()) && colLogicalWidth.isZero())
                 colLogicalWidth = Length();
@@ -274,10 +282,10 @@ void AutoTableLayout::computeIntrinsicLogicalWidths(LayoutUnit& minWidth, Layout
 
 void AutoTableLayout::applyPreferredLogicalWidthQuirks(LayoutUnit& minWidth, LayoutUnit& maxWidth) const
 {
-    if (m_table->hasOverridingLogicalWidth())
-        minWidth = maxWidth = std::max(minWidth, m_table->overridingLogicalWidth());
-    else if (auto tableLogicalWidth = m_table->style().logicalWidth(); tableLogicalWidth.isFixed() && tableLogicalWidth.isPositive())
-        minWidth = maxWidth = std::max(minWidth, LayoutUnit(tableLogicalWidth.value()));
+    if (auto tableLogicalWidth = m_table->style().logicalWidth(); tableLogicalWidth.isFixed() && tableLogicalWidth.isPositive()) {
+        minWidth = std::max(minWidth, m_table->hasOverridingLogicalWidth() ? m_table->overridingLogicalWidth() : LayoutUnit(tableLogicalWidth.value()));
+        maxWidth = minWidth;
+    }
 }
 
 /*

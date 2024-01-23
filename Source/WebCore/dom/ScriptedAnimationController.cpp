@@ -29,8 +29,8 @@
 
 #include "InspectorInstrumentation.h"
 #include "Logging.h"
+#include "OpportunisticTaskScheduler.h"
 #include "Page.h"
-#include "Quirks.h"
 #include "RequestAnimationFrameCallback.h"
 #include "Settings.h"
 #include "UserGestureIndicator.h"
@@ -109,7 +109,10 @@ ScriptedAnimationController::CallbackId ScriptedAnimationController::registerCal
     CallbackId callbackId = ++m_nextCallbackId;
     callback->m_firedOrCancelled = false;
     callback->m_id = callbackId;
-    m_callbackDataList.append({ WTFMove(callback), UserGestureIndicator::currentUserGesture() });
+    RefPtr<ImminentlyScheduledWorkScope> workScope;
+    if (page())
+        workScope = page()->opportunisticTaskScheduler().makeScheduledWorkScope();
+    m_callbackDataList.append({ WTFMove(callback), UserGestureIndicator::currentUserGesture(), WTFMove(workScope) });
 
     if (m_document)
         InspectorInstrumentation::didRequestAnimationFrame(*m_document, callbackId);
@@ -146,8 +149,6 @@ void ScriptedAnimationController::serviceRequestAnimationFrameCallbacks(ReducedR
     TraceScope tracingScope(RAFCallbackStart, RAFCallbackEnd);
 
     auto highResNowMs = std::round(1000 * timestamp.seconds());
-    if (m_document && m_document->quirks().needsMillisecondResolutionForHighResTimeStamp())
-        highResNowMs += 0.1;
 
     LOG_WITH_STREAM(RequestAnimationFrame, stream << "ScriptedAnimationController::serviceRequestAnimationFrameCallbacks at " << highResNowMs << " (throttling reasons " << throttlingReasons() << ", preferred interval " << preferredScriptedAnimationInterval().milliseconds() << "ms)");
 
@@ -160,7 +161,7 @@ void ScriptedAnimationController::serviceRequestAnimationFrameCallbacks(ReducedR
     Ref<ScriptedAnimationController> protectedThis(*this);
     Ref<Document> protectedDocument(*m_document);
 
-    for (auto& [callback, userGestureTokenToForward] : callbackDataList) {
+    for (auto& [callback, userGestureTokenToForward, scheduledWorkScope] : callbackDataList) {
         if (callback->m_firedOrCancelled)
             continue;
         callback->m_firedOrCancelled = true;

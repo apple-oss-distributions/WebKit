@@ -290,13 +290,13 @@ public:
     }
     bool usesSIMD() const
     {
-        // See also: WasmModuleInformation::isSIMDFunction().
+        // See also: WasmModuleInformation::usesSIMD().
         if (!Options::useWebAssemblySIMD())
             return false;
         if (Options::forceAllFunctionsToUseSIMD())
             return true;
         // The LLInt discovers this value.
-        ASSERT(Options::useWasmLLInt());
+        ASSERT(Options::useWasmLLInt() || Options::useWasmIPInt());
         return m_usesSIMD;
     }
 

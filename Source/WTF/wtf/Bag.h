@@ -124,15 +124,7 @@ public:
             return *this;
         }
         
-        bool operator==(const iterator& other) const
-        {
-            return m_node == other.m_node;
-        }
-
-        bool operator!=(const iterator& other) const
-        {
-            return !(*this == other);
-        }
+        friend bool operator==(iterator, iterator) = default;
 
     private:
         template<typename, typename> friend class WTF::Bag;

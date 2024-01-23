@@ -28,7 +28,6 @@
 
 #include "DOMException.h"
 #include "DOMStringList.h"
-#include "DOMWindow.h"
 #include "Event.h"
 #include "EventDispatcher.h"
 #include "EventLoop.h"
@@ -47,11 +46,12 @@
 #include "IDBResultData.h"
 #include "IDBValue.h"
 #include "JSDOMWindowBase.h"
+#include "LocalDOMWindow.h"
 #include "Logging.h"
 #include "ScriptExecutionContext.h"
 #include "SerializedScriptValue.h"
 #include "TransactionOperation.h"
-#include "WebCoreOpaqueRoot.h"
+#include "WebCoreOpaqueRootInlines.h"
 #include <wtf/CompletionHandler.h>
 #include <wtf/IsoMallocInlines.h>
 
@@ -195,10 +195,15 @@ void IDBTransaction::abortDueToFailedRequest(DOMException& error)
 void IDBTransaction::transitionedToFinishing(IndexedDB::TransactionState state)
 {
     ASSERT(canCurrentThreadAccessThreadLocalData(m_database->originThread()));
-
-    ASSERT(!isFinishedOrFinishing());
+    // Transaction might be transitioned from commiting to aborting due to connection failure.
+    bool wasFinishedOrFinishing = isFinishedOrFinishing();
     m_state = state;
     ASSERT(isFinishedOrFinishing());
+
+    if (!wasFinishedOrFinishing) {
+        for (auto& request : m_cursorRequests)
+            request.transactionTransitionedToFinishing();
+    }
 }
 
 ExceptionOr<void> IDBTransaction::abort()
@@ -366,6 +371,12 @@ void IDBTransaction::addRequest(IDBRequest& request)
 {
     ASSERT(canCurrentThreadAccessThreadLocalData(m_database->originThread()));
     m_openRequests.add(&request);
+}
+
+void IDBTransaction::addCursorRequest(IDBRequest& request)
+{
+    ASSERT(canCurrentThreadAccessThreadLocalData(m_database->originThread()));
+    m_cursorRequests.add(request);
 }
 
 void IDBTransaction::removeRequest(IDBRequest& request)
@@ -608,7 +619,6 @@ void IDBTransaction::enqueueEvent(Ref<Event>&& event)
     if (!scriptExecutionContext() || isContextStopped())
         return;
 
-    m_abortOrCommitEvent = event.ptr();
     queueTaskToDispatchEvent(*this, TaskSource::DatabaseAccess, WTFMove(event));
 }
 
@@ -624,8 +634,8 @@ void IDBTransaction::dispatchEvent(Event& event)
     Ref protectedThis { *this };
 
     EventDispatcher::dispatchEvent({ this, m_database.ptr() }, event);
-    
-    if (m_abortOrCommitEvent != &event)
+
+    if (!event.isTrusted())
         return;
     
     ASSERT(event.type() == eventNames().completeEvent || event.type() == eventNames().abortEvent);
@@ -847,6 +857,7 @@ Ref<IDBRequest> IDBTransaction::doRequestOpenCursor(Ref<IDBCursor>&& cursor)
 
     auto request = IDBRequest::create(*scriptExecutionContext(), cursor.get(), *this);
     addRequest(request.get());
+    addCursorRequest(request.get());
 
     LOG(IndexedDBOperations, "IDB open cursor operation: %s", cursor->info().loggingString().utf8().data());
     scheduleOperation(IDBClient::TransactionOperationImpl::create(*this, request.get(), [protectedThis = Ref { *this }, request] (const auto& result) {
@@ -1004,7 +1015,7 @@ Ref<IDBRequest> IDBTransaction::requestGetRecord(IDBObjectStore& objectStore, co
 {
     LOG(IndexedDB, "IDBTransaction::requestGetRecord");
     ASSERT(isActive());
-    ASSERT(!getRecordData.keyRangeData.isNull);
+    ASSERT(!getRecordData.keyRangeData.isNull());
     ASSERT(canCurrentThreadAccessThreadLocalData(m_database->originThread()));
 
     IndexedDB::ObjectStoreRecordType type = getRecordData.type == IDBGetRecordDataType::KeyAndValue ? IndexedDB::ObjectStoreRecordType::ValueOnly : IndexedDB::ObjectStoreRecordType::KeyOnly;
@@ -1042,7 +1053,7 @@ Ref<IDBRequest> IDBTransaction::requestIndexRecord(IDBIndex& index, IndexedDB::I
 {
     LOG(IndexedDB, "IDBTransaction::requestGetValue");
     ASSERT(isActive());
-    ASSERT(!range.isNull);
+    ASSERT(!range.isNull());
     ASSERT(canCurrentThreadAccessThreadLocalData(m_database->originThread()));
 
     auto request = IDBRequest::createIndexGet(*scriptExecutionContext(), index, type, *this);
@@ -1105,7 +1116,7 @@ Ref<IDBRequest> IDBTransaction::requestCount(IDBObjectStore& objectStore, const 
 {
     LOG(IndexedDB, "IDBTransaction::requestCount (IDBObjectStore)");
     ASSERT(isActive());
-    ASSERT(!range.isNull);
+    ASSERT(!range.isNull());
     ASSERT(canCurrentThreadAccessThreadLocalData(m_database->originThread()));
 
     auto request = IDBRequest::create(*scriptExecutionContext(), objectStore, *this);
@@ -1125,7 +1136,7 @@ Ref<IDBRequest> IDBTransaction::requestCount(IDBIndex& index, const IDBKeyRangeD
 {
     LOG(IndexedDB, "IDBTransaction::requestCount (IDBIndex)");
     ASSERT(isActive());
-    ASSERT(!range.isNull);
+    ASSERT(!range.isNull());
     ASSERT(canCurrentThreadAccessThreadLocalData(m_database->originThread()));
 
     auto request = IDBRequest::create(*scriptExecutionContext(), index, *this);
@@ -1162,7 +1173,7 @@ Ref<IDBRequest> IDBTransaction::requestDeleteRecord(IDBObjectStore& objectStore,
 {
     LOG(IndexedDB, "IDBTransaction::requestDeleteRecord");
     ASSERT(isActive());
-    ASSERT(!range.isNull);
+    ASSERT(!range.isNull());
     ASSERT(canCurrentThreadAccessThreadLocalData(m_database->originThread()));
 
     auto request = IDBRequest::create(*scriptExecutionContext(), objectStore, *this);
@@ -1441,7 +1452,7 @@ void IDBTransaction::connectionClosedFromServer(const IDBError& error)
     LOG(IndexedDB, "IDBTransaction::connectionClosedFromServer - %s", error.message().utf8().data());
 
     m_database->willAbortTransaction(*this);
-    m_state = IndexedDB::TransactionState::Aborting;
+    transitionedToFinishing(IndexedDB::TransactionState::Aborting);
 
     // Move operations out of m_pendingTransactionOperationQueue, otherwise we may start handling
     // them after we forcibly complete in-progress transactions.

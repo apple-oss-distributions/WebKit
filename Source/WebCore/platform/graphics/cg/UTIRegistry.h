@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2018 Apple Inc. All rights reserved.
+ * Copyright (C) 2017-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -35,6 +35,9 @@ MemoryCompactRobinHoodHashSet<String>& additionalSupportedImageTypes();
 WEBCORE_EXPORT void setAdditionalSupportedImageTypes(const Vector<String>&);
 WEBCORE_EXPORT void setAdditionalSupportedImageTypesForTesting(const String&);
 WEBCORE_EXPORT bool isSupportedImageType(const String&);
+WEBCORE_EXPORT Vector<String> allowableImageTypes();
 bool isGIFImageType(StringView);
+String preferredExtensionForImageType(const String& type);
+String MIMETypeForImageType(const String& type);
 
-}
+} // namespace WebCore

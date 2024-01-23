@@ -45,7 +45,8 @@ class FixedVector final
     FixedVector<T, N, Storage> &operator=(FixedVector<T, N, Storage> &&other);
     FixedVector<T, N, Storage> &operator=(std::initializer_list<value_type> init);
 
-    ~FixedVector();
+    // Makes class trivially destructible.
+    ~FixedVector() = default;
 
     reference at(size_type pos);
     const_reference at(size_type pos) const;
@@ -72,7 +73,7 @@ class FixedVector final
     void push_back(value_type &&value);
 
     template <class... Args>
-    void emplace_back(Args &&... args);
+    void emplace_back(Args &&...args);
 
     void pop_back();
     reference back();
@@ -124,7 +125,11 @@ template <class T, size_t N, class Storage>
 FixedVector<T, N, Storage>::FixedVector(const FixedVector<T, N, Storage> &other) = default;
 
 template <class T, size_t N, class Storage>
-FixedVector<T, N, Storage>::FixedVector(FixedVector<T, N, Storage> &&other) = default;
+FixedVector<T, N, Storage>::FixedVector(FixedVector<T, N, Storage> &&other)
+    : mStorage(std::move(other.mStorage)), mSize(other.mSize)
+{
+    other.mSize = 0;
+}
 
 template <class T, size_t N, class Storage>
 FixedVector<T, N, Storage>::FixedVector(std::initializer_list<value_type> init)
@@ -139,7 +144,13 @@ FixedVector<T, N, Storage> &FixedVector<T, N, Storage>::operator=(
 
 template <class T, size_t N, class Storage>
 FixedVector<T, N, Storage> &FixedVector<T, N, Storage>::operator=(
-    FixedVector<T, N, Storage> &&other) = default;
+    FixedVector<T, N, Storage> &&other)
+{
+    mStorage    = std::move(other.mStorage);
+    mSize       = other.mSize;
+    other.mSize = 0;
+    return *this;
+}
 
 template <class T, size_t N, class Storage>
 FixedVector<T, N, Storage> &FixedVector<T, N, Storage>::operator=(
@@ -148,13 +159,7 @@ FixedVector<T, N, Storage> &FixedVector<T, N, Storage>::operator=(
     clear();
     ASSERT(init.size() <= N);
     assign_from_initializer_list(init);
-    return this;
-}
-
-template <class T, size_t N, class Storage>
-FixedVector<T, N, Storage>::~FixedVector()
-{
-    clear();
+    return *this;
 }
 
 template <class T, size_t N, class Storage>
@@ -265,7 +270,7 @@ void FixedVector<T, N, Storage>::push_back(value_type &&value)
 
 template <class T, size_t N, class Storage>
 template <class... Args>
-void FixedVector<T, N, Storage>::emplace_back(Args &&... args)
+void FixedVector<T, N, Storage>::emplace_back(Args &&...args)
 {
     ASSERT(mSize < N);
     new (&mStorage[mSize]) T{std::forward<Args>(args)...};

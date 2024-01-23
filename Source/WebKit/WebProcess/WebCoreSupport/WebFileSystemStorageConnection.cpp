@@ -37,13 +37,13 @@
 
 namespace WebKit {
 
-Ref<WebFileSystemStorageConnection> WebFileSystemStorageConnection::create(IPC::Connection& connection)
+Ref<WebFileSystemStorageConnection> WebFileSystemStorageConnection::create(Ref<IPC::Connection>&& connection)
 {
-    return adoptRef(*new WebFileSystemStorageConnection(connection));
+    return adoptRef(*new WebFileSystemStorageConnection(WTFMove(connection)));
 }
 
-WebFileSystemStorageConnection::WebFileSystemStorageConnection(IPC::Connection& connection)
-    : m_connection(&connection)
+WebFileSystemStorageConnection::WebFileSystemStorageConnection(Ref<IPC::Connection>&& connection)
+    : m_connection(WTFMove(connection))
 {
 }
 
@@ -153,14 +153,12 @@ void WebFileSystemStorageConnection::createSyncAccessHandle(WebCore::FileSystemH
     });
 }
 
-void WebFileSystemStorageConnection::closeSyncAccessHandle(WebCore::FileSystemHandleIdentifier identifier, WebCore::FileSystemSyncAccessHandleIdentifier accessHandleIdentifier, FileSystemStorageConnection::VoidCallback&& completionHandler)
+void WebFileSystemStorageConnection::closeSyncAccessHandle(WebCore::FileSystemHandleIdentifier identifier, WebCore::FileSystemSyncAccessHandleIdentifier accessHandleIdentifier, FileSystemStorageConnection::EmptyCallback&& completionHandler)
 {
     if (!m_connection)
-        return;
+        return completionHandler();
 
-    m_connection->sendWithAsyncReply(Messages::NetworkStorageManager::CloseSyncAccessHandle(identifier, accessHandleIdentifier), [completionHandler = WTFMove(completionHandler)]() mutable {
-        return completionHandler({ });
-    });
+    m_connection->sendWithAsyncReply(Messages::NetworkStorageManager::CloseSyncAccessHandle(identifier, accessHandleIdentifier), WTFMove(completionHandler));
 }
 
 void WebFileSystemStorageConnection::getHandleNames(WebCore::FileSystemHandleIdentifier identifier, FileSystemStorageConnection::GetHandleNamesCallback&& completionHandler)

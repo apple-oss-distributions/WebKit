@@ -52,7 +52,7 @@ void NetworkSessionCreationParameters::encode(IPC::Encoder& encoder) const
     encoder << httpProxy;
     encoder << httpsProxy;
 #endif
-#if HAVE(CFNETWORK_ALTERNATIVE_SERVICE)
+#if HAVE(ALTERNATIVE_SERVICE)
     encoder << alternativeServiceDirectory;
     encoder << alternativeServiceDirectoryExtensionHandle;
 #endif
@@ -97,15 +97,16 @@ void NetworkSessionCreationParameters::encode(IPC::Encoder& encoder) const
 #if !HAVE(NSURLSESSION_WEBSOCKET)
     encoder << shouldAcceptInsecureCertificatesForWebSockets;
 #endif
+    encoder << isBlobRegistryTopOriginPartitioningEnabled;
 
     encoder << unifiedOriginStorageLevel;
-    encoder << perOriginStorageQuota << perThirdPartyOriginStorageQuota;
+    encoder << perOriginStorageQuota << originQuotaRatio << totalQuotaRatio << standardVolumeCapacity << volumeCapacityOverride;
     encoder << localStorageDirectory << localStorageDirectoryExtensionHandle;
     encoder << indexedDBDirectory << indexedDBDirectoryExtensionHandle;
     encoder << cacheStorageDirectory << cacheStorageDirectoryExtensionHandle;
     encoder << generalStorageDirectory << generalStorageDirectoryHandle;
 #if ENABLE(SERVICE_WORKER)
-    encoder << serviceWorkerRegistrationDirectory << serviceWorkerRegistrationDirectoryExtensionHandle << serviceWorkerProcessTerminationDelayEnabled;
+    encoder << serviceWorkerRegistrationDirectory << serviceWorkerRegistrationDirectoryExtensionHandle << serviceWorkerProcessTerminationDelayEnabled << inspectionForServiceWorkersAllowed;
 #endif
     encoder << resourceLoadStatisticsParameters;
 }
@@ -117,7 +118,7 @@ std::optional<NetworkSessionCreationParameters> NetworkSessionCreationParameters
     if (!sessionID)
         return std::nullopt;
     
-    std::optional<std::optional<UUID>> dataStoreIdentifier;
+    std::optional<Markable<WTF::UUID>> dataStoreIdentifier;
     decoder >> dataStoreIdentifier;
     if (!dataStoreIdentifier)
         return std::nullopt;
@@ -163,7 +164,7 @@ std::optional<NetworkSessionCreationParameters> NetworkSessionCreationParameters
         return std::nullopt;
 #endif
 
-#if HAVE(CFNETWORK_ALTERNATIVE_SERVICE)
+#if HAVE(ALTERNATIVE_SERVICE)
     std::optional<String> alternativeServiceDirectory;
     decoder >> alternativeServiceDirectory;
     if (!alternativeServiceDirectory)
@@ -356,6 +357,11 @@ std::optional<NetworkSessionCreationParameters> NetworkSessionCreationParameters
         return std::nullopt;
 #endif
 
+    std::optional<bool> isBlobRegistryTopOriginPartitioningEnabled;
+    decoder >> isBlobRegistryTopOriginPartitioningEnabled;
+    if (!isBlobRegistryTopOriginPartitioningEnabled)
+        return std::nullopt;
+
     std::optional<UnifiedOriginStorageLevel> unifiedOriginStorageLevel;
     decoder >> unifiedOriginStorageLevel;
     if (!unifiedOriginStorageLevel)
@@ -366,9 +372,24 @@ std::optional<NetworkSessionCreationParameters> NetworkSessionCreationParameters
     if (!perOriginStorageQuota)
         return std::nullopt;
 
-    std::optional<uint64_t> perThirdPartyOriginStorageQuota;
-    decoder >> perThirdPartyOriginStorageQuota;
-    if (!perThirdPartyOriginStorageQuota)
+    std::optional<std::optional<double>> originQuotaRatio;
+    decoder >> originQuotaRatio;
+    if (!originQuotaRatio)
+        return std::nullopt;
+
+    std::optional<std::optional<double>> totalQuotaRatio;
+    decoder >> totalQuotaRatio;
+    if (!totalQuotaRatio)
+        return std::nullopt;
+
+    std::optional<std::optional<uint64_t>> standardVolumeCapacity;
+    decoder >> standardVolumeCapacity;
+    if (!standardVolumeCapacity)
+        return std::nullopt;
+
+    std::optional<std::optional<uint64_t>> volumeCapacityOverride;
+    decoder >> volumeCapacityOverride;
+    if (!volumeCapacityOverride)
         return std::nullopt;
 
     std::optional<String> localStorageDirectory;
@@ -426,6 +447,11 @@ std::optional<NetworkSessionCreationParameters> NetworkSessionCreationParameters
     decoder >> serviceWorkerProcessTerminationDelayEnabled;
     if (!serviceWorkerProcessTerminationDelayEnabled)
         return std::nullopt;
+
+    std::optional<bool> inspectionForServiceWorkersAllowed;
+    decoder >> inspectionForServiceWorkersAllowed;
+    if (!inspectionForServiceWorkersAllowed)
+        return std::nullopt;
 #endif
 
     std::optional<ResourceLoadStatisticsParameters> resourceLoadStatisticsParameters;
@@ -446,7 +472,7 @@ std::optional<NetworkSessionCreationParameters> NetworkSessionCreationParameters
         , WTFMove(*httpProxy)
         , WTFMove(*httpsProxy)
 #endif
-#if HAVE(CFNETWORK_ALTERNATIVE_SERVICE)
+#if HAVE(ALTERNATIVE_SERVICE)
         , WTFMove(*alternativeServiceDirectory)
         , WTFMove(*alternativeServiceDirectoryExtensionHandle)
 #endif
@@ -491,9 +517,13 @@ std::optional<NetworkSessionCreationParameters> NetworkSessionCreationParameters
 #if !HAVE(NSURLSESSION_WEBSOCKET)
         , WTFMove(*shouldAcceptInsecureCertificatesForWebSockets)
 #endif
+        , *isBlobRegistryTopOriginPartitioningEnabled
         , *unifiedOriginStorageLevel
         , WTFMove(*perOriginStorageQuota)
-        , WTFMove(*perThirdPartyOriginStorageQuota)
+        , WTFMove(*originQuotaRatio)
+        , WTFMove(*totalQuotaRatio)
+        , WTFMove(*standardVolumeCapacity)
+        , WTFMove(*volumeCapacityOverride)
         , WTFMove(*localStorageDirectory)
         , WTFMove(*localStorageDirectoryExtensionHandle)
         , WTFMove(*indexedDBDirectory)
@@ -506,6 +536,7 @@ std::optional<NetworkSessionCreationParameters> NetworkSessionCreationParameters
         , WTFMove(*serviceWorkerRegistrationDirectory)
         , WTFMove(*serviceWorkerRegistrationDirectoryExtensionHandle)
         , *serviceWorkerProcessTerminationDelayEnabled
+        , *inspectionForServiceWorkersAllowed
 #endif
         , WTFMove(*resourceLoadStatisticsParameters)
     }};

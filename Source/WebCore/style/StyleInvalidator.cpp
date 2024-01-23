@@ -28,7 +28,7 @@
 
 #include "CSSSelectorList.h"
 #include "Document.h"
-#include "ElementIterator.h"
+#include "ElementChildIteratorInlines.h"
 #include "ElementRareData.h"
 #include "ElementRuleCollector.h"
 #include "HTMLSlotElement.h"
@@ -40,21 +40,27 @@
 #include "StyleScope.h"
 #include "StyleScopeRuleSets.h"
 #include "StyleSheetContents.h"
+#include "TypedElementDescendantIteratorInlines.h"
 #include <wtf/SetForScope.h>
 
 namespace WebCore {
 namespace Style {
 
-static bool shouldDirtyAllStyle(const Vector<RefPtr<StyleRuleBase>>& rules)
+static bool shouldDirtyAllStyle(const Vector<Ref<StyleRuleBase>>& rules)
 {
     for (auto& rule : rules) {
-        if (is<StyleRuleMedia>(*rule)) {
-            if (shouldDirtyAllStyle(downcast<StyleRuleMedia>(*rule).childRules()))
+        if (is<StyleRuleMedia>(rule)) {
+            if (shouldDirtyAllStyle(downcast<StyleRuleMedia>(rule).childRules()))
+                return true;
+            continue;
+        }
+        if (is<StyleRuleWithNesting>(rule)) {
+            if (shouldDirtyAllStyle(downcast<StyleRuleWithNesting>(rule).nestedRules()))
                 return true;
             continue;
         }
         // FIXME: At least font faces don't need full recalc in all cases.
-        if (!is<StyleRule>(*rule))
+        if (!is<StyleRule>(rule))
             return true;
     }
     return false;
@@ -115,6 +121,8 @@ Invalidator::RuleInformation Invalidator::collectRuleInformation()
             information.hasSlottedPseudoElementRules = true;
         if (!ruleSet->hostPseudoClassRules().isEmpty())
             information.hasHostPseudoClassRules = true;
+        if (ruleSet->hasHostPseudoClassRulesMatchingInShadowTree())
+            information.hasHostPseudoClassRulesMatchingInShadowTree = true;
         if (ruleSet->hasShadowPseudoElementRules())
             information.hasShadowPseudoElementRules = true;
 #if ENABLE(VIDEO)
@@ -303,6 +311,21 @@ void Invalidator::invalidateStyleWithMatchElement(Element& element, MatchElement
         }
         break;
     }
+    case MatchElement::ParentAnySibling:
+        for (auto& sibling : childrenOfType<Element>(*element.parentNode())) {
+            auto siblingChildren = childrenOfType<Element>(sibling);
+            for (auto& siblingChild : siblingChildren)
+                invalidateIfNeeded(siblingChild, nullptr);
+        }
+        break;
+    case MatchElement::AncestorAnySibling: {
+        SelectorMatchingState selectorMatchingState;
+        for (auto& sibling : childrenOfType<Element>(*element.parentNode())) {
+            selectorMatchingState.selectorFilter.popParentsUntil(element.parentElement());
+            invalidateStyleForDescendants(sibling, &selectorMatchingState);
+        }
+        break;
+    }
     case MatchElement::HasChild: {
         if (auto* parent = element.parentElement())
             invalidateIfNeeded(*parent, nullptr);
@@ -314,20 +337,29 @@ void Invalidator::invalidateStyleWithMatchElement(Element& element, MatchElement
             ancestors.append(parent);
 
         SelectorMatchingState selectorMatchingState;
+        selectorMatchingState.selectorFilter.parentStackReserveInitialCapacity(ancestors.size());
         for (auto* ancestor : makeReversedRange(ancestors)) {
             invalidateIfNeeded(*ancestor, &selectorMatchingState);
             selectorMatchingState.selectorFilter.pushParent(ancestor);
         }
         break;
     }
-    case MatchElement::HasSibling: {
+    case MatchElement::HasSibling:
         if (auto* sibling = element.previousElementSibling()) {
             SelectorMatchingState selectorMatchingState;
-            selectorMatchingState.selectorFilter.pushParentInitializingIfNeeded(*element.parentElement());
+            if (RefPtr parent = element.parentElement())
+                selectorMatchingState.selectorFilter.pushParentInitializingIfNeeded(*parent);
 
             for (; sibling; sibling = sibling->previousElementSibling())
                 invalidateIfNeeded(*sibling, &selectorMatchingState);
         }
+        break;
+    case MatchElement::HasAnySibling: {
+        SelectorMatchingState selectorMatchingState;
+        if (auto* parent = element.parentElement())
+            selectorMatchingState.selectorFilter.pushParentInitializingIfNeeded(*parent);
+        for (auto& sibling : childrenOfType<Element>(*element.parentNode()))
+            invalidateIfNeeded(sibling, &selectorMatchingState);
         break;
     }
     case MatchElement::HasSiblingDescendant: {
@@ -337,6 +369,7 @@ void Invalidator::invalidateStyleWithMatchElement(Element& element, MatchElement
             elementAndAncestors.append(parent);
 
         SelectorMatchingState selectorMatchingState;
+        selectorMatchingState.selectorFilter.parentStackReserveInitialCapacity(elementAndAncestors.size());
         for (auto* elementOrAncestor : makeReversedRange(elementAndAncestors)) {
             for (auto* sibling = elementOrAncestor->previousElementSibling(); sibling; sibling = sibling->previousElementSibling())
                 invalidateIfNeeded(*sibling, &selectorMatchingState);
@@ -345,13 +378,20 @@ void Invalidator::invalidateStyleWithMatchElement(Element& element, MatchElement
         }
         break;
     }
-    case MatchElement::HasNonSubjectOrScopeBreaking: {
+    case MatchElement::HasNonSubject:
+    case MatchElement::HasScopeBreaking: {
         SelectorMatchingState selectorMatchingState;
         invalidateStyleForDescendants(*element.document().documentElement(), &selectorMatchingState);
         break;
     }
     case MatchElement::Host:
         invalidateInShadowTreeIfNeeded(element);
+        break;
+    case MatchElement::HostChild:
+        if (auto* host = element.shadowHost()) {
+            for (auto& hostChild : childrenOfType<Element>(*host))
+                invalidateIfNeeded(hostChild, nullptr);
+        }
         break;
     }
 }
@@ -397,6 +437,13 @@ void Invalidator::invalidateInShadowTreeIfNeeded(Element& element)
     if (m_ruleInformation.hasShadowPseudoElementRules)
         invalidateShadowPseudoElements(*shadowRoot);
 
+    if (m_ruleInformation.hasHostPseudoClassRulesMatchingInShadowTree) {
+        for (auto& child : childrenOfType<Element>(*shadowRoot)) {
+            SelectorMatchingState selectorMatchingState;
+            invalidateStyleForTree(child, &selectorMatchingState);
+        }
+    }
+
 #if ENABLE(VIDEO)
     if (m_ruleInformation.hasCuePseudoElementRules && element.isMediaElement())
         element.invalidateStyleForSubtreeInternal();
@@ -422,6 +469,13 @@ void Invalidator::invalidateWithMatchElementRuleSets(Element& element, const Mat
         Invalidator invalidator(matchElementAndRuleSet.value);
         invalidator.invalidateStyleWithMatchElement(element, matchElementAndRuleSet.key);
     }
+}
+
+void Invalidator::invalidateWithScopeBreakingHasPseudoClassRuleSet(Element& element, const RuleSet* ruleSet)
+{
+    SetForScope isInvalidating(element.styleResolver().ruleSets().isInvalidatingStyleWithRuleSets(), true);
+    Invalidator invalidator({ ruleSet });
+    invalidator.invalidateStyleWithMatchElement(element, MatchElement::HasScopeBreaking);
 }
 
 void Invalidator::invalidateAllStyle(Scope& scope)

@@ -31,8 +31,8 @@
 #include "ExecutableAllocator.h"
 #include "LLIntData.h"
 #include "MachineContext.h"
+#include "NativeCalleeRegistry.h"
 #include "WasmCallee.h"
-#include "WasmCalleeRegistry.h"
 #include "WasmCapabilities.h"
 #include "WasmContext.h"
 #include "WasmExceptionType.h"
@@ -49,8 +49,6 @@ namespace WasmFaultSignalHandlerInternal {
 static constexpr bool verbose = false;
 }
 }
-
-#if ENABLE(WEBASSEMBLY_SIGNALING_MEMORY)
 
 static SignalAction trapHandler(Signal signal, SigInfo& sigInfo, PlatformRegisters& context)
 {
@@ -80,10 +78,12 @@ static SignalAction trapHandler(Signal signal, SigInfo& sigInfo, PlatformRegiste
             auto didFaultInWasm = [](void* faultingInstruction) {
                 if (LLInt::isWasmLLIntPC(faultingInstruction))
                     return true;
-                auto& calleeRegistry = CalleeRegistry::singleton();
+                auto& calleeRegistry = NativeCalleeRegistry::singleton();
                 Locker locker { calleeRegistry.getLock() };
                 for (auto* callee : calleeRegistry.allCallees()) {
-                    auto [start, end] = callee->range();
+                    if (callee->category() != NativeCallee::Category::Wasm)
+                        continue;
+                    auto [start, end] = static_cast<Wasm::Callee*>(callee)->range();
                     dataLogLnIf(WasmFaultSignalHandlerInternal::verbose, "function start: ", RawPointer(start), " end: ", RawPointer(end));
                     if (start <= faultingInstruction && faultingInstruction < end) {
                         dataLogLnIf(WasmFaultSignalHandlerInternal::verbose, "found match");
@@ -102,11 +102,8 @@ static SignalAction trapHandler(Signal signal, SigInfo& sigInfo, PlatformRegiste
     return SignalAction::NotHandled;
 }
 
-#endif // ENABLE(WEBASSEMBLY_SIGNALING_MEMORY)
-
 void activateSignalingMemory()
 {
-#if ENABLE(WEBASSEMBLY_SIGNALING_MEMORY)
     static std::once_flag once;
     std::call_once(once, [] {
         if (!Wasm::isSupported())
@@ -117,12 +114,10 @@ void activateSignalingMemory()
 
         activateSignalHandlersFor(Signal::AccessFault);
     });
-#endif // ENABLE(WEBASSEMBLY_SIGNALING_MEMORY)
 }
 
 void prepareSignalingMemory()
 {
-#if ENABLE(WEBASSEMBLY_SIGNALING_MEMORY)
     static std::once_flag once;
     std::call_once(once, [] {
         if (!Wasm::isSupported())
@@ -135,7 +130,6 @@ void prepareSignalingMemory()
             return trapHandler(signal, sigInfo, ucontext);
         });
     });
-#endif // ENABLE(WEBASSEMBLY_SIGNALING_MEMORY)
 }
     
 } } // namespace JSC::Wasm

@@ -40,7 +40,7 @@ class ResourceLoader;
 class ResourceResponse;
 
 class LegacyPreviewLoader final : private PreviewConverterClient, private PreviewConverterProvider {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_FAST_ALLOCATED_WITH_HEAP_IDENTIFIER(Loader);
     WTF_MAKE_NONCOPYABLE(LegacyPreviewLoader);
 public:
     LegacyPreviewLoader(ResourceLoader&, const ResourceResponse&);
@@ -65,7 +65,7 @@ private:
 
     // PreviewConverterProvider
     void provideMainResourceForPreviewConverter(PreviewConverter&, CompletionHandler<void(Ref<FragmentedSharedBuffer>&&)>&&) final;
-    void providePasswordForPreviewConverter(PreviewConverter&, CompletionHandler<void(const String&)>&&) final;
+    void providePasswordForPreviewConverter(PreviewConverter&, Function<void(const String&)>&&) final;
 
     RefPtr<PreviewConverter> m_converter;
     Ref<LegacyPreviewLoaderClient> m_client;

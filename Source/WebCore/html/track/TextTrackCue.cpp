@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2011, 2013 Google Inc.  All rights reserved.
+ * Copyright (C) 2011-2018 Google Inc.  All rights reserved.
  * Copyright (C) 2011-2020 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -85,10 +85,9 @@ Ref<TextTrackCueBox> TextTrackCueBox::create(Document& document, TextTrackCue& c
 }
 
 TextTrackCueBox::TextTrackCueBox(Document& document, TextTrackCue& cue)
-    : HTMLElement(HTMLNames::divTag, document)
+    : HTMLElement(HTMLNames::divTag, document, CreateTextTrackCueBox)
     , m_cue(cue)
 {
-    setHasCustomStyleResolveCallbacks();
 }
 
 void TextTrackCueBox::initialize()
@@ -280,8 +279,7 @@ void TextTrackCue::setId(const AtomString& id)
 
 void TextTrackCue::setStartTime(double value)
 {
-    // TODO(93143): Add spec-compliant behavior for negative time values.
-    if (m_startTime.toDouble() == value || value < 0)
+    if (m_startTime.toDouble() == value)
         return;
 
     setStartTime(MediaTime::createWithDouble(value));
@@ -296,8 +294,7 @@ void TextTrackCue::setStartTime(const MediaTime& value)
     
 void TextTrackCue::setEndTime(double value)
 {
-    // TODO(93143): Add spec-compliant behavior for negative time values.
-    if (m_endTime.toDouble() == value || value < 0)
+    if (m_endTime.toDouble() == value)
         return;
 
     setEndTime(MediaTime::createWithDouble(value));
@@ -454,7 +451,7 @@ bool TextTrackCue::isRenderable() const
     return m_cueNode && m_cueNode->firstChild();
 }
 
-RefPtr<TextTrackCueBox> TextTrackCue::getDisplayTree(const IntSize&, int)
+RefPtr<TextTrackCueBox> TextTrackCue::getDisplayTree()
 {
     if (m_displayTree && !m_displayTreeNeedsUpdate)
         return m_displayTree;
@@ -474,7 +471,7 @@ void TextTrackCue::removeDisplayTree()
     m_displayTree->remove();
 }
 
-void TextTrackCue::setFontSize(int fontSize, const IntSize&, bool important)
+void TextTrackCue::setFontSize(int fontSize, bool important)
 {
     if (fontSize == m_fontSize && important == m_fontSizeIsImportant)
         return;

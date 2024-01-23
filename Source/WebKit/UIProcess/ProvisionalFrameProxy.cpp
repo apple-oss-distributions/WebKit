@@ -26,110 +26,40 @@
 #include "config.h"
 #include "ProvisionalFrameProxy.h"
 
-#include "APIWebsitePolicies.h"
-#include "DrawingAreaProxy.h"
-#include "FrameInfoData.h"
-#include "HandleMessage.h"
-#include "LoadParameters.h"
+#include "RemotePageProxy.h"
+#include "VisitedLinkStore.h"
 #include "WebFrameProxy.h"
-#include "WebFrameProxyMessages.h"
-#include "WebPageMessages.h"
-#include "WebPageProxyMessages.h"
-#include "WebProcessMessages.h"
-
-#include <WebCore/FrameIdentifier.h>
-#include <WebCore/ShouldTreatAsContinuingLoad.h>
+#include "WebPageProxy.h"
 
 namespace WebKit {
 
-ProvisionalFrameProxy::ProvisionalFrameProxy(WebFrameProxy& frame, Ref<WebProcessProxy>&& process, const WebCore::ResourceRequest& request)
+ProvisionalFrameProxy::ProvisionalFrameProxy(WebFrameProxy& frame, WebProcessProxy& process, RefPtr<RemotePageProxy>&& remotePageProxy)
     : m_frame(frame)
-    , m_process(WTFMove(process))
+    , m_process(process)
+    , m_remotePageProxy(WTFMove(remotePageProxy))
     , m_visitedLinkStore(frame.page()->visitedLinkStore())
-    , m_pageID(frame.page()->webPageID()) // FIXME: Generate a new one? This can conflict. And we probably want something like ProvisionalPageProxy to respond to messages anyways.
+    , m_pageID(frame.page()->webPageID())
     , m_webPageID(frame.page()->identifier())
+    , m_layerHostingContextIdentifier(WebCore::LayerHostingContextIdentifier::generate())
 {
+    ASSERT(!m_remotePageProxy || m_remotePageProxy->process().coreProcessIdentifier() == process.coreProcessIdentifier());
     m_process->markProcessAsRecentlyUsed();
     m_process->addProvisionalFrameProxy(*this);
-
-    m_process->addMessageReceiver(Messages::WebPageProxy::messageReceiverName(), m_pageID, *this);
-
-    m_process->addMessageReceiver(Messages::WebFrameProxy::messageReceiverName(), m_frame.frameID().object(), *this);
-
-    ASSERT(m_frame.page());
-    auto& page = *m_frame.page();
-    auto* drawingArea = page.drawingArea();
-    ASSERT(drawingArea);
-
-    auto parameters = page.creationParameters(m_process, *drawingArea);
-    parameters.isProcessSwap = true; // FIXME: This should be a parameter to creationParameters rather than doctoring up the parameters afterwards.
-    parameters.mainFrameIdentifier = frame.frameID();
-    m_process->send(Messages::WebProcess::CreateWebPage(m_pageID, parameters), 0);
-    m_process->addVisitedLinkStoreUser(page.visitedLinkStore(), page.identifier());
-
-    LoadParameters loadParameters;
-    loadParameters.request = request;
-    loadParameters.shouldTreatAsContinuingLoad = WebCore::ShouldTreatAsContinuingLoad::YesAfterNavigationPolicyDecision;
-    // FIXME: Add more parameters as appropriate.
-
-    // FIXME: Do we need a LoadRequestWaitingForProcessLaunch version?
-    m_process->send(Messages::WebPage::LoadRequest(loadParameters), m_pageID);
 }
 
 ProvisionalFrameProxy::~ProvisionalFrameProxy()
 {
-    if (!m_wasCommitted) {
-        m_process->removeMessageReceiver(Messages::WebPageProxy::messageReceiverName(), m_pageID);
-        m_process->removeMessageReceiver(Messages::WebFrameProxy::messageReceiverName(), m_frame.frameID().object());
-        if (m_process->hasConnection())
-            send(Messages::WebPage::Close(), m_pageID);
-    }
-    m_process->removeVisitedLinkStoreUser(m_visitedLinkStore.get(), m_webPageID);
     m_process->removeProvisionalFrameProxy(*this);
 }
 
-void ProvisionalFrameProxy::didReceiveMessage(IPC::Connection& connection, IPC::Decoder& decoder)
+RefPtr<RemotePageProxy> ProvisionalFrameProxy::takeRemotePageProxy()
 {
-    ASSERT(decoder.messageReceiverName() == Messages::WebPageProxy::messageReceiverName());
-
-    if (decoder.messageName() == Messages::WebPageProxy::DecidePolicyForResponse::name()) {
-        IPC::handleMessage<Messages::WebPageProxy::DecidePolicyForResponse>(connection, decoder, this, &ProvisionalFrameProxy::decidePolicyForResponse);
-        return;
-    }
-
-    if (decoder.messageName() == Messages::WebPageProxy::DidCommitLoadForFrame::name()) {
-        IPC::handleMessage<Messages::WebPageProxy::DidCommitLoadForFrame>(connection, decoder, this, &ProvisionalFrameProxy::didCommitLoadForFrame);
-        return;
-    }
-
-    if (auto* page = m_frame.page())
-        page->didReceiveMessage(connection, decoder);
+    return std::exchange(m_remotePageProxy, nullptr);
 }
 
-void ProvisionalFrameProxy::decidePolicyForResponse(WebCore::FrameIdentifier frameID, FrameInfoData&& frameInfo, WebCore::PolicyCheckIdentifier identifier, uint64_t navigationID, const WebCore::ResourceResponse& response, const WebCore::ResourceRequest& request, bool canShowMIMEType, const String& downloadAttribute, uint64_t listenerID)
+WebPageProxy* ProvisionalFrameProxy::page()
 {
-    if (auto* page = m_frame.page())
-        page->decidePolicyForResponseShared(m_process.copyRef(), m_pageID, frameID, WTFMove(frameInfo), identifier, navigationID, response, request, canShowMIMEType, downloadAttribute, listenerID);
-}
-
-void ProvisionalFrameProxy::didCommitLoadForFrame(WebCore::FrameIdentifier frameID, FrameInfoData&& frameInfo, WebCore::ResourceRequest&& request, uint64_t navigationID, const String& mimeType, bool frameHasCustomContentProvider, WebCore::FrameLoadType frameLoadType, const WebCore::CertificateInfo& certificateInfo, bool usedLegacyTLS, bool privateRelayed, bool containsPluginDocument, WebCore::HasInsecureContent hasInsecureContent, WebCore::MouseEventPolicy mouseEventPolicy, const UserData& userData)
-{
-    m_process->removeMessageReceiver(Messages::WebPageProxy::messageReceiverName(), m_pageID);
-    m_process->removeMessageReceiver(Messages::WebFrameProxy::messageReceiverName(), m_frame.frameID().object());
-    m_wasCommitted = true;
-
-    m_frame.commitProvisionalFrame(frameID, WTFMove(frameInfo), WTFMove(request), navigationID, mimeType, frameHasCustomContentProvider, frameLoadType, certificateInfo, usedLegacyTLS, privateRelayed, containsPluginDocument, hasInsecureContent, mouseEventPolicy, userData); // Will delete |this|.
-}
-
-IPC::Connection* ProvisionalFrameProxy::messageSenderConnection() const
-{
-    return m_process->connection();
-}
-
-uint64_t ProvisionalFrameProxy::messageSenderDestinationID() const
-{
-    // FIXME: This identifier was generated in another process and can collide with identifiers in this frame's process.
-    return m_frame.frameID().object().toUInt64();
+    return m_frame->page();
 }
 
 }

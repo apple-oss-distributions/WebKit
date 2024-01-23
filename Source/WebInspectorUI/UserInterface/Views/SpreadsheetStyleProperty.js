@@ -475,6 +475,13 @@ WI.SpreadsheetStyleProperty = class SpreadsheetStyleProperty extends WI.Object
         this._cssDocumentationPopover = null;
     }
 
+    // InlineSwatch delegate
+
+    inlineSwatchGetColorVariables(inlineSwatch)
+    {
+        return this._property.ownerStyle.nodeStyles.computedStyle.variablesForType(WI.CSSStyleDeclaration.VariablesGroupType.Colors);
+    }
+
     // Private
 
     _toggle()
@@ -598,7 +605,29 @@ WI.SpreadsheetStyleProperty = class SpreadsheetStyleProperty extends WI.Object
                 innerElement.append(item);
         }
 
-        let swatch = new WI.InlineSwatch(type, valueObject, {readOnly: !this._isEditable()});
+        let variableType = null;
+        if (type === WI.InlineSwatch.Type.Variable) {
+            const variableNameStart = 4;
+            const varibleNameEnd = 1;
+            let computedColorCSSVariables = this.property.ownerStyle.nodeStyles.computedStyle.variablesForType(WI.CSSStyleDeclaration.VariablesGroupType.Colors);
+            let valueString = valueObject.toString();
+            for (let variable of computedColorCSSVariables) {
+                let index = valueString.indexOf(variable.name);
+                let match = (!index && variable.name.length === valueString.length)
+                         || (index === variableNameStart && variableNameStart + variable.name.length === valueString.length - varibleNameEnd);
+                if (match) {
+                    variableType = WI.InlineSwatch.Type.Color;
+                    break;
+                }
+            }
+            if (!variableType) {
+                valueObject = () => {
+                    return this._property.ownerStyle.nodeStyles.computedStyle.resolveVariableValue(innerElement.textContent);
+                };
+            }
+        }
+
+        let swatch = new WI.InlineSwatch(type, valueObject, {readOnly: !this._isEditable(), variableType, delegate: this});
 
         swatch.addEventListener(WI.InlineSwatch.Event.ValueChanged, function(event) {
             let value = event.data.value && event.data.value.toString();
@@ -607,16 +636,7 @@ WI.SpreadsheetStyleProperty = class SpreadsheetStyleProperty extends WI.Object
 
             innerElement.textContent = value;
             this._handleValueChange();
-
-            if (type === WI.InlineSwatch.Type.Variable)
-                this._renderValue(this._property.rawValue);
         }, this);
-
-        if (type === WI.InlineSwatch.Type.Variable) {
-            swatch.value = () => {
-                return this._property.ownerStyle.nodeStyles.computedStyle.resolveVariableValue(innerElement.textContent);
-            };
-        }
 
         swatch.addEventListener(WI.InlineSwatch.Event.Activated, function(event) {
             this._activeInlineSwatch = swatch;
@@ -653,6 +673,7 @@ WI.SpreadsheetStyleProperty = class SpreadsheetStyleProperty extends WI.Object
         if (this._property.isVariable || WI.CSSKeywordCompletions.isTimingFunctionAwareProperty(this._property.name)) {
             tokens = this._addTimingFunctionTokens(tokens, "cubic-bezier");
             tokens = this._addTimingFunctionTokens(tokens, "spring");
+            tokens = this._addTimingFunctionTokens(tokens, "steps");
         }
 
         tokens = this._addVariableTokens(tokens);
@@ -720,7 +741,10 @@ WI.SpreadsheetStyleProperty = class SpreadsheetStyleProperty extends WI.Object
             if (token.type && token.type.includes("hex-color")) {
                 // Hex
                 pushPossibleColorToken(token.value, token);
-            } else if (WI.Color.FunctionNames.has(token.value) && token.type && (token.type.includes("atom") || token.type.includes("keyword"))) {
+            } else if (isNaN(colorFunctionStartIndex)
+                && WI.Color.FunctionNames.has(token.value)
+                && tokens[i + 1]?.value === "("
+                && (token.type?.includes("atom") || token.type?.includes("keyword"))) {
                 // Color Function start
                 colorFunctionStartIndex = i;
             } else if (isNaN(colorFunctionStartIndex) && token.type && (token.type.includes("atom") || token.type.includes("keyword"))) {
@@ -738,12 +762,21 @@ WI.SpreadsheetStyleProperty = class SpreadsheetStyleProperty extends WI.Object
                 if (--openParentheses)
                     continue;
 
-                let rawTokens = tokens.slice(colorFunctionStartIndex, i + 1);
+                // A function will always have a `(` after the function name.
+                let functionOpeningTokens = tokens.slice(colorFunctionStartIndex, colorFunctionStartIndex + 2);
 
-                let text = this._resolveVariables(rawTokens.map((token) => token.value).join(""));
-                rawTokens = this._addVariableTokens(rawTokens);
+                // Functions may contain additional functions that can be represented by a color swatch. (e.g. `color-mix`)
+                let functionInnerTokens = tokens.slice(colorFunctionStartIndex + 2, i);
+                functionInnerTokens = this._addColorTokens(functionInnerTokens);
 
-                pushPossibleColorToken(text, ...rawTokens);
+                let functionClosingToken = tokens[i];
+
+                let functionTokens = [...functionOpeningTokens, ...functionInnerTokens, functionClosingToken];
+
+                let text = this._resolveVariables(functionTokens.map((token) => token.value).join(""));
+                functionTokens = this._addVariableTokens(functionTokens);
+
+                pushPossibleColorToken(text, ...functionTokens);
                 colorFunctionStartIndex = NaN;
             } else
                 newTokens.push(token);
@@ -779,14 +812,22 @@ WI.SpreadsheetStyleProperty = class SpreadsheetStyleProperty extends WI.Object
                 let text = this._resolveVariables(rawTokens.map((token) => token.value).join(""));
                 rawTokens = this._addVariableTokens(rawTokens);
 
-                let valueObject;
+                let valueObject = null;
                 let inlineSwatchType;
-                if (tokenType === "cubic-bezier") {
-                    valueObject = WI.CubicBezier.fromString(text);
-                    inlineSwatchType = WI.InlineSwatch.Type.Bezier;
-                } else if (tokenType === "spring") {
-                    valueObject = WI.Spring.fromString(text);
-                    inlineSwatchType = WI.InlineSwatch.Type.Spring;
+                switch (tokenType) {
+                case "cubic-bezier":
+                    valueObject = WI.CubicBezierTimingFunction.fromString(text);
+                    inlineSwatchType = WI.InlineSwatch.Type.CubicBezierTimingFunction;
+                    break;
+
+                case "spring":
+                    valueObject = WI.SpringTimingFunction.fromString(text);
+                    inlineSwatchType = WI.InlineSwatch.Type.SpringTimingFunction;
+                    break;
+
+                case "steps":
+                    valueObject = WI.StepsTimingFunction.fromString(text);
+                    inlineSwatchType = WI.InlineSwatch.Type.StepsTimingFunction;
                 }
 
                 if (valueObject)
@@ -795,8 +836,10 @@ WI.SpreadsheetStyleProperty = class SpreadsheetStyleProperty extends WI.Object
                     newTokens.pushAll(rawTokens);
 
                 startIndex = NaN;
-            } else if (token.value in WI.CubicBezier.keywordValues)
-                newTokens.push(this._createInlineSwatch(WI.InlineSwatch.Type.Bezier, [token], WI.CubicBezier.fromString(token.value)));
+            } else if (token.value in WI.CubicBezierTimingFunction.keywordValues)
+                newTokens.push(this._createInlineSwatch(WI.InlineSwatch.Type.CubicBezierTimingFunction, [token], WI.CubicBezierTimingFunction.fromString(token.value)));
+            else if (token.value in WI.StepsTimingFunction.keywordValues)
+                newTokens.push(this._createInlineSwatch(WI.InlineSwatch.Type.StepsTimingFunction, [token], WI.StepsTimingFunction.fromString(token.value)));
             else if (isNaN(startIndex))
                 newTokens.push(token);
         }
@@ -921,6 +964,7 @@ WI.SpreadsheetStyleProperty = class SpreadsheetStyleProperty extends WI.Object
                         fallbackTokens = this._addColorTokens(fallbackTokens);
                         fallbackTokens = this._addTimingFunctionTokens(fallbackTokens, "cubic-bezier");
                         fallbackTokens = this._addTimingFunctionTokens(fallbackTokens, "spring");
+                        fallbackTokens = this._addTimingFunctionTokens(fallbackTokens, "steps");
                         fallbackTokens = this._addVariableTokens(fallbackTokens);
                         contents.pushAll(fallbackTokens);
                     } else
@@ -928,7 +972,7 @@ WI.SpreadsheetStyleProperty = class SpreadsheetStyleProperty extends WI.Object
 
                     let text = rawTokens.reduce((accumulator, token) => accumulator + token.value, "");
                     if (this._property.ownerStyle.nodeStyles.computedStyle.resolveVariableValue(text))
-                        newTokens.push(this._createInlineSwatch(WI.InlineSwatch.Type.Variable, contents));
+                        newTokens.push(this._createInlineSwatch(WI.InlineSwatch.Type.Variable, contents, text));
                     else
                         newTokens.pushAll(contents);
                 } else {

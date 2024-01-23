@@ -30,8 +30,8 @@
 #include "Document.h"
 #include "DocumentMarkerController.h"
 #include "EditorClient.h"
-#include "Frame.h"
 #include "FrameSelection.h"
+#include "LocalFrame.h"
 #include "Range.h"
 #include "Settings.h"
 #include "TextCheckerClient.h"
@@ -289,7 +289,7 @@ auto TextCheckingHelper::findFirstMisspelledWordOrUngrammaticalPhrase(bool check
     if (!unifiedTextCheckerEnabled())
         return { };
 
-    if (platformDrivenTextCheckerEnabled())
+    if (platformOrClientDrivenTextCheckerEnabled())
         return { };
 
     std::variant<MisspelledWord, UngrammaticalPhrase> firstFoundItem;
@@ -336,7 +336,7 @@ auto TextCheckingHelper::findFirstMisspelledWordOrUngrammaticalPhrase(bool check
                 if (checkGrammar)
                     checkingTypes.add(TextCheckingType::Grammar);
                 VisibleSelection currentSelection;
-                if (Frame* frame = paragraphRange.start.document().frame())
+                if (auto* frame = paragraphRange.start.document().frame())
                     currentSelection = frame->selection().selection();
                 checkTextOfParagraph(*m_client.textChecker(), paragraphString, checkingTypes, results, currentSelection);
 
@@ -499,7 +499,7 @@ TextCheckingGuesses TextCheckingHelper::guessesForMisspelledWordOrUngrammaticalP
     if (!unifiedTextCheckerEnabled())
         return { };
 
-    if (platformDrivenTextCheckerEnabled())
+    if (platformOrClientDrivenTextCheckerEnabled())
         return { };
 
     if (m_range.collapsed())
@@ -594,7 +594,7 @@ void checkTextOfParagraph(TextCheckerClient& client, StringView text, OptionSet<
 #endif // USE(UNIFIED_TEXT_CHECKING)
 }
 
-bool unifiedTextCheckerEnabled(const Frame* frame)
+bool unifiedTextCheckerEnabled(const LocalFrame* frame)
 {
     if (!frame)
         return false;
@@ -608,6 +608,15 @@ bool platformDrivenTextCheckerEnabled()
 #else
     return false;
 #endif
+}
+
+bool platformOrClientDrivenTextCheckerEnabled()
+{
+#if ENABLE(ACCESSIBILITY) && PLATFORM(MAC)
+    if (!AXObjectCache::shouldSpellCheck())
+        return true;
+#endif
+    return platformDrivenTextCheckerEnabled();
 }
 
 }

@@ -23,12 +23,12 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef WebColorChooser_h
-#define WebColorChooser_h
+#pragma once
 
 #if ENABLE(INPUT_TYPE_COLOR)
 
 #include <WebCore/ColorChooser.h>
+#include <wtf/WeakPtr.h>
 
 namespace WebCore {
 class Color;
@@ -39,7 +39,7 @@ namespace WebKit {
 
 class WebPage;
 
-class WebColorChooser : public WebCore::ColorChooser {
+class WebColorChooser : public WebCore::ColorChooser, public CanMakeWeakPtr<WebColorChooser> {
 public:
     WebColorChooser(WebPage*, WebCore::ColorChooserClient*, const WebCore::Color&);
     virtual ~WebColorChooser();
@@ -54,11 +54,9 @@ public:
 
 private:
     WebCore::ColorChooserClient* m_colorChooserClient;
-    WebPage* m_page;
+    WeakPtr<WebPage> m_page;
 };
 
 } // namespace WebKit
 
 #endif // ENABLE(INPUT_TYPE_COLOR)
-
-#endif // WebColorChooser_h

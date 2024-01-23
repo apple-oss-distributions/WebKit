@@ -47,6 +47,8 @@ public:
         return adoptRef(*new TranslateTransformOperation(m_x, m_y, m_z, type()));
     }
 
+    Ref<TransformOperation> selfOrCopyWithResolvedCalculatedValues(const FloatSize&) override;
+
     float xAsFloat(const FloatSize& borderBoxSize) const { return floatValueForLength(m_x, borderBoxSize.width()); }
     float yAsFloat(const FloatSize& borderBoxSize) const { return floatValueForLength(m_y, borderBoxSize.height()); }
     float zAsFloat() const { return floatValueForLength(m_z, 1); }
@@ -89,4 +91,4 @@ private:
 
 } // namespace WebCore
 
-SPECIALIZE_TYPE_TRAITS_TRANSFORMOPERATION(WebCore::TranslateTransformOperation, isTranslateTransformOperationType())
+SPECIALIZE_TYPE_TRAITS_TRANSFORMOPERATION(WebCore::TranslateTransformOperation, WebCore::TransformOperation::isTranslateTransformOperationType)

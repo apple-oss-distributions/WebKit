@@ -28,6 +28,7 @@
 #if ENABLE(MEDIA_SOURCE)
 
 #include "PlatformTimeRanges.h"
+#include <wtf/CompletionHandler.h>
 #include <wtf/Logger.h>
 #include <wtf/WeakPtr.h>
 
@@ -41,11 +42,10 @@ public:
 
     virtual void setPrivateAndOpen(Ref<MediaSourcePrivate>&&) = 0;
     virtual MediaTime duration() const = 0;
-    virtual std::unique_ptr<PlatformTimeRanges> buffered() const = 0;
-    virtual void seekToTime(const MediaTime&) = 0;
-#if USE(GSTREAMER)
+    virtual const PlatformTimeRanges& buffered() const = 0;
+    virtual void waitForTarget(const SeekTarget&, CompletionHandler<void(const MediaTime&)>&&) = 0;
+    virtual void seekToTime(const MediaTime&, CompletionHandler<void()>&&) = 0;
     virtual void monitorSourceBuffers() = 0;
-#endif
 
 #if !RELEASE_LOG_DISABLED
     virtual void setLogIdentifier(const void*) = 0;

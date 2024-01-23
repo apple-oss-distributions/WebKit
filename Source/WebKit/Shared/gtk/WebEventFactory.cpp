@@ -69,7 +69,7 @@ static inline OptionSet<WebEventModifier> modifiersForEvent(const GdkEvent* even
         modifiers.add(WebEventModifier::AltKey);
     if (state & GDK_META_MASK)
         modifiers.add(WebEventModifier::MetaKey);
-    if (PlatformKeyboardEvent::modifiersContainCapsLock(state))
+    if (state & GDK_LOCK_MASK && eventModifiersContainCapsLock(const_cast<GdkEvent*>(event)))
         modifiers.add(WebEventModifier::CapsLockKey);
 
     GdkEventType type = gdk_event_get_event_type(const_cast<GdkEvent*>(event));
@@ -108,7 +108,7 @@ static inline OptionSet<WebEventModifier> modifiersForEvent(const GdkEvent* even
 
 static inline WebMouseEventButton buttonForEvent(const GdkEvent* event)
 {
-    WebMouseEventButton button = WebMouseEventButton::NoButton;
+    WebMouseEventButton button = WebMouseEventButton::None;
     GdkEventType type = gdk_event_get_event_type(const_cast<GdkEvent*>(event));
     switch (type) {
     case GDK_ENTER_NOTIFY:
@@ -117,11 +117,11 @@ static inline WebMouseEventButton buttonForEvent(const GdkEvent* event)
         GdkModifierType state;
         gdk_event_get_state(event, &state);
         if (state & GDK_BUTTON1_MASK)
-            button = WebMouseEventButton::LeftButton;
+            button = WebMouseEventButton::Left;
         else if (state & GDK_BUTTON2_MASK)
-            button = WebMouseEventButton::MiddleButton;
+            button = WebMouseEventButton::Middle;
         else if (state & GDK_BUTTON3_MASK)
-            button = WebMouseEventButton::RightButton;
+            button = WebMouseEventButton::Right;
         break;
     }
     case GDK_BUTTON_PRESS:
@@ -134,11 +134,11 @@ static inline WebMouseEventButton buttonForEvent(const GdkEvent* event)
         gdk_event_get_button(event, &eventButton);
 
         if (eventButton == 1)
-            button = WebMouseEventButton::LeftButton;
+            button = WebMouseEventButton::Left;
         else if (eventButton == 2)
-            button = WebMouseEventButton::MiddleButton;
+            button = WebMouseEventButton::Middle;
         else if (eventButton == 3)
-            button = WebMouseEventButton::RightButton;
+            button = WebMouseEventButton::Right;
         break;
     }
     default:
@@ -244,112 +244,10 @@ WebMouseEvent WebEventFactory::createWebMouseEvent(const GdkEvent* event, const 
 WebMouseEvent WebEventFactory::createWebMouseEvent(const IntPoint& position)
 {
     // Mouse events without GdkEvent are crossing events, handled as a mouse move.
-    return WebMouseEvent({ WebEventType::MouseMove, { }, WallTime::now() }, WebMouseEventButton::NoButton, 0, position, position, 0, 0, 0, 0);
+    return WebMouseEvent({ WebEventType::MouseMove, { }, WallTime::now() }, WebMouseEventButton::None, 0, position, position, 0, 0, 0, 0);
 }
 
-WebWheelEvent WebEventFactory::createWebWheelEvent(const GdkEvent* event)
-{
-    WebWheelEvent::Phase phase = !event || gdk_event_is_scroll_stop_event(event) ?
-        WebWheelEvent::Phase::PhaseEnded :
-        WebWheelEvent::Phase::PhaseChanged;
-    return createWebWheelEvent(event, phase, WebWheelEvent::Phase::PhaseNone);
-}
-
-WebWheelEvent WebEventFactory::createWebWheelEvent(const GdkEvent* event, WebWheelEvent::Phase phase, WebWheelEvent::Phase momentumPhase)
-{
-    double x, y;
-    gdk_event_get_coords(event, &x, &y);
-    double xRoot, yRoot;
-    gdk_event_get_root_coords(event, &xRoot, &yRoot);
-
-    return createWebWheelEvent(event, { clampToInteger(x), clampToInteger(y) }, { clampToInteger(xRoot), clampToInteger(yRoot) }, phase, momentumPhase);
-}
-
-WebWheelEvent WebEventFactory::createWebWheelEvent(const GdkEvent* event, const IntPoint& position, const IntPoint& globalPosition, WebWheelEvent::Phase phase, WebWheelEvent::Phase momentumPhase)
-{
-    std::optional<FloatSize> wheelTicks;
-    GdkScrollDirection direction;
-    if (!gdk_event_get_scroll_direction(event, &direction)) {
-        direction = GDK_SCROLL_SMOOTH;
-        double deltaX, deltaY;
-        if (gdk_event_get_scroll_deltas(event, &deltaX, &deltaY))
-            wheelTicks = FloatSize(-deltaX, -deltaY);
-    }
-
-    if (!wheelTicks) {
-        switch (direction) {
-        case GDK_SCROLL_UP:
-            wheelTicks = FloatSize(0, 1);
-            break;
-        case GDK_SCROLL_DOWN:
-            wheelTicks = FloatSize(0, -1);
-            break;
-        case GDK_SCROLL_LEFT:
-            wheelTicks = FloatSize(1, 0);
-            break;
-        case GDK_SCROLL_RIGHT:
-            wheelTicks = FloatSize(-1, 0);
-            break;
-        case GDK_SCROLL_SMOOTH:
-            wheelTicks = FloatSize(0, 0);
-            break;
-        }
-    }
-
-    return createWebWheelEvent(event, position, globalPosition, wheelTicks.value(), phase, momentumPhase);
-}
-
-WebWheelEvent WebEventFactory::createWebWheelEvent(const GdkEvent* event, const IntPoint& position, const IntPoint& globalPosition, const FloatSize& wheelTicks)
-{
-    WebWheelEvent::Phase phase = gdk_event_get_event_type(const_cast<GdkEvent*>(event)) != GDK_SCROLL
-        || gdk_event_is_scroll_stop_event(event) ?
-        WebWheelEvent::Phase::PhaseEnded :
-        WebWheelEvent::Phase::PhaseChanged;
-    return createWebWheelEvent(event, position, globalPosition, wheelTicks, phase, WebWheelEvent::Phase::PhaseNone);
-}
-
-WebWheelEvent WebEventFactory::createWebWheelEvent(const GdkEvent* event, const IntPoint& position, const IntPoint& globalPosition, const FloatSize& wheelTicks, WebWheelEvent::Phase phase, WebWheelEvent::Phase momentumPhase)
-{
-    // FIXME: [GTK] Add a setting to change the pixels per line used for scrolling
-    // https://bugs.webkit.org/show_bug.cgi?id=54826
-    float step = static_cast<float>(Scrollbar::pixelsPerLineStep());
-    FloatSize delta;
-    bool hasPreciseScrollingDeltas = false;
-
-#if GTK_CHECK_VERSION(4, 7, 0)
-    hasPreciseScrollingDeltas = gdk_event_get_event_type(const_cast<GdkEvent*>(event)) != GDK_SCROLL
-        || gdk_scroll_event_get_unit(const_cast<GdkEvent*>(event)) != GDK_SCROLL_UNIT_WHEEL;
-
-    if (hasPreciseScrollingDeltas)
-        delta = wheelTicks.scaled(gtkScrollDeltaMultiplier);
-    else
-        delta = wheelTicks.scaled(step);
-#else
-    delta = wheelTicks.scaled(step);
-
-    GdkScrollDirection direction;
-    if (!gdk_event_get_scroll_direction(event, &direction)) {
-        double deltaX, deltaY;
-        if (gdk_event_get_scroll_deltas(event, &deltaX, &deltaY)) {
-            if (auto* device = gdk_event_get_source_device(event))
-                hasPreciseScrollingDeltas = gdk_device_get_source(device) != GDK_SOURCE_MOUSE;
-        }
-    }
-#endif
-
-    return WebWheelEvent({ WebEventType::Wheel, modifiersForEvent(event), wallTimeForEvent(event) },
-        position,
-        globalPosition,
-        delta,
-        wheelTicks,
-        WebWheelEvent::ScrollByPixelWheelEvent,
-        phase,
-        momentumPhase,
-        hasPreciseScrollingDeltas
-        );
-}
-
-WebKeyboardEvent WebEventFactory::createWebKeyboardEvent(const GdkEvent* event, const String& text, bool handledByInputMethod, std::optional<Vector<CompositionUnderline>>&& preeditUnderlines, std::optional<EditingRange>&& preeditSelectionRange, Vector<String>&& commands)
+WebKeyboardEvent WebEventFactory::createWebKeyboardEvent(const GdkEvent* event, const String& text, bool isAutoRepeat, bool handledByInputMethod, std::optional<Vector<CompositionUnderline>>&& preeditUnderlines, std::optional<EditingRange>&& preeditSelectionRange, Vector<String>&& commands)
 {
     guint keyval;
     gdk_event_get_keyval(event, &keyval);
@@ -369,6 +267,7 @@ WebKeyboardEvent WebEventFactory::createWebKeyboardEvent(const GdkEvent* event, 
         WTFMove(preeditUnderlines),
         WTFMove(preeditSelectionRange),
         WTFMove(commands),
+        isAutoRepeat,
         isGdkKeyCodeFromKeyPad(keyval)
         );
 }
@@ -398,5 +297,10 @@ WebTouchEvent WebEventFactory::createWebTouchEvent(const GdkEvent* event, Vector
     return WebTouchEvent({ type, modifiersForEvent(event), wallTimeForEvent(event) }, WTFMove(touchPoints));
 }
 #endif
+
+WebWheelEvent WebEventFactory::createWebWheelEvent(const GdkEvent* event, const WebCore::IntPoint& position, const WebCore::IntPoint& globalPosition, const WebCore::FloatSize& delta, const WebCore::FloatSize& wheelTicks, WebWheelEvent::Phase phase, WebWheelEvent::Phase momentumPhase, bool hasPreciseDeltas)
+{
+    return WebWheelEvent({ WebEventType::Wheel, modifiersForEvent(event), wallTimeForEvent(event) }, position, globalPosition, delta, wheelTicks, WebWheelEvent::ScrollByPixelWheelEvent, phase, momentumPhase, hasPreciseDeltas);
+}
 
 } // namespace WebKit

@@ -107,15 +107,7 @@ public:
             return *this;
         }
         
-        bool operator==(const BaseIterator& other) const
-        {
-            return m_node == other.m_node;
-        }
-
-        bool operator!=(const BaseIterator& other) const
-        {
-            return !(*this == other);
-        }
+        friend bool operator==(BaseIterator, BaseIterator) = default;
 
     private:
         RawNodeType* m_node;

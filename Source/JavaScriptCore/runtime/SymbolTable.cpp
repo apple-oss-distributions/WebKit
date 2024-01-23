@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2012-2021 Apple Inc. All rights reserved.
+ * Copyright (C) 2012-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -81,18 +81,13 @@ SymbolTableEntry::FatEntry* SymbolTableEntry::inflateSlow()
 
 SymbolTable::SymbolTable(VM& vm)
     : JSCell(vm, vm.symbolTableStructure.get())
-    , m_usesNonStrictEval(false)
+    , m_usesSloppyEval(false)
     , m_nestedLexicalScope(false)
     , m_scopeType(VarScope)
 {
 }
 
 SymbolTable::~SymbolTable() { }
-
-void SymbolTable::finishCreation(VM& vm)
-{
-    Base::finishCreation(vm);
-}
 
 template<typename Visitor>
 void SymbolTable::visitChildrenImpl(JSCell* thisCell, Visitor& visitor)
@@ -122,7 +117,7 @@ const SymbolTable::LocalToEntryVec& SymbolTable::localToEntry(const ConcurrentJS
             if (offset.isScope())
                 size = std::max(size, offset.scopeOffset().offset() + 1);
         }
-    
+
         m_localToEntry = makeUnique<LocalToEntryVec>(size, nullptr);
         for (auto& entry : m_map) {
             VarOffset offset = entry.value.varOffset();
@@ -130,7 +125,7 @@ const SymbolTable::LocalToEntryVec& SymbolTable::localToEntry(const ConcurrentJS
                 m_localToEntry->at(offset.scopeOffset().offset()) = &entry.value;
         }
     }
-    
+
     return *m_localToEntry;
 }
 
@@ -145,8 +140,8 @@ SymbolTableEntry* SymbolTable::entryFor(const ConcurrentJSLocker& locker, ScopeO
 SymbolTable* SymbolTable::cloneScopePart(VM& vm)
 {
     SymbolTable* result = SymbolTable::create(vm);
-    
-    result->m_usesNonStrictEval = m_usesNonStrictEval;
+
+    result->m_usesSloppyEval = m_usesSloppyEval;
     result->m_nestedLexicalScope = m_nestedLexicalScope;
     result->m_scopeType = m_scopeType;
 
@@ -157,9 +152,9 @@ SymbolTable* SymbolTable::cloneScopePart(VM& vm)
             iter->key,
             SymbolTableEntry(iter->value.varOffset(), iter->value.getAttributes()));
     }
-    
+
     result->m_maxScopeOffset = m_maxScopeOffset;
-    
+
     if (ScopedArgumentsTable* arguments = this->arguments())
         result->m_arguments.set(vm, result, arguments);
     

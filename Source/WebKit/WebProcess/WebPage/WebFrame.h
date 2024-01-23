@@ -28,18 +28,19 @@
 #include "APIObject.h"
 #include "DownloadID.h"
 #include "IdentifierTypes.h"
-#include "MessageReceiver.h"
-#include "MessageSender.h"
 #include "PolicyDecision.h"
 #include "ShareableBitmap.h"
 #include "TransactionID.h"
 #include "WKBase.h"
-#include "WebFrameLoaderClient.h"
+#include "WebLocalFrameLoaderClient.h"
 #include <JavaScriptCore/ConsoleTypes.h>
 #include <JavaScriptCore/JSBase.h>
-#include <WebCore/FrameLoaderClient.h>
+#include <WebCore/AdvancedPrivacyProtections.h>
 #include <WebCore/FrameLoaderTypes.h>
 #include <WebCore/HitTestRequest.h>
+#include <WebCore/LayerHostingContextIdentifier.h>
+#include <WebCore/LocalFrameLoaderClient.h>
+#include <WebCore/ProcessIdentifier.h>
 #include <wtf/Forward.h>
 #include <wtf/HashMap.h>
 #include <wtf/RefPtr.h>
@@ -51,12 +52,15 @@ class Array;
 }
 
 namespace WebCore {
-class AbstractFrame;
 class CertificateInfo;
 class Frame;
 class HTMLFrameOwnerElement;
 class IntPoint;
 class IntRect;
+class LocalFrame;
+class PlatformMouseEvent;
+class RemoteFrame;
+struct GlobalWindowIdentifier;
 }
 
 namespace WebKit {
@@ -66,42 +70,50 @@ class InjectedBundleHitTestResult;
 class InjectedBundleNodeHandle;
 class InjectedBundleRangeHandle;
 class InjectedBundleScriptWorld;
+class WebKeyboardEvent;
 class WebImage;
+class WebMouseEvent;
 class WebPage;
 struct FrameInfoData;
+struct FrameTreeNodeData;
 struct WebsitePoliciesData;
 
-class WebFrame : public API::ObjectImpl<API::Object::Type::BundleFrame>, public IPC::MessageReceiver, public IPC::MessageSender {
+class WebFrame : public API::ObjectImpl<API::Object::Type::BundleFrame>, public CanMakeWeakPtr<WebFrame> {
 public:
-    static Ref<WebFrame> create(WebPage& page) { return adoptRef(*new WebFrame(page)); }
+    static Ref<WebFrame> create(WebPage& page, WebCore::FrameIdentifier frameID) { return adoptRef(*new WebFrame(page, frameID)); }
     static Ref<WebFrame> createSubframe(WebPage&, WebFrame& parent, const AtomString& frameName, WebCore::HTMLFrameOwnerElement&);
+    static Ref<WebFrame> createRemoteSubframe(WebPage&, WebFrame& parent, WebCore::FrameIdentifier);
     ~WebFrame();
 
     void initWithCoreMainFrame(WebPage&, WebCore::Frame&, bool receivedMainFrameIdentifierFromUIProcess);
 
     // Called when the FrameLoaderClient (and therefore the WebCore::Frame) is being torn down.
     void invalidate();
+    ScopeExit<Function<void()>> makeInvalidator();
 
     WebPage* page() const;
 
-    static WebFrame* fromCoreFrame(const WebCore::AbstractFrame&);
+    static WebFrame* fromCoreFrame(const WebCore::Frame&);
+    WebCore::LocalFrame* coreLocalFrame() const;
+    WebCore::RemoteFrame* coreRemoteFrame() const;
     WebCore::Frame* coreFrame() const;
 
+    void transitionToLocal(std::optional<WebCore::LayerHostingContextIdentifier> = std::nullopt);
+
     FrameInfoData info() const;
+    FrameTreeNodeData frameTreeData() const;
     void getFrameInfo(CompletionHandler<void(FrameInfoData&&)>&&);
 
     WebCore::FrameIdentifier frameID() const;
 
-    enum class ForNavigationAction { No, Yes };
+    enum class ForNavigationAction : bool { No, Yes };
     uint64_t setUpPolicyListener(WebCore::PolicyCheckIdentifier, WebCore::FramePolicyFunction&&, ForNavigationAction);
     void invalidatePolicyListeners();
-    void didReceivePolicyDecision(uint64_t listenerID, PolicyDecision&&);
+    void didReceivePolicyDecision(uint64_t listenerID, WebCore::PolicyCheckIdentifier, PolicyDecision&&);
 
-    FormSubmitListenerIdentifier setUpWillSubmitFormListener(CompletionHandler<void()>&&);
-    void continueWillSubmitForm(FormSubmitListenerIdentifier);
-
-    void didCommitLoadInAnotherProcess();
+    void didCommitLoadInAnotherProcess(std::optional<WebCore::LayerHostingContextIdentifier>);
     void didFinishLoadInAnotherProcess();
+    void removeFromTree();
 
     void startDownload(const WebCore::ResourceRequest&, const String& suggestedName = { });
     void convertMainResourceLoadToDownload(WebCore::DocumentLoader*, const WebCore::ResourceRequest&, const WebCore::ResourceResponse&);
@@ -116,6 +128,7 @@ public:
 
     // WKBundleFrame API and SPI functions
     bool isMainFrame() const;
+    bool isRootFrame() const;
     String name() const;
     URL url() const;
     WebCore::CertificateInfo certificateInfo() const;
@@ -174,6 +187,7 @@ public:
     String mimeTypeForResourceWithURL(const URL&) const;
 
     void setTextDirection(const String&);
+    void updateRemoteFrameSize(WebCore::IntSize);
 
     void documentLoaderDetached(uint64_t navigationID);
 
@@ -200,7 +214,7 @@ public:
     void setFirstLayerTreeTransactionIDAfterDidCommitLoad(TransactionID transactionID) { m_firstLayerTreeTransactionIDAfterDidCommitLoad = transactionID; }
 #endif
 
-    WebFrameLoaderClient* frameLoaderClient() const;
+    WebLocalFrameLoaderClient* frameLoaderClient() const;
 
 #if ENABLE(APP_BOUND_DOMAINS)
     bool shouldEnableInAppBrowserPrivacyProtections();
@@ -209,15 +223,22 @@ public:
     std::optional<NavigatingToAppBoundDomain> isTopFrameNavigatingToAppBoundDomain() const;
 #endif
 
-    void didReceiveMessage(IPC::Connection&, IPC::Decoder&);
+    Markable<WebCore::LayerHostingContextIdentifier> layerHostingContextIdentifier() { return m_layerHostingContextIdentifier; }
 
+    OptionSet<WebCore::AdvancedPrivacyProtections> advancedPrivacyProtections() const;
+    OptionSet<WebCore::AdvancedPrivacyProtections> originatorAdvancedPrivacyProtections() const;
+
+    bool handleContextMenuEvent(const WebCore::PlatformMouseEvent&);
+    bool handleMouseEvent(const WebMouseEvent&);
+    bool handleKeyEvent(const WebKeyboardEvent&);
 private:
-    WebFrame(WebPage&);
+    WebFrame(WebPage&, WebCore::FrameIdentifier);
 
-    IPC::Connection* messageSenderConnection() const final;
-    uint64_t messageSenderDestinationID() const final;
+    void setLayerHostingContextIdentifier(WebCore::LayerHostingContextIdentifier identifier) { m_layerHostingContextIdentifier = identifier; }
 
-    WeakPtr<WebCore::AbstractFrame> m_coreFrame;
+    inline WebCore::DocumentLoader* policySourceDocumentLoader() const;
+
+    WeakPtr<WebCore::Frame> m_coreFrame;
     WeakPtr<WebPage> m_page;
 
     struct PolicyCheck {
@@ -227,18 +248,17 @@ private:
     };
     HashMap<uint64_t, PolicyCheck> m_pendingPolicyChecks;
 
-    HashMap<FormSubmitListenerIdentifier, CompletionHandler<void()>> m_willSubmitFormCompletionHandlers;
     std::optional<DownloadID> m_policyDownloadID;
 
     WeakPtr<LoadListener> m_loadListener;
 
-    WebCore::FrameIdentifier m_frameID;
+    const WebCore::FrameIdentifier m_frameID;
 
 #if PLATFORM(IOS_FAMILY)
     TransactionID m_firstLayerTreeTransactionIDAfterDidCommitLoad;
 #endif
     std::optional<NavigatingToAppBoundDomain> m_isNavigatingToAppBoundDomain;
-
+    Markable<WebCore::LayerHostingContextIdentifier> m_layerHostingContextIdentifier;
 };
 
 } // namespace WebKit

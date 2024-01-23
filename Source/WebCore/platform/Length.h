@@ -37,6 +37,7 @@ namespace WebCore {
 
 enum class LengthType : uint8_t {
     Auto,
+    Normal,
     Relative,
     Percent,
     Fixed,
@@ -84,7 +85,6 @@ public:
     Length& operator*=(float);
 
     bool operator==(const Length&) const;
-    bool operator!=(const Length&) const;
 
     float value() const;
     int intValue() const;
@@ -98,6 +98,7 @@ public:
     bool isFixed() const;
     bool isMaxContent() const;
     bool isMinContent() const;
+    bool isNormal() const;
     bool isPercent() const;
     bool isRelative() const;
     bool isUndefined() const;
@@ -153,7 +154,6 @@ private:
 Length blend(const Length& from, const Length& to, const BlendingContext&);
 Length blend(const Length& from, const Length& to, const BlendingContext&, ValueRange);
 
-UniqueArray<Length> newCoordsArray(const String&, int& length);
 UniqueArray<Length> newLengthArray(const String&, int& length);
 
 inline Length::Length(LengthType type)
@@ -238,6 +238,7 @@ inline void Length::initialize(const Length& other)
 
     switch (m_type) {
     case LengthType::Auto:
+    case LengthType::Normal:
     case LengthType::Content:
     case LengthType::Undefined:
         m_intValue = 0;
@@ -271,6 +272,7 @@ inline void Length::initialize(Length&& other)
 
     switch (m_type) {
     case LengthType::Auto:
+    case LengthType::Normal:
     case LengthType::Content:
     case LengthType::Undefined:
         m_intValue = 0;
@@ -314,11 +316,6 @@ inline bool Length::operator==(const Length& other) const
     if (isCalculated())
         return isCalculatedEqual(other);
     return value() == other.value();
-}
-
-inline bool Length::operator!=(const Length& other) const
-{
-    return !(*this == other);
 }
 
 inline Length& Length::operator*=(float value)
@@ -403,6 +400,11 @@ inline void Length::setValue(LengthType type, LayoutUnit value)
     m_type = type;
     m_floatValue = value;
     m_isFloat = true;
+}
+
+inline bool Length::isNormal() const
+{
+    return type() == LengthType::Normal;
 }
 
 inline bool Length::isAuto() const

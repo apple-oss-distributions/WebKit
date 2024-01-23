@@ -119,7 +119,6 @@ third_party_deps=(
     "third_party/vulkan-deps/spirv-tools/src"
     "third_party/vulkan-deps/vulkan-headers/src"
     "third_party/vulkan_memory_allocator"
-    "third_party/zlib"
 )
 
 root_add_deps=(
@@ -130,11 +129,21 @@ root_add_deps=(
 # Only add the parts of NDK and vulkan-deps that are required by ANGLE. The entire dep is too large.
 delete_only_deps=(
     "third_party/vulkan-deps"
+    "third_party/zlib"  # Replaced by Android's zlib; delete for gclient to work https://crbug.com/skia/14155#c3
 )
 
 # Delete dep directories so that gclient can check them out
 for dep in "${third_party_deps[@]}" "${delete_only_deps[@]}"; do
     rm -rf "$dep"
+done
+
+# Remove cruft from any previous bad rolls (https://anglebug.com/8352)
+extra_third_party_removal_patterns=(
+   "*/_gclient_*"
+)
+
+for removal_dir in "${extra_third_party_removal_patterns[@]}"; do
+    find third_party -wholename "$removal_dir" -delete
 done
 
 # Sync all of ANGLE's deps so that 'gn gen' works
@@ -156,6 +165,8 @@ unsupported_third_party_deps=(
    "third_party/llvm-build"
    "third_party/android_build_tools"
    "third_party/android_sdk"
+   "third_party/android_toolchain"
+   "third_party/zlib"  # Replaced by Android's zlib
 )
 for unsupported_third_party_dep in "${unsupported_third_party_deps[@]}"; do
    rm -rf "$unsupported_third_party_dep"
@@ -169,6 +180,9 @@ for dep in "${third_party_deps[@]}"; do
    rm -rf "$dep"/.git
 done
 
+# Delete all the .gitmodules files, since they are not allowed in AOSP external projects.
+find . -name \.gitmodules -exec rm {} \;
+
 extra_removal_files=(
    # build/linux is hundreds of megs that aren't needed.
    "build/linux"
@@ -181,15 +195,16 @@ extra_removal_files=(
    "third_party/vulkan-deps/glslang/src/ndk_test/Android.mk"
    "third_party/vulkan-deps/spirv-tools/src/Android.mk"
    "third_party/vulkan-deps/spirv-tools/src/android_test/Android.mk"
+   "third_party/siso" # Not needed
 )
 
 for removal_file in "${extra_removal_files[@]}"; do
    rm -rf "$removal_file"
 done
 
-# Add all changes to third_party/ so we delete everything not explicitly allowed.
+# Add all changes under $root_add_deps so we delete everything not explicitly allowed.
 for root_add_dep in "${root_add_deps[@]}"; do
-git add -f "$root_add_dep/*"
+    git add -f $root_add_dep
 done
 
 # Done with depot_tools

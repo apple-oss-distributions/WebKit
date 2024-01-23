@@ -36,7 +36,7 @@ namespace WebCore::Style {
 enum class FromStyleAttribute : bool { No, Yes };
 
 struct MatchedProperties {
-    RefPtr<const StyleProperties> properties;
+    Ref<const StyleProperties> properties;
     uint8_t linkMatchType { SelectorChecker::MatchAll };
     PropertyAllowlist allowlistType { PropertyAllowlist::None };
     ScopeOrdinal styleScopeOrdinal { ScopeOrdinal::Element };
@@ -46,31 +46,24 @@ struct MatchedProperties {
 
 struct MatchResult {
     WTF_MAKE_STRUCT_FAST_ALLOCATED;
+    MatchResult(bool isForLink = false)
+        : isForLink(isForLink)
+    { }
 
+    bool isForLink { false };
     bool isCacheable { true };
     Vector<MatchedProperties> userAgentDeclarations;
     Vector<MatchedProperties> userDeclarations;
     Vector<MatchedProperties> authorDeclarations;
 
     bool isEmpty() const { return userAgentDeclarations.isEmpty() && userDeclarations.isEmpty() && authorDeclarations.isEmpty(); }
+
+    friend bool operator==(const MatchResult&, const MatchResult&) = default;
 };
-
-inline bool operator==(const MatchResult& a, const MatchResult& b)
-{
-    return a.isCacheable == b.isCacheable
-        && a.userAgentDeclarations == b.userAgentDeclarations
-        && a.userDeclarations == b.userDeclarations
-        && a.authorDeclarations == b.authorDeclarations;
-}
-
-inline bool operator!=(const MatchResult& a, const MatchResult& b)
-{
-    return !(a == b);
-}
 
 inline bool operator==(const MatchedProperties& a, const MatchedProperties& b)
 {
-    return a.properties == b.properties
+    return a.properties.ptr() == b.properties.ptr()
         && a.linkMatchType == b.linkMatchType
         && a.allowlistType == b.allowlistType
         && a.styleScopeOrdinal == b.styleScopeOrdinal
@@ -78,15 +71,10 @@ inline bool operator==(const MatchedProperties& a, const MatchedProperties& b)
         && a.cascadeLayerPriority == b.cascadeLayerPriority;
 }
 
-inline bool operator!=(const MatchedProperties& a, const MatchedProperties& b)
-{
-    return !(a == b);
-}
-
 inline void add(Hasher& hasher, const MatchedProperties& matchedProperties)
 {
     add(hasher,
-        matchedProperties.properties.get(),
+        matchedProperties.properties.ptr(),
         matchedProperties.linkMatchType,
         matchedProperties.allowlistType,
         matchedProperties.styleScopeOrdinal,
@@ -97,7 +85,7 @@ inline void add(Hasher& hasher, const MatchedProperties& matchedProperties)
 
 inline void add(Hasher& hasher, const MatchResult& matchResult)
 {
-    add(hasher, matchResult.userAgentDeclarations, matchResult.userDeclarations, matchResult.authorDeclarations);
+    add(hasher, matchResult.isForLink, matchResult.userAgentDeclarations, matchResult.userDeclarations, matchResult.authorDeclarations);
 }
 
 }

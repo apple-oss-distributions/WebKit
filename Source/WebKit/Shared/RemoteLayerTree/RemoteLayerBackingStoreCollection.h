@@ -59,10 +59,8 @@ public:
     bool backingStoreWillBeDisplayed(RemoteLayerBackingStore&);
     void backingStoreBecameUnreachable(RemoteLayerBackingStore&);
 
-    virtual bool backingStoreNeedsDisplay(const RemoteLayerBackingStore&);
-
     virtual void prepareBackingStoresForDisplay(RemoteLayerTreeTransaction&);
-    void paintReachableBackingStoreContents();
+    bool paintReachableBackingStoreContents();
 
     void willFlushLayers();
     void willCommitLayerTree(RemoteLayerTreeTransaction&);
@@ -73,6 +71,8 @@ public:
     void scheduleVolatilityTimer();
 
     virtual RefPtr<WebCore::ImageBuffer> allocateBufferForBackingStore(const RemoteLayerBackingStore&);
+
+    virtual void gpuProcessConnectionWasDestroyed() { }
 
 protected:
     RemoteLayerTreeContext& layerTreeContext() const { return m_layerTreeContext; }

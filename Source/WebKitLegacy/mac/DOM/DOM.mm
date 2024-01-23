@@ -41,20 +41,20 @@
 #import <WebCore/DragImage.h>
 #import <WebCore/FocusController.h>
 #import <WebCore/FontCascade.h>
-#import <WebCore/Frame.h>
 #import <WebCore/GeometryUtilities.h>
 #import <WebCore/HTMLLinkElement.h>
 #import <WebCore/HTMLNames.h>
-#import <WebCore/HTMLParserIdioms.h>
 #import <WebCore/HTMLTableCellElement.h>
 #import <WebCore/Image.h>
 #import <WebCore/JSNode.h>
 #import <WebCore/KeyboardEvent.h>
+#import <WebCore/LocalFrame.h>
 #import <WebCore/NodeFilter.h>
 #import <WebCore/NodeRenderStyle.h>
 #import <WebCore/Page.h>
 #import <WebCore/Range.h>
 #import <WebCore/RenderImage.h>
+#import <WebCore/RenderStyleInlines.h>
 #import <WebCore/RenderView.h>
 #import <WebCore/ScriptController.h>
 #import <WebCore/SimpleRange.h>
@@ -287,7 +287,7 @@ Class kitClass(Node* impl)
 
 id <DOMEventTarget> kit(EventTarget* target)
 {
-    // We don't have Objective-C bindings for XMLHttpRequest, DOMWindow, and other non-Node targets.
+    // We don't have Objective-C bindings for XMLHttpRequest, LocalDOMWindow, and other non-Node targets.
     return is<Node>(target) ? kit(downcast<Node>(target)) : nil;
 }
 
@@ -300,7 +300,7 @@ id <DOMEventTarget> kit(EventTarget* target)
 #endif
 {
     auto& node = *core(self);
-    node.document().updateLayoutIgnorePendingStylesheets();
+    node.document().updateLayout(LayoutOptions::IgnorePendingStylesheets);
     auto* renderer = node.renderer();
     if (!renderer)
 #if PLATFORM(IOS_FAMILY)
@@ -327,7 +327,7 @@ id <DOMEventTarget> kit(EventTarget* target)
 - (WKQuad)absoluteQuadAndInsideFixedPosition:(BOOL *)insideFixed
 {
     auto& node = *core(self);
-    node.document().updateLayoutIgnorePendingStylesheets();
+    node.document().updateLayout(LayoutOptions::IgnorePendingStylesheets);
     auto* renderer = node.renderer();
     if (!renderer) {
         if (insideFixed)
@@ -352,7 +352,7 @@ id <DOMEventTarget> kit(EventTarget* target)
 - (CGRect)boundingBoxUsingTransforms
 {
     auto& node = *core(self);
-    node.document().updateLayoutIgnorePendingStylesheets();
+    node.document().updateLayout(LayoutOptions::IgnorePendingStylesheets);
     auto* renderer = node.renderer();
     if (!renderer)
         return CGRectZero;
@@ -363,7 +363,7 @@ id <DOMEventTarget> kit(EventTarget* target)
 - (NSArray *)lineBoxQuads
 {
     auto& node = *core(self);
-    node.document().updateLayoutIgnorePendingStylesheets();
+    node.document().updateLayout(LayoutOptions::IgnorePendingStylesheets);
     WebCore::RenderObject *renderer = node.renderer();
     if (!renderer)
         return nil;
@@ -386,7 +386,7 @@ id <DOMEventTarget> kit(EventTarget* target)
     auto* link = [self _linkElement];
     if (!link)
         return nil;
-    return link->document().completeURL(stripLeadingAndTrailingHTMLSpaces(link->getAttribute(HTMLNames::hrefAttr)));
+    return link->document().completeURL(link->getAttribute(HTMLNames::hrefAttr));
 }
 
 - (NSString *)hrefTarget
@@ -432,7 +432,7 @@ id <DOMEventTarget> kit(EventTarget* target)
 - (WKQuad)innerFrameQuad // takes transforms into account
 {
     auto& node = *core(self);
-    node.document().updateLayoutIgnorePendingStylesheets();
+    node.document().updateLayout(LayoutOptions::IgnorePendingStylesheets);
     auto* renderer = node.renderer();
     if (!renderer)
         return zeroQuad();
@@ -494,7 +494,7 @@ id <DOMEventTarget> kit(EventTarget* target)
 - (NSArray *)textRects
 {
     auto& node = *core(self);
-    node.document().updateLayoutIgnorePendingStylesheets();
+    node.document().updateLayout(LayoutOptions::IgnorePendingStylesheets);
     if (!node.renderer())
         return nil;
     return createNSArray(RenderObject::absoluteTextRects(makeRangeSelectingNodeContents(node))).autorelease();
@@ -571,7 +571,7 @@ id <DOMEventTarget> kit(EventTarget* target)
 #endif
 {
     auto range = makeSimpleRange(*core(self));
-    range.start.document().updateLayoutIgnorePendingStylesheets();
+    range.start.document().updateLayout(LayoutOptions::IgnorePendingStylesheets);
     return unionRect(RenderObject::absoluteTextRects(range));
 }
 
@@ -601,7 +601,7 @@ id <DOMEventTarget> kit(EventTarget* target)
 - (NSArray *)textRects
 {
     auto range = makeSimpleRange(*core(self));
-    range.start.document().updateLayoutIgnorePendingStylesheets();
+    range.start.document().updateLayout(LayoutOptions::IgnorePendingStylesheets);
     return createNSArray(RenderObject::absoluteTextRects(range)).autorelease();
 }
 
@@ -664,7 +664,7 @@ id <DOMEventTarget> kit(EventTarget* target)
 - (NSURL *)_getURLAttribute:(NSString *)name
 {
     auto& element = *core(self);
-    return element.document().completeURL(stripLeadingAndTrailingHTMLSpaces(element.getAttribute(name)));
+    return element.document().completeURL(element.getAttribute(name));
 }
 
 - (BOOL)isFocused
@@ -681,8 +681,8 @@ id <DOMEventTarget> kit(EventTarget* target)
 
 - (BOOL)_mediaQueryMatchesForOrientation:(int)orientation
 {
-    Document& document = static_cast<HTMLLinkElement*>(core(self))->document();
-    FrameView* frameView = document.frame() ? document.frame()->view() : 0;
+    auto& document = static_cast<HTMLLinkElement*>(core(self))->document();
+    auto* frameView = document.frame() ? document.frame()->view() : 0;
     if (!frameView)
         return false;
     int layoutWidth = frameView->layoutWidth();

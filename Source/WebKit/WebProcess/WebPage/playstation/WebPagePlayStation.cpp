@@ -27,6 +27,7 @@
 #include "WebPage.h"
 
 #include <WebCore/NotImplemented.h>
+#include <WebCore/Page.h>
 #include <WebCore/PointerCharacteristics.h>
 #include <WebCore/Settings.h>
 #include <WebCore/UserAgent.h>
@@ -86,7 +87,7 @@ bool WebPage::handleEditingKeyboardEvent(WebCore::KeyboardEvent& event)
     return false;
 }
 
-void WebPage::getPlatformEditorState(Frame& frame, EditorState& result) const
+void WebPage::getPlatformEditorState(LocalFrame& frame, EditorState& result) const
 {
     notImplemented();
 }

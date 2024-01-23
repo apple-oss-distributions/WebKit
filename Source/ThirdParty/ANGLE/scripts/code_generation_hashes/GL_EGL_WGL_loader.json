@@ -1,16 +1,16 @@
 {
   "scripts/egl_angle_ext.xml":
-    "9fbe802e21374f4c0bff6f7a68bb928c",
+    "6dfa1582a1b978d62813d8be6e35b306",
   "scripts/generate_loader.py":
     "93c78a8d11323fa311fed5118fbcf083",
   "scripts/gl_angle_ext.xml":
-    "e42890bf014f4d4b7ebc07112bbb9764",
+    "3d6d9529c6d0da797652c366ddaa9087",
   "scripts/registry_xml.py":
-    "f1452c7d099b275f007f39c157dd3ec6",
+    "47ea795fada7b13232c7c9445ccfadb6",
   "src/libEGL/egl_loader_autogen.cpp":
-    "8a743c210f7dbe7e306849203dff7889",
+    "a41c368dc25edc7ceda29b17cb45b854",
   "src/libEGL/egl_loader_autogen.h":
-    "68bf81ecadd3c41b5be477bdcaaaf694",
+    "2c8d5a1c5b4048cd98b7a15224482486",
   "third_party/EGL-Registry/src/api/egl.xml":
     "2056d54ea07156f1988ca1366bdee21a",
   "third_party/OpenCL-Docs/src/xml/cl.xml":
@@ -22,21 +22,21 @@
   "third_party/OpenGL-Registry/src/xml/wgl.xml":
     "eae784bf4d1b983a42af5671b140b7c4",
   "util/capture/trace_egl_loader_autogen.cpp":
-    "33ced581dcda5af6c9125e05be7bf56c",
+    "292c43a5ff9df94a17d865a53fab216e",
   "util/capture/trace_egl_loader_autogen.h":
-    "b16a510534ee9ee49152fca12b97bd9a",
+    "f4d995167cd4d04d51950f96475aa498",
   "util/capture/trace_gles_loader_autogen.cpp":
-    "427d499d74fc82d2e352bf3ed7d2765a",
+    "dbb04b96a4d4926d79c6d02c7ba1c015",
   "util/capture/trace_gles_loader_autogen.h":
-    "032981687c086ecee08a6d1480f14bf0",
+    "8e4c0b495b19dda81d466b2595ed934e",
   "util/egl_loader_autogen.cpp":
-    "f98a6cfc104fc468efc90ae3789ddba5",
+    "a84edfc15d612b824a177ee62dc798d8",
   "util/egl_loader_autogen.h":
-    "84247f7f49720e169703fbeffc267023",
+    "d7a21c377acee1c075aa4a72bde0bcd5",
   "util/gles_loader_autogen.cpp":
-    "e1bf21c81f3f09a6288ae4ba7b985b46",
+    "d45d5d1a9f2570ced062e7f2130aec7d",
   "util/gles_loader_autogen.h":
-    "bca27e4c2a89197f0464fe1d4640a0ce",
+    "9c2321f4473e7be1096d94f68b665b10",
   "util/windows/wgl_loader_autogen.cpp":
     "373b062587eab8a163121255f54597dc",
   "util/windows/wgl_loader_autogen.h":

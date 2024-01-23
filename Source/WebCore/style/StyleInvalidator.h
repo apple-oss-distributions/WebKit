@@ -68,9 +68,10 @@ public:
     static void invalidateWithMatchElementRuleSets(Element&, const MatchElementRuleSets&);
     static void invalidateAllStyle(Scope&);
     static void invalidateHostAndSlottedStyleIfNeeded(ShadowRoot&);
+    static void invalidateWithScopeBreakingHasPseudoClassRuleSet(Element&, const RuleSet*);
 
 private:
-    enum class CheckDescendants { Yes, No };
+    enum class CheckDescendants : bool { No, Yes };
     CheckDescendants invalidateIfNeeded(Element&, SelectorMatchingState*);
     void invalidateStyleForTree(Element&, SelectorMatchingState*);
     void invalidateStyleForDescendants(Element&, SelectorMatchingState*);
@@ -81,6 +82,7 @@ private:
     struct RuleInformation {
         bool hasSlottedPseudoElementRules { false };
         bool hasHostPseudoClassRules { false };
+        bool hasHostPseudoClassRulesMatchingInShadowTree { false };
         bool hasShadowPseudoElementRules { false };
         bool hasCuePseudoElementRules { false };
         bool hasPartPseudoElementRules { false };

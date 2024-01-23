@@ -42,6 +42,11 @@ using namespace WebKit;
  */
 
 enum {
+    CHANGED,
+    LAST_SIGNAL
+};
+
+enum {
     PROP_0,
     PROP_TYPING_ATTRIBUTES,
     N_PROPERTIES,
@@ -59,7 +64,9 @@ struct _WebKitEditorStatePrivate {
     unsigned isRedoAvailable : 1;
 };
 
-WEBKIT_DEFINE_FINAL_TYPE_IN_2022_API(WebKitEditorState, webkit_editor_state, G_TYPE_OBJECT)
+static guint signals[LAST_SIGNAL] = { 0, };
+
+WEBKIT_DEFINE_FINAL_TYPE(WebKitEditorState, webkit_editor_state, G_TYPE_OBJECT, GObject)
 
 static void webkitEditorStateGetProperty(GObject* object, guint propId, GValue* value, GParamSpec* paramSpec)
 {
@@ -96,6 +103,23 @@ static void webkit_editor_state_class_init(WebKitEditorStateClass* editorStateCl
             WEBKIT_PARAM_READABLE);
 
     g_object_class_install_properties(objectClass, N_PROPERTIES, sObjProperties);
+
+    /**
+     * WebKitEditorState::changed:
+     * @editor_state: the #WebKitEditorState on which the signal is emitted
+     *
+     * Emitted when the #WebKitEdtorState is changed.
+     *
+     * Since: 2.44
+     */
+    signals[CHANGED] =
+        g_signal_new("changed",
+            G_TYPE_FROM_CLASS(editorStateClass),
+            G_SIGNAL_RUN_LAST,
+            0, 0,
+            nullptr,
+            g_cclosure_marshal_VOID__VOID,
+            G_TYPE_NONE, 0);
 }
 
 static void webkitEditorStateSetTypingAttributes(WebKitEditorState* editorState, unsigned typingAttributes)
@@ -123,13 +147,13 @@ void webkitEditorStateChanged(WebKitEditorState* editorState, const EditorState&
 
     unsigned typingAttributes = WEBKIT_EDITOR_TYPING_ATTRIBUTE_NONE;
     const auto& postLayoutData = *newState.postLayoutData;
-    if (postLayoutData.typingAttributes & AttributeBold)
+    if (postLayoutData.typingAttributes.contains(WebKit::TypingAttribute::Bold))
         typingAttributes |= WEBKIT_EDITOR_TYPING_ATTRIBUTE_BOLD;
-    if (postLayoutData.typingAttributes & AttributeItalics)
+    if (postLayoutData.typingAttributes.contains(WebKit::TypingAttribute::Italics))
         typingAttributes |= WEBKIT_EDITOR_TYPING_ATTRIBUTE_ITALIC;
-    if (postLayoutData.typingAttributes & AttributeUnderline)
+    if (postLayoutData.typingAttributes.contains(WebKit::TypingAttribute::Underline))
         typingAttributes |= WEBKIT_EDITOR_TYPING_ATTRIBUTE_UNDERLINE;
-    if (postLayoutData.typingAttributes & AttributeStrikeThrough)
+    if (postLayoutData.typingAttributes.contains(WebKit::TypingAttribute::StrikeThrough))
         typingAttributes |= WEBKIT_EDITOR_TYPING_ATTRIBUTE_STRIKETHROUGH;
 
     webkitEditorStateSetTypingAttributes(editorState, typingAttributes);
@@ -140,6 +164,8 @@ void webkitEditorStateChanged(WebKitEditorState* editorState, const EditorState&
 
     editorState->priv->isUndoAvailable = editorState->priv->page->canUndo();
     editorState->priv->isRedoAvailable = editorState->priv->page->canRedo();
+
+    g_signal_emit(editorState, signals[CHANGED], 0, NULL);
 }
 
 /**

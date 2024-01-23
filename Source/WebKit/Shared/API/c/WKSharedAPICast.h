@@ -42,11 +42,11 @@
 #include "WKGeometry.h"
 #include "WKImage.h"
 #include "WKPageLoadTypes.h"
-#include "WKPageLoadTypesPrivate.h"
 #include "WKPageVisibilityTypes.h"
 #include "WKUserContentInjectedFrames.h"
 #include "WKUserScriptInjectionTime.h"
 #include "WebFindOptions.h"
+#include "WebFrameProxy.h"
 #include "WebMouseEvent.h"
 #include <WebCore/ContextMenuItem.h>
 #include <WebCore/DiagnosticLoggingResultType.h>
@@ -327,16 +327,16 @@ inline WKEventMouseButton toAPI(WebMouseEventButton mouseButton)
     WKEventMouseButton wkMouseButton = kWKEventMouseButtonNoButton;
 
     switch (mouseButton) {
-    case WebMouseEventButton::NoButton:
+    case WebMouseEventButton::None:
         wkMouseButton = kWKEventMouseButtonNoButton;
         break;
-    case WebMouseEventButton::LeftButton:
+    case WebMouseEventButton::Left:
         wkMouseButton = kWKEventMouseButtonLeftButton;
         break;
-    case WebMouseEventButton::MiddleButton:
+    case WebMouseEventButton::Middle:
         wkMouseButton = kWKEventMouseButtonMiddleButton;
         break;
-    case WebMouseEventButton::RightButton:
+    case WebMouseEventButton::Right:
         wkMouseButton = kWKEventMouseButtonRightButton;
         break;
     }
@@ -349,17 +349,19 @@ inline WKEventMouseButton toAPI(WebCore::MouseButton mouseButton)
     WKEventMouseButton wkMouseButton = kWKEventMouseButtonNoButton;
 
     switch (mouseButton) {
-    case WebCore::MouseButton::NoButton:
+    case WebCore::MouseButton::None:
         wkMouseButton = kWKEventMouseButtonNoButton;
         break;
-    case WebCore::MouseButton::LeftButton:
+    case WebCore::MouseButton::Left:
         wkMouseButton = kWKEventMouseButtonLeftButton;
         break;
-    case WebCore::MouseButton::MiddleButton:
+    case WebCore::MouseButton::Middle:
         wkMouseButton = kWKEventMouseButtonMiddleButton;
         break;
-    case WebCore::MouseButton::RightButton:
+    case WebCore::MouseButton::Right:
         wkMouseButton = kWKEventMouseButtonRightButton;
+        break;
+    default:
         break;
     }
 
@@ -383,10 +385,16 @@ inline WKContextMenuItemTag toAPI(WebCore::ContextMenuAction action)
         return kWKContextMenuItemTagDownloadImageToDisk;
     case WebCore::ContextMenuItemTagCopyImageToClipboard:
         return kWKContextMenuItemTagCopyImageToClipboard;
+#if ENABLE(ACCESSIBILITY_ANIMATION_CONTROL)
     case WebCore::ContextMenuItemTagPlayAllAnimations:
         return kWKContextMenuItemTagPlayAllAnimations;
     case WebCore::ContextMenuItemTagPauseAllAnimations:
         return kWKContextMenuItemTagPauseAllAnimations;
+    case WebCore::ContextMenuItemTagPlayAnimation:
+        return kWKContextMenuItemTagPlayAnimation;
+    case WebCore::ContextMenuItemTagPauseAnimation:
+        return kWKContextMenuItemTagPauseAnimation;
+#endif // ENABLE(ACCESSIBILITY_ANIMATION_CONTROL)
 #if PLATFORM(GTK)
     case WebCore::ContextMenuItemTagCopyImageUrlToClipboard:
         return kWKContextMenuItemTagCopyImageUrlToClipboard;
@@ -591,10 +599,16 @@ inline WebCore::ContextMenuAction toImpl(WKContextMenuItemTag tag)
         return WebCore::ContextMenuItemTagDownloadImageToDisk;
     case kWKContextMenuItemTagCopyImageToClipboard:
         return WebCore::ContextMenuItemTagCopyImageToClipboard;
+#if ENABLE(ACCESSIBILITY_ANIMATION_CONTROL)
     case kWKContextMenuItemTagPlayAllAnimations:
         return WebCore::ContextMenuItemTagPlayAllAnimations;
     case kWKContextMenuItemTagPauseAllAnimations:
         return WebCore::ContextMenuItemTagPauseAllAnimations;
+    case kWKContextMenuItemTagPlayAnimation:
+        return WebCore::ContextMenuItemTagPlayAnimation;
+    case kWKContextMenuItemTagPauseAnimation:
+        return WebCore::ContextMenuItemTagPauseAnimation;
+#endif // ENABLE(ACCESSIBILITY_ANIMATION_CONTROL)
     case kWKContextMenuItemTagOpenFrameInNewWindow:
 #if PLATFORM(GTK)
     case kWKContextMenuItemTagCopyImageUrlToClipboard:
@@ -914,21 +928,19 @@ inline WKLayoutMilestones toWKLayoutMilestones(OptionSet<WebCore::LayoutMileston
 {
     unsigned wkMilestones = 0;
 
-    if (milestones & WebCore::DidFirstLayout)
+    if (milestones & WebCore::LayoutMilestone::DidFirstLayout)
         wkMilestones |= kWKDidFirstLayout;
-    if (milestones & WebCore::DidFirstVisuallyNonEmptyLayout)
+    if (milestones & WebCore::LayoutMilestone::DidFirstVisuallyNonEmptyLayout)
         wkMilestones |= kWKDidFirstVisuallyNonEmptyLayout;
-    if (milestones & WebCore::DidHitRelevantRepaintedObjectsAreaThreshold)
+    if (milestones & WebCore::LayoutMilestone::DidHitRelevantRepaintedObjectsAreaThreshold)
         wkMilestones |= kWKDidHitRelevantRepaintedObjectsAreaThreshold;
-    if (milestones & WebCore::DidFirstFlushForHeaderLayer)
-        wkMilestones |= kWKDidFirstFlushForHeaderLayer;
-    if (milestones & WebCore::DidFirstLayoutAfterSuppressedIncrementalRendering)
+    if (milestones & WebCore::LayoutMilestone::DidFirstLayoutAfterSuppressedIncrementalRendering)
         wkMilestones |= kWKDidFirstLayoutAfterSuppressedIncrementalRendering;
-    if (milestones & WebCore::DidFirstPaintAfterSuppressedIncrementalRendering)
+    if (milestones & WebCore::LayoutMilestone::DidFirstPaintAfterSuppressedIncrementalRendering)
         wkMilestones |= kWKDidFirstPaintAfterSuppressedIncrementalRendering;
-    if (milestones & WebCore::DidRenderSignificantAmountOfText)
+    if (milestones & WebCore::LayoutMilestone::DidRenderSignificantAmountOfText)
         wkMilestones |= kWKDidRenderSignificantAmountOfText;
-    if (milestones & WebCore::DidFirstMeaningfulPaint)
+    if (milestones & WebCore::LayoutMilestone::DidFirstMeaningfulPaint)
         wkMilestones |= kWKDidFirstMeaningfulPaint;
 
     return wkMilestones;
@@ -939,21 +951,19 @@ inline OptionSet<WebCore::LayoutMilestone> toLayoutMilestones(WKLayoutMilestones
     OptionSet<WebCore::LayoutMilestone> milestones;
 
     if (wkMilestones & kWKDidFirstLayout)
-        milestones.add(WebCore::DidFirstLayout);
+        milestones.add(WebCore::LayoutMilestone::DidFirstLayout);
     if (wkMilestones & kWKDidFirstVisuallyNonEmptyLayout)
-        milestones.add(WebCore::DidFirstVisuallyNonEmptyLayout);
+        milestones.add(WebCore::LayoutMilestone::DidFirstVisuallyNonEmptyLayout);
     if (wkMilestones & kWKDidHitRelevantRepaintedObjectsAreaThreshold)
-        milestones.add(WebCore::DidHitRelevantRepaintedObjectsAreaThreshold);
-    if (wkMilestones & kWKDidFirstFlushForHeaderLayer)
-        milestones.add(WebCore::DidFirstFlushForHeaderLayer);
+        milestones.add(WebCore::LayoutMilestone::DidHitRelevantRepaintedObjectsAreaThreshold);
     if (wkMilestones & kWKDidFirstLayoutAfterSuppressedIncrementalRendering)
-        milestones.add(WebCore::DidFirstLayoutAfterSuppressedIncrementalRendering);
+        milestones.add(WebCore::LayoutMilestone::DidFirstLayoutAfterSuppressedIncrementalRendering);
     if (wkMilestones & kWKDidFirstPaintAfterSuppressedIncrementalRendering)
-        milestones.add(WebCore::DidFirstPaintAfterSuppressedIncrementalRendering);
+        milestones.add(WebCore::LayoutMilestone::DidFirstPaintAfterSuppressedIncrementalRendering);
     if (wkMilestones & kWKDidRenderSignificantAmountOfText)
-        milestones.add(WebCore::DidRenderSignificantAmountOfText);
+        milestones.add(WebCore::LayoutMilestone::DidRenderSignificantAmountOfText);
     if (wkMilestones & kWKDidFirstMeaningfulPaint)
-        milestones.add(WebCore::DidFirstMeaningfulPaint);
+        milestones.add(WebCore::LayoutMilestone::DidFirstMeaningfulPaint);
     
     return milestones;
 }

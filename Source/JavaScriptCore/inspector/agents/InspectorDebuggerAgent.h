@@ -101,7 +101,7 @@ public:
     Protocol::ErrorStringOr<void> setBlackboxBreakpointEvaluations(bool) final;
 
     // JSC::Debugger::Client
-    bool isInspectorDebuggerAgent() const final { return true; }
+    bool isInspectorDebuggerAgent() const final;
     JSC::JSObject* debuggerScopeExtensionObject(JSC::Debugger&, JSC::JSGlobalObject*, JSC::DebuggerCallFrame&) final;
 
     // JSC::Debugger::Observer
@@ -256,12 +256,7 @@ private:
         bool caseSensitive { false };
         bool isRegex { false };
 
-        inline bool operator==(const BlackboxConfig& other) const
-        {
-            return url == other.url
-                && caseSensitive == other.caseSensitive
-                && isRegex == other.isRegex;
-        }
+        friend bool operator==(const BlackboxConfig&, const BlackboxConfig&) = default;
     };
     Vector<BlackboxConfig> m_blackboxedURLs;
 

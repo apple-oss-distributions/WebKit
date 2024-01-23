@@ -29,8 +29,8 @@
 #import <wtf/NeverDestroyed.h>
 
 #if PLATFORM(IOS_FAMILY)
-#import "Device.h"
 #import <pal/spi/ios/UIKitSPI.h>
+#import <pal/system/ios/Device.h>
 #endif
 
 #if PLATFORM(IOS_FAMILY)
@@ -54,11 +54,6 @@ void SettingsBase::initializeDefaultFontFamilies()
     setSansSerifFontFamily("Helvetica"_s, USCRIPT_COMMON);
 }
 
-bool SettingsBase::platformDefaultMediaSourceEnabled()
-{
-    return true;
-}
-
 #else
 
 void SettingsBase::initializeDefaultFontFamilies()
@@ -74,14 +69,31 @@ void SettingsBase::initializeDefaultFontFamilies()
     setSansSerifFontFamily("Helvetica"_s, USCRIPT_COMMON);
 }
 
+#endif
+
 #if ENABLE(MEDIA_SOURCE)
 
 bool SettingsBase::platformDefaultMediaSourceEnabled()
 {
+#if PLATFORM(MAC)
+    return true;
+#else
     return false;
+#endif
 }
 
+uint64_t SettingsBase::defaultMaximumSourceBufferSize()
+{
+#if PLATFORM(IOS_FAMILY)
+    // iOS Devices have lower memory limits, enforced by jetsam rates, and a very limited
+    // ability to swap. Allow SourceBuffers to store up to 105MB each, roughly a third of
+    // the limit on macOS, and approximately equivalent to the limit on Firefox.
+    return 110376422;
 #endif
+    // For other platforms, allow SourceBuffers to store up to 304MB each, enough for approximately five minutes
+    // of 1080p video and stereo audio.
+    return 318767104;
+}
 
 #endif
 

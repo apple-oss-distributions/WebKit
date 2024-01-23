@@ -28,6 +28,7 @@
 #pragma once
 
 #include "Attachment.h"
+#include "Encoder.h"
 #include <wtf/Vector.h>
 
 namespace IPC {
@@ -86,9 +87,9 @@ public:
     }
 
     UnixMessage(UnixMessage&& other)
+        : m_attachments(WTFMove(other.m_attachments))
+        , m_messageInfo(WTFMove(other.m_messageInfo))
     {
-        m_attachments = WTFMove(other.m_attachments);
-        m_messageInfo = WTFMove(other.m_messageInfo);
         if (other.m_bodyOwned) {
             std::swap(m_body, other.m_body);
             std::swap(m_bodyOwned, other.m_bodyOwned);

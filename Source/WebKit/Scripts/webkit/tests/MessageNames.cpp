@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2021 Apple Inc. All rights reserved.
+ * Copyright (C) 2021-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -32,6 +32,8 @@ const MessageDescription messageDescriptions[static_cast<size_t>(MessageName::Co
     { "TestWithCVPixelBuffer_ReceiveCVPixelBuffer", ReceiverName::TestWithCVPixelBuffer, false, false },
     { "TestWithCVPixelBuffer_SendCVPixelBuffer", ReceiverName::TestWithCVPixelBuffer, false, false },
 #endif
+    { "TestWithEnabledIf_AlwaysEnabled", ReceiverName::TestWithEnabledIf, false, false },
+    { "TestWithEnabledIf_OnlyEnabledIfFeatureEnabled", ReceiverName::TestWithEnabledIf, false, false },
 #if PLATFORM(COCOA) || PLATFORM(GTK)
     { "TestWithIfMessage_LoadURL", ReceiverName::TestWithIfMessage, false, false },
 #endif
@@ -75,6 +77,8 @@ const MessageDescription messageDescriptions[static_cast<size_t>(MessageName::Co
     { "TestWithSemaphore_SendSemaphore", ReceiverName::TestWithSemaphore, false, false },
     { "TestWithStreamBatched_SendString", ReceiverName::TestWithStreamBatched, true, false },
     { "TestWithStreamBuffer_SendStreamBuffer", ReceiverName::TestWithStreamBuffer, false, false },
+    { "TestWithStreamServerConnectionHandle_SendStreamServerConnection", ReceiverName::TestWithStreamServerConnectionHandle, false, false },
+    { "TestWithStream_CallWithIdentifier", ReceiverName::TestWithStream, true, false },
 #if PLATFORM(COCOA)
     { "TestWithStream_SendMachSendRight", ReceiverName::TestWithStream, true, false },
 #endif
@@ -121,6 +125,12 @@ const MessageDescription messageDescriptions[static_cast<size_t>(MessageName::Co
 #if (ENABLE(TOUCH_EVENTS) && (NESTED_MESSAGE_CONDITION || SOME_OTHER_MESSAGE_CONDITION))
     { "TestWithoutAttributes_TouchEvent", ReceiverName::TestWithoutAttributes, false, false },
 #endif
+    { "TestWithoutUsingIPCConnection_MessageWithArgument", ReceiverName::TestWithoutUsingIPCConnection, false, false },
+    { "TestWithoutUsingIPCConnection_MessageWithArgumentAndEmptyReply", ReceiverName::TestWithoutUsingIPCConnection, false, false },
+    { "TestWithoutUsingIPCConnection_MessageWithArgumentAndReplyWithArgument", ReceiverName::TestWithoutUsingIPCConnection, false, false },
+    { "TestWithoutUsingIPCConnection_MessageWithoutArgument", ReceiverName::TestWithoutUsingIPCConnection, false, false },
+    { "TestWithoutUsingIPCConnection_MessageWithoutArgumentAndEmptyReply", ReceiverName::TestWithoutUsingIPCConnection, false, false },
+    { "TestWithoutUsingIPCConnection_MessageWithoutArgumentAndReplyWithArgument", ReceiverName::TestWithoutUsingIPCConnection, false, false },
 #if PLATFORM(COCOA)
     { "InitializeConnection", ReceiverName::IPC, false, false },
 #endif
@@ -128,7 +138,6 @@ const MessageDescription messageDescriptions[static_cast<size_t>(MessageName::Co
     { "ProcessOutOfStreamMessage", ReceiverName::IPC, false, false },
     { "SetStreamDestinationID", ReceiverName::IPC, false, false },
     { "SyncMessageReply", ReceiverName::IPC, false, false },
-    { "Terminate", ReceiverName::IPC, false, false },
 #if USE(AVFOUNDATION)
     { "TestWithCVPixelBuffer_ReceiveCVPixelBufferReply", ReceiverName::AsyncReply, false, false },
 #endif
@@ -140,6 +149,7 @@ const MessageDescription messageDescriptions[static_cast<size_t>(MessageName::Co
 #endif
     { "TestWithLegacyReceiver_RunJavaScriptAlertReply", ReceiverName::AsyncReply, false, false },
     { "TestWithSemaphore_ReceiveSemaphoreReply", ReceiverName::AsyncReply, false, false },
+    { "TestWithStream_CallWithIdentifierReply", ReceiverName::AsyncReply, false, false },
     { "TestWithStream_SendStringAsyncReply", ReceiverName::AsyncReply, false, false },
 #if ENABLE(TEST_FEATURE)
     { "TestWithSuperclass_TestAsyncMessageReply", ReceiverName::AsyncReply, false, false },
@@ -153,6 +163,10 @@ const MessageDescription messageDescriptions[static_cast<size_t>(MessageName::Co
     { "TestWithoutAttributes_InterpretKeyEventReply", ReceiverName::AsyncReply, false, false },
 #endif
     { "TestWithoutAttributes_RunJavaScriptAlertReply", ReceiverName::AsyncReply, false, false },
+    { "TestWithoutUsingIPCConnection_MessageWithArgumentAndEmptyReplyReply", ReceiverName::AsyncReply, false, false },
+    { "TestWithoutUsingIPCConnection_MessageWithArgumentAndReplyWithArgumentReply", ReceiverName::AsyncReply, false, false },
+    { "TestWithoutUsingIPCConnection_MessageWithoutArgumentAndEmptyReplyReply", ReceiverName::AsyncReply, false, false },
+    { "TestWithoutUsingIPCConnection_MessageWithoutArgumentAndReplyWithArgumentReply", ReceiverName::AsyncReply, false, false },
     { "TestWithLegacyReceiver_GetPluginProcessConnection", ReceiverName::TestWithLegacyReceiver, true, false },
     { "TestWithLegacyReceiver_TestMultipleAttributes", ReceiverName::TestWithLegacyReceiver, true, false },
 #if PLATFORM(COCOA)

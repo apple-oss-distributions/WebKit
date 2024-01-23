@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2011-2021 Apple Inc. All rights reserved.
+ * Copyright (C) 2011-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -40,11 +40,6 @@ const ClassInfo SparseArrayValueMap::s_info = { "SparseArrayValueMap"_s, nullptr
 SparseArrayValueMap::SparseArrayValueMap(VM& vm)
     : Base(vm, vm.sparseArrayValueMapStructure.get())
 {
-}
-
-void SparseArrayValueMap::finishCreation(VM& vm)
-{
-    Base::finishCreation(vm);
 }
 
 SparseArrayValueMap* SparseArrayValueMap::create(VM& vm)
@@ -207,6 +202,11 @@ bool SparseArrayEntry::put(JSGlobalObject* globalObject, JSValue thisValue, Spar
 JSValue SparseArrayEntry::getNonSparseMode() const
 {
     ASSERT(!m_attributes);
+    return Base::get();
+}
+
+JSValue SparseArrayEntry::get() const
+{
     return Base::get();
 }
 

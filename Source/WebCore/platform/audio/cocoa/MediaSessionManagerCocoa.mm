@@ -45,6 +45,7 @@
 #import <wtf/MathExtras.h>
 
 #import "MediaRemoteSoftLink.h"
+#include <pal/cocoa/AVFoundationSoftLink.h>
 
 static const size_t kLowPowerVideoBufferSize = 4096;
 
@@ -117,6 +118,7 @@ void MediaSessionManagerCocoa::updateSessionState()
     int audioMediaStreamTrackCount = 0;
     int captureCount = countActiveAudioCaptureSources();
     bool hasAudibleAudioOrVideoMediaType = false;
+    bool hasAudibleVideoMediaType = false;
     bool isPlayingAudio = false;
     forEachSession([&] (auto& session) mutable {
         auto type = session.mediaType();
@@ -139,7 +141,7 @@ void MediaSessionManagerCocoa::updateSessionState()
         case PlatformMediaSession::MediaType::WebAudio:
             if (session.canProduceAudio()) {
                 ++webAudioCount;
-                isPlayingAudio |= session.isPlaying();
+                isPlayingAudio |= session.isPlaying() && session.isAudible();
             }
             break;
         }
@@ -147,10 +149,11 @@ void MediaSessionManagerCocoa::updateSessionState()
         if (!hasAudibleAudioOrVideoMediaType) {
             bool isPotentiallyAudible = session.isPlayingToWirelessPlaybackTarget()
                 || ((type == PlatformMediaSession::MediaType::VideoAudio || type == PlatformMediaSession::MediaType::Audio)
-                    && session.canProduceAudio()
+                    && session.isAudible()
                     && (session.isPlaying() || session.preparingToPlay() || session.hasPlayedAudiblySinceLastInterruption()));
             if (isPotentiallyAudible) {
                 hasAudibleAudioOrVideoMediaType = true;
+                hasAudibleVideoMediaType |= type == PlatformMediaSession::MediaType::VideoAudio;
                 isPlayingAudio |= session.isPlaying();
             }
         }
@@ -180,11 +183,20 @@ void MediaSessionManagerCocoa::updateSessionState()
         return;
 
     auto category = AudioSession::CategoryType::None;
+    auto mode = AudioSession::Mode::Default;
     if (AudioSession::sharedSession().categoryOverride() != AudioSession::CategoryType::None)
         category = AudioSession::sharedSession().categoryOverride();
-    else if (captureCount || (isPlayingAudio && AudioSession::sharedSession().category() == AudioSession::CategoryType::PlayAndRecord))
+    else if (captureCount || (isPlayingAudio && AudioSession::sharedSession().category() == AudioSession::CategoryType::PlayAndRecord)) {
         category = AudioSession::CategoryType::PlayAndRecord;
-    else if (hasAudibleAudioOrVideoMediaType)
+        mode = AudioSession::Mode::VideoChat;
+    } else if (hasAudibleVideoMediaType) {
+        category = AudioSession::CategoryType::MediaPlayback;
+#if PLATFORM(VISION)
+        // visionOS AudioSessions are designed more like a headphone experience,
+        // and thus use a different mode.
+        mode = AudioSession::Mode::MoviePlayback;
+#endif
+    } else if (hasAudibleAudioOrVideoMediaType)
         category = AudioSession::CategoryType::MediaPlayback;
     else if (webAudioCount)
         category = AudioSession::CategoryType::AmbientSound;
@@ -200,10 +212,10 @@ void MediaSessionManagerCocoa::updateSessionState()
 
     RouteSharingPolicy policy = (category == AudioSession::CategoryType::MediaPlayback) ? RouteSharingPolicy::LongFormAudio : RouteSharingPolicy::Default;
 
-    ALWAYS_LOG(LOGIDENTIFIER, "setting category = ", category, ", policy = ", policy, ", previous category = ", m_previousCategory);
+    ALWAYS_LOG(LOGIDENTIFIER, "setting category = ", category, ", mode = ", mode, ", policy = ", policy, ", previous category = ", m_previousCategory);
 
     m_previousCategory = category;
-    AudioSession::sharedSession().setCategory(category, policy);
+    AudioSession::sharedSession().setCategory(category, mode, policy);
 }
 
 void MediaSessionManagerCocoa::possiblyChangeAudioCategory()
@@ -235,6 +247,20 @@ void MediaSessionManagerCocoa::beginInterruption(PlatformMediaSession::Interrupt
 void MediaSessionManagerCocoa::prepareToSendUserMediaPermissionRequest()
 {
     providePresentingApplicationPIDIfNecessary();
+}
+
+String MediaSessionManagerCocoa::audioTimePitchAlgorithmForMediaPlayerPitchCorrectionAlgorithm(MediaPlayer::PitchCorrectionAlgorithm pitchCorrectionAlgorithm, bool preservesPitch, double rate)
+{
+    if (!preservesPitch || !rate || rate == 1.)
+        return AVAudioTimePitchAlgorithmVarispeed;
+
+    switch (pitchCorrectionAlgorithm) {
+    case MediaPlayer::PitchCorrectionAlgorithm::BestAllAround:
+    case MediaPlayer::PitchCorrectionAlgorithm::BestForMusic:
+        return AVAudioTimePitchAlgorithmSpectral;
+    case MediaPlayer::PitchCorrectionAlgorithm::BestForSpeech:
+        return AVAudioTimePitchAlgorithmTimeDomain;
+    }
 }
 
 void MediaSessionManagerCocoa::scheduleSessionStatusUpdate()
@@ -310,6 +336,21 @@ void MediaSessionManagerCocoa::sessionWillEndPlayback(PlatformMediaSession& sess
             updateNowPlayingInfo();
         });
     }
+
+#if USE(AUDIO_SESSION)
+    // De-activate the audio session if the last playing session is:
+    // * An audio presentation
+    // * Is in the ended state
+    // * Has a short duration
+    // This allows other applications to resume playback after an "alert-like" audio
+    // is played by web content.
+
+    if (!anyOfSessions([] (auto& session) { return session.state() == PlatformMediaSession::Playing; })
+        && session.presentationType() == PlatformMediaSession::MediaType::Audio
+        && session.isEnded()
+        && session.isLongEnoughForMainContent())
+        maybeDeactivateAudioSession();
+#endif
 }
 
 void MediaSessionManagerCocoa::clientCharacteristicsChanged(PlatformMediaSession& session, bool)

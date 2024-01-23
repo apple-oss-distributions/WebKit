@@ -31,6 +31,7 @@
 #include "ExecutableBaseInlines.h"
 #include "InlineCallFrame.h"
 #include "JSCInlines.h"
+#include "NativeCallee.h"
 #include "RegisterAtOffsetList.h"
 #include "WasmCallee.h"
 #include "WasmIndexOrName.h"
@@ -43,6 +44,7 @@ StackVisitor::StackVisitor(CallFrame* startFrame, VM& vm)
 {
     m_frame.m_index = 0;
     m_frame.m_isWasmFrame = false;
+    m_frame.m_wasmDistanceFromDeepestInlineFrame = 0;
     CallFrame* topFrame;
     if (startFrame) {
         ASSERT(!vm.topCallFrame || reinterpret_cast<void*>(vm.topCallFrame) != vm.topEntryFrame);
@@ -73,7 +75,7 @@ void StackVisitor::gotoNextFrame()
 {
     m_frame.m_index++;
 #if ENABLE(DFG_JIT)
-    if (m_frame.isInlinedFrame()) {
+    if (m_frame.isInlinedDFGFrame()) {
         InlineCallFrame* inlineCallFrame = m_frame.inlineCallFrame();
         CodeOrigin* callerCodeOrigin = inlineCallFrame->getCallerSkippingTailCalls();
         if (!callerCodeOrigin) {
@@ -95,7 +97,7 @@ void StackVisitor::gotoNextFrame()
 void StackVisitor::unwindToMachineCodeBlockFrame()
 {
 #if ENABLE(DFG_JIT)
-    if (m_frame.isInlinedFrame()) {
+    if (m_frame.isInlinedDFGFrame()) {
         CodeOrigin codeOrigin = m_frame.inlineCallFrame()->directCaller;
         while (codeOrigin.inlineCallFrame())
             codeOrigin = codeOrigin.inlineCallFrame()->directCaller;
@@ -111,8 +113,8 @@ void StackVisitor::readFrame(CallFrame* callFrame)
         return;
     }
 
-    if (callFrame->isWasmFrame()) {
-        readNonInlinedFrame(callFrame);
+    if (callFrame->isNativeCalleeFrame()) {
+        readInlinableNativeCalleeFrame(callFrame);
         return;
     }
 
@@ -164,23 +166,81 @@ void StackVisitor::readNonInlinedFrame(CallFrame* callFrame, CodeOrigin* codeOri
     m_frame.m_isWasmFrame = false;
     m_frame.m_callee = callFrame->callee();
 #if ENABLE(DFG_JIT)
-    m_frame.m_inlineCallFrame = nullptr;
+    m_frame.m_inlineDFGCallFrame = nullptr;
 #endif
+    m_frame.m_wasmDistanceFromDeepestInlineFrame = 0;
 
-    m_frame.m_codeBlock = callFrame->isWasmFrame() ? nullptr : callFrame->codeBlock();
+    m_frame.m_codeBlock = callFrame->isNativeCalleeFrame() ? nullptr : callFrame->codeBlock();
     m_frame.m_bytecodeIndex = !m_frame.codeBlock() ? BytecodeIndex(0)
         : codeOrigin ? codeOrigin->bytecodeIndex()
         : callFrame->bytecodeIndex();
 
-#if ENABLE(WEBASSEMBLY)
-    if (callFrame->isWasmFrame()) {
-        m_frame.m_isWasmFrame = true;
-        m_frame.m_codeBlock = nullptr;
+    RELEASE_ASSERT(!callFrame->isNativeCalleeFrame());
+}
 
-        if (m_frame.m_callee.isWasm())
-            m_frame.m_wasmFunctionIndexOrName = m_frame.m_callee.asWasmCallee()->indexOrName();
-    }
+void StackVisitor::readInlinableNativeCalleeFrame(CallFrame* callFrame)
+{
+    RELEASE_ASSERT(callFrame->callee().isNativeCallee());
+    auto& callee = *callFrame->callee().asNativeCallee();
+    switch (callee.category()) {
+    case NativeCallee::Category::Wasm: {
+#if ENABLE(WEBASSEMBLY)
+        auto& wasmCallee = static_cast<Wasm::Callee&>(callee);
+        auto depth = m_frame.m_wasmDistanceFromDeepestInlineFrame;
+        m_frame.m_isWasmFrame = true;
+        m_frame.m_callFrame = callFrame;
+        m_frame.m_argumentCountIncludingThis = callFrame->argumentCountIncludingThis();
+        m_frame.m_callerEntryFrame = m_frame.m_entryFrame;
+        m_frame.m_callerFrame = callFrame->callerFrame(m_frame.m_callerEntryFrame);
+        m_frame.m_callerIsEntryFrame = m_frame.m_callerEntryFrame != m_frame.m_entryFrame;
+        m_frame.m_callee = callFrame->callee();
+        m_frame.m_codeBlock = nullptr;
+        m_frame.m_wasmDistanceFromDeepestInlineFrame = 0;
+
+        m_frame.m_wasmFunctionIndexOrName = wasmCallee.indexOrName();
+
+#if ENABLE(WEBASSEMBLY_OMGJIT)
+        bool canInline = isAnyOMG(wasmCallee.compilationMode());
+        if (!canInline)
+            return;
+
+        const auto& omgCallee = *static_cast<const Wasm::OptimizingJITCallee*>(&wasmCallee);
+        bool isInlined = false;
+        auto origin = omgCallee.getOrigin(callFrame->callSiteIndex().bits(), depth, isInlined);
+        if (!isInlined)
+            return;
+
+        // The callerFrame just needs to be non-null to indicate that we
+        // haven't reached the last frame yet.
+        m_frame.m_callerFrame = callFrame;
+        m_frame.m_wasmDistanceFromDeepestInlineFrame = depth + 1;
+        m_frame.m_wasmFunctionIndexOrName = origin;
+#else
+        UNUSED_VARIABLE(depth);
 #endif
+#else
+        UNUSED_PARAM(callFrame);
+#endif
+        break;
+    }
+    case NativeCallee::Category::InlineCache: {
+        m_frame.m_callFrame = callFrame;
+        m_frame.m_argumentCountIncludingThis = callFrame->argumentCountIncludingThis();
+        m_frame.m_callerEntryFrame = m_frame.m_entryFrame;
+        m_frame.m_callerFrame = callFrame->callerFrame(m_frame.m_callerEntryFrame);
+        m_frame.m_callerIsEntryFrame = m_frame.m_callerEntryFrame != m_frame.m_entryFrame;
+        m_frame.m_isWasmFrame = false;
+        m_frame.m_callee = callFrame->callee();
+#if ENABLE(DFG_JIT)
+        m_frame.m_inlineDFGCallFrame = nullptr;
+#endif
+        m_frame.m_wasmDistanceFromDeepestInlineFrame = 0;
+
+        m_frame.m_codeBlock = nullptr;
+        m_frame.m_bytecodeIndex = BytecodeIndex(0);
+        break;
+    }
+    }
 }
 
 #if ENABLE(DFG_JIT)
@@ -195,6 +255,7 @@ void StackVisitor::readInlinedFrame(CallFrame* callFrame, CodeOrigin* codeOrigin
 {
     ASSERT(codeOrigin);
     m_frame.m_isWasmFrame = false;
+    m_frame.m_wasmDistanceFromDeepestInlineFrame = 0;
 
     int frameOffset = inlinedFrameOffset(codeOrigin);
     bool isInlined = !!frameOffset;
@@ -202,7 +263,7 @@ void StackVisitor::readInlinedFrame(CallFrame* callFrame, CodeOrigin* codeOrigin
         InlineCallFrame* inlineCallFrame = codeOrigin->inlineCallFrame();
 
         m_frame.m_callFrame = callFrame;
-        m_frame.m_inlineCallFrame = inlineCallFrame;
+        m_frame.m_inlineDFGCallFrame = inlineCallFrame;
         if (inlineCallFrame->argumentCountRegister.isValid())
             m_frame.m_argumentCountIncludingThis = callFrame->r(inlineCallFrame->argumentCountRegister).unboxedInt32();
         else
@@ -228,8 +289,16 @@ void StackVisitor::readInlinedFrame(CallFrame* callFrame, CodeOrigin* codeOrigin
 
 StackVisitor::Frame::CodeType StackVisitor::Frame::codeType() const
 {
-    if (isWasmFrame())
-        return CodeType::Wasm;
+    if (isNativeCalleeFrame()) {
+        auto* nativeCallee = callee().asNativeCallee();
+        switch (nativeCallee->category()) {
+        case NativeCallee::Category::Wasm:
+            return CodeType::Wasm;
+        case NativeCallee::Category::InlineCache:
+            return CodeType::Native;
+        }
+        return CodeType::Native;
+    }
 
     if (!codeBlock())
         return CodeType::Native;
@@ -254,21 +323,26 @@ std::optional<RegisterAtOffsetList> StackVisitor::Frame::calleeSaveRegistersForU
     if (!NUMBER_OF_CALLEE_SAVES_REGISTERS)
         return std::nullopt;
 
-    if (isInlinedFrame())
+    if (isInlinedDFGFrame())
         return std::nullopt;
 
+    if (isNativeCalleeFrame()) {
+        auto* nativeCallee = callee().asNativeCallee();
+        switch (nativeCallee->category()) {
+        case NativeCallee::Category::Wasm: {
 #if ENABLE(WEBASSEMBLY)
-    if (isWasmFrame()) {
-        if (callee().isCell()) {
-            RELEASE_ASSERT(isWebAssemblyInstance(callee().asCell()));
-            return std::nullopt;
+            auto* wasmCallee = static_cast<Wasm::Callee*>(nativeCallee);
+            if (auto* calleeSaveRegisters = wasmCallee->calleeSaveRegisters())
+                return *calleeSaveRegisters;
+#endif // ENABLE(WEBASSEMBLY)
+            break;
         }
-        Wasm::Callee* wasmCallee = callee().asWasmCallee();
-        if (auto* calleeSaveRegisters = wasmCallee->calleeSaveRegisters())
-            return *calleeSaveRegisters;
+        case NativeCallee::Category::InlineCache: {
+            break;
+        }
+        }
         return std::nullopt;
     }
-#endif // ENABLE(WEBASSEMBLY)
 
     if (CodeBlock* codeBlock = this->codeBlock())
         return *codeBlock->jitCode()->calleeSaveRegisters();
@@ -389,9 +463,9 @@ ClonedArguments* StackVisitor::Frame::createArguments(VM& vm)
     else
         mode = ArgumentsMode::FakeValues;
 #if ENABLE(DFG_JIT)
-    if (isInlinedFrame()) {
-        ASSERT(m_inlineCallFrame);
-        arguments = ClonedArguments::createWithInlineFrame(globalObject, physicalFrame, m_inlineCallFrame, mode);
+    if (isInlinedDFGFrame()) {
+        ASSERT(m_inlineDFGCallFrame);
+        arguments = ClonedArguments::createWithInlineFrame(globalObject, physicalFrame, m_inlineDFGCallFrame, mode);
     } else 
 #endif
         arguments = ClonedArguments::createWithMachineFrame(globalObject, physicalFrame, mode);
@@ -437,30 +511,38 @@ void StackVisitor::Frame::setToEnd()
 {
     m_callFrame = nullptr;
 #if ENABLE(DFG_JIT)
-    m_inlineCallFrame = nullptr;
+    m_inlineDFGCallFrame = nullptr;
 #endif
     m_isWasmFrame = false;
 }
 
 bool StackVisitor::Frame::isImplementationVisibilityPrivate() const
 {
-    auto* executable = [&] () -> ExecutableBase* {
-        if (auto* codeBlock = this->codeBlock())
-            return codeBlock->ownerExecutable();
+    ImplementationVisibility implementationVisibility = [&] () -> ImplementationVisibility {
+        if (auto* codeBlock = this->codeBlock()) {
+            if (auto* executable = codeBlock->ownerExecutable())
+                return executable->implementationVisibility();
+            return ImplementationVisibility::Public;
+        }
+
+#if ENABLE(WEBASSEMBLY)
+        if (isNativeCalleeFrame())
+            return callee().asNativeCallee()->implementationVisibility();
+#endif
 
         if (callee().isCell()) {
             if (auto* callee = this->callee().asCell()) {
-                if (auto* jsFunction = jsDynamicCast<JSFunction*>(callee))
-                    return jsFunction->executable();
+                if (auto* jsFunction = jsDynamicCast<JSFunction*>(callee)) {
+                    if (auto* executable = jsFunction->executable())
+                        return executable->implementationVisibility();
+                    return ImplementationVisibility::Public;
+                }
             }
         }
 
-        return nullptr;
+        return ImplementationVisibility::Public;
     }();
-    if (!executable)
-        return false;
-
-    switch (executable->implementationVisibility()) {
+    switch (implementationVisibility) {
     case ImplementationVisibility::Public:
         return false;
 
@@ -502,10 +584,10 @@ void StackVisitor::Frame::dump(PrintStream& out, Indenter indent, WTF::Function<
 
         bool isInlined = false;
 #if ENABLE(DFG_JIT)
-        isInlined = isInlinedFrame();
-        out.print(indent, "isInlinedFrame: ", isInlinedFrame(), "\n");
-        if (isInlinedFrame())
-            out.print(indent, "InlineCallFrame: ", RawPointer(m_inlineCallFrame), "\n");
+        isInlined = isInlinedDFGFrame();
+        out.print(indent, "isInlinedDFGFrame: ", isInlinedDFGFrame(), "\n");
+        if (isInlinedDFGFrame())
+            out.print(indent, "InlineCallFrame: ", RawPointer(m_inlineDFGCallFrame), "\n");
 #endif
 
         out.print(indent, "callee: ", RawPointer(callee().rawPtr()), "\n");

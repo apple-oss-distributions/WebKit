@@ -30,6 +30,7 @@
 #include <WebCore/Color.h>
 #include <WebCore/FloatRect.h>
 #include <WebCore/InspectorFrontendClient.h>
+#include <wtf/CheckedPtr.h>
 #include <wtf/Forward.h>
 #include <wtf/HashMap.h>
 #include <wtf/RetainPtr.h>
@@ -63,7 +64,7 @@ class WebView;
 class WebInspectorUIExtensionControllerProxy;
 #endif
 
-class RemoteWebInspectorUIProxyClient {
+class RemoteWebInspectorUIProxyClient : public CanMakeCheckedPtr {
 public:
     virtual ~RemoteWebInspectorUIProxyClient() { }
     virtual void sendMessageToBackend(const String& message) = 0;
@@ -113,7 +114,7 @@ public:
     void updateWindowTitle(const CString&);
 #endif
 
-#if PLATFORM(WIN_CAIRO)
+#if PLATFORM(WIN)
     LRESULT sizeChange();
     LRESULT onClose();
 
@@ -124,6 +125,7 @@ public:
 
 private:
     RemoteWebInspectorUIProxy();
+    RefPtr<WebPageProxy> protectedInspectorPage();
 
     // IPC::MessageReceiver
     void didReceiveMessage(IPC::Connection&, IPC::Decoder&) override;
@@ -164,8 +166,8 @@ private:
     void platformRevealFileExternally(const String& path);
     void platformShowCertificate(const WebCore::CertificateInfo&);
 
-    RemoteWebInspectorUIProxyClient* m_client { nullptr };
-    WebPageProxy* m_inspectorPage { nullptr };
+    CheckedPtr<RemoteWebInspectorUIProxyClient> m_client;
+    CheckedPtr<WebPageProxy> m_inspectorPage;
 
 #if ENABLE(INSPECTOR_EXTENSIONS)
     RefPtr<WebInspectorUIExtensionControllerProxy> m_extensionController;
@@ -185,7 +187,7 @@ private:
     GWeakPtr<GtkWidget> m_webView;
     GWeakPtr<GtkWidget> m_window;
 #endif
-#if PLATFORM(WIN_CAIRO)
+#if PLATFORM(WIN)
     HWND m_frontendHandle;
     RefPtr<WebView> m_webView;
 #endif

@@ -362,7 +362,7 @@ TEST_P(EGLMultiContextTest, RepeatedEglInitAndTerminate)
                           EGL_PLATFORM_ANGLE_DEVICE_TYPE_ANGLE, GetParam().getDeviceType(),
                           EGL_NONE};
 
-    for (int i = 0; i < 100; i++)
+    for (int i = 0; i < 50; i++)  // Note: this test is fairly slow b/303089709
     {
         std::thread thread = std::thread([&]() {
             dpy = eglGetPlatformDisplayEXT(
@@ -436,12 +436,13 @@ TEST_P(EGLMultiContextTest, ReuseUnterminatedDisplay)
         glClear(GL_COLOR_BUFFER_BIT);
         EXPECT_PIXEL_EQ(0, 0, 255, 0, 0, 255);
 
+        srf = EGL_NO_SURFACE;
+        ctx = EGL_NO_CONTEXT;
+        EXPECT_EGL_TRUE(eglMakeCurrent(dpy, srf, srf, ctx));
         eglTerminate(dpy);
         EXPECT_EGL_SUCCESS();
         EXPECT_EGL_SUCCESS();
         dpy = EGL_NO_DISPLAY;
-        srf = EGL_NO_SURFACE;
-        ctx = EGL_NO_CONTEXT;
     });
     threadB.join();
 }

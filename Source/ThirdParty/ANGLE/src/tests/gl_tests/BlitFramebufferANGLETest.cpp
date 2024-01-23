@@ -1652,6 +1652,57 @@ class BlitFramebufferTest : public ANGLETest<>
             }
         }
     }
+
+    void initFBOWithProgramAndDepth(GLFramebuffer *fbo,
+                                    GLRenderbuffer *colorRenderBuffer,
+                                    GLenum colorFormat,
+                                    GLRenderbuffer *depthRenderBuffer,
+                                    GLenum depthFormat,
+                                    GLsizei width,
+                                    GLsizei height,
+                                    GLuint program,
+                                    float depthValue)
+    {
+        if (fbo != nullptr)
+        {
+            // Create renderbuffer
+            glBindRenderbuffer(GL_RENDERBUFFER, *colorRenderBuffer);
+            glRenderbufferStorage(GL_RENDERBUFFER, colorFormat, width, height);
+            glBindRenderbuffer(GL_RENDERBUFFER, *depthRenderBuffer);
+            glRenderbufferStorage(GL_RENDERBUFFER, depthFormat, width, height);
+
+            // Create fbo
+            glBindFramebuffer(GL_FRAMEBUFFER, *fbo);
+            glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_RENDERBUFFER,
+                                      *colorRenderBuffer);
+            glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER,
+                                      *depthRenderBuffer);
+        }
+        else
+        {
+            glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        }
+
+        // draw with program
+        glUseProgram(program);
+        glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
+        glClearDepthf(1.0f);
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+        glEnable(GL_DEPTH_TEST);
+        glDepthMask(true);
+        drawQuad(program, essl1_shaders::PositionAttrib(), depthValue);
+    }
+
+    void drawWithDepthValue(std::array<Vector3, 6> &quadVertices, float depth)
+    {
+        for (Vector3 &vertice : quadVertices)
+        {
+            vertice[2] = depth;
+        }
+        glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(quadVertices[0]) * quadVertices.size(),
+                        quadVertices.data());
+        glDrawArrays(GL_TRIANGLES, 0, 6);
+    }
 };
 
 class BlitFramebufferTestES31 : public BlitFramebufferTest
@@ -1661,7 +1712,7 @@ class BlitFramebufferTestES31 : public BlitFramebufferTest
 TEST_P(BlitFramebufferTest, MultisampleDepth)
 {
     // TODO(oetuaho@nvidia.com): http://crbug.com/837717
-    ANGLE_SKIP_TEST_IF(IsOpenGL() && IsOSX());
+    ANGLE_SKIP_TEST_IF(IsOpenGL() && IsMac());
 
     GLRenderbuffer renderbuf;
     glBindRenderbuffer(GL_RENDERBUFFER, renderbuf.get());
@@ -1733,7 +1784,7 @@ TEST_P(BlitFramebufferTest, MultisampleDepth)
 TEST_P(BlitFramebufferTest, BlitMultisampleStencilToDefault)
 {
     // http://anglebug.com/3496
-    ANGLE_SKIP_TEST_IF(IsOpenGL() && IsIntel() && IsOSX());
+    ANGLE_SKIP_TEST_IF(IsOpenGL() && IsIntel() && IsMac());
 
     glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
@@ -2077,7 +2128,7 @@ TEST_P(BlitFramebufferTest, ScissoredMultisampleStencil)
 TEST_P(BlitFramebufferTest, NonZeroBaseSource)
 {
     // http://anglebug.com/5001
-    ANGLE_SKIP_TEST_IF(IsOpenGL() && IsIntel() && IsOSX());
+    ANGLE_SKIP_TEST_IF(IsOpenGL() && IsIntel() && IsMac());
 
     ANGLE_GL_PROGRAM(drawRed, essl3_shaders::vs::Simple(), essl3_shaders::fs::Red());
 
@@ -2169,7 +2220,7 @@ TEST_P(BlitFramebufferTest, NonZeroBaseDestination)
 TEST_P(BlitFramebufferTest, NonZeroBaseSourceStencil)
 {
     // http://anglebug.com/5001
-    ANGLE_SKIP_TEST_IF(IsOpenGL() && IsIntel() && IsOSX());
+    ANGLE_SKIP_TEST_IF(IsOpenGL() && IsIntel() && IsMac());
 
     ANGLE_GL_PROGRAM(drawRed, essl3_shaders::vs::Simple(), essl3_shaders::fs::Red());
 
@@ -2233,7 +2284,7 @@ TEST_P(BlitFramebufferTest, NonZeroBaseSourceStencil)
 TEST_P(BlitFramebufferTest, NonZeroBaseDestinationStencil)
 {
     // http://anglebug.com/5001
-    ANGLE_SKIP_TEST_IF(IsOpenGL() && IsIntel() && IsOSX());
+    ANGLE_SKIP_TEST_IF(IsOpenGL() && IsIntel() && IsMac());
 
     // http://anglebug.com/5003
     ANGLE_SKIP_TEST_IF(IsOpenGL() && IsIntel() && IsWindows());
@@ -2304,7 +2355,7 @@ TEST_P(BlitFramebufferTest, NonZeroBaseDestinationStencilStretch)
     ANGLE_SKIP_TEST_IF(IsOpenGL() && IsIntel() && IsWindows());
 
     // http://anglebug.com/5001
-    ANGLE_SKIP_TEST_IF(IsOpenGL() && IsIntel() && IsOSX());
+    ANGLE_SKIP_TEST_IF(IsOpenGL() && IsIntel() && IsMac());
 
     ANGLE_GL_PROGRAM(drawRed, essl3_shaders::vs::Simple(), essl3_shaders::fs::Red());
 
@@ -2869,6 +2920,116 @@ TEST_P(BlitFramebufferTest, useAndDestroyProgramThenBlit)
     glBindFramebuffer(GL_DRAW_FRAMEBUFFER, targetFBO);
     glBlitFramebuffer(0, 0, kWidth, kHeight, -kWidth / 2, -kHeight / 2, 3 * kWidth / 2,
                       3 * kHeight / 2, GL_COLOR_BUFFER_BIT, GL_NEAREST);
+    EXPECT_GL_NO_ERROR();
+}
+
+// This test is to ensure the draw after blit without any state change works properly
+TEST_P(BlitFramebufferTest, drawBlitAndDrawAgain)
+{
+    constexpr const GLsizei kWidth  = 256;
+    constexpr const GLsizei kHeight = 256;
+
+    GLRenderbuffer srcColorRB, srcDepthRB;
+    GLFramebuffer srcFBO;
+
+    ANGLE_GL_PROGRAM(drawRed, essl1_shaders::vs::Passthrough(), essl1_shaders::fs::Red());
+    ANGLE_GL_PROGRAM(drawGreen, essl1_shaders::vs::Passthrough(), essl1_shaders::fs::Green());
+    ANGLE_GL_PROGRAM(drawBlue, essl1_shaders::vs::Passthrough(), essl1_shaders::fs::Blue());
+
+    // Initialize source FBO with red color and depth==0.8f
+    initFBOWithProgramAndDepth(&srcFBO, &srcColorRB, GL_RGBA8, &srcDepthRB, GL_DEPTH24_STENCIL8_OES,
+                               kWidth, kHeight, drawRed, 0.8f);
+    EXPECT_PIXEL_COLOR_EQ(1, 1, GLColor::red);
+
+    // Initialize destination FBO and initialize to green and depth==0.7
+    initFBOWithProgramAndDepth(nullptr, nullptr, 0, nullptr, 0, kWidth, kHeight, drawGreen, 0.7f);
+    EXPECT_PIXEL_COLOR_EQ(1, 1, GLColor::green);
+
+    // Setup for draw-blit-draw use pattern
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, srcFBO);
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
+    std::array<Vector3, 6> quadVertices = GetQuadVertices();
+    constexpr size_t kBufferSize        = sizeof(quadVertices[0]) * quadVertices.size();
+    GLBuffer vertexBuffer;
+    glBindBuffer(GL_ARRAY_BUFFER, vertexBuffer);
+    glBufferData(GL_ARRAY_BUFFER, kBufferSize, nullptr, GL_STATIC_DRAW);
+    glUseProgram(drawBlue);
+    const GLint positionLocation = glGetAttribLocation(drawBlue, essl1_shaders::PositionAttrib());
+    ASSERT_NE(-1, positionLocation);
+    glVertexAttribPointer(positionLocation, 3, GL_FLOAT, GL_FALSE, 0, 0);
+    glEnableVertexAttribArray(positionLocation);
+
+    // Draw with depth=0.75, should fail depth test
+    drawWithDepthValue(quadVertices, 0.75f);
+    // Now blit  depth buffer from source FBO to the right half of destination FBO, so left half has
+    // depth 0.7f and right half has 0.8f
+    glBlitFramebuffer(kWidth / 2, 0, kWidth, kHeight, kWidth / 2, 0, kWidth, kHeight,
+                      GL_DEPTH_BUFFER_BIT, GL_NEAREST);
+    // Continue draw without state change and depth==0.75f, now it should pass depth test on right
+    // half
+    glDrawArrays(GL_TRIANGLES, 0, 6);
+
+    // Now verify dstFBO
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
+    EXPECT_PIXEL_COLOR_EQ(1, 1, GLColor::green);
+    EXPECT_PIXEL_COLOR_EQ(kWidth / 2 + 1, 1, GLColor::blue);
+    EXPECT_GL_NO_ERROR();
+}
+
+// This test is to ensure the scissored draw after blit without any state change works properly
+TEST_P(BlitFramebufferTest, scissorDrawBlitAndDrawAgain)
+{
+    constexpr const GLsizei kWidth  = 256;
+    constexpr const GLsizei kHeight = 256;
+
+    GLRenderbuffer srcColorRB, srcDepthRB;
+    GLFramebuffer srcFBO;
+
+    ANGLE_GL_PROGRAM(drawRed, essl1_shaders::vs::Passthrough(), essl1_shaders::fs::Red());
+    ANGLE_GL_PROGRAM(drawGreen, essl1_shaders::vs::Passthrough(), essl1_shaders::fs::Green());
+    ANGLE_GL_PROGRAM(drawBlue, essl1_shaders::vs::Passthrough(), essl1_shaders::fs::Blue());
+
+    // Initialize source FBO with red color and depth==0.8f
+    initFBOWithProgramAndDepth(&srcFBO, &srcColorRB, GL_RGBA8, &srcDepthRB, GL_DEPTH24_STENCIL8_OES,
+                               kWidth, kHeight, drawRed, 0.8f);
+    EXPECT_PIXEL_COLOR_EQ(1, 1, GLColor::red);
+
+    // Initialize destination FBO and initialize to green and depth==0.7
+    initFBOWithProgramAndDepth(nullptr, nullptr, 0, nullptr, 0, kWidth, kHeight, drawGreen, 0.7f);
+    EXPECT_PIXEL_COLOR_EQ(1, 1, GLColor::green);
+
+    // Setup for draw-blit-draw use pattern
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, srcFBO);
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
+    std::array<Vector3, 6> quadVertices = GetQuadVertices();
+    constexpr size_t kBufferSize        = sizeof(quadVertices[0]) * quadVertices.size();
+    GLBuffer vertexBuffer;
+    glBindBuffer(GL_ARRAY_BUFFER, vertexBuffer);
+    glBufferData(GL_ARRAY_BUFFER, kBufferSize, nullptr, GL_STATIC_DRAW);
+    glUseProgram(drawBlue);
+    const GLint positionLocation = glGetAttribLocation(drawBlue, essl1_shaders::PositionAttrib());
+    ASSERT_NE(-1, positionLocation);
+    glVertexAttribPointer(positionLocation, 3, GL_FLOAT, GL_FALSE, 0, 0);
+    glEnableVertexAttribArray(positionLocation);
+
+    // Scissored draw with depth=0.75, should fail depth test
+    glEnable(GL_SCISSOR_TEST);
+    glScissor(0, 0, kWidth, kHeight / 2);
+    drawWithDepthValue(quadVertices, 0.75f);
+    // Now blit  depth buffer from source FBO to the right half of destination FBO, so left half has
+    // depth 0.7f and right half has 0.8f
+    glBlitFramebuffer(kWidth / 2, 0, kWidth, kHeight, kWidth / 2, 0, kWidth, kHeight,
+                      GL_DEPTH_BUFFER_BIT, GL_NEAREST);
+    // Continue draw without state change and depth==0.75f, now it should pass depth test on right
+    // half
+    glDrawArrays(GL_TRIANGLES, 0, 6);
+
+    // Now verify dstFBO
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
+    EXPECT_PIXEL_COLOR_EQ(1, 1, GLColor::green);
+    EXPECT_PIXEL_COLOR_EQ(kWidth / 2 + 1, 1, GLColor::blue);
+    EXPECT_PIXEL_COLOR_EQ(1, kHeight - 1, GLColor::green);
+    EXPECT_PIXEL_COLOR_EQ(kWidth / 2 + 1, kHeight - 1, GLColor::green);
     EXPECT_GL_NO_ERROR();
 }
 
@@ -3667,11 +3828,8 @@ ANGLE_INSTANTIATE_TEST(BlitFramebufferANGLETest,
                        ES3_VULKAN().enable(Feature::EmulatedPrerotation270),
                        ES3_VULKAN()
                            .disable(Feature::SupportsExtendedDynamicState)
-                           .disable(Feature::SupportsExtendedDynamicState2)
-                           .disable(Feature::SupportsLogicOpDynamicState),
-                       ES3_VULKAN()
-                           .disable(Feature::SupportsExtendedDynamicState2)
-                           .disable(Feature::SupportsLogicOpDynamicState),
+                           .disable(Feature::SupportsExtendedDynamicState2),
+                       ES3_VULKAN().disable(Feature::SupportsExtendedDynamicState2),
                        ES2_METAL(),
                        ES2_METAL().disable(Feature::HasShaderStencilOutput));
 
@@ -3682,11 +3840,9 @@ ANGLE_INSTANTIATE_TEST_ES3_AND(BlitFramebufferTest,
                                ES3_VULKAN().enable(Feature::EmulatedPrerotation270),
                                ES3_VULKAN()
                                    .disable(Feature::SupportsExtendedDynamicState)
-                                   .disable(Feature::SupportsExtendedDynamicState2)
-                                   .disable(Feature::SupportsLogicOpDynamicState),
-                               ES3_VULKAN()
-                                   .disable(Feature::SupportsExtendedDynamicState2)
-                                   .disable(Feature::SupportsLogicOpDynamicState),
+                                   .disable(Feature::SupportsExtendedDynamicState2),
+                               ES3_VULKAN().disable(Feature::SupportsExtendedDynamicState2),
+                               ES3_VULKAN().enable(Feature::DisableFlippingBlitWithCommand),
                                ES3_METAL().disable(Feature::HasShaderStencilOutput));
 
 GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(BlitFramebufferTestES31);

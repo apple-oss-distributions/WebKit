@@ -19,7 +19,7 @@
 
 namespace
 {
-#if ANGLE_APPEND_ASSEMBLY_TO_SHADER_DEBUG_INFO == ANGLE_ENABLED
+#if ANGLE_APPEND_ASSEMBLY_TO_SHADER_DEBUG_INFO
 #    ifdef CREATE_COMPILER_FLAG_INFO
 #        undef CREATE_COMPILER_FLAG_INFO
 #    endif
@@ -82,14 +82,11 @@ bool IsCompilerFlagSet(UINT mask, UINT flag)
             return isFlagSet;
     }
 }
-#endif  // ANGLE_APPEND_ASSEMBLY_TO_SHADER_DEBUG_INFO == ANGLE_ENABLED
-
-constexpr char kOldCompilerLibrary[] = "d3dcompiler_old.dll";
+#endif  // ANGLE_APPEND_ASSEMBLY_TO_SHADER_DEBUG_INFO
 
 enum D3DCompilerLoadLibraryResult
 {
     D3DCompilerDefaultLibrarySuccess,
-    D3DCompilerOldLibrarySuccess,
     D3DCompilerFailure,
     D3DCompilerEnumBoundary,
 };
@@ -147,16 +144,6 @@ angle::Result HLSLCompiler::ensureInitialized(d3d::Context *context)
         {
             ANGLE_HISTOGRAM_ENUMERATION("GPU.ANGLE.D3DCompilerLoadLibraryResult",
                                         D3DCompilerDefaultLibrarySuccess, D3DCompilerEnumBoundary);
-        }
-        else
-        {
-            WARN() << "Failed to load HLSL compiler library. Using 'old' DLL.";
-            mD3DCompilerModule = LoadLibraryA(kOldCompilerLibrary);
-            if (mD3DCompilerModule)
-            {
-                ANGLE_HISTOGRAM_ENUMERATION("GPU.ANGLE.D3DCompilerLoadLibraryResult",
-                                            D3DCompilerOldLibrarySuccess, D3DCompilerEnumBoundary);
-            }
         }
     }
 
@@ -228,6 +215,8 @@ angle::Result HLSLCompiler::compileToBinary(d3d::Context *context,
     writeFile(sourcePath.c_str(), sourceText.c_str(), sourceText.size());
 #endif
 
+    auto *platform = ANGLEPlatformCurrent();
+
     const D3D_SHADER_MACRO *macros = overrideMacros ? overrideMacros : nullptr;
 
     for (size_t i = 0; i < configs.size(); ++i)
@@ -236,12 +225,16 @@ angle::Result HLSLCompiler::compileToBinary(d3d::Context *context,
         ID3DBlob *binary       = nullptr;
         HRESULT result         = S_OK;
 
+        double startTime = platform->currentTime(platform);
+
         {
             ANGLE_TRACE_EVENT1("gpu.angle", "D3DCompile", "source", hlsl);
             result = mD3DCompileFunc(hlsl.c_str(), hlsl.length(), gl::g_fakepath, macros, nullptr,
                                      "main", profile.c_str(), configs[i].flags, 0, &binary,
                                      &errorMessage);
         }
+
+        double compileTime = platform->currentTime(platform) - startTime;
 
         if (errorMessage)
         {
@@ -298,12 +291,18 @@ angle::Result HLSLCompiler::compileToBinary(d3d::Context *context,
 
         if (SUCCEEDED(result))
         {
+            int compileUs = static_cast<int>(compileTime * 1000'000.0);
+            ANGLE_HISTOGRAM_COUNTS("GPU.ANGLE.D3DShaderCompilationTimeUs", compileUs);
+
+            ANGLE_HISTOGRAM_MEMORY_KB("GPU.ANGLE.D3DShaderBlobSizeKB",
+                                      static_cast<int>(binary->GetBufferSize() / 1024));
+
             *outCompiledBlob = binary;
 
             (*outDebugInfo) +=
                 "// COMPILER INPUT HLSL BEGIN\n\n" + hlsl + "\n// COMPILER INPUT HLSL END\n";
 
-#if ANGLE_APPEND_ASSEMBLY_TO_SHADER_DEBUG_INFO == ANGLE_ENABLED
+#if ANGLE_APPEND_ASSEMBLY_TO_SHADER_DEBUG_INFO
             (*outDebugInfo) += "\n\n// ASSEMBLY BEGIN\n\n";
             (*outDebugInfo) += "// Compiler configuration: " + configs[i].name + "\n// Flags:\n";
             for (size_t fIx = 0; fIx < ArraySize(CompilerFlagInfos); ++fIx)
@@ -331,7 +330,7 @@ angle::Result HLSLCompiler::compileToBinary(d3d::Context *context,
             std::string disassembly;
             ANGLE_TRY(disassembleBinary(context, binary, &disassembly));
             (*outDebugInfo) += "\n" + disassembly + "\n// ASSEMBLY END\n";
-#endif  // ANGLE_APPEND_ASSEMBLY_TO_SHADER_DEBUG_INFO == ANGLE_ENABLED
+#endif  // ANGLE_APPEND_ASSEMBLY_TO_SHADER_DEBUG_INFO
             return angle::Result::Continue;
         }
 

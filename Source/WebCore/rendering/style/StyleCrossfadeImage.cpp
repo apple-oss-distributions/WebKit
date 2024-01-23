@@ -86,7 +86,7 @@ Ref<CSSValue> StyleCrossfadeImage::computedStyleValue(const RenderStyle& style) 
 {
     auto fromComputedValue = m_from ? m_from->computedStyleValue(style) : static_reference_cast<CSSValue>(CSSPrimitiveValue::create(CSSValueNone));
     auto toComputedValue = m_to ? m_to->computedStyleValue(style) : static_reference_cast<CSSValue>(CSSPrimitiveValue::create(CSSValueNone));
-    return CSSCrossfadeValue::create(WTFMove(fromComputedValue), WTFMove(toComputedValue), CSSPrimitiveValue::create(m_percentage, CSSUnitType::CSS_NUMBER), m_isPrefixed);
+    return CSSCrossfadeValue::create(WTFMove(fromComputedValue), WTFMove(toComputedValue), CSSPrimitiveValue::create(m_percentage), m_isPrefixed);
 }
 
 bool StyleCrossfadeImage::isPending() const
@@ -104,13 +104,15 @@ void StyleCrossfadeImage::load(CachedResourceLoader& loader, const ResourceLoade
     auto oldCachedToImage = m_cachedToImage;
 
     if (m_from) {
-        m_from->load(loader, options);
+        if (m_from->isPending())
+            m_from->load(loader, options);
         m_cachedFromImage = m_from->cachedImage();
     } else
         m_cachedFromImage = nullptr;
 
     if (m_to) {
-        m_to->load(loader, options);
+        if (m_to->isPending())
+            m_to->load(loader, options);
         m_cachedToImage = m_to->cachedImage();
     } else
         m_cachedToImage = nullptr;
@@ -132,7 +134,7 @@ void StyleCrossfadeImage::load(CachedResourceLoader& loader, const ResourceLoade
     m_inputImagesAreReady = true;
 }
 
-RefPtr<Image> StyleCrossfadeImage::image(const RenderElement* renderer, const FloatSize& size) const
+RefPtr<Image> StyleCrossfadeImage::image(const RenderElement* renderer, const FloatSize& size, bool isForFirstLine) const
 {
     if (!renderer)
         return &Image::nullImage();
@@ -143,8 +145,8 @@ RefPtr<Image> StyleCrossfadeImage::image(const RenderElement* renderer, const Fl
     if (!m_from || !m_to)
         return &Image::nullImage();
 
-    auto fromImage = m_from->image(renderer, size);
-    auto toImage = m_to->image(renderer, size);
+    auto fromImage = m_from->image(renderer, size, isForFirstLine);
+    auto toImage = m_to->image(renderer, size, isForFirstLine);
 
     if (!fromImage || !toImage)
         return &Image::nullImage();
@@ -184,8 +186,10 @@ void StyleCrossfadeImage::imageChanged(CachedImage*, const IntRect*)
 {
     if (!m_inputImagesAreReady)
         return;
-    for (auto& client : clients().values())
-        client->imageChanged(this);
+    for (auto entry : clients()) {
+        auto& client = entry.key;
+        client.imageChanged(static_cast<WrappedImagePtr>(this));
+    }
 }
 
 } // namespace WebCore

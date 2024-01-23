@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016-2022 Apple Inc. All rights reserved.
+ * Copyright (C) 2016-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -30,7 +30,6 @@
 #include "DrawGlyphsRecorder.h"
 #include "GraphicsContext.h"
 #include "Image.h" // For Image::TileRule.
-#include "InlinePathData.h"
 #include "TextFlags.h"
 #include <wtf/Noncopyable.h>
 
@@ -40,6 +39,7 @@ class FloatPoint;
 class FloatRect;
 class Font;
 class GlyphBuffer;
+class Gradient;
 class Image;
 class SourceImage;
 class VideoFrame;
@@ -61,8 +61,8 @@ public:
     WEBCORE_EXPORT Recorder(const GraphicsContextState&, const FloatRect& initialClip, const AffineTransform&, const DestinationColorSpace&, DrawGlyphsMode = DrawGlyphsMode::Normal);
     WEBCORE_EXPORT virtual ~Recorder();
 
-    virtual void convertToLuminanceMask() = 0;
-    virtual void transformToColorSpace(const DestinationColorSpace&) = 0;
+    // Records possible pending commands. Should be used when recording is known to end.
+    WEBCORE_EXPORT void commitRecording();
 
 protected:
     virtual void recordSave() = 0;
@@ -72,17 +72,19 @@ protected:
     virtual void recordScale(const FloatSize&) = 0;
     virtual void recordSetCTM(const AffineTransform&) = 0;
     virtual void recordConcatenateCTM(const AffineTransform&) = 0;
-    virtual void recordSetInlineFillColor(SRGBA<uint8_t>) = 0;
-    virtual void recordSetInlineStrokeColor(SRGBA<uint8_t>) = 0;
-    virtual void recordSetStrokeThickness(float) = 0;
+    virtual void recordSetInlineFillColor(PackedColor::RGBA) = 0;
+    virtual void recordSetInlineStroke(SetInlineStroke&&) = 0;
     virtual void recordSetState(const GraphicsContextState&) = 0;
     virtual void recordSetLineCap(LineCap) = 0;
     virtual void recordSetLineDash(const DashArray&, float dashOffset) = 0;
     virtual void recordSetLineJoin(LineJoin) = 0;
     virtual void recordSetMiterLimit(float) = 0;
     virtual void recordClearShadow() = 0;
+    virtual void recordResetClip() = 0;
     virtual void recordClip(const FloatRect&) = 0;
+    virtual void recordClipRoundedRect(const FloatRoundedRect&) = 0;
     virtual void recordClipOut(const FloatRect&) = 0;
+    virtual void recordClipOutRoundedRect(const FloatRoundedRect&) = 0;
     virtual void recordClipToImageBuffer(ImageBuffer&, const FloatRect& destinationRect) = 0;
     virtual void recordClipOutToPath(const Path&) = 0;
     virtual void recordClipPath(const Path&, WindRule) = 0;
@@ -110,11 +112,12 @@ protected:
     virtual void recordFillRoundedRect(const FloatRoundedRect&, const Color&, BlendMode) = 0;
     virtual void recordFillRectWithRoundedHole(const FloatRect&, const FloatRoundedRect&, const Color&) = 0;
 #if ENABLE(INLINE_PATH_DATA)
-    virtual void recordFillLine(const LineData&) = 0;
-    virtual void recordFillArc(const ArcData&) = 0;
-    virtual void recordFillQuadCurve(const QuadCurveData&) = 0;
-    virtual void recordFillBezierCurve(const BezierCurveData&) = 0;
+    virtual void recordFillLine(const PathDataLine&) = 0;
+    virtual void recordFillArc(const PathArc&) = 0;
+    virtual void recordFillQuadCurve(const PathDataQuadCurve&) = 0;
+    virtual void recordFillBezierCurve(const PathDataBezierCurve&) = 0;
 #endif
+    virtual void recordFillPathSegment(const PathSegment&) = 0;
     virtual void recordFillPath(const Path&) = 0;
     virtual void recordFillEllipse(const FloatRect&) = 0;
 #if ENABLE(VIDEO)
@@ -123,12 +126,13 @@ protected:
 #endif
     virtual void recordStrokeRect(const FloatRect&, float) = 0;
 #if ENABLE(INLINE_PATH_DATA)
-    virtual void recordStrokeLine(const LineData&) = 0;
-    virtual void recordStrokeLineWithColorAndThickness(SRGBA<uint8_t>, float, const LineData&) = 0;
-    virtual void recordStrokeArc(const ArcData&) = 0;
-    virtual void recordStrokeQuadCurve(const QuadCurveData&) = 0;
-    virtual void recordStrokeBezierCurve(const BezierCurveData&) = 0;
+    virtual void recordStrokeLine(const PathDataLine&) = 0;
+    virtual void recordStrokeLineWithColorAndThickness(const PathDataLine&, SetInlineStroke&&) = 0;
+    virtual void recordStrokeArc(const PathArc&) = 0;
+    virtual void recordStrokeQuadCurve(const PathDataQuadCurve&) = 0;
+    virtual void recordStrokeBezierCurve(const PathDataBezierCurve&) = 0;
 #endif
+    virtual void recordStrokePathSegment(const PathSegment&) = 0;
     virtual void recordStrokePath(const Path&) = 0;
     virtual void recordStrokeEllipse(const FloatRect&) = 0;
     virtual void recordClearRect(const FloatRect&) = 0;
@@ -146,27 +150,22 @@ protected:
     virtual bool recordResourceUse(const SourceImage&) = 0;
     virtual bool recordResourceUse(Font&) = 0;
     virtual bool recordResourceUse(DecomposedGlyphs&) = 0;
+    virtual bool recordResourceUse(Gradient&) = 0;
+    virtual bool recordResourceUse(Filter&) = 0;
 
     struct ContextState {
         GraphicsContextState state;
-        std::optional<GraphicsContextState> lastDrawingState;
         AffineTransform ctm;
         FloatRect clipBounds;
-
-        ContextState(const GraphicsContextState& state, const AffineTransform& ctm, const FloatRect& clipBounds)
-            : state(state)
-            , ctm(ctm)
-            , clipBounds(clipBounds)
-        {
-        }
+        std::optional<GraphicsContextState> lastDrawingState { std::nullopt };
 
         ContextState cloneForTransparencyLayer() const
         {
-            auto copy = *this;
-            copy.state.didBeginTransparencyLayer();
-            if (copy.lastDrawingState)
-                copy.lastDrawingState->didBeginTransparencyLayer();
-            return copy;
+            auto stateClone = state.clone(GraphicsContextState::Purpose::TransparencyLayer);
+            std::optional<GraphicsContextState> lastDrawingStateClone;
+            if (lastDrawingStateClone)
+                lastDrawingStateClone = lastDrawingState->clone(GraphicsContextState::Purpose::TransparencyLayer);
+            return ContextState { WTFMove(stateClone), ctm, clipBounds, WTFMove(lastDrawingStateClone) };
         }
 
         void translate(float x, float y);
@@ -190,9 +189,7 @@ private:
     const DestinationColorSpace& colorSpace() const final { return m_colorSpace; }
 
 #if USE(CG)
-    void setIsCALayerContext(bool) final { }
     bool isCALayerContext() const final { return false; }
-    void setIsAcceleratedContext(bool) final { }
 #endif
 
     void fillRoundedRectImpl(const FloatRoundedRect&, const Color&) final { ASSERT_NOT_REACHED(); }
@@ -249,8 +246,8 @@ private:
     WEBCORE_EXPORT void drawFocusRing(const Path&, float outlineWidth, const Color&) final;
     WEBCORE_EXPORT void drawFocusRing(const Vector<FloatRect>&, float outlineOffset, float outlineWidth, const Color&) final;
 
-    WEBCORE_EXPORT void save() final;
-    WEBCORE_EXPORT void restore() final;
+    WEBCORE_EXPORT void save(GraphicsContextState::Purpose = GraphicsContextState::Purpose::SaveRestore) final;
+    WEBCORE_EXPORT void restore(GraphicsContextState::Purpose = GraphicsContextState::Purpose::SaveRestore) final;
 
     WEBCORE_EXPORT void translate(float x, float y) final;
     WEBCORE_EXPORT void rotate(float angleInRadians) final;
@@ -262,10 +259,16 @@ private:
     WEBCORE_EXPORT void beginTransparencyLayer(float opacity) final;
     WEBCORE_EXPORT void endTransparencyLayer() final;
 
+    WEBCORE_EXPORT void resetClip() final;
+
     WEBCORE_EXPORT void clip(const FloatRect&) final;
+    WEBCORE_EXPORT void clipRoundedRect(const FloatRoundedRect&) final;
+    WEBCORE_EXPORT void clipPath(const Path&, WindRule) final;
+
     WEBCORE_EXPORT void clipOut(const FloatRect&) final;
     WEBCORE_EXPORT void clipOut(const Path&) final;
-    WEBCORE_EXPORT void clipPath(const Path&, WindRule) final;
+    WEBCORE_EXPORT void clipOutRoundedRect(const FloatRoundedRect&) final;
+
     WEBCORE_EXPORT IntRect clipBounds() const final;
     WEBCORE_EXPORT void clipToImageBuffer(ImageBuffer&, const FloatRect&) final;
 
@@ -279,6 +282,8 @@ private:
     void appendStateChangeItemIfNecessary();
     void appendStateChangeItem(const GraphicsContextState&);
 
+    SetInlineStroke buildSetInlineStroke(const GraphicsContextState&);
+
     const AffineTransform& ctm() const;
 
     bool shouldDeconstructDrawGlyphs() const;
@@ -288,6 +293,7 @@ private:
     float m_initialScale { 1 };
     DestinationColorSpace m_colorSpace;
     const DrawGlyphsMode m_drawGlyphsMode { DrawGlyphsMode::Normal };
+    const FloatRect m_initialClip;
 };
 
 } // namespace DisplayList

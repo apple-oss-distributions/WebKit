@@ -26,15 +26,21 @@
 #import "config.h"
 #import "UTIUtilities.h"
 
+#import <wtf/HashSet.h>
 #import <wtf/Lock.h>
 #import <wtf/MainThread.h>
 #import <wtf/SortedArrayMap.h>
 #import <wtf/TinyLRUCache.h>
 #import <wtf/cf/TypeCastsCF.h>
 #import <wtf/text/WTFString.h>
+#include <wtf/cocoa/VectorCocoa.h>
 
 #if PLATFORM(IOS_FAMILY)
 #import <MobileCoreServices/MobileCoreServices.h>
+#endif
+
+#if HAVE(CGIMAGESOURCE_WITH_SET_ALLOWABLE_TYPES)
+#include <pal/spi/cg/ImageIOSPI.h>
 #endif
 
 namespace WebCore {
@@ -44,6 +50,20 @@ String MIMETypeFromUTI(const String& uti)
 ALLOW_DEPRECATED_DECLARATIONS_BEGIN
     return adoptCF(UTTypeCopyPreferredTagWithClass(uti.createCFString().get(), kUTTagClassMIMEType)).get();
 ALLOW_DEPRECATED_DECLARATIONS_END
+}
+
+HashSet<String> RequiredMIMETypesFromUTI(const String& uti)
+{
+    HashSet<String> mimeTypes;
+
+    auto mainMIMEType = MIMETypeFromUTI(uti);
+    if (!mainMIMEType.isEmpty())
+        mimeTypes.add(mainMIMEType);
+
+    if (equalLettersIgnoringASCIICase(uti, "com.adobe.photoshop-image"_s))
+        mimeTypes.add("application/x-photoshop"_s);
+
+    return mimeTypes;
 }
 
 RetainPtr<CFStringRef> mimeTypeFromUTITree(CFStringRef uti)
@@ -134,4 +154,14 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     return u.get();
 }
 
+void setImageSourceAllowableTypes(const Vector<String>& supportedImageTypes)
+{
+#if HAVE(CGIMAGESOURCE_WITH_SET_ALLOWABLE_TYPES)
+    auto allowableTypes = createNSArray(supportedImageTypes);
+    CGImageSourceSetAllowableTypes((__bridge CFArrayRef)allowableTypes.get());
+#else
+    UNUSED_PARAM(supportedImageTypes);
+#endif
 }
+
+} // namespace WebCore

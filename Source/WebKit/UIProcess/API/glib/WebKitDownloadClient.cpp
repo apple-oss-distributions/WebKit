@@ -82,9 +82,7 @@ private:
     {
         ASSERT(m_download);
         didReceiveResponse(downloadProxy, resourceResponse);
-        bool allowOverwrite = false;
-        String destination = webkitDownloadDecideDestinationWithSuggestedFilename(m_download.get(), filename.utf8(), allowOverwrite);
-        completionHandler(allowOverwrite ? AllowOverwrite::Yes : AllowOverwrite::No, destination);
+        webkitDownloadDecideDestinationWithSuggestedFilename(m_download.get(), filename.utf8(), WTFMove(completionHandler));
     }
 
     void didCreateDestination(DownloadProxy& downloadProxy, const String& path) override
@@ -95,19 +93,28 @@ private:
 
     void didFail(DownloadProxy& downloadProxy, const ResourceError& error, API::Data*) override
     {
+        if (webkitDownloadIsCancelled(m_download.get()))
+            return;
+
         ASSERT(m_download);
-        if (webkitDownloadIsCancelled(m_download.get())) {
-            // Cancellation takes precedence over other errors.
-            webkitDownloadCancelled(m_download.get());
-        } else
-            webkitDownloadFailed(m_download.get(), error);
+        webkitDownloadFailed(m_download.get(), error);
         m_download = nullptr;
     }
 
     void didFinish(DownloadProxy& downloadProxy) override
     {
+        if (webkitDownloadIsCancelled(m_download.get()))
+            return;
+
         ASSERT(m_download);
         webkitDownloadFinished(m_download.get());
+        m_download = nullptr;
+    }
+
+    void legacyDidCancel(WebKit::DownloadProxy&) override
+    {
+        ASSERT(m_download);
+        webkitDownloadCancelled(m_download.get());
         m_download = nullptr;
     }
 

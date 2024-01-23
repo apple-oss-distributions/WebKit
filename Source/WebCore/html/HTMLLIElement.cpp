@@ -26,7 +26,7 @@
 #include "Attribute.h"
 #include "CSSPropertyNames.h"
 #include "CSSValueKeywords.h"
-#include "ElementAncestorIterator.h"
+#include "ElementAncestorIteratorInlines.h"
 #include "HTMLNames.h"
 #include "HTMLOListElement.h"
 #include "HTMLParserIdioms.h"
@@ -41,10 +41,9 @@ WTF_MAKE_ISO_ALLOCATED_IMPL(HTMLLIElement);
 using namespace HTMLNames;
 
 HTMLLIElement::HTMLLIElement(const QualifiedName& tagName, Document& document)
-    : HTMLElement(tagName, document)
+    : HTMLElement(tagName, document, CreateHTMLLIElement)
 {
     ASSERT(hasTagName(liTag));
-    setHasCustomStyleResolveCallbacks();
 }
 
 Ref<HTMLLIElement> HTMLLIElement::create(Document& document)
@@ -59,7 +58,7 @@ Ref<HTMLLIElement> HTMLLIElement::create(const QualifiedName& tagName, Document&
 
 bool HTMLLIElement::hasPresentationalHintsForAttribute(const QualifiedName& name) const
 {
-    if (name == typeAttr)
+    if (name == typeAttr || name == valueAttr)
         return true;
     return HTMLElement::hasPresentationalHintsForAttribute(name);
 }
@@ -77,19 +76,24 @@ void HTMLLIElement::collectPresentationalHintsForAttribute(const QualifiedName& 
             addPropertyToPresentationalHintStyle(style, CSSPropertyListStyleType, CSSValueUpperRoman);
         else if (value == "1"_s)
             addPropertyToPresentationalHintStyle(style, CSSPropertyListStyleType, CSSValueDecimal);
-        else
-            addPropertyToPresentationalHintStyle(style, CSSPropertyListStyleType, value);
+        else {
+            auto valueLowerCase = value.convertToASCIILowercase();
+            if (valueLowerCase == "disc"_s)
+                addPropertyToPresentationalHintStyle(style, CSSPropertyListStyleType, CSSValueDisc);
+            else if (valueLowerCase == "circle"_s)
+                addPropertyToPresentationalHintStyle(style, CSSPropertyListStyleType, CSSValueCircle);
+            else if (valueLowerCase == "round"_s)
+                addPropertyToPresentationalHintStyle(style, CSSPropertyListStyleType, CSSValueRound);
+            else if (valueLowerCase == "square"_s)
+                addPropertyToPresentationalHintStyle(style, CSSPropertyListStyleType, CSSValueSquare);
+            else if (valueLowerCase == "none"_s)
+                addPropertyToPresentationalHintStyle(style, CSSPropertyListStyleType, CSSValueNone);
+        }
+    } else if (name == valueAttr) {
+        if (auto parsedValue = parseHTMLInteger(value))
+            addPropertyToPresentationalHintStyle(style, CSSPropertyCounterSet, makeString("list-item "_s, *parsedValue));
     } else
         HTMLElement::collectPresentationalHintsForAttribute(name, value, style);
-}
-
-void HTMLLIElement::parseAttribute(const QualifiedName& name, const AtomString& value)
-{
-    if (name == valueAttr) {
-        if (renderer() && renderer()->isListItem())
-            parseValue(value);
-    } else
-        HTMLElement::parseAttribute(name, value);
 }
 
 void HTMLLIElement::didAttachRenderers()
@@ -111,17 +115,6 @@ void HTMLLIElement::didAttachRenderers()
     // We don't want to change our style to say "inside" since that would affect nested nodes.
     if (!isInList)
         listItemRenderer.setNotInList(true);
-
-    parseValue(attributeWithoutSynchronization(valueAttr));
-}
-
-inline void HTMLLIElement::parseValue(const AtomString& value)
-{
-    ASSERT(renderer());
-    std::optional<int> explicitValue;
-    if (auto parsedValue = parseHTMLInteger(value))
-        explicitValue = *parsedValue;
-    downcast<RenderListItem>(*renderer()).setExplicitValue(explicitValue);
 }
 
 }

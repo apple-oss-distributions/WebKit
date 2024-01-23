@@ -22,8 +22,6 @@ typedef _CGLPixelFormatObject *CGLPixelFormatObj;
 namespace rx
 {
 
-class WorkerContext;
-
 struct EnsureCGLContextIsCurrent : angle::NonCopyable
 {
   public:
@@ -84,14 +82,13 @@ class DisplayCGL : public DisplayGL
     DeviceImpl *createDevice() override;
 
     egl::Error waitClient(const gl::Context *context) override;
+    egl::Error waitUntilWorkScheduled() override;
     egl::Error waitNative(const gl::Context *context, EGLint engine) override;
 
     gl::Version getMaxSupportedESVersion() const override;
 
     CGLContextObj getCGLContext() const;
     CGLPixelFormatObj getCGLPixelFormat() const;
-
-    WorkerContext *createWorkerContext(std::string *infoLog);
 
     void initializeFrontendFeatures(angle::FrontendFeatures *features) const override;
 

@@ -33,10 +33,14 @@
 
 namespace WebKit {
 
-void RemoteVideoFrameObjectHeap::createPixelConformerIfNeeded()
+RefPtr<WebCore::VideoFrame> RemoteVideoFrameObjectHeap::get(RemoteVideoFrameReadReference&& read)
 {
-    if (!m_pixelBufferConformer)
-        m_pixelBufferConformer = makeUnique<WebCore::PixelBufferConformerCV>((__bridge CFDictionaryRef)@{ (__bridge NSString *)kCVPixelBufferPixelFormatTypeKey: @(kCVPixelFormatType_32BGRA) });
+    return m_heap.read(WTFMove(read), 0_s);
+}
+
+UniqueRef<WebCore::PixelBufferConformerCV> RemoteVideoFrameObjectHeap::createPixelConformer()
+{
+    return makeUniqueRef<WebCore::PixelBufferConformerCV>((__bridge CFDictionaryRef)@{ (__bridge NSString *)kCVPixelBufferPixelFormatTypeKey: @(kCVPixelFormatType_32BGRA) });
 }
 
 }

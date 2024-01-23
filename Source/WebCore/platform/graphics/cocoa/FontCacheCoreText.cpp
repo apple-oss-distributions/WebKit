@@ -673,7 +673,7 @@ static void autoActivateFont(const String& name, CGFloat size)
 
 std::unique_ptr<FontPlatformData> FontCache::createFontPlatformData(const FontDescription& fontDescription, const AtomString& family, const FontCreationContext& fontCreationContext)
 {
-    float size = fontDescription.computedPixelSize();
+    auto size = fontDescription.adjustedSizeForFontFace(fontCreationContext.sizeAdjust());
     auto& fontDatabase = database(fontDescription.shouldAllowUserInstalledFonts());
     auto font = fontWithFamily(fontDatabase, family, fontDescription, fontCreationContext, size);
 
@@ -700,7 +700,7 @@ std::unique_ptr<FontPlatformData> FontCache::createFontPlatformData(const FontDe
 
     FontPlatformData platformData(font.get(), size, syntheticBold, syntheticOblique, fontDescription.orientation(), fontDescription.widthVariant(), fontDescription.textRenderingMode());
 
-    platformData.updateSizeWithFontSizeAdjust(fontDescription.fontSizeAdjust());
+    platformData.updateSizeWithFontSizeAdjust(fontDescription.fontSizeAdjust(), fontDescription.computedSize());
     return makeUnique<FontPlatformData>(platformData);
 }
 
@@ -732,28 +732,26 @@ static bool isUserInstalledFont(CTFontRef font)
 }
 #endif
 
-static RetainPtr<CTFontRef> createFontForCharacters(CTFontRef font, CFStringRef localeString, AllowUserInstalledFonts allowUserInstalledFonts, const UChar* characters, unsigned length)
+static RetainPtr<CTFontRef> lookupFallbackFont(CTFontRef font, FontSelectionValue fontWeight, const AtomString& locale, AllowUserInstalledFonts allowUserInstalledFonts, StringView characterCluster)
 {
-    CFIndex coveredLength = 0;
-    auto fallbackOption = allowUserInstalledFonts == AllowUserInstalledFonts::No ? kCTFontFallbackOptionSystem : kCTFontFallbackOptionDefault;
-    return adoptCF(CTFontCreateForCharactersWithLanguageAndOption(font, reinterpret_cast<const UniChar*>(characters), length, localeString, fallbackOption, &coveredLength));
-}
-
-static RetainPtr<CTFontRef> lookupFallbackFont(CTFontRef font, FontSelectionValue fontWeight, const AtomString& locale, AllowUserInstalledFonts allowUserInstalledFonts, const UChar* characters, unsigned length)
-{
-    ASSERT(length > 0);
+    ASSERT(characterCluster.length() > 0);
 
     RetainPtr<CFStringRef> localeString;
     if (!locale.isNull())
         localeString = locale.string().createCFString();
 
-    auto result = createFontForCharacters(font, localeString.get(), allowUserInstalledFonts, characters, length);
+    CFIndex coveredLength = 0;
+    auto upconvertedCharacters = characterCluster.upconvertedCharacters();
+    auto fallbackOption = allowUserInstalledFonts == AllowUserInstalledFonts::No ? kCTFontFallbackOptionSystem : kCTFontFallbackOptionDefault;
+    auto result = adoptCF(CTFontCreateForCharactersWithLanguageAndOption(font, reinterpret_cast<const UTF16Char*>(upconvertedCharacters.get()), characterCluster.length(), localeString.get(), fallbackOption, &coveredLength));
     ASSERT(!isUserInstalledFont(result.get()) || allowUserInstalledFonts == AllowUserInstalledFonts::Yes);
 
 #if PLATFORM(IOS_FAMILY)
-    // Callers of this function won't include multiple code points. "Length" is to know how many code units
-    // are in the code point.
-    UChar firstCharacter = characters[0];
+    // FIXME: This is so unfortunate. The reason this is here is that certain fonts which are early in the system font cascade list
+    // (used to?) perform poorly. In order to speed up the browser, we block those fonts, and use other faster fonts instead.
+    // However, this performance analysis was done, like, 10 years ago, and the probability that these fonts are still too slow
+    // seems quite low. We should re-analyze performance to see if we can delete this code.
+    UChar firstCharacter = characterCluster[0];
     if (isArabicCharacter(firstCharacter)) {
         auto familyName = adoptCF(static_cast<CFStringRef>(CTFontCopyAttribute(result.get(), kCTFontFamilyNameAttribute)));
         if (fontFamilyShouldNotBeUsedForArabic(familyName.get())) {
@@ -772,7 +770,7 @@ static RetainPtr<CTFontRef> lookupFallbackFont(CTFontRef font, FontSelectionValu
     return result;
 }
 
-RefPtr<Font> FontCache::systemFallbackForCharacters(const FontDescription& description, const Font& originalFontData, IsForPlatformFont isForPlatformFont, PreferColoredFont, const UChar* characters, unsigned length)
+RefPtr<Font> FontCache::systemFallbackForCharacterCluster(const FontDescription& description, const Font& originalFontData, IsForPlatformFont isForPlatformFont, PreferColoredFont, StringView characterCluster)
 {
     const FontPlatformData& platformData = originalFontData.platformData();
 
@@ -780,7 +778,7 @@ RefPtr<Font> FontCache::systemFallbackForCharacters(const FontDescription& descr
     if (!fullName.isEmpty())
         m_fontNamesRequiringSystemFallbackForPrewarming.add(fullName);
 
-    auto result = lookupFallbackFont(platformData.font(), description.weight(), description.computedLocale(), description.shouldAllowUserInstalledFonts(), characters, length);
+    auto result = lookupFallbackFont(platformData.font(), description.weight(), description.computedLocale(), description.shouldAllowUserInstalledFonts(), characterCluster);
     result = preparePlatformFont(UnrealizedCoreTextFont { WTFMove(result) }, description, { });
 
     if (!result)
@@ -793,10 +791,10 @@ RefPtr<Font> FontCache::systemFallbackForCharacters(const FontDescription& descr
 
     auto [syntheticBold, syntheticOblique] = computeNecessarySynthesis(substituteFont, description, ShouldComputePhysicalTraits::No, isForPlatformFont == IsForPlatformFont::Yes).boldObliquePair();
 
-    const FontPlatformData::CreationData* creationData = nullptr;
+    const FontCustomPlatformData* customPlatformData = nullptr;
     if (safeCFEqual(platformData.font(), substituteFont))
-        creationData = platformData.creationData();
-    FontPlatformData alternateFont(substituteFont, platformData.size(), syntheticBold, syntheticOblique, platformData.orientation(), platformData.widthVariant(), platformData.textRenderingMode(), creationData);
+        customPlatformData = platformData.customPlatformData();
+    FontPlatformData alternateFont(substituteFont, platformData.size(), syntheticBold, syntheticOblique, platformData.orientation(), platformData.widthVariant(), platformData.textRenderingMode(), customPlatformData);
 
     return fontForPlatformData(alternateFont);
 }
@@ -925,9 +923,9 @@ Ref<Font> FontCache::lastResortFallbackFont(const FontDescription& fontDescripti
 
     // LastResort is guaranteed to be non-null.
     auto fontDescriptor = adoptCF(CTFontDescriptorCreateLastResort());
-    auto font = adoptCF(CTFontCreateWithFontDescriptor(fontDescriptor.get(), fontDescription.computedPixelSize(), nullptr));
+    auto font = adoptCF(CTFontCreateWithFontDescriptor(fontDescriptor.get(), fontDescription.computedSize(), nullptr));
     auto [syntheticBold, syntheticOblique] = computeNecessarySynthesis(font.get(), fontDescription).boldObliquePair();
-    FontPlatformData platformData(font.get(), fontDescription.computedPixelSize(), syntheticBold, syntheticOblique, fontDescription.orientation(), fontDescription.widthVariant(), fontDescription.textRenderingMode());
+    FontPlatformData platformData(font.get(), fontDescription.computedSize(), syntheticBold, syntheticOblique, fontDescription.orientation(), fontDescription.widthVariant(), fontDescription.textRenderingMode());
     return fontForPlatformData(platformData);
 }
 
@@ -967,21 +965,34 @@ void FontCache::prewarmGlobally()
     if (MemoryPressureHandler::singleton().isUnderMemoryPressure())
         return;
 
-    Vector<String> families {
-#if PLATFORM(MAC) || PLATFORM(MACCATALYST)
-        ".SF NS Text"_s,
-        ".SF NS Display"_s,
-#endif
+    Vector<String> seenFamilies {
+        "Apple SD Gothic Neo"_s,
         "Arial"_s,
+        "Geeza Pro"_s,
+        "Georgia"_s,
         "Helvetica"_s,
         "Helvetica Neue"_s,
+        "Hiragino Sans"_s,
         "Lucida Grande"_s,
+        "Menlo"_s,
+        "PingFang SC"_s,
         "Times"_s,
+        "Times New Roman"_s,
+        "Trebuchet MS"_s,
+        "Verdana"_s,
+    };
+    Vector<String> systemFallbackFamilies {
+        "Arial"_s,
+        "Arial Bold"_s,
+        "Helvetica"_s,
+        "Helvetica Neue Bold"_s,
+        "System Font Regular"_s,
         "Times New Roman"_s,
     };
 
     FontCache::PrewarmInformation prewarmInfo;
-    prewarmInfo.seenFamilies = WTFMove(families);
+    prewarmInfo.seenFamilies = WTFMove(seenFamilies);
+    prewarmInfo.fontNamesRequiringSystemFallback = WTFMove(systemFallbackFamilies);
     FontCache::forCurrentThread().prewarm(WTFMove(prewarmInfo));
 #endif
 }

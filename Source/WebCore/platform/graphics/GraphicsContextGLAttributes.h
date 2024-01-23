@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016 Apple Inc. All rights reserved.
+ * Copyright (C) 2016-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -39,9 +39,13 @@ enum class GraphicsContextGLPowerPreference : uint8_t {
 
 enum class GraphicsContextGLWebGLVersion : uint8_t {
     WebGL1,
-#if ENABLE(WEBGL2)
     WebGL2
-#endif
+};
+
+enum class GraphicsContextGLSimulatedCreationFailure : uint8_t {
+    None,
+    IPCBufferOOM,
+    CreationTimeout
 };
 
 #if PLATFORM(MAC) || PLATFORM(MACCATALYST)
@@ -61,8 +65,6 @@ struct GraphicsContextGLAttributes {
     PowerPreference powerPreference { PowerPreference::Default };
 
     // Additional attributes.
-    bool shareResources { true };
-    bool noExtensions { false };
     float devicePixelRatio { 1 };
     PowerPreference initialPowerPreference { PowerPreference::Default };
     using WebGLVersion = GraphicsContextGLWebGLVersion;
@@ -78,7 +80,8 @@ struct GraphicsContextGLAttributes {
     bool xrCompatible { false };
 #endif
     bool failPlatformContextCreationForTesting { false };
-    unsigned remoteIPCBufferSizeLog2ForTesting { 0 }; // Not serialized.
+    using SimulatedCreationFailure = GraphicsContextGLSimulatedCreationFailure;
+    SimulatedCreationFailure failContextCreationForTesting { SimulatedCreationFailure::None }; // Not serialized.
 
     PowerPreference effectivePowerPreference() const
     {

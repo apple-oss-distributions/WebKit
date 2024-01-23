@@ -30,9 +30,9 @@
 #import "DOMEventTarget.h"
 #import "DOMNode.h"
 #import "DOMNodeInternal.h"
-#import <WebCore/DOMWindow.h>
 #import "ExceptionHandlers.h"
 #import <WebCore/JSExecState.h>
+#import <WebCore/LocalDOMWindow.h>
 #import <WebCore/MouseEvent.h>
 #import <WebCore/Node.h>
 #import <WebCore/ThreadCheck.h>
@@ -95,7 +95,7 @@
 - (short)button
 {
     WebCore::JSMainThreadNullState state;
-    return IMPL->button();
+    return IMPL->buttonAsShort();
 }
 
 - (id <DOMEventTarget>)relatedTarget

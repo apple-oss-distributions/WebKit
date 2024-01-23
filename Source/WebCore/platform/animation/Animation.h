@@ -27,7 +27,7 @@
 #include "CSSPropertyNames.h"
 #include "CompositeOperation.h"
 #include "RenderStyleConstants.h"
-#include "StyleScopeOrdinal.h"
+#include "ScopedName.h"
 #include "TimingFunction.h"
 #include "WebAnimationTypes.h"
 
@@ -56,7 +56,7 @@ public:
 
     // We can make placeholder Animation objects to keep the comma-separated lists
     // of properties in sync. isValidAnimation means this is not a placeholder.
-    bool isValidAnimation() const { return !m_isNone && !m_name.string.isEmpty(); }
+    bool isValidAnimation() const { return !m_isNone && !m_name.name.isEmpty(); }
 
     bool isEmpty() const
     {
@@ -110,45 +110,38 @@ public:
         AnimatableProperty animatableProperty;
     };
 
-    enum AnimationDirection {
-        AnimationDirectionNormal,
-        AnimationDirectionAlternate,
-        AnimationDirectionReverse,
-        AnimationDirectionAlternateReverse
+    enum class Direction : uint8_t {
+        Normal,
+        Alternate,
+        Reverse,
+        AlternateReverse
     };
 
-    AnimationDirection direction() const { return static_cast<AnimationDirection>(m_direction); }
-    bool directionIsForwards() const { return m_direction == AnimationDirectionNormal || m_direction == AnimationDirectionAlternate; }
+    Direction direction() const { return static_cast<Direction>(m_direction); }
+    bool directionIsForwards() const { return direction() == Direction::Normal || direction() == Direction::Alternate; }
 
     AnimationFillMode fillMode() const { return static_cast<AnimationFillMode>(m_fillMode); }
 
     double duration() const { return m_duration; }
     double playbackRate() const { return m_playbackRate; }
 
-    struct Name {
-        String string;
-        bool isIdentifier { false };
-    };
-
     static constexpr double IterationCountInfinite = -1;
     double iterationCount() const { return m_iterationCount; }
-    const Name& name() const { return m_name; }
-    Style::ScopeOrdinal nameStyleScopeOrdinal() const { return m_nameStyleScopeOrdinal; }
+    const Style::ScopedName& name() const { return m_name; }
     AnimationPlayState playState() const { return static_cast<AnimationPlayState>(m_playState); }
     TransitionProperty property() const { return m_property; }
     TimingFunction* timingFunction() const { return m_timingFunction.get(); }
     TimingFunction* defaultTimingFunctionForKeyframes() const { return m_defaultTimingFunctionForKeyframes.get(); }
 
     void setDelay(double c) { m_delay = c; m_delaySet = true; }
-    void setDirection(AnimationDirection d) { m_direction = d; m_directionSet = true; }
+    void setDirection(Direction d) { m_direction = static_cast<unsigned>(d); m_directionSet = true; }
     void setDuration(double d) { ASSERT(d >= 0); m_duration = d; m_durationSet = true; }
     void setPlaybackRate(double d) { m_playbackRate = d; }
     void setFillMode(AnimationFillMode f) { m_fillMode = static_cast<unsigned>(f); m_fillModeSet = true; }
     void setIterationCount(double c) { m_iterationCount = c; m_iterationCountSet = true; }
-    void setName(const Name& name, Style::ScopeOrdinal scope = Style::ScopeOrdinal::Element)
+    void setName(const Style::ScopedName& name)
     {
         m_name = name;
-        m_nameStyleScopeOrdinal = scope;
         m_nameSet = true;
     }
     void setPlayState(AnimationPlayState d) { m_playState = static_cast<unsigned>(d); m_playStateSet = true; }
@@ -159,7 +152,7 @@ public:
     void setIsNoneAnimation(bool n) { m_isNone = n; }
 
     void fillDelay(double delay) { setDelay(delay); m_delayFilled = true; }
-    void fillDirection(AnimationDirection direction) { setDirection(direction); m_directionFilled = true; }
+    void fillDirection(Direction direction) { setDirection(direction); m_directionFilled = true; }
     void fillDuration(double duration) { setDuration(duration); m_durationFilled = true; }
     void fillFillMode(AnimationFillMode fillMode) { setFillMode(fillMode); m_fillModeFilled = true; }
     void fillIterationCount(double iterationCount) { setIterationCount(iterationCount); m_iterationCountFilled = true; }
@@ -183,7 +176,6 @@ public:
 
     // return true every Animation in the chain (defined by m_next) match 
     bool operator==(const Animation& o) const { return animationsMatch(o); }
-    bool operator!=(const Animation& o) const { return !(*this == o); }
 
     bool fillsBackwards() const { return m_fillModeSet && (fillMode() == AnimationFillMode::Backwards || fillMode() == AnimationFillMode::Both); }
     bool fillsForwards() const { return m_fillModeSet && (fillMode() == AnimationFillMode::Forwards || fillMode() == AnimationFillMode::Both); }
@@ -198,7 +190,7 @@ private:
     // Packs with m_refCount from the base class.
     TransitionProperty m_property { TransitionMode::All, CSSPropertyInvalid };
 
-    Name m_name;
+    Style::ScopedName m_name;
     double m_iterationCount;
     double m_delay;
     double m_duration;
@@ -206,9 +198,7 @@ private:
     RefPtr<TimingFunction> m_timingFunction;
     RefPtr<TimingFunction> m_defaultTimingFunctionForKeyframes;
 
-    Style::ScopeOrdinal m_nameStyleScopeOrdinal { Style::ScopeOrdinal::Element };
-
-    unsigned m_direction : 2; // AnimationDirection
+    unsigned m_direction : 2; // Direction
     unsigned m_fillMode : 2; // AnimationFillMode
     unsigned m_playState : 2; // AnimationPlayState
     unsigned m_compositeOperation : 2; // CompositeOperation
@@ -238,11 +228,11 @@ private:
 
 public:
     static double initialDelay() { return 0; }
-    static AnimationDirection initialDirection() { return AnimationDirectionNormal; }
+    static Direction initialDirection() { return Direction::Normal; }
     static double initialDuration() { return 0; }
     static AnimationFillMode initialFillMode() { return AnimationFillMode::None; }
     static double initialIterationCount() { return 1.0; }
-    static const Name& initialName();
+    static const Style::ScopedName& initialName();
     static AnimationPlayState initialPlayState() { return AnimationPlayState::Playing; }
     static CompositeOperation initialCompositeOperation() { return CompositeOperation::Replace; }
     static TransitionProperty initialProperty() { return { TransitionMode::All, CSSPropertyInvalid }; }
@@ -251,7 +241,7 @@ public:
 
 WTF::TextStream& operator<<(WTF::TextStream&, AnimationPlayState);
 WTF::TextStream& operator<<(WTF::TextStream&, Animation::TransitionProperty);
-WTF::TextStream& operator<<(WTF::TextStream&, Animation::AnimationDirection);
+WTF::TextStream& operator<<(WTF::TextStream&, Animation::Direction);
 WTF::TextStream& operator<<(WTF::TextStream&, const Animation&);
 
 } // namespace WebCore

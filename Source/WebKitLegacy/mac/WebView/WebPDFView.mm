@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2005, 2006, 2007, 2008, 2009, 2013 Apple Inc. All rights reserved.
+ * Copyright (C) 2005-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -52,15 +52,16 @@
 #import <WebCore/DataTransfer.h>
 #import <WebCore/EventNames.h>
 #import <WebCore/FormState.h>
-#import <WebCore/Frame.h>
 #import <WebCore/FrameLoadRequest.h>
 #import <WebCore/FrameLoader.h>
 #import <WebCore/HTMLFormElement.h>
 #import <WebCore/HTMLFrameOwnerElement.h>
 #import <WebCore/KeyboardEvent.h>
 #import <WebCore/LegacyNSPasteboardTypes.h>
+#import <WebCore/LocalFrame.h>
 #import <WebCore/MouseEvent.h>
 #import <WebCore/PlatformEventFactoryMac.h>
+#import <WebCore/PlatformMouseEvent.h>
 #import <WebCore/Range.h>
 #import <WebCore/ReferrerPolicy.h>
 #import <WebCore/RuntimeApplicationChecks.h>
@@ -106,9 +107,9 @@ static void _applicationInfoForMIMEType(NSString *type, NSString **name, NSImage
 {
     CFURLRef appURL = nullptr;
 
-    ALLOW_DEPRECATED_DECLARATIONS_BEGIN
+ALLOW_DEPRECATED_DECLARATIONS_BEGIN
     OSStatus error = LSCopyApplicationForMIMEType((__bridge CFStringRef)type, kLSRolesAll, &appURL);
-    ALLOW_DEPRECATED_DECLARATIONS_END
+ALLOW_DEPRECATED_DECLARATIONS_END
     if (error != noErr)
         return;
     
@@ -935,18 +936,17 @@ static BOOL _PDFSelectionsAreEqual(PDFSelection *selectionA, PDFSelection *selec
 
     NSWindow *window = [sender window];
     NSEvent *nsEvent = [window currentEvent];
-    const int noButton = -2;
-    int button = noButton;
+    WebCore::MouseButton button = WebCore::MouseButton::None;
     RefPtr<WebCore::Event> event;
     switch ([nsEvent type]) {
     case NSEventTypeLeftMouseUp:
-        button = 0;
+        button = WebCore::MouseButton::Left;
         break;
     case NSEventTypeRightMouseUp:
-        button = 1;
+        button = WebCore::MouseButton::Right;
         break;
     case NSEventTypeOtherMouseUp:
-        button = [nsEvent buttonNumber];
+        button = static_cast<WebCore::MouseButton>([nsEvent buttonNumber]);
         break;
     case NSEventTypeKeyDown: {
         auto pe = WebCore::PlatformEventFactory::createPlatformKeyboardEvent(nsEvent);
@@ -957,11 +957,11 @@ static BOOL _PDFSelectionsAreEqual(PDFSelection *selectionA, PDFSelection *selec
     default:
         break;
     }
-    if (button != noButton) {
+    if (button != WebCore::MouseButton::None) {
         // FIXME: Use createPlatformMouseEvent instead.
         event = WebCore::MouseEvent::create(WebCore::eventNames().clickEvent, WebCore::Event::CanBubble::Yes, WebCore::Event::IsCancelable::Yes, WebCore::Event::IsComposed::Yes,
             MonotonicTime::now(), nullptr, [nsEvent clickCount], { }, { }, 0, 0, WebCore::modifiersForEvent(nsEvent),
-            button, [NSEvent pressedMouseButtons], nullptr, WebCore::ForceAtClick, 0, WebCore::MouseEvent::IsSimulated::Yes);
+            button, [NSEvent pressedMouseButtons], nullptr, WebCore::ForceAtClick, WebCore::SyntheticClickType::NoTap, WebCore::MouseEvent::IsSimulated::Yes);
     }
 
     // Call to the frame loader because this is where our security checks are made.
@@ -1242,11 +1242,11 @@ IGNORE_WARNINGS_END
             written = YES;
         }
         
-        ALLOW_DEPRECATED_DECLARATIONS_BEGIN
+ALLOW_DEPRECATED_DECLARATIONS_BEGIN
         if (![[NSWorkspace sharedWorkspace] openFile:opath]) {
             // NSWorkspace couldn't open file. Do we need an alert here? We ignore the error elsewhere.
         }
-        ALLOW_DEPRECATED_DECLARATIONS_END
+ALLOW_DEPRECATED_DECLARATIONS_END
     }
 }
 

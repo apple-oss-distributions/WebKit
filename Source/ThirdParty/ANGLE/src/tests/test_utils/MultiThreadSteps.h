@@ -67,6 +67,12 @@ class ThreadSynchronization
             {
                 return false;
             }
+            // Expect increasing order to reduce risk of race conditions / deadlocks.
+            if (*mCurrentStep > waitStep)
+            {
+                FATAL() << "waitForStep requires increasing order. mCurrentStep="
+                        << (int)*mCurrentStep << ", waitStep=" << (int)waitStep;
+            }
             mCondVar->wait(lock);
         }
 
@@ -91,4 +97,9 @@ class ThreadSynchronization
 
 using LockStepThreadFunc = std::function<void(EGLDisplay, EGLSurface, EGLContext)>;
 void RunLockStepThreads(EGLWindow *window, size_t threadCount, LockStepThreadFunc threadFuncs[]);
+void RunLockStepThreadsWithSize(EGLWindow *window,
+                                EGLint width,
+                                EGLint height,
+                                size_t threadCount,
+                                LockStepThreadFunc threadFuncs[]);
 }  // namespace angle

@@ -22,6 +22,7 @@
 
 #if USE(GSTREAMER)
 
+#include "HEVCUtilities.h"
 #include <gst/pbutils/codec-utils.h>
 #include <wtf/text/StringToIntegerConversion.h>
 #include <wtf/text/WTFString.h>
@@ -66,6 +67,40 @@ std::pair<const char*, const char*> GStreamerCodecUtilities::parseH264ProfileAnd
     return { profile, level };
 }
 
+const char* GStreamerCodecUtilities::parseHEVCProfile(const String& codec)
+{
+    ensureDebugCategoryInitialized();
+
+    GST_DEBUG("Parsing HEVC codec string: %s", codec.ascii().data());
+    auto parameters = parseHEVCCodecParameters(codec);
+    if (!parameters) {
+        GST_WARNING("Invalid HEVC codec: %s", codec.ascii().data());
+        return nullptr;
+    }
+
+    if (parameters->generalProfileSpace > 3) {
+        GST_WARNING("Invalid general_profile_space: %u", parameters->generalProfileSpace);
+        return nullptr;
+    }
+
+    if (parameters->generalProfileIDC > 0x1F) {
+        GST_WARNING("Invalid general_profile_idc: %u", parameters->generalProfileIDC);
+        return nullptr;
+    }
+
+    uint8_t profileTierLevel[11] = { 0, };
+    memset(profileTierLevel, 0, 11);
+    profileTierLevel[0] = parameters->generalProfileIDC;
+
+    if (profileTierLevel[0] >= 4) {
+        auto& constraints = parameters->generalConstraintIndicatorFlags;
+        for (unsigned i = 5, j = 0; i < 10; i++, j++)
+            profileTierLevel[i] = constraints[j];
+    }
+
+    return gst_codec_utils_h265_get_profile(profileTierLevel, sizeof(profileTierLevel));
+}
+
 uint8_t GStreamerCodecUtilities::parseVP9Profile(const String& codec)
 {
     ensureDebugCategoryInitialized();
@@ -75,6 +110,8 @@ uint8_t GStreamerCodecUtilities::parseVP9Profile(const String& codec)
     GST_DEBUG("Codec %s translates to VP9 profile %u", codec.utf8().data(), profile);
     return profile;
 }
+
+#undef GST_CAT_DEFAULT
 
 } // namespace WebCore
 

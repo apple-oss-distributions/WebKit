@@ -664,6 +664,16 @@ void Format::initialize(RendererVk *renderer, const angle::Format &angleFormat)
             mVertexLoadRequiresConversion  = true;
             break;
 
+        case angle::FormatID::B8G8R8X8_UNORM_SRGB:
+            mIntendedGLFormat              = GL_BGRX8_SRGB_ANGLEX;
+            mActualSampleOnlyImageFormatID = angle::FormatID::B8G8R8A8_UNORM_SRGB;
+            mImageInitializerFunction      = nullptr;
+            mActualBufferFormatID          = angle::FormatID::NONE;
+            mVkBufferFormatIsPacked        = false;
+            mVertexLoadFunction            = nullptr;
+            mVertexLoadRequiresConversion  = true;
+            break;
+
         case angle::FormatID::BC1_RGBA_UNORM_BLOCK:
             mIntendedGLFormat              = GL_COMPRESSED_RGBA_S3TC_DXT1_EXT;
             mActualSampleOnlyImageFormatID = angle::FormatID::BC1_RGBA_UNORM_BLOCK;
@@ -1466,9 +1476,18 @@ void Format::initialize(RendererVk *renderer, const angle::Format &angleFormat)
             break;
 
         case angle::FormatID::R16G16B16_SNORM:
-            mIntendedGLFormat              = GL_RGB16_SNORM_EXT;
-            mActualSampleOnlyImageFormatID = angle::FormatID::R16G16B16_SNORM;
-            mImageInitializerFunction      = nullptr;
+            mIntendedGLFormat = GL_RGB16_SNORM_EXT;
+            {
+                static constexpr ImageFormatInitInfo kInfo[] = {
+                    {angle::FormatID::R16G16B16_SNORM, nullptr},
+                    {angle::FormatID::R16G16B16A16_SNORM,
+                     Initialize4ComponentData<GLushort, 0x0000, 0x0000, 0x0000, 0x7FFF>},
+                    {angle::FormatID::R32G32B32_FLOAT, nullptr},
+                    {angle::FormatID::R32G32B32A32_FLOAT,
+                     Initialize4ComponentData<GLfloat, 0x00000000, 0x00000000, 0x00000000,
+                                              gl::Float32One>}};
+                initImageFallback(renderer, kInfo, ArraySize(kInfo));
+            }
             {
                 static constexpr BufferFormatInitInfo kInfo[] = {
                     {angle::FormatID::R16G16B16_SNORM, false,
@@ -1526,9 +1545,18 @@ void Format::initialize(RendererVk *renderer, const angle::Format &angleFormat)
             break;
 
         case angle::FormatID::R16G16B16_UNORM:
-            mIntendedGLFormat              = GL_RGB16_EXT;
-            mActualSampleOnlyImageFormatID = angle::FormatID::R16G16B16_UNORM;
-            mImageInitializerFunction      = nullptr;
+            mIntendedGLFormat = GL_RGB16_EXT;
+            {
+                static constexpr ImageFormatInitInfo kInfo[] = {
+                    {angle::FormatID::R16G16B16_UNORM, nullptr},
+                    {angle::FormatID::R16G16B16A16_UNORM,
+                     Initialize4ComponentData<GLushort, 0x0000, 0x0000, 0x0000, 0xFFFF>},
+                    {angle::FormatID::R32G32B32_FLOAT, nullptr},
+                    {angle::FormatID::R32G32B32A32_FLOAT,
+                     Initialize4ComponentData<GLfloat, 0x00000000, 0x00000000, 0x00000000,
+                                              gl::Float32One>}};
+                initImageFallback(renderer, kInfo, ArraySize(kInfo));
+            }
             {
                 static constexpr BufferFormatInitInfo kInfo[] = {
                     {angle::FormatID::R16G16B16_UNORM, false,
@@ -2197,6 +2225,16 @@ void Format::initialize(RendererVk *renderer, const angle::Format &angleFormat)
         case angle::FormatID::R8G8B8X8_UNORM:
             mIntendedGLFormat              = GL_RGBX8_ANGLE;
             mActualSampleOnlyImageFormatID = angle::FormatID::R8G8B8A8_UNORM;
+            mImageInitializerFunction      = nullptr;
+            mActualBufferFormatID          = angle::FormatID::NONE;
+            mVkBufferFormatIsPacked        = false;
+            mVertexLoadFunction            = nullptr;
+            mVertexLoadRequiresConversion  = true;
+            break;
+
+        case angle::FormatID::R8G8B8X8_UNORM_SRGB:
+            mIntendedGLFormat              = GL_RGBX8_SRGB_ANGLEX;
+            mActualSampleOnlyImageFormatID = angle::FormatID::R8G8B8A8_UNORM_SRGB;
             mImageInitializerFunction      = nullptr;
             mActualBufferFormatID          = angle::FormatID::NONE;
             mVkBufferFormatIsPacked        = false;

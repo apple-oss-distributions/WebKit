@@ -73,7 +73,7 @@ JSC_DEFINE_HOST_FUNCTION(callWebAssemblyFunction, (JSGlobalObject* globalObject,
     if (Options::useTracePoints())
         traceScope.emplace(WebAssemblyExecuteStart, WebAssemblyExecuteEnd);
 
-    Vector<JSValue, MarkedArgumentBuffer::inlineCapacity> boxedArgs;
+    Vector<EncodedJSValue, MarkedArgumentBuffer::inlineCapacity> boxedArgs;
     JSWebAssemblyInstance* jsInstance = wasmFunction->instance();
     Wasm::Instance* wasmInstance = &jsInstance->instance();
 
@@ -83,10 +83,10 @@ JSC_DEFINE_HOST_FUNCTION(callWebAssemblyFunction, (JSGlobalObject* globalObject,
     for (unsigned argIndex = 0; argIndex < signature.argumentCount(); ++argIndex) {
         uint64_t value = fromJSValue(globalObject, signature.argumentType(argIndex), callFrame->argument(argIndex));
         RETURN_IF_EXCEPTION(scope, encodedJSValue());
-        boxedArgs.append(JSValue::decode(value));
+        boxedArgs.append(value);
     }
 
-    JSValue* args = boxedArgs.data();
+    EncodedJSValue* args = boxedArgs.data();
     int argCount = boxedArgs.size() + 1;
 
     // Note: we specifically use the WebAssemblyFunction as the callee to begin with in the ProtoCallFrame.
@@ -130,7 +130,7 @@ bool WebAssemblyFunction::usesTagRegisters() const
 RegisterSet WebAssemblyFunction::calleeSaves() const
 {
     // Pessimistically save callee saves in BoundsChecking mode since the LLInt always bounds checks
-    RegisterSetBuilder result = RegisterSetBuilder::wasmPinnedRegisters(MemoryMode::BoundsChecking);
+    RegisterSetBuilder result = RegisterSetBuilder::wasmPinnedRegisters();
     if (usesTagRegisters()) {
         RegisterSetBuilder tagCalleeSaves = RegisterSetBuilder::vmCalleeSaveRegisters();
         tagCalleeSaves.filter(RegisterSetBuilder::runtimeTagRegisters());
@@ -388,12 +388,12 @@ CodePtr<JSEntryPtrTag> WebAssemblyFunction::jsCallEntrypointSlow()
     // 2. We need to know to restore the previous wasm context.
     ASSERT(!m_jsToWasmICCallee);
     m_jsToWasmICCallee = Wasm::JSToWasmICCallee::create();
-    jit.move(CCallHelpers::TrustedImmPtr(CalleeBits::boxWasm(m_jsToWasmICCallee.get())), scratchJSR.payloadGPR());
+    jit.move(CCallHelpers::TrustedImmPtr(CalleeBits::boxNativeCallee(m_jsToWasmICCallee.get())), scratchJSR.payloadGPR());
     // We do not need to set up |this| in this IC since the caller of this IC itself already set up arguments and its |this| should be WebAssemblyFunction,
     // which anchors JSWebAssemblyInstance correctly from GC.
 #if USE(JSVALUE32_64)
     jit.storePtr(scratchJSR.payloadGPR(), CCallHelpers::addressFor(CallFrameSlot::callee));
-    jit.store32(CCallHelpers::TrustedImm32(JSValue::WasmTag), CCallHelpers::addressFor(CallFrameSlot::callee).withOffset(TagOffset));
+    jit.store32(CCallHelpers::TrustedImm32(JSValue::NativeCalleeTag), CCallHelpers::addressFor(CallFrameSlot::callee).withOffset(TagOffset));
     jit.storePtr(GPRInfo::wasmContextInstancePointer, CCallHelpers::addressFor(CallFrameSlot::codeBlock));
 #else
     static_assert(CallFrameSlot::codeBlock + 1 == CallFrameSlot::callee);
@@ -426,7 +426,7 @@ CodePtr<JSEntryPtrTag> WebAssemblyFunction::jsCallEntrypointSlow()
 #endif
     auto jumpToHostCallThunk = jit.jump();
 
-    LinkBuffer linkBuffer(jit, nullptr, LinkBuffer::Profile::Wasm, JITCompilationCanFail);
+    LinkBuffer linkBuffer(jit, nullptr, LinkBuffer::Profile::WasmThunk, JITCompilationCanFail);
     if (UNLIKELY(linkBuffer.didFailToAllocate()))
         return nullptr;
 
@@ -436,11 +436,11 @@ CodePtr<JSEntryPtrTag> WebAssemblyFunction::jsCallEntrypointSlow()
     return m_jsToWasmICCallee->entrypoint().retagged<JSEntryPtrTag>();
 }
 
-WebAssemblyFunction* WebAssemblyFunction::create(VM& vm, JSGlobalObject* globalObject, Structure* structure, unsigned length, const String& name, JSWebAssemblyInstance* instance, Wasm::Callee& jsEntrypoint, Wasm::WasmToWasmImportableFunction::LoadLocation wasmToWasmEntrypointLoadLocation, Wasm::TypeIndex typeIndex)
+WebAssemblyFunction* WebAssemblyFunction::create(VM& vm, JSGlobalObject* globalObject, Structure* structure, unsigned length, const String& name, JSWebAssemblyInstance* instance, Wasm::Callee& jsEntrypoint, Wasm::WasmToWasmImportableFunction::LoadLocation wasmToWasmEntrypointLoadLocation, Wasm::TypeIndex typeIndex, RefPtr<const Wasm::RTT> rtt)
 {
     NativeExecutable* executable = vm.getHostFunction(callWebAssemblyFunction, ImplementationVisibility::Public, WasmFunctionIntrinsic, callHostFunctionAsConstructor, nullptr, name);
-    WebAssemblyFunction* function = new (NotNull, allocateCell<WebAssemblyFunction>(vm)) WebAssemblyFunction(vm, executable, globalObject, structure, jsEntrypoint, wasmToWasmEntrypointLoadLocation, typeIndex);
-    function->finishCreation(vm, executable, length, name, instance);
+    WebAssemblyFunction* function = new (NotNull, allocateCell<WebAssemblyFunction>(vm)) WebAssemblyFunction(vm, executable, globalObject, structure, instance, jsEntrypoint, wasmToWasmEntrypointLoadLocation, typeIndex, rtt);
+    function->finishCreation(vm, executable, length, name);
     return function;
 }
 
@@ -450,8 +450,8 @@ Structure* WebAssemblyFunction::createStructure(VM& vm, JSGlobalObject* globalOb
     return Structure::create(vm, globalObject, prototype, TypeInfo(JSFunctionType, StructureFlags), info());
 }
 
-WebAssemblyFunction::WebAssemblyFunction(VM& vm, NativeExecutable* executable, JSGlobalObject* globalObject, Structure* structure, Wasm::Callee& jsEntrypoint, Wasm::WasmToWasmImportableFunction::LoadLocation wasmToWasmEntrypointLoadLocation, Wasm::TypeIndex typeIndex)
-    : Base { vm, executable, globalObject, structure, Wasm::WasmToWasmImportableFunction { typeIndex, wasmToWasmEntrypointLoadLocation } }
+WebAssemblyFunction::WebAssemblyFunction(VM& vm, NativeExecutable* executable, JSGlobalObject* globalObject, Structure* structure, JSWebAssemblyInstance* instance, Wasm::Callee& jsEntrypoint, Wasm::WasmToWasmImportableFunction::LoadLocation wasmToWasmEntrypointLoadLocation, Wasm::TypeIndex typeIndex, RefPtr<const Wasm::RTT> rtt)
+    : Base { vm, executable, globalObject, structure, instance, Wasm::WasmToWasmImportableFunction { typeIndex, wasmToWasmEntrypointLoadLocation }, rtt }
     , m_jsEntrypoint { jsEntrypoint.entrypoint() }
 { }
 

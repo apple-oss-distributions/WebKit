@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2010-2022 Apple Inc. All rights reserved.
+ * Copyright (C) 2010-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -41,6 +41,7 @@
 #import "WebContextMenuItem.h"
 #import "WebContextMenuItemData.h"
 #import "WebPageProxy.h"
+#import "WebPreferences.h"
 #import <WebCore/GraphicsContext.h>
 #import <WebCore/IntRect.h>
 #import <WebCore/LocalizedStrings.h>
@@ -239,9 +240,9 @@ void WebContextMenuProxyMac::setupServicesMenu()
             auto cgImage = image->makeCGImage();
             auto nsImage = adoptNS([[NSImage alloc] initWithCGImage:cgImage.get() size:image->size()]);
 
-            ALLOW_DEPRECATED_DECLARATIONS_BEGIN
+ALLOW_DEPRECATED_DECLARATIONS_BEGIN
             itemProvider = adoptNS([[NSItemProvider alloc] initWithItem:[nsImage TIFFRepresentation] typeIdentifier:(__bridge NSString *)kUTTypeTIFF]);
-            ALLOW_DEPRECATED_DECLARATIONS_END
+ALLOW_DEPRECATED_DECLARATIONS_END
         }
         items = @[ itemProvider.get() ];
         
@@ -310,7 +311,7 @@ void WebContextMenuProxyMac::setupServicesMenu()
 void WebContextMenuProxyMac::appendRemoveBackgroundItemToControlledImageMenuIfNeeded()
 {
 #if ENABLE(IMAGE_ANALYSIS_ENHANCEMENTS)
-    auto* page = this->page();
+    RefPtr page = this->page();
     if (!page || !page->preferences().removeBackgroundEnabled())
         return;
 
@@ -384,6 +385,7 @@ void WebContextMenuProxyMac::removeBackgroundFromControlledImage()
 #endif // ENABLE(IMAGE_ANALYSIS_ENHANCEMENTS)
 }
 
+#if !HAVE(SHARING_SERVICE_PICKER_STANDARD_SHARE_MENU_ITEM)
 static void getStandardShareMenuItem(NSArray *items, void (^completionHandler)(NSMenuItem *))
 {
 #if HAVE(NSSHARINGSERVICEPICKER_ASYNC_MENUS)
@@ -402,6 +404,7 @@ static void getStandardShareMenuItem(NSArray *items, void (^completionHandler)(N
     completionHandler([NSMenuItem standardShareMenuItemForItems:items]);
 #endif
 }
+#endif
 
 void WebContextMenuProxyMac::getShareMenuItem(CompletionHandler<void(NSMenuItem *)>&& completionHandler)
 {
@@ -445,15 +448,13 @@ void WebContextMenuProxyMac::getShareMenuItem(CompletionHandler<void(NSMenuItem 
         return;
     }
 
+#if HAVE(SHARING_SERVICE_PICKER_STANDARD_SHARE_MENU_ITEM)
     auto sharingServicePicker = adoptNS([[NSSharingServicePicker alloc] initWithItems:items.get()]);
-    if ([sharingServicePicker respondsToSelector:@selector(standardShareMenuItem)]) {
-        NSMenuItem *shareMenuItem = [sharingServicePicker standardShareMenuItem];
-        [shareMenuItem setRepresentedObject:sharingServicePicker.get()];
-        shareMenuItem.identifier = _WKMenuItemIdentifierShareMenu;
-        completionHandler(shareMenuItem);
-        return;
-    }
-
+    NSMenuItem *shareMenuItem = [sharingServicePicker standardShareMenuItem];
+    [shareMenuItem setRepresentedObject:sharingServicePicker.get()];
+    shareMenuItem.identifier = _WKMenuItemIdentifierShareMenu;
+    completionHandler(shareMenuItem);
+#else
     getStandardShareMenuItem(items.get(), makeBlockPtr([completionHandler = WTFMove(completionHandler), protectedThis = Ref { *this }, this](NSMenuItem *item) mutable {
         if (!item) {
             completionHandler(nil);
@@ -475,6 +476,7 @@ void WebContextMenuProxyMac::getShareMenuItem(CompletionHandler<void(NSMenuItem 
 
         completionHandler(item);
     }).get());
+#endif
 }
 #endif
 
@@ -487,7 +489,54 @@ void WebContextMenuProxyMac::show()
     }
 #endif
 
-    WebContextMenuProxy::show();
+    if (!showAfterPostProcessingContextData())
+        WebContextMenuProxy::show();
+}
+
+bool WebContextMenuProxyMac::showAfterPostProcessingContextData()
+{
+#if ENABLE(CONTEXT_MENU_QR_CODE_DETECTION)
+    if (!page()->preferences().contextMenuQRCodeDetectionEnabled())
+        return false;
+
+    ASSERT(m_context.webHitTestResultData());
+    auto hitTestData = m_context.webHitTestResultData().value();
+
+    if (!hitTestData.absoluteLinkURL.isEmpty())
+        return false;
+
+    if (auto bitmap = hitTestData.imageBitmap) {
+        auto image = bitmap->makeCGImage();
+        requestPayloadForQRCode(image.get(), [this, protectedThis = Ref { *this }](NSString *result) mutable {
+            m_context.setQRCodePayloadString(result);
+            WebContextMenuProxy::show();
+        });
+
+        return true;
+    }
+
+    if (auto potentialQRCodeNodeSnapshotImage = m_context.potentialQRCodeNodeSnapshotImage()) {
+        auto image = potentialQRCodeNodeSnapshotImage->makeCGImage();
+        requestPayloadForQRCode(image.get(), [this, protectedThis = Ref { *this }](NSString *result) mutable {
+            auto potentialQRCodeViewportSnapshotImage = m_context.potentialQRCodeViewportSnapshotImage();
+            if (!potentialQRCodeViewportSnapshotImage || result.length) {
+                m_context.setQRCodePayloadString(result);
+                WebContextMenuProxy::show();
+                return;
+            }
+
+            auto fallbackImage = potentialQRCodeViewportSnapshotImage->makeCGImage();
+            requestPayloadForQRCode(fallbackImage.get(), [this, protectedThis = WTFMove(protectedThis)](NSString *result) mutable {
+                m_context.setQRCodePayloadString(result);
+                WebContextMenuProxy::show();
+            });
+        });
+
+        return true;
+    }
+#endif // ENABLE(CONTEXT_MENU_QR_CODE_DETECTION)
+
+    return false;
 }
 
 static NSString *menuItemIdentifier(const WebCore::ContextMenuAction action)
@@ -598,11 +647,19 @@ static NSString *menuItemIdentifier(const WebCore::ContextMenuAction action)
     case ContextMenuItemTagCheckGrammarWithSpelling:
         return _WKMenuItemIdentifierCheckGrammarWithSpelling;
 
+#if ENABLE(ACCESSIBILITY_ANIMATION_CONTROL)
     case ContextMenuItemTagPlayAllAnimations:
         return _WKMenuItemIdentifierPlayAllAnimations;
 
     case ContextMenuItemTagPauseAllAnimations:
         return _WKMenuItemIdentifierPauseAllAnimations;
+
+    case ContextMenuItemTagPlayAnimation:
+        return _WKMenuItemIdentifierPlayAnimation;
+
+    case ContextMenuItemTagPauseAnimation:
+        return _WKMenuItemIdentifierPauseAnimation;
+#endif // ENABLE(ACCESSIBILITY_ANIMATION_CONTROL)
 
     default:
         return nil;
@@ -785,7 +842,7 @@ void WebContextMenuProxyMac::showContextMenuWithItems(Vector<Ref<WebContextMenuI
 #endif
 
     if (page()->contextMenuClient().canShowContextMenu()) {
-        page()->contextMenuClient().showContextMenu(*page(), m_context.menuLocation(), items);
+        page()->contextMenuClient().showContextMenu(Ref { *page() }, m_context.menuLocation(), items);
         return;
     }
 
@@ -833,7 +890,8 @@ void WebContextMenuProxyMac::useContextMenuItems(Vector<Ref<WebContextMenuItem>>
         }
         
         ASSERT(m_context.webHitTestResultData());
-        page()->contextMenuClient().menuFromProposedMenu(*page(), menu, m_context.webHitTestResultData().value(), m_userData.object(), WTFMove(menuFromProposedMenu));
+        Ref page = *this->page();
+        page->contextMenuClient().menuFromProposedMenu(page, menu, m_context, m_userData.object(), WTFMove(menuFromProposedMenu));
     });
 }
 

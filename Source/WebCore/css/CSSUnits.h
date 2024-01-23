@@ -33,8 +33,8 @@ enum class CSSUnitType : uint8_t {
     CSS_NUMBER,
     CSS_INTEGER,
     CSS_PERCENTAGE,
-    CSS_EMS,
-    CSS_EXS,
+    CSS_EM,
+    CSS_EX,
     CSS_PX,
     CSS_CM,
     CSS_MM,
@@ -53,8 +53,6 @@ enum class CSSUnitType : uint8_t {
     CSS_URI,
     CSS_IDENT,
     CSS_ATTR,
-    CSS_COUNTER,
-    CSS_RECT,
     CSS_RGBCOLOR,
 
     CSS_VW,
@@ -82,7 +80,7 @@ enum class CSSUnitType : uint8_t {
     CSS_DVB,
     CSS_DVI,
     FirstViewportCSSUnitType = CSS_VW,
-    LastViewporCSSUnitType = CSS_DVI,
+    LastViewportCSSUnitType = CSS_DVI,
 
     CSS_CQW,
     CSS_CQH,
@@ -97,23 +95,22 @@ enum class CSSUnitType : uint8_t {
     CSS_DPCM,
     CSS_FR,
     CSS_Q,
-    CSS_LHS,
-    CSS_RLHS,
+    CSS_LH,
+    CSS_RLH,
 
     CustomIdent,
 
-    CSS_PAIR,
-    CSS_UNICODE_RANGE,
     CSS_TURN,
-    CSS_REMS,
-    CSS_CHS,
+    CSS_REM,
+    CSS_REX,
+    CSS_CAP,
+    CSS_RCAP,
+    CSS_CH,
+    CSS_RCH,
     CSS_IC,
+    CSS_RIC,
 
     CSS_COUNTER_NAME,
-
-    CSS_SHAPE,
-
-    CSS_QUAD,
 
     CSS_CALC,
     CSS_CALC_PERCENTAGE_WITH_NUMBER,
@@ -130,7 +127,7 @@ enum class CSSUnitType : uint8_t {
     // The basic idea is that a stylesheet can use the value __qem (for quirky em) instead of em.
     // When the quirky value is used, if you're in quirks mode, the margin will collapse away
     // inside a table cell. This quirk is specified in the HTML spec but our impl is different.
-    CSS_QUIRKY_EMS
+    CSS_QUIRKY_EM
 
     // Note that CSSValue allocates 7 bits for m_primitiveUnitType, so there can be no value here > 127.
 };

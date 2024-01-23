@@ -29,7 +29,6 @@
 
 #include <WebCore/LibWebRTCProvider.h>
 #include <WebCore/LibWebRTCSocketIdentifier.h>
-#include <wtf/Deque.h>
 #include <wtf/Forward.h>
 
 ALLOW_COMMA_BEGIN
@@ -52,10 +51,10 @@ class LibWebRTCSocket final : public rtc::AsyncPacketSocket {
 public:
     enum class Type { UDP, ClientTCP, ServerConnectionTCP };
 
-    LibWebRTCSocket(LibWebRTCSocketFactory&, const void* socketGroup, Type, const rtc::SocketAddress& localAddress, const rtc::SocketAddress& remoteAddress);
+    LibWebRTCSocket(LibWebRTCSocketFactory&, WebCore::ScriptExecutionContextIdentifier, Type, const rtc::SocketAddress& localAddress, const rtc::SocketAddress& remoteAddress);
     ~LibWebRTCSocket();
 
-    const void* socketGroup() const { return m_socketGroup; }
+    WebCore::ScriptExecutionContextIdentifier contextIdentifier() const { return m_contextIdentifier; }
     WebCore::LibWebRTCSocketIdentifier identifier() const { return m_identifier; }
     const rtc::SocketAddress& localAddress() const { return m_localAddress; }
     const rtc::SocketAddress& remoteAddress() const { return m_remoteAddress; }
@@ -75,6 +74,7 @@ private:
     void signalAddressReady(const rtc::SocketAddress&);
     void signalConnect();
     void signalClose(int);
+    void signalUsedInterface(String&&);
 
     // AsyncPacketSocket API
     int GetError() const final { return m_error; }
@@ -100,11 +100,8 @@ private:
     static const unsigned MAX_SOCKET_OPTION { rtc::Socket::OPT_RTP_SENDTIME_EXTN_ID + 1 };
     std::optional<int> m_options[MAX_SOCKET_OPTION];
 
-    Deque<size_t> m_beingSentPacketSizes;
-    size_t m_availableSendingBytes { 65536 };
-    bool m_shouldSignalReadyToSend { false };
     bool m_isSuspended { false };
-    const void* m_socketGroup { nullptr };
+    WebCore::ScriptExecutionContextIdentifier m_contextIdentifier;
 };
 
 } // namespace WebKit

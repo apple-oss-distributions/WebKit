@@ -55,11 +55,11 @@
     content: url(../Images/DocumentIcons.svg#font-light-override);
 }
 
-:matches(.resource-icon.resource-type-style-sheet, .style-sheet-icon) .icon {
+:is(.resource-icon.resource-type-style-sheet, .style-sheet-icon) .icon {
     content: url(../Images/DocumentIcons.svg#css-light);
 }
 
-:matches(.resource-icon.resource-type-style-sheet.override, .style-sheet-icon.override) .icon {
+:is(.resource-icon.resource-type-style-sheet.override, .style-sheet-icon.override) .icon {
     content: url(../Images/DocumentIcons.svg#css-light-override);
 }
 
@@ -108,6 +108,15 @@
     content: url(../Images/ClippingIcons.svg#range-light);
 }
 
+.resource-icon.override.mapped-file .icon {
+    content: url(../Images/Disk.svg#light);
+}
+
+body:not(.window-inactive, .window-docked-inactive) :is(.table, .data-grid):focus-within .selected .resource-icon.override.mapped-file .icon,
+body:not(.window-inactive, .window-docked-inactive) .tree-outline:focus-within .selected.resource-icon.override.mapped-file .icon {
+    content: url(../Images/Disk.svg#dark);
+}
+
 .resource-icon.override.skip-network .icon {
     content: url(../Images/SkipNetwork.svg#light);
 }
@@ -148,10 +157,10 @@ body:not(.window-inactive, .window-docked-inactive) .tree-outline:focus-within .
         content: url(../Images/DocumentIcons.svg#font-dark-override);
     }
 
-    :matches(.resource-icon.resource-type-style-sheet, .style-sheet-icon) .icon {
+    :is(.resource-icon.resource-type-style-sheet, .style-sheet-icon) .icon {
         content: url(../Images/DocumentIcons.svg#css-dark);
     }
-    :matches(.resource-icon.resource-type-style-sheet.override, .style-sheet-icon.override) .icon {
+    :is(.resource-icon.resource-type-style-sheet.override, .style-sheet-icon.override) .icon {
         content: url(../Images/DocumentIcons.svg#css-dark-override);
     }
 
@@ -197,6 +206,10 @@ body:not(.window-inactive, .window-docked-inactive) .tree-outline:focus-within .
 
     .resource-icon.resource-type-range .icon {
         content: url(../Images/ClippingIcons.svg#range-dark);
+    }
+
+    .resource-icon.override.mapped-file .icon {
+        content: url(../Images/Disk.svg#dark);
     }
 
     .resource-icon.override.skip-network .icon {

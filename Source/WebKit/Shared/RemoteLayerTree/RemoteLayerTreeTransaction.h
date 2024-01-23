@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2012-2021 Apple Inc. All rights reserved.
+ * Copyright (C) 2012-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,21 +25,21 @@
 
 #pragma once
 
+#include "Connection.h"
 #include "DrawingAreaInfo.h"
 #include "EditorState.h"
-#include "GenericCallback.h"
 #include "PlatformCAAnimationRemote.h"
+#include "PlaybackSessionContextIdentifier.h"
 #include "RemoteLayerBackingStore.h"
 #include "TransactionID.h"
 #include <WebCore/Color.h>
-#include <WebCore/FilterOperations.h>
 #include <WebCore/FloatPoint3D.h>
 #include <WebCore/FloatSize.h>
+#include <WebCore/HTMLMediaElementIdentifier.h>
 #include <WebCore/LayoutMilestone.h>
-#include <WebCore/Model.h>
+#include <WebCore/MediaPlayerEnums.h>
 #include <WebCore/PlatformCALayer.h>
 #include <WebCore/ScrollTypes.h>
-#include <WebCore/TransformationMatrix.h>
 #include <wtf/HashMap.h>
 #include <wtf/HashSet.h>
 #include <wtf/text/StringHash.h>
@@ -49,159 +49,65 @@
 #include "DynamicViewportSizeUpdate.h"
 #endif
 
-namespace IPC {
-class Decoder;
-class Encoder;
-}
+#if ENABLE(THREADED_ANIMATION_RESOLUTION)
+#include <WebCore/AcceleratedEffect.h>
+#include <WebCore/AcceleratedEffectValues.h>
+#endif
 
 namespace WebKit {
 
-enum class LayerChange : uint64_t {
-    NameChanged                         = 1LLU << 1,
-    ChildrenChanged                     = 1LLU << 2,
-    PositionChanged                     = 1LLU << 3,
-    BoundsChanged                       = 1LLU << 4,
-    BackgroundColorChanged              = 1LLU << 5,
-    AnchorPointChanged                  = 1LLU << 6,
-    BorderWidthChanged                  = 1LLU << 7,
-    BorderColorChanged                  = 1LLU << 8,
-    OpacityChanged                      = 1LLU << 9,
-    TransformChanged                    = 1LLU << 10,
-    SublayerTransformChanged            = 1LLU << 11,
-    HiddenChanged                       = 1LLU << 12,
-    GeometryFlippedChanged              = 1LLU << 13,
-    DoubleSidedChanged                  = 1LLU << 14,
-    MasksToBoundsChanged                = 1LLU << 15,
-    OpaqueChanged                       = 1LLU << 16,
-    ContentsHiddenChanged               = 1LLU << 17,
-    MaskLayerChanged                    = 1LLU << 18,
-    ClonedContentsChanged               = 1LLU << 19,
-    ContentsRectChanged                 = 1LLU << 20,
-    ContentsScaleChanged                = 1LLU << 21,
-    CornerRadiusChanged                 = 1LLU << 22,
-    ShapeRoundedRectChanged             = 1LLU << 23,
-    ShapePathChanged                    = 1LLU << 24,
-    MinificationFilterChanged           = 1LLU << 25,
-    MagnificationFilterChanged          = 1LLU << 26,
-    BlendModeChanged                    = 1LLU << 27,
-    WindRuleChanged                     = 1LLU << 28,
-    SpeedChanged                        = 1LLU << 29,
-    TimeOffsetChanged                   = 1LLU << 30,
-    BackingStoreChanged                 = 1LLU << 31,
-    BackingStoreAttachmentChanged       = 1LLU << 32,
-    FiltersChanged                      = 1LLU << 33,
-    AnimationsChanged                   = 1LLU << 34,
-    AntialiasesEdgesChanged             = 1LLU << 35,
-    CustomAppearanceChanged             = 1LLU << 36,
-    UserInteractionEnabledChanged       = 1LLU << 37,
-    EventRegionChanged                  = 1LLU << 38,
-    ScrollingNodeIDChanged              = 1LLU << 39,
-#if HAVE(CORE_ANIMATION_SEPARATED_LAYERS)
-    SeparatedChanged                    = 1LLU << 40,
-#if HAVE(CORE_ANIMATION_SEPARATED_PORTALS)
-    SeparatedPortalChanged              = 1LLU << 41,
-    DescendentOfSeparatedPortalChanged  = 1LLU << 42,
-#endif
-#endif
+struct LayerProperties;
+using LayerPropertiesMap = HashMap<WebCore::PlatformLayerIdentifier, UniqueRef<LayerProperties>>;
+
+struct ChangedLayers {
+    HashSet<Ref<PlatformCALayerRemote>> changedLayers; // Only used in the Web process.
+    LayerPropertiesMap changedLayerProperties; // Only used in the UI process.
+
+    ChangedLayers();
+    ChangedLayers(ChangedLayers&&);
+    ChangedLayers& operator=(ChangedLayers&&);
+    ChangedLayers(LayerPropertiesMap&&);
+    ~ChangedLayers();
 };
 
 class RemoteLayerTreeTransaction {
     WTF_MAKE_FAST_ALLOCATED;
 public:
     struct LayerCreationProperties {
-        WTF_MAKE_STRUCT_FAST_ALLOCATED;
-        LayerCreationProperties();
-
-        void encode(IPC::Encoder&) const;
-        static std::optional<LayerCreationProperties> decode(IPC::Decoder&);
-
-        WebCore::GraphicsLayer::PlatformLayerID layerID;
-        WebCore::PlatformCALayer::LayerType type;
-
-        uint32_t hostingContextID;
-        float hostingDeviceScaleFactor;
-        bool preservesFlip;
-        
+        struct NoAdditionalData { };
+        struct CustomData {
+            uint32_t hostingContextID { 0 };
+            float hostingDeviceScaleFactor { 1 };
+            bool preservesFlip { false };
+        };
+        struct VideoElementData {
+            PlaybackSessionContextIdentifier playerIdentifier;
+            WebCore::FloatSize initialSize;
+            WebCore::FloatSize naturalSize;
+        };
+        using AdditionalData = std::variant<
+            NoAdditionalData, // PlatformCALayerRemote and PlatformCALayerRemoteTiledBacking
+            CustomData, // PlatformCALayerRemoteCustom
 #if ENABLE(MODEL_ELEMENT)
-        RefPtr<WebCore::Model> model;
+            Ref<WebCore::Model>, // PlatformCALayerRemoteModelHosting
 #endif
-    };
+            WebCore::LayerHostingContextIdentifier // PlatformCALayerRemoteHost
+        >;
 
-    struct LayerProperties {
-        WTF_MAKE_STRUCT_FAST_ALLOCATED;
-        LayerProperties();
-        LayerProperties(const LayerProperties& other);
+        WebCore::PlatformLayerIdentifier layerID;
+        WebCore::PlatformCALayer::LayerType type { WebCore::PlatformCALayer::LayerTypeLayer };
+        std::optional<VideoElementData> videoElementData;
+        AdditionalData additionalData;
 
-        void encode(IPC::Encoder&) const;
-        static WARN_UNUSED_RETURN bool decode(IPC::Decoder&, LayerProperties&);
+        LayerCreationProperties();
+        LayerCreationProperties(WebCore::PlatformLayerIdentifier, WebCore::PlatformCALayer::LayerType, std::optional<VideoElementData>&&, AdditionalData&&);
+        LayerCreationProperties(LayerCreationProperties&&);
+        LayerCreationProperties& operator=(LayerCreationProperties&&);
 
-        void notePropertiesChanged(OptionSet<LayerChange> changeFlags)
-        {
-            changedProperties.add(changeFlags);
-            everChangedProperties.add(changeFlags);
-        }
-
-        void resetChangedProperties()
-        {
-            changedProperties = { };
-        }
-
-        OptionSet<LayerChange> changedProperties;
-        OptionSet<LayerChange> everChangedProperties;
-
-        String name;
-        std::unique_ptr<WebCore::TransformationMatrix> transform;
-        std::unique_ptr<WebCore::TransformationMatrix> sublayerTransform;
-        std::unique_ptr<WebCore::FloatRoundedRect> shapeRoundedRect;
-
-        Vector<WebCore::GraphicsLayer::PlatformLayerID> children;
-
-        Vector<std::pair<String, PlatformCAAnimationRemote::Properties>> addedAnimations;
-        HashSet<String> keysOfAnimationsToRemove;
-
-        WebCore::FloatPoint3D position;
-        WebCore::FloatPoint3D anchorPoint { 0.5, 0.5, 0 };
-        WebCore::FloatRect bounds;
-        WebCore::FloatRect contentsRect { 0, 0, 1, 1 };
-        std::unique_ptr<RemoteLayerBackingStore> backingStore;
-        std::unique_ptr<WebCore::FilterOperations> filters;
-        WebCore::Path shapePath;
-        Markable<WebCore::GraphicsLayer::PlatformLayerID> maskLayerID;
-        Markable<WebCore::GraphicsLayer::PlatformLayerID> clonedLayerID;
-#if ENABLE(SCROLLING_THREAD)
-        WebCore::ScrollingNodeID scrollingNodeID { 0 };
-#endif
-        double timeOffset { 0 };
-        float speed { 1 };
-        float contentsScale { 1 };
-        float cornerRadius { 0 };
-        float borderWidth { 0 };
-        float opacity { 1 };
-        WebCore::Color backgroundColor { WebCore::Color::transparentBlack };
-        WebCore::Color borderColor { WebCore::Color::black };
-        WebCore::GraphicsLayer::CustomAppearance customAppearance { WebCore::GraphicsLayer::CustomAppearance::None };
-        WebCore::PlatformCALayer::FilterType minificationFilter { WebCore::PlatformCALayer::FilterType::Linear };
-        WebCore::PlatformCALayer::FilterType magnificationFilter { WebCore::PlatformCALayer::FilterType::Linear };
-        WebCore::BlendMode blendMode { WebCore::BlendMode::Normal };
-        WebCore::WindRule windRule { WebCore::WindRule::NonZero };
-        bool antialiasesEdges { true };
-        bool hidden { false };
-        bool backingStoreAttached { true };
-        bool geometryFlipped { false };
-        bool doubleSided { false };
-        bool masksToBounds { false };
-        bool opaque { false };
-        bool contentsHidden { false };
-        bool userInteractionEnabled { true };
-        WebCore::EventRegion eventRegion;
-
-#if HAVE(CORE_ANIMATION_SEPARATED_LAYERS)
-        bool isSeparated { false };
-#if HAVE(CORE_ANIMATION_SEPARATED_PORTALS)
-        bool isSeparatedPortal { false };
-        bool isDescendentOfSeparatedPortal { false };
-#endif
-#endif
+        std::optional<WebCore::LayerHostingContextIdentifier> hostIdentifier() const;
+        uint32_t hostingContextID() const;
+        bool preservesFlip() const;
+        float hostingDeviceScaleFactor() const;
     };
 
     explicit RemoteLayerTreeTransaction();
@@ -209,31 +115,32 @@ public:
     RemoteLayerTreeTransaction(RemoteLayerTreeTransaction&&);
     RemoteLayerTreeTransaction& operator=(RemoteLayerTreeTransaction&&);
 
-    void encode(IPC::Encoder&) const;
-    static WARN_UNUSED_RETURN bool decode(IPC::Decoder&, RemoteLayerTreeTransaction&);
-
-    WebCore::GraphicsLayer::PlatformLayerID rootLayerID() const { return m_rootLayerID; }
-    void setRootLayerID(WebCore::GraphicsLayer::PlatformLayerID);
+    WebCore::PlatformLayerIdentifier rootLayerID() const { return m_rootLayerID; }
+    void setRootLayerID(WebCore::PlatformLayerIdentifier);
     void layerPropertiesChanged(PlatformCALayerRemote&);
     void setCreatedLayers(Vector<LayerCreationProperties>);
-    void setDestroyedLayerIDs(Vector<WebCore::GraphicsLayer::PlatformLayerID>);
-    void setLayerIDsWithNewlyUnreachableBackingStore(Vector<WebCore::GraphicsLayer::PlatformLayerID>);
+    void setDestroyedLayerIDs(Vector<WebCore::PlatformLayerIdentifier>);
+    void setLayerIDsWithNewlyUnreachableBackingStore(Vector<WebCore::PlatformLayerIdentifier>);
 
 #if !defined(NDEBUG) || !LOG_DISABLED
     String description() const;
     void dump() const;
 #endif
+    
+    bool hasAnyLayerChanges() const;
 
-    typedef HashMap<WebCore::GraphicsLayer::PlatformLayerID, std::unique_ptr<LayerProperties>> LayerPropertiesMap;
+    const Vector<LayerCreationProperties>& createdLayers() const { return m_createdLayers; }
+    const Vector<WebCore::PlatformLayerIdentifier>& destroyedLayers() const { return m_destroyedLayerIDs; }
+    const Vector<WebCore::PlatformLayerIdentifier>& layerIDsWithNewlyUnreachableBackingStore() const { return m_layerIDsWithNewlyUnreachableBackingStore; }
 
-    Vector<LayerCreationProperties> createdLayers() const { return m_createdLayers; }
-    Vector<WebCore::GraphicsLayer::PlatformLayerID> destroyedLayers() const { return m_destroyedLayerIDs; }
-    Vector<WebCore::GraphicsLayer::PlatformLayerID> layerIDsWithNewlyUnreachableBackingStore() const { return m_layerIDsWithNewlyUnreachableBackingStore; }
+    HashSet<Ref<PlatformCALayerRemote>>& changedLayers();
 
-    HashSet<RefPtr<PlatformCALayerRemote>>& changedLayers() { return m_changedLayers; }
+    const LayerPropertiesMap& changedLayerProperties() const;
+    LayerPropertiesMap& changedLayerProperties();
 
-    const LayerPropertiesMap& changedLayerProperties() const { return m_changedLayerProperties; }
-    LayerPropertiesMap& changedLayerProperties() { return m_changedLayerProperties; }
+    void setRemoteContextHostedIdentifier(Markable<WebCore::LayerHostingContextIdentifier> identifier) { m_remoteContextHostedIdentifier = identifier; }
+    Markable<WebCore::LayerHostingContextIdentifier> remoteContextHostedIdentifier() const { return m_remoteContextHostedIdentifier; }
+    bool isMainFrameProcessTransaction() const { return !m_remoteContextHostedIdentifier; }
 
     WebCore::IntSize contentsSize() const { return m_contentsSize; }
     void setContentsSize(const WebCore::IntSize& size) { m_contentsSize = size; };
@@ -269,8 +176,11 @@ public:
     void setScaleWasSetByUIProcess(bool scaleWasSetByUIProcess) { m_scaleWasSetByUIProcess = scaleWasSetByUIProcess; }
 
 #if PLATFORM(MAC)
-    WebCore::GraphicsLayer::PlatformLayerID pageScalingLayerID() const { return m_pageScalingLayerID.value(); }
-    void setPageScalingLayerID(WebCore::GraphicsLayer::PlatformLayerID layerID) { m_pageScalingLayerID = layerID; }
+    WebCore::PlatformLayerIdentifier pageScalingLayerID() const { return m_pageScalingLayerID.value(); }
+    void setPageScalingLayerID(WebCore::PlatformLayerIdentifier layerID) { m_pageScalingLayerID = layerID; }
+
+    WebCore::PlatformLayerIdentifier scrolledContentsLayerID() const { return m_scrolledContentsLayerID.value(); }
+    void setScrolledContentsLayerID(WebCore::PlatformLayerIdentifier layerID) { m_scrolledContentsLayerID = layerID; }
 #endif
 
     uint64_t renderTreeSize() const { return m_renderTreeSize; }
@@ -309,7 +219,7 @@ public:
     ActivityStateChangeID activityStateChangeID() const { return m_activityStateChangeID; }
     void setActivityStateChangeID(ActivityStateChangeID activityStateChangeID) { m_activityStateChangeID = activityStateChangeID; }
 
-    typedef CallbackID TransactionCallbackID;
+    using TransactionCallbackID = IPC::AsyncReplyID;
     const Vector<TransactionCallbackID>& callbackIDs() const { return m_callbackIDs; }
     void setCallbackIDs(Vector<TransactionCallbackID>&& callbackIDs) { m_callbackIDs = WTFMove(callbackIDs); }
 
@@ -326,14 +236,17 @@ public:
 #endif
 
 private:
-    WebCore::GraphicsLayer::PlatformLayerID m_rootLayerID;
-    HashSet<RefPtr<PlatformCALayerRemote>> m_changedLayers; // Only used in the Web process.
-    LayerPropertiesMap m_changedLayerProperties; // Only used in the UI process.
+    friend struct IPC::ArgumentCoder<RemoteLayerTreeTransaction, void>;
+
+    WebCore::PlatformLayerIdentifier m_rootLayerID;
+    ChangedLayers m_changedLayers;
+
+    Markable<WebCore::LayerHostingContextIdentifier> m_remoteContextHostedIdentifier;
 
     Vector<LayerCreationProperties> m_createdLayers;
-    Vector<WebCore::GraphicsLayer::PlatformLayerID> m_destroyedLayerIDs;
-    Vector<WebCore::GraphicsLayer::PlatformLayerID> m_videoLayerIDsPendingFullscreen;
-    Vector<WebCore::GraphicsLayer::PlatformLayerID> m_layerIDsWithNewlyUnreachableBackingStore;
+    Vector<WebCore::PlatformLayerIdentifier> m_destroyedLayerIDs;
+    Vector<WebCore::PlatformLayerIdentifier> m_videoLayerIDsPendingFullscreen;
+    Vector<WebCore::PlatformLayerIdentifier> m_layerIDsWithNewlyUnreachableBackingStore;
 
     Vector<TransactionCallbackID> m_callbackIDs;
 
@@ -348,7 +261,8 @@ private:
     WebCore::Color m_sampledPageTopColor;
 
 #if PLATFORM(MAC)
-    Markable<WebCore::GraphicsLayer::PlatformLayerID> m_pageScalingLayerID; // Only used for non-delegated scaling.
+    Markable<WebCore::PlatformLayerIdentifier> m_pageScalingLayerID; // Only used for non-delegated scaling.
+    Markable<WebCore::PlatformLayerIdentifier> m_scrolledContentsLayerID;
 #endif
 
     double m_pageScaleFactor { 1 };

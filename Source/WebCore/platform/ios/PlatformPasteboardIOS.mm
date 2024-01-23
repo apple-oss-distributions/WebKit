@@ -79,11 +79,12 @@ void PlatformPasteboard::getTypes(Vector<String>& types) const
     types = makeVector<String>([m_pasteboard pasteboardTypes]);
 }
 
-RefPtr<SharedBuffer> PlatformPasteboard::bufferForType(const String& type) const
+PasteboardBuffer PlatformPasteboard::bufferForType(const String& type) const
 {
-    if (NSData *data = [m_pasteboard dataForPasteboardType:type])
-        return SharedBuffer::create(data);
-    return nullptr;
+    PasteboardBuffer pasteboardBuffer;
+    pasteboardBuffer.data = readBuffer(0, type);
+    pasteboardBuffer.type = type;
+    return pasteboardBuffer;
 }
 
 void PlatformPasteboard::performAsDataOwner(DataOwnerType type, Function<void()>&& actions)
@@ -426,7 +427,12 @@ static void addRepresentationsForPlainText(WebItemProviderRegistrationInfoList *
     if (plainText.isEmpty())
         return;
 
+#if HAVE(NSURL_ENCODING_INVALID_CHARACTERS)
+    NSURL *platformURL = [NSURL URLWithString:plainText encodingInvalidCharacters:NO];
+#else
     NSURL *platformURL = [NSURL URLWithString:plainText];
+#endif
+
     if (URL(platformURL).isValid())
         [itemsToRegister addRepresentingObject:platformURL];
 
@@ -741,12 +747,17 @@ Vector<String> PlatformPasteboard::allStringsForType(const String& type) const
     return strings;
 }
 
+static bool isDisallowedTypeForReadBuffer(NSString *type)
+{
+    return [type isEqualToString:UIImagePboardType];
+}
+
 RefPtr<SharedBuffer> PlatformPasteboard::readBuffer(std::optional<size_t> index, const String& type) const
 {
-    if (!index)
-        return bufferForType(type);
+    if (isDisallowedTypeForReadBuffer(type))
+        return nullptr;
 
-    NSInteger integerIndex = *index;
+    NSInteger integerIndex = index.value_or(0);
     if (integerIndex < 0 || integerIndex >= [m_pasteboard numberOfItems])
         return nullptr;
 
@@ -756,7 +767,10 @@ RefPtr<SharedBuffer> PlatformPasteboard::readBuffer(std::optional<size_t> index,
 
     if (![pasteboardItem count])
         return nullptr;
-    return SharedBuffer::create([pasteboardItem objectAtIndex:0]);
+
+    if (NSData *data = [pasteboardItem firstObject])
+        return SharedBuffer::create(data);
+    return nullptr;
 }
 
 String PlatformPasteboard::readString(size_t index, const String& type) const

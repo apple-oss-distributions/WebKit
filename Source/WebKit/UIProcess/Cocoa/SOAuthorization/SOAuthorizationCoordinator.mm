@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019-2022 Apple Inc. All rights reserved.
+ * Copyright (C) 2019-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -34,6 +34,7 @@
 #import "RedirectSOAuthorizationSession.h"
 #import "SubFrameSOAuthorizationSession.h"
 #import "WKSOAuthorizationDelegate.h"
+#import "WebFrameProxy.h"
 #import "WebPageProxy.h"
 #import <WebCore/ResourceRequest.h>
 #import <pal/cocoa/AppSSOSoftLink.h>
@@ -73,7 +74,7 @@ void SOAuthorizationCoordinator::tryAuthorize(Ref<API::NavigationAction>&& navig
     }
 
     // SubFrameSOAuthorizationSession should only be allowed for Apple first parties.
-    auto* targetFrame = navigationAction->targetFrame();
+    RefPtr targetFrame = navigationAction->targetFrame();
     bool subframeNavigation = targetFrame && !targetFrame->isMainFrame();
     if (subframeNavigation && (!page.mainFrame() || ![AKAuthorizationController isURLFromAppleOwnedDomain:page.mainFrame()->url()])) {
         AUTHORIZATIONCOORDINATOR_RELEASE_LOG_ERROR("tryAuthorize: Attempting to perform subframe navigation for non-Apple authorization URL.");

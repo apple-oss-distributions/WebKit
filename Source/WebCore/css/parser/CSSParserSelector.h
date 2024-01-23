@@ -49,11 +49,12 @@ public:
     ~CSSParserSelector();
 
     std::unique_ptr<CSSSelector> releaseSelector() { return WTFMove(m_selector); }
+    const CSSSelector* selector() const { return m_selector.get(); };
     CSSSelector* selector() { return m_selector.get(); }
 
     void setValue(const AtomString& value, bool matchLowerCase = false) { m_selector->setValue(value, matchLowerCase); }
 
-    void setAttribute(const QualifiedName& value, bool convertToLowercase, CSSSelector::AttributeMatchType type) { m_selector->setAttribute(value, convertToLowercase, type); }
+    void setAttribute(const QualifiedName& value, CSSSelector::AttributeMatchType type) { m_selector->setAttribute(value, type); }
     
     void setArgument(const AtomString& value) { m_selector->setArgument(value); }
     void setNth(int a, int b) { m_selector->setNth(a, b); }
@@ -81,6 +82,8 @@ public:
 
     bool isHostPseudoSelector() const;
 
+    bool hasExplicitNestingParent() const;
+
     // FIXME-NEWPARSER: "slotted" was removed here for now, since it leads to a combinator
     // connection of ShadowDescendant, and the current shadow DOM code doesn't expect this. When
     // we do fix this issue, make sure to patch the namespace prependTag code to remove the slotted
@@ -104,7 +107,7 @@ private:
 
 inline bool CSSParserSelector::needsImplicitShadowCombinatorForMatching() const
 {
-    return match() == CSSSelector::PseudoElement
+    return match() == CSSSelector::Match::PseudoElement
         && (pseudoElementType() == CSSSelector::PseudoElementWebKitCustom
 #if ENABLE(VIDEO)
             || pseudoElementType() == CSSSelector::PseudoElementCue
@@ -117,7 +120,7 @@ inline bool CSSParserSelector::needsImplicitShadowCombinatorForMatching() const
 inline bool CSSParserSelector::isPseudoElementCueFunction() const
 {
 #if ENABLE(VIDEO)
-    return m_selector->match() == CSSSelector::PseudoElement && m_selector->pseudoElementType() == CSSSelector::PseudoElementCue;
+    return m_selector->match() == CSSSelector::Match::PseudoElement && m_selector->pseudoElementType() == CSSSelector::PseudoElementCue;
 #else
     return false;
 #endif

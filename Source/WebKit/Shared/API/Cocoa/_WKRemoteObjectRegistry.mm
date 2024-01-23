@@ -210,7 +210,7 @@ static NSString *replyBlockSignature(Protocol *protocol, SEL selector, NSUIntege
 - (void)_invokeMethod:(const WebKit::RemoteObjectInvocation&)remoteObjectInvocation
 {
     auto& interfaceIdentifier = remoteObjectInvocation.interfaceIdentifier();
-    auto* encodedInvocation = remoteObjectInvocation.encodedInvocation();
+    RefPtr encodedInvocation = remoteObjectInvocation.encodedInvocation();
 
     auto interfaceAndObject = _exportedObjects.get(interfaceIdentifier);
     if (!interfaceAndObject.second) {
@@ -220,15 +220,9 @@ static NSString *replyBlockSignature(Protocol *protocol, SEL selector, NSUIntege
 
     RetainPtr<_WKRemoteObjectInterface> interface = interfaceAndObject.second;
 
-    auto decoder = adoptNS([[WKRemoteObjectDecoder alloc] initWithInterface:interface.get() rootObjectDictionary:encodedInvocation replyToSelector:nullptr]);
+    auto decoder = adoptNS([[WKRemoteObjectDecoder alloc] initWithInterface:interface.get() rootObjectDictionary:encodedInvocation.get() replyToSelector:nullptr]);
 
-    NSInvocation *invocation = nil;
-
-    @try {
-        invocation = [decoder decodeObjectOfClass:[NSInvocation class] forKey:invocationKey];
-    } @catch (NSException *exception) {
-        NSLog(@"Exception caught during decoding of message: %@", exception);
-    }
+    NSInvocation *invocation = [decoder decodeObjectOfClass:[NSInvocation class] forKey:invocationKey];
 
     NSMethodSignature *methodSignature = invocation.methodSignature;
     auto* replyInfo = remoteObjectInvocation.replyInfo();
@@ -327,7 +321,7 @@ static NSString *replyBlockSignature(Protocol *protocol, SEL selector, NSUIntege
 
 - (void)_callReplyWithID:(uint64_t)replyID blockInvocation:(const WebKit::UserData&)blockInvocation
 {
-    auto encodedInvocation = blockInvocation.object();
+    RefPtr encodedInvocation = blockInvocation.object();
     if (!encodedInvocation || encodedInvocation->type() != API::Object::Type::Dictionary)
         return;
 
@@ -338,16 +332,9 @@ static NSString *replyBlockSignature(Protocol *protocol, SEL selector, NSUIntege
     auto pendingReply = it->value;
     _pendingReplies.remove(it);
 
-    auto decoder = adoptNS([[WKRemoteObjectDecoder alloc] initWithInterface:pendingReply.interface.get() rootObjectDictionary:static_cast<API::Dictionary*>(encodedInvocation) replyToSelector:pendingReply.selector]);
+    auto decoder = adoptNS([[WKRemoteObjectDecoder alloc] initWithInterface:pendingReply.interface.get() rootObjectDictionary:static_cast<API::Dictionary*>(encodedInvocation.get()) replyToSelector:pendingReply.selector]);
 
-    NSInvocation *replyInvocation = nil;
-
-    @try {
-        replyInvocation = [decoder decodeObjectOfClass:[NSInvocation class] forKey:invocationKey];
-    } @catch (NSException *exception) {
-        NSLog(@"Exception caught during decoding of reply: %@", exception);
-        return;
-    }
+    NSInvocation *replyInvocation = [decoder decodeObjectOfClass:[NSInvocation class] forKey:invocationKey];
 
     [replyInvocation setTarget:pendingReply.block.get()];
     [replyInvocation invoke];

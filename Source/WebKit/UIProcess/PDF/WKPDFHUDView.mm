@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2020-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,14 +26,16 @@
 #import "config.h"
 #import "WKPDFHUDView.h"
 
-#if ENABLE(UI_PROCESS_PDF_HUD)
+#if ENABLE(PDFKIT_PLUGIN)
 
 #import "WKWebViewInternal.h"
 #import "WebPageProxy.h"
 #import <QuartzCore/CATransaction.h>
+#import <WebCore/Color.h>
 #import <pal/spi/cocoa/QuartzCoreSPI.h>
 #import <pal/spi/mac/NSImageSPI.h>
 #import <wtf/WeakObjCPtr.h>
+#import <wtf/WorkQueue.h>
 
 //  The HUD items should have the following spacing:
 //  -------------------------------------------------
@@ -51,10 +53,10 @@ static const CGFloat layerCornerRadius = 12;
 static const CGFloat layerGrayComponent = 0;
 static const CGFloat layerAlpha = 0.75;
 static const CGFloat layerImageScale = 1.5;
-static const CGFloat layerSeperatorControllerSize = 1.5;
+static const CGFloat layerSeparatorControllerSize = 1.5;
 static const CGFloat layerControllerHorizontalMargin = 10.0;
 static const CGFloat layerImageVerticalMargin = 12.0;
-static const CGFloat layerSeperatorVerticalMargin = 10.0;
+static const CGFloat layerSeparatorVerticalMargin = 10.0;
 static const CGFloat controlLayerNormalAlpha = 0.75;
 static const CGFloat controlLayerDownAlpha = 0.45;
 
@@ -62,7 +64,7 @@ static NSString * const PDFHUDZoomInControl = @"plus.magnifyingglass";
 static NSString * const PDFHUDZoomOutControl = @"minus.magnifyingglass";
 static NSString * const PDFHUDLaunchPreviewControl = @"preview";
 static NSString * const PDFHUDSavePDFControl = @"arrow.down.circle";
-static NSString * const PDFHUDSeperatorControl = @"PDFHUDSeperatorControl";
+static NSString * const PDFHUDSeparatorControl = @"PDFHUDSeparatorControl";
 
 static const CGFloat layerFadeInTimeInterval = 0.25;
 static const CGFloat layerFadeOutTimeInterval = 0.5;
@@ -73,7 +75,7 @@ static NSArray<NSString *> *controlArray()
     return @[
         PDFHUDZoomOutControl,
         PDFHUDZoomInControl,
-        PDFHUDSeperatorControl,
+        PDFHUDSeparatorControl,
         PDFHUDLaunchPreviewControl,
         PDFHUDSavePDFControl
     ];
@@ -164,7 +166,8 @@ static NSArray<NSString *> *controlArray()
 - (NSView *)hitTest:(NSPoint)point
 {
     ASSERT(_page);
-    return _page ? _page->cocoaView().autorelease() : self;
+    RefPtr page = _page.get();
+    return page ? page->cocoaView().autorelease() : self;
 }
 
 - (void)mouseMoved:(NSEvent *)event
@@ -179,7 +182,7 @@ static NSArray<NSString *> *controlArray()
 - (void)mouseDown:(NSEvent *)event
 {
     _activeControl = [self _controlForEvent:event];
-    if ([_activeControl isEqualToString:PDFHUDSeperatorControl])
+    if ([_activeControl isEqualToString:PDFHUDSeparatorControl])
         _activeControl = nil;
     if (_activeControl) {
         // Update rendering to highlight it..
@@ -245,7 +248,7 @@ static NSArray<NSString *> *controlArray()
 {
     if (!_visible)
         return;
-    auto* page = _page.get();
+    RefPtr page = _page.get();
     if (!page)
         return;
     if ([control isEqualToString:PDFHUDZoomInControl])
@@ -284,10 +287,10 @@ static NSArray<NSString *> *controlArray()
         CGFloat controllerWidth = 0.0;
         CGFloat controllerHeight = 0.0;
 
-        if ([controlName isEqualToString:PDFHUDSeperatorControl]) {
-            dy = layerSeperatorVerticalMargin;
-            controllerWidth = layerSeperatorControllerSize;
-            controllerHeight = minIconImageHeight + (2.0 * layerImageVerticalMargin) - (2.0 * layerSeperatorVerticalMargin);
+        if ([controlName isEqualToString:PDFHUDSeparatorControl]) {
+            dy = layerSeparatorVerticalMargin;
+            controllerWidth = layerSeparatorControllerSize;
+            controllerHeight = minIconImageHeight + (2.0 * layerImageVerticalMargin) - (2.0 * layerSeparatorVerticalMargin);
             
             [controlLayer setBackgroundColor:[[NSColor lightGrayColor] CGColor]];
         } else {
@@ -329,9 +332,9 @@ static NSArray<NSString *> *controlArray()
     if (iconImage)
         return iconImage;
 
-    ALLOW_DEPRECATED_DECLARATIONS_BEGIN
+ALLOW_DEPRECATED_DECLARATIONS_BEGIN
     iconImage = [NSImage _imageWithSystemSymbolName:control];
-    ALLOW_DEPRECATED_DECLARATIONS_END
+ALLOW_DEPRECATED_DECLARATIONS_END
     if (!iconImage)
         return nil;
 
@@ -354,4 +357,4 @@ static NSArray<NSString *> *controlArray()
 
 @end
 
-#endif // ENABLE(UI_PROCESS_PDF_HUD)
+#endif // ENABLE(PDFKIT_PLUGIN)

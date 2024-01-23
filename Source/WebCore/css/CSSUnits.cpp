@@ -43,13 +43,18 @@ CSSUnitCategory unitCategory(CSSUnitType type)
     case CSSUnitType::CSS_Q:
         return CSSUnitCategory::AbsoluteLength;
     // https://drafts.csswg.org/css-values-4/#font-relative-lengths
-    case CSSUnitType::CSS_EMS:
-    case CSSUnitType::CSS_REMS:
-    case CSSUnitType::CSS_EXS:
-    case CSSUnitType::CSS_CHS:
+    case CSSUnitType::CSS_EM:
+    case CSSUnitType::CSS_EX:
+    case CSSUnitType::CSS_CAP:
+    case CSSUnitType::CSS_CH:
     case CSSUnitType::CSS_IC:
-    case CSSUnitType::CSS_LHS:
-    case CSSUnitType::CSS_RLHS:
+    case CSSUnitType::CSS_LH:
+    case CSSUnitType::CSS_RCAP:
+    case CSSUnitType::CSS_RCH:
+    case CSSUnitType::CSS_REM:
+    case CSSUnitType::CSS_REX:
+    case CSSUnitType::CSS_RIC:
+    case CSSUnitType::CSS_RLH:
         return CSSUnitCategory::FontRelativeLength;
     // https://drafts.csswg.org/css-values-4/#viewport-relative-lengths
     case CSSUnitType::CSS_VW:
@@ -109,20 +114,14 @@ CSSUnitCategory unitCategory(CSSUnitType type)
     case CSSUnitType::CSS_CALC:
     case CSSUnitType::CSS_CALC_PERCENTAGE_WITH_LENGTH:
     case CSSUnitType::CSS_CALC_PERCENTAGE_WITH_NUMBER:
-    case CSSUnitType::CSS_COUNTER:
     case CSSUnitType::CSS_COUNTER_NAME:
     case CSSUnitType::CSS_DIMENSION:
     case CSSUnitType::CSS_FONT_FAMILY:
     case CSSUnitType::CSS_IDENT:
-    case CSSUnitType::CSS_PAIR:
     case CSSUnitType::CSS_PROPERTY_ID:
-    case CSSUnitType::CSS_QUAD:
-    case CSSUnitType::CSS_QUIRKY_EMS:
-    case CSSUnitType::CSS_RECT:
+    case CSSUnitType::CSS_QUIRKY_EM:
     case CSSUnitType::CSS_RGBCOLOR:
-    case CSSUnitType::CSS_SHAPE:
     case CSSUnitType::CSS_STRING:
-    case CSSUnitType::CSS_UNICODE_RANGE:
     case CSSUnitType::CSS_UNKNOWN:
     case CSSUnitType::CSS_UNRESOLVED_COLOR:
     case CSSUnitType::CSS_URI:
@@ -192,8 +191,8 @@ TextStream& operator<<(TextStream& ts, CSSUnitType unitType)
     case CSSUnitType::CSS_NUMBER: ts << "number"; break;
     case CSSUnitType::CSS_INTEGER: ts << "integer"; break;
     case CSSUnitType::CSS_PERCENTAGE: ts << "percentage"; break;
-    case CSSUnitType::CSS_EMS: ts << "ems"; break;
-    case CSSUnitType::CSS_EXS: ts << "exs"; break;
+    case CSSUnitType::CSS_EM: ts << "em"; break;
+    case CSSUnitType::CSS_EX: ts << "ex"; break;
     case CSSUnitType::CSS_PX: ts << "px"; break;
     case CSSUnitType::CSS_CM: ts << "cm"; break;
     case CSSUnitType::CSS_MM: ts << "mm"; break;
@@ -213,8 +212,6 @@ TextStream& operator<<(TextStream& ts, CSSUnitType unitType)
     case CSSUnitType::CSS_IDENT: ts << "ident"; break;
     case CSSUnitType::CustomIdent: ts << "custom-ident"; break;
     case CSSUnitType::CSS_ATTR: ts << "attr"; break;
-    case CSSUnitType::CSS_COUNTER: ts << "counter"; break;
-    case CSSUnitType::CSS_RECT: ts << "rect"; break;
     case CSSUnitType::CSS_RGBCOLOR: ts << "rgbcolor"; break;
     case CSSUnitType::CSS_VW: ts << "vw"; break;
     case CSSUnitType::CSS_VH: ts << "vh"; break;
@@ -246,23 +243,24 @@ TextStream& operator<<(TextStream& ts, CSSUnitType unitType)
     case CSSUnitType::CSS_DPCM: ts << "dpcm"; break;
     case CSSUnitType::CSS_FR: ts << "fr"; break;
     case CSSUnitType::CSS_Q: ts << "q"; break;
-    case CSSUnitType::CSS_LHS: ts << "lh"; break;
-    case CSSUnitType::CSS_RLHS: ts << "rlh"; break;
+    case CSSUnitType::CSS_LH: ts << "lh"; break;
+    case CSSUnitType::CSS_RLH: ts << "rlh"; break;
     case CSSUnitType::CSS_CQW: ts << "cqw"; break;
     case CSSUnitType::CSS_CQH: ts << "cqh"; break;
     case CSSUnitType::CSS_CQI: ts << "cqi"; break;
     case CSSUnitType::CSS_CQB: ts << "cqb"; break;
     case CSSUnitType::CSS_CQMAX: ts << "cqmax"; break;
     case CSSUnitType::CSS_CQMIN: ts << "cqmin"; break;
-    case CSSUnitType::CSS_PAIR: ts << "pair"; break;
-    case CSSUnitType::CSS_UNICODE_RANGE: ts << "unicode_range"; break;
     case CSSUnitType::CSS_TURN: ts << "turn"; break;
-    case CSSUnitType::CSS_REMS: ts << "rems"; break;
-    case CSSUnitType::CSS_CHS: ts << "chs"; break;
-    case CSSUnitType::CSS_IC: ts << "ics"; break;
+    case CSSUnitType::CSS_RCAP: ts << "rcap"; break;
+    case CSSUnitType::CSS_RCH: ts << "rch"; break;
+    case CSSUnitType::CSS_REM: ts << "rem"; break;
+    case CSSUnitType::CSS_REX: ts << "rex"; break;
+    case CSSUnitType::CSS_RIC: ts << "ric"; break;
+    case CSSUnitType::CSS_CAP: ts << "cap"; break;
+    case CSSUnitType::CSS_CH: ts << "ch"; break;
+    case CSSUnitType::CSS_IC: ts << "ic"; break;
     case CSSUnitType::CSS_COUNTER_NAME: ts << "counter_name"; break;
-    case CSSUnitType::CSS_SHAPE: ts << "shape"; break;
-    case CSSUnitType::CSS_QUAD: ts << "quad"; break;
     case CSSUnitType::CSS_CALC: ts << "calc"; break;
     case CSSUnitType::CSS_CALC_PERCENTAGE_WITH_NUMBER: ts << "calc_percentage_with_number"; break;
     case CSSUnitType::CSS_CALC_PERCENTAGE_WITH_LENGTH: ts << "calc_percentage_with_length"; break;
@@ -270,7 +268,7 @@ TextStream& operator<<(TextStream& ts, CSSUnitType unitType)
     case CSSUnitType::CSS_FONT_FAMILY: ts << "font_family"; break;
     case CSSUnitType::CSS_PROPERTY_ID: ts << "property_id"; break;
     case CSSUnitType::CSS_VALUE_ID: ts << "value_id"; break;
-    case CSSUnitType::CSS_QUIRKY_EMS: ts << "quirky_ems"; break;
+    case CSSUnitType::CSS_QUIRKY_EM: ts << "quirky_em"; break;
     }
     return ts;
 }

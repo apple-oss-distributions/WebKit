@@ -27,14 +27,14 @@
 #include "config.h"
 #include "InspectorAuditAccessibilityObject.h"
 
+#include "AXCoreObject.h"
 #include "AXObjectCache.h"
 #include "AccessibilityNodeObject.h"
-#include "AccessibilityObjectInterface.h"
 #include "ContainerNode.h"
 #include "Document.h"
-#include "ElementIterator.h"
 #include "HTMLNames.h"
 #include "SpaceSplitString.h"
+#include "TypedElementDescendantIteratorInlines.h"
 #include <wtf/Vector.h>
 #include <wtf/text/WTFString.h>
 
@@ -337,8 +337,7 @@ ExceptionOr<std::optional<Vector<RefPtr<Node>>>> InspectorAuditAccessibilityObje
     if (auto* axObject = accessibilityObjectForNode(node)) {
         Vector<RefPtr<Node>> selectedChildNodes;
 
-        AXCoreObject::AccessibilityChildrenVector selectedChildren;
-        axObject->selectedChildren(selectedChildren);
+        auto selectedChildren = axObject->selectedChildren();
         for (auto& selectedChildObject : selectedChildren) {
             if (Node* selectedChildNode = selectedChildObject->node())
                 selectedChildNodes.append(selectedChildNode);

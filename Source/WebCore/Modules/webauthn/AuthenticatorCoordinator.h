@@ -46,7 +46,7 @@ class Document;
 struct PublicKeyCredentialCreationOptions;
 struct PublicKeyCredentialRequestOptions;
 struct CredentialRequestOptions;
-struct SecurityOriginData;
+class SecurityOriginData;
 
 template<typename IDLType> class DOMPromiseDeferred;
 
@@ -66,7 +66,7 @@ public:
     void isUserVerifyingPlatformAuthenticatorAvailable(const Document&, DOMPromiseDeferred<IDLBoolean>&&) const;
     void isConditionalMediationAvailable(const Document&, DOMPromiseDeferred<IDLBoolean>&&) const;
 
-    void resetUserGestureRequirement();
+    WEBCORE_EXPORT void resetUserGestureRequirement();
 
 private:
     AuthenticatorCoordinator() = default;

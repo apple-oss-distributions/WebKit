@@ -56,10 +56,7 @@ public:
     {
     }
 
-    inline bool operator==(const SourceCodeFlags& rhs) const
-    {
-        return m_flags == rhs.m_flags;
-    }
+    friend bool operator==(SourceCodeFlags, SourceCodeFlags) = default;
 
     unsigned bits() { return m_flags; }
 
@@ -117,11 +114,6 @@ public:
             && m_name == other.m_name
             && host() == other.host()
             && string() == other.string();
-    }
-
-    bool operator!=(const SourceCodeKey& other) const
-    {
-        return !(*this == other);
     }
 
     struct Hash {

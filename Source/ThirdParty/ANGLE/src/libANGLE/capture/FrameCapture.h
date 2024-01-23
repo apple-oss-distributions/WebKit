@@ -14,6 +14,7 @@
 #include "common/frame_capture_utils.h"
 #include "common/system_utils.h"
 #include "libANGLE/Context.h"
+#include "libANGLE/ShareGroup.h"
 #include "libANGLE/Thread.h"
 #include "libANGLE/angletypes.h"
 #include "libANGLE/entry_points_utils.h"
@@ -758,7 +759,6 @@ class FrameCaptureShared final : angle::NonCopyable
     BufferDataMap mBufferDataMap;
     bool mValidateSerializedState = false;
     std::string mValidationExpression;
-    bool mTrimEnabled = true;
     PackedEnumMap<ResourceIDType, uint32_t> mMaxAccessedResourceIDs;
     CoherentBufferTracker mCoherentBufferTracker;
 
@@ -782,7 +782,7 @@ class FrameCaptureShared final : angle::NonCopyable
     std::vector<CallCapture> mShareGroupSetupCalls;
     // Track which Contexts were created and made current at least once before MEC,
     // requiring setup for replay
-    std::unordered_set<GLuint> mActiveSecondaryContexts;
+    std::unordered_set<GLuint> mActiveContexts;
 
     // Invalid call counts per entry point while capture is active and inactive.
     std::unordered_map<EntryPoint, size_t> mInvalidCallCountsActive;
@@ -816,6 +816,7 @@ void CaptureEGLCallToFrameCapture(CaptureFuncT captureFunc,
     {
         return;
     }
+    std::lock_guard<egl::ContextMutex> lock(context->getContextMutex());
 
     angle::FrameCaptureShared *frameCaptureShared =
         context->getShareGroup()->getFrameCaptureShared();

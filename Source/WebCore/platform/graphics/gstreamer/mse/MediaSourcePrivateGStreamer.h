@@ -67,16 +67,17 @@ public:
     MediaPlayer::ReadyState readyState() const override;
     void setReadyState(MediaPlayer::ReadyState) override;
 
-    void waitForSeekCompleted() override { }
-    void seekCompleted() override;
+    void waitForTarget(const SeekTarget&, CompletionHandler<void(const MediaTime&)>&&) final;
+    void seekToTime(const MediaTime&, CompletionHandler<void()>&&) final;
 
     MediaTime duration() const;
     MediaTime currentMediaTime() const;
 
     void sourceBufferPrivateDidChangeActiveState(SourceBufferPrivateGStreamer*, bool);
     void startPlaybackIfHasAllTracks();
+    bool hasAllTracks() const { return m_hasAllTracks; }
 
-    std::unique_ptr<PlatformTimeRanges> buffered();
+    const PlatformTimeRanges& buffered();
 
 #if !RELEASE_LOG_DISABLED
     const Logger& logger() const final { return m_logger; }

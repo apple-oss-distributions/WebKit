@@ -26,7 +26,7 @@
 
 #include "CSSValue.h"
 #include "ExceptionOr.h"
-#include <wtf/EnumTraits.h>
+#include <wtf/NeverDestroyed.h>
 #include <wtf/Ref.h>
 #include <wtf/RefCounted.h>
 
@@ -51,7 +51,6 @@ public:
     bool isSpringTimingFunction() const { return type() == Type::SpringFunction; }
 
     virtual bool operator==(const TimingFunction&) const = 0;
-    bool operator!=(const TimingFunction& other) const { return !(*this == other); }
 
     static ExceptionOr<RefPtr<TimingFunction>> createFromCSSText(const String&);
     static RefPtr<TimingFunction> createFromCSSValue(const CSSValue&);
@@ -61,28 +60,56 @@ public:
 
 class LinearTimingFunction final : public TimingFunction {
 public:
+    struct Point {
+        double value;
+        double progress;
+
+        bool operator==(const Point& other) const
+        {
+            return value == other.value && progress == other.progress;
+        }
+    };
+
     static Ref<LinearTimingFunction> create()
     {
-        return adoptRef(*new LinearTimingFunction);
+        return create({ });
+    }
+
+    static Ref<LinearTimingFunction> create(const Vector<Point>& points)
+    {
+        return adoptRef(*new LinearTimingFunction(points));
     }
     
     bool operator==(const TimingFunction& other) const final
     {
-        return is<LinearTimingFunction>(other);
+        if (!is<LinearTimingFunction>(other))
+            return false;
+        auto& otherLinear = downcast<LinearTimingFunction>(other);
+        return m_points == otherLinear.m_points;
     }
 
-    static const LinearTimingFunction& sharedLinearTimingFunction()
+    const Vector<Point>& points() const { return m_points; }
+
+    static const LinearTimingFunction& identity()
     {
-        static const LinearTimingFunction& function = create().leakRef();
-        return function;
+        static NeverDestroyed<Ref<LinearTimingFunction>> function { create() };
+        return function.get();
     }
 
 private:
+    LinearTimingFunction(const Vector<Point>& points)
+        : m_points(points)
+    {
+        ASSERT(m_points.isEmpty() || m_points.size() >= 2);
+    }
+
     Type type() const final { return Type::LinearFunction; }
     Ref<TimingFunction> clone() const final
     {
-        return adoptRef(*new LinearTimingFunction);
+        return adoptRef(*new LinearTimingFunction(m_points));
     }
+
+    const Vector<Point> m_points;
 };
 
 class CubicBezierTimingFunction final : public TimingFunction {
@@ -139,8 +166,8 @@ public:
 
     static const CubicBezierTimingFunction& defaultTimingFunction()
     {
-        static const CubicBezierTimingFunction& function = create().leakRef();
-        return function;
+        static NeverDestroyed<Ref<CubicBezierTimingFunction>> function { create() };
+        return function.get();
     }
 
     Ref<CubicBezierTimingFunction> createReversed() const
@@ -299,40 +326,3 @@ SPECIALIZE_TYPE_TRAITS_TIMINGFUNCTION(WebCore::LinearTimingFunction, isLinearTim
 SPECIALIZE_TYPE_TRAITS_TIMINGFUNCTION(WebCore::CubicBezierTimingFunction, isCubicBezierTimingFunction())
 SPECIALIZE_TYPE_TRAITS_TIMINGFUNCTION(WebCore::StepsTimingFunction, isStepsTimingFunction())
 SPECIALIZE_TYPE_TRAITS_TIMINGFUNCTION(WebCore::SpringTimingFunction, isSpringTimingFunction())
-
-namespace WTF {
-
-template<> struct EnumTraits<WebCore::CubicBezierTimingFunction::TimingFunctionPreset> {
-    using values = EnumValues<
-        WebCore::CubicBezierTimingFunction::TimingFunctionPreset,
-        WebCore::CubicBezierTimingFunction::TimingFunctionPreset::Ease,
-        WebCore::CubicBezierTimingFunction::TimingFunctionPreset::EaseIn,
-        WebCore::CubicBezierTimingFunction::TimingFunctionPreset::EaseOut,
-        WebCore::CubicBezierTimingFunction::TimingFunctionPreset::EaseInOut,
-        WebCore::CubicBezierTimingFunction::TimingFunctionPreset::Custom
-    >;
-};
-
-template<> struct EnumTraits<WebCore::StepsTimingFunction::StepPosition> {
-    using values = EnumValues<
-        WebCore::StepsTimingFunction::StepPosition,
-        WebCore::StepsTimingFunction::StepPosition::JumpStart,
-        WebCore::StepsTimingFunction::StepPosition::JumpEnd,
-        WebCore::StepsTimingFunction::StepPosition::JumpNone,
-        WebCore::StepsTimingFunction::StepPosition::JumpBoth,
-        WebCore::StepsTimingFunction::StepPosition::Start,
-        WebCore::StepsTimingFunction::StepPosition::End
-    >;
-};
-
-template<> struct EnumTraits<WebCore::TimingFunction::Type> {
-    using values = EnumValues<
-        WebCore::TimingFunction::Type,
-        WebCore::TimingFunction::Type::LinearFunction,
-        WebCore::TimingFunction::Type::CubicBezierFunction,
-        WebCore::TimingFunction::Type::StepsFunction,
-        WebCore::TimingFunction::Type::SpringFunction
-    >;
-};
-
-} // namespace WTF

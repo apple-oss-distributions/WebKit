@@ -53,7 +53,7 @@ class TextTrackCueGenericBoxElement final : public VTTCueBox {
 public:
     static Ref<TextTrackCueGenericBoxElement> create(Document&, TextTrackCueGeneric&);
     
-    void applyCSSProperties(const IntSize&) override;
+    void applyCSSProperties() override;
     
 private:
     TextTrackCueGenericBoxElement(Document&, VTTCue&);
@@ -71,92 +71,21 @@ TextTrackCueGenericBoxElement::TextTrackCueGenericBoxElement(Document& document,
 {
 }
 
-void TextTrackCueGenericBoxElement::applyCSSProperties(const IntSize& videoSize)
+void TextTrackCueGenericBoxElement::applyCSSProperties()
 {
+    VTTCueBox::applyCSSProperties();
+
     RefPtr<TextTrackCueGeneric> cue = static_cast<TextTrackCueGeneric*>(getCue());
     if (!cue)
         return;
 
-    setInlineStyleProperty(CSSPropertyPosition, CSSValueAbsolute);
-    setInlineStyleProperty(CSSPropertyUnicodeBidi, CSSValuePlaintext);
-
     Ref<HTMLSpanElement> cueElement = cue->element();
-
-    double textPosition = cue->calculateComputedTextPosition();
-    double linePosition = cue->calculateComputedLinePosition();
-
-    CSSValueID alignment = cue->getCSSAlignment();
-    float size = static_cast<float>(cue->getCSSSize());
-    if (cue->useDefaultPosition()) {
-        setInlineStyleProperty(CSSPropertyBottom, 0, CSSUnitType::CSS_PX);
-        setInlineStyleProperty(CSSPropertyMarginBottom, 1.0, CSSUnitType::CSS_PERCENTAGE);
-    } else {
-        setInlineStyleProperty(CSSPropertyLeft, static_cast<float>(textPosition), CSSUnitType::CSS_PERCENTAGE);
-        setInlineStyleProperty(CSSPropertyTop, static_cast<float>(linePosition), CSSUnitType::CSS_PERCENTAGE);
-
-        double authorFontSize = videoSize.height() * cue->baseFontSizeRelativeToVideoHeight() / 100.0;
-        if (!authorFontSize)
-            authorFontSize = DEFAULTCAPTIONFONTSIZE;
-
-        if (cue->fontSizeMultiplier())
-            authorFontSize *= cue->fontSizeMultiplier() / 100;
-
-        double multiplier = fontSizeFromCaptionUserPrefs() / authorFontSize;
-        double newCueSize = std::min(size * multiplier, 100.0);
-        if (cue->getWritingDirection() == VTTCue::Horizontal) {
-            setInlineStyleProperty(CSSPropertyWidth, newCueSize, CSSUnitType::CSS_PERCENTAGE);
-            if ((alignment == CSSValueMiddle || alignment == CSSValueCenter) && multiplier != 1.0)
-                setInlineStyleProperty(CSSPropertyLeft, static_cast<double>(textPosition - (newCueSize - cue->getCSSSize()) / 2), CSSUnitType::CSS_PERCENTAGE);
-        } else {
-            setInlineStyleProperty(CSSPropertyHeight, newCueSize,  CSSUnitType::CSS_PERCENTAGE);
-            if ((alignment == CSSValueMiddle || alignment == CSSValueCenter) && multiplier != 1.0)
-                setInlineStyleProperty(CSSPropertyTop, static_cast<double>(linePosition - (newCueSize - cue->getCSSSize()) / 2), CSSUnitType::CSS_PERCENTAGE);
-        }
-    }
-
-    double maxSize = 100.0;
-    
-    if (alignment == CSSValueEnd || alignment == CSSValueRight)
-        maxSize = textPosition;
-    else if (alignment == CSSValueStart || alignment == CSSValueLeft)
-        maxSize = 100.0 - textPosition;
-
-    if (cue->getWritingDirection() == VTTCue::Horizontal) {
-        setInlineStyleProperty(CSSPropertyMinWidth, "min-content"_s);
-        setInlineStyleProperty(CSSPropertyMaxWidth, maxSize, CSSUnitType::CSS_PERCENTAGE);
-    } else {
-        setInlineStyleProperty(CSSPropertyMinHeight, "min-content"_s);
-        setInlineStyleProperty(CSSPropertyMaxHeight, maxSize, CSSUnitType::CSS_PERCENTAGE);
-    }
-
     if (cue->foregroundColor().isValid())
         cueElement->setInlineStyleProperty(CSSPropertyColor, serializationForHTML(cue->foregroundColor()));
     if (cue->highlightColor().isValid())
         cueElement->setInlineStyleProperty(CSSPropertyBackgroundColor, serializationForHTML(cue->highlightColor()));
-
-    if (cue->getWritingDirection() == VTTCue::Horizontal)
-        setInlineStyleProperty(CSSPropertyHeight, CSSValueAuto);
-    else
-        setInlineStyleProperty(CSSPropertyWidth, CSSValueAuto);
-
-    if (cue->baseFontSizeRelativeToVideoHeight())
-        cue->setFontSize(cue->baseFontSizeRelativeToVideoHeight(), videoSize, false);
-
-    if (cue->getAlignment() == VTTCue::Center)
-        setInlineStyleProperty(CSSPropertyTextAlign, CSSValueCenter);
-    else if (cue->getAlignment() == VTTCue::End)
-        setInlineStyleProperty(CSSPropertyTextAlign, CSSValueEnd);
-    else
-        setInlineStyleProperty(CSSPropertyTextAlign, CSSValueStart);
-
     if (cue->backgroundColor().isValid())
         setInlineStyleProperty(CSSPropertyBackgroundColor, serializationForHTML(cue->backgroundColor()));
-    setInlineStyleProperty(CSSPropertyWritingMode, cue->getCSSWritingMode(), false);
-    setInlineStyleProperty(CSSPropertyWhiteSpace, CSSValuePreWrap);
-
-    // Make sure shadow or stroke is not clipped.
-    setInlineStyleProperty(CSSPropertyOverflow, CSSValueVisible);
-    cueElement->setInlineStyleProperty(CSSPropertyOverflow, CSSValueVisible);
 }
 
 Ref<TextTrackCueGeneric> TextTrackCueGeneric::create(ScriptExecutionContext& context, const MediaTime& start, const MediaTime& end, const String& content)
@@ -178,14 +107,6 @@ RefPtr<VTTCueBox> TextTrackCueGeneric::createDisplayTree()
     return nullptr;
 }
 
-ExceptionOr<void> TextTrackCueGeneric::setLine(const LineAndPositionSetting& line)
-{
-    auto result = VTTCue::setLine(line);
-    if (!result.hasException())
-        m_useDefaultPosition = false;
-    return result;
-}
-
 ExceptionOr<void> TextTrackCueGeneric::setPosition(const LineAndPositionSetting& position)
 {
     auto result = VTTCue::setPosition(position);
@@ -194,21 +115,22 @@ ExceptionOr<void> TextTrackCueGeneric::setPosition(const LineAndPositionSetting&
     return result;
 }
 
-void TextTrackCueGeneric::setFontSize(int fontSize, const IntSize& videoSize, bool important)
+void TextTrackCueGeneric::setBaseFontSizeRelativeToVideoHeight(double baseFontSize)
 {
-    if (!fontSize)
+    if (m_baseFontSizeRelativeToVideoHeight == baseFontSize)
         return;
-    
-    if (important || !hasDisplayTree() || !baseFontSizeRelativeToVideoHeight()) {
-        VTTCue::setFontSize(fontSize, videoSize, important);
-        return;
-    }
 
-    double size = videoSize.height() * baseFontSizeRelativeToVideoHeight() / 100;
-    if (fontSizeMultiplier())
-        size *= fontSizeMultiplier() / 100;
-    if (auto* displayTree = displayTreeInternal())
-        displayTree->setInlineStyleProperty(CSSPropertyFontSize, lround(size), CSSUnitType::CSS_PX);
+    m_baseFontSizeRelativeToVideoHeight = baseFontSize;
+    setFontSize(m_baseFontSizeRelativeToVideoHeight * m_fontSizeMultiplier, fontSizeIsImportant());
+}
+
+void TextTrackCueGeneric::setFontSizeMultiplier(double multiplier)
+{
+    if (m_fontSizeMultiplier == multiplier)
+        return;
+
+    m_fontSizeMultiplier = multiplier;
+    setFontSize(m_baseFontSizeRelativeToVideoHeight * m_fontSizeMultiplier, fontSizeIsImportant());
 }
 
 bool TextTrackCueGeneric::cueContentsMatch(const TextTrackCue& otherTextTrackCue) const

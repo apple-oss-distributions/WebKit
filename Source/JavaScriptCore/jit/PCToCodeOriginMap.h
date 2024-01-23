@@ -34,7 +34,7 @@
 
 namespace JSC {
 
-#if ENABLE(FTL_JIT) || ENABLE(WEBASSEMBLY_B3JIT)
+#if ENABLE(FTL_JIT) || ENABLE(WEBASSEMBLY_OMGJIT)
 namespace B3 {
 class PCToOriginMap;
 }
@@ -51,23 +51,32 @@ class PCToCodeOriginMapBuilder {
 public:
     PCToCodeOriginMapBuilder(VM&);
     PCToCodeOriginMapBuilder(PCToCodeOriginMapBuilder&& other);
+    PCToCodeOriginMapBuilder(bool shouldBuildMapping)
+        : m_shouldBuildMapping(shouldBuildMapping)
+    { }
 
 #if ENABLE(FTL_JIT)
     enum JSTag { JSCodeOriginMap };
     PCToCodeOriginMapBuilder(JSTag, VM&, B3::PCToOriginMap);
 #endif
 
-#if ENABLE(WEBASSEMBLY_B3JIT)
+#if ENABLE(WEBASSEMBLY_OMGJIT)
     enum WasmTag { WasmCodeOriginMap };
     PCToCodeOriginMapBuilder(WasmTag, B3::PCToOriginMap);
 #endif
 
-    void appendItem(MacroAssembler::Label, const CodeOrigin&);
+    void appendItem(MacroAssembler::Label label, const CodeOrigin& origin)
+    {
+        if (!m_shouldBuildMapping)
+            return;
+        appendItemSlow(label, origin);
+    }
     static CodeOrigin defaultCodeOrigin() { return CodeOrigin(BytecodeIndex(0)); }
 
     bool didBuildMapping() const { return m_shouldBuildMapping; }
 
 private:
+    void appendItemSlow(MacroAssembler::Label, const CodeOrigin&);
 
     struct CodeRange {
         MacroAssembler::Label start;

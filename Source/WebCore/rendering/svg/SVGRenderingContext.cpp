@@ -28,9 +28,9 @@
 #include "SVGRenderingContext.h"
 
 #include "BasicShapes.h"
-#include "Frame.h"
-#include "FrameView.h"
 #include "LegacyRenderSVGImage.h"
+#include "LocalFrame.h"
+#include "LocalFrameView.h"
 #include "RenderLayer.h"
 #include "RenderSVGResourceClipper.h"
 #include "RenderSVGResourceFilter.h"
@@ -159,7 +159,9 @@ void SVGRenderingContext::prepareToRenderSVGContent(RenderElement& renderer, Pai
             return;
     }
 
-    if (!isRenderingMask) {
+    // SVG roots with filters specified (using CSS or SVG presentation attributes) are applied
+    // as CSSFilter by RenderLayer, so don't reapply the filter here.
+    if (!isRenderingMask && !renderer.isSVGRootOrLegacySVGRoot()) {
         m_filter = resources->filter();
         if (m_filter && !m_filter->isIdentity()) {
             m_savedContext = &m_paintInfo->context();

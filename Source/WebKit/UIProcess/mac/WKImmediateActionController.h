@@ -47,14 +47,18 @@ enum class ImmediateActionState {
 };
 }
 
+#if HAVE(SECURE_ACTION_CONTEXT)
+@class DDSecureActionContext;
+#else
 @class DDActionContext;
+#endif
 @class QLPreviewMenuItem;
 
 @interface WKImmediateActionController : NSObject <NSImmediateActionGestureRecognizerDelegate> {
 @private
-    NakedPtr<WebKit::WebPageProxy> _page;
+    CheckedPtr<WebKit::WebPageProxy> _page;
     NSView *_view;
-    NakedPtr<WebKit::WebViewImpl> _viewImpl;
+    CheckedPtr<WebKit::WebViewImpl> _viewImpl;
 
     WebKit::ImmediateActionState _state;
     WebKit::WebHitTestResultData _hitTestResultData;
@@ -64,7 +68,11 @@ enum class ImmediateActionState {
     RetainPtr<NSImmediateActionGestureRecognizer> _immediateActionRecognizer;
 
     BOOL _hasActivatedActionContext;
+#if HAVE(SECURE_ACTION_CONTEXT)
+    RetainPtr<DDSecureActionContext> _currentActionContext;
+#else
     RetainPtr<DDActionContext> _currentActionContext;
+#endif
     RetainPtr<QLPreviewMenuItem> _currentQLPreviewMenuItem;
 
     BOOL _hasActiveImmediateAction;

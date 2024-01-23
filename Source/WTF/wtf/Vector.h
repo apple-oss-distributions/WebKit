@@ -1,5 +1,5 @@
 /*
- *  Copyright (C) 2005-2022 Apple Inc. All rights reserved.
+ *  Copyright (C) 2005-2023 Apple Inc. All rights reserved.
  *
  *  This library is free software; you can redistribute it and/or
  *  modify it under the terms of the GNU Library General Public
@@ -23,6 +23,7 @@
 #include <initializer_list>
 #include <limits>
 #include <optional>
+#include <span>
 #include <string.h>
 #include <type_traits>
 #include <utility>
@@ -34,13 +35,12 @@
 #include <wtf/MathExtras.h>
 #include <wtf/Noncopyable.h>
 #include <wtf/NotFound.h>
-#include <wtf/Span.h>
 #include <wtf/StdLibExtras.h>
 #include <wtf/ValueCheck.h>
 #include <wtf/VectorTraits.h>
 
-#if ASAN_ENABLED
-extern "C" void __sanitizer_annotate_contiguous_container(const void* begin, const void* end, const void* old_mid, const void* new_mid);
+#if ASAN_ENABLED && __has_include(<sanitizer/asan_interface.h>)
+#include <sanitizer/asan_interface.h>
 #endif
 
 namespace JSC {
@@ -50,6 +50,7 @@ class LLIntOffsetsExtractor;
 namespace WTF {
 
 DECLARE_ALLOCATOR_WITH_HEAP_IDENTIFIER(Vector);
+DECLARE_ALLOCATOR_WITH_HEAP_IDENTIFIER(VectorBuffer);
 
 template <bool needsDestruction, typename T>
 struct VectorDestructor;
@@ -294,6 +295,9 @@ struct VectorTypeOperations
     }
 };
 
+template<typename T>
+constexpr inline bool isValidCapacityForVector(size_t capacity) { return capacity <= std::numeric_limits<unsigned>::max() / sizeof(T); }
+
 template<typename T, typename Malloc>
 class VectorBufferBase {
     WTF_MAKE_NONCOPYABLE(VectorBufferBase);
@@ -303,7 +307,7 @@ public:
     {
         static_assert(action == FailureAction::Crash || action == FailureAction::Report);
         ASSERT(newCapacity);
-        if (newCapacity > std::numeric_limits<unsigned>::max() / sizeof(T)) {
+        if (!isValidCapacityForVector<T>(newCapacity)) {
             if constexpr (action == FailureAction::Crash)
                 CRASH();
             else
@@ -393,7 +397,7 @@ protected:
     unsigned m_size; // Only used by the Vector subclass, but placed here to avoid padding the struct.
 };
 
-template<typename T, size_t inlineCapacity, typename Malloc = VectorMalloc> class VectorBuffer;
+template<typename T, size_t inlineCapacity, typename Malloc = VectorBufferMalloc> class VectorBuffer;
 
 template<typename T, typename Malloc>
 class VectorBuffer<T, 0, Malloc> : private VectorBufferBase<T, Malloc> {
@@ -404,7 +408,7 @@ public:
     {
     }
 
-    VectorBuffer(size_t capacity, size_t size = 0)
+    explicit VectorBuffer(size_t capacity, size_t size = 0)
     {
         m_size = size;
         // Calling malloc(0) might take a lock and may actually do an
@@ -480,7 +484,7 @@ public:
     {
     }
 
-    VectorBuffer(size_t capacity, size_t size = 0)
+    explicit VectorBuffer(size_t capacity, size_t size = 0)
         : Base(inlineBuffer(), inlineCapacity, size)
     {
         if (capacity > inlineCapacity)
@@ -662,7 +666,7 @@ struct UnsafeVectorOverflow {
 // Template default values are in Forward.h.
 template<typename T, size_t inlineCapacity, typename OverflowHandler, size_t minCapacity, typename Malloc>
 class Vector : private VectorBuffer<T, inlineCapacity, Malloc> {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_FAST_ALLOCATED_WITH_HEAP_IDENTIFIER(Vector);
 private:
     typedef VectorBuffer<T, inlineCapacity, Malloc> Base;
     typedef VectorTypeOperations<T> TypeOperations;
@@ -710,7 +714,7 @@ public:
             TypeOperations::uninitializedCopy(data, data + dataSize, begin());
     }
 
-    Vector(Span<const T> span)
+    Vector(std::span<const T> span)
         : Vector(span.data(), span.size()) { }
 
     Vector(std::initializer_list<T> initializerList)
@@ -766,7 +770,7 @@ public:
     static ptrdiff_t sizeMemoryOffset() { return OBJECT_OFFSETOF(Vector, m_size); }
     size_t capacity() const { return Base::capacity(); }
     bool isEmpty() const { return !size(); }
-    Span<const T> span() const { return { data(), size() }; }
+    std::span<const T> span() const { return { data(), size() }; }
 
     T& at(size_t i)
     {
@@ -830,6 +834,9 @@ public:
     void shrinkCapacity(size_t newCapacity);
     void shrinkToFit() { shrinkCapacity(size()); }
 
+    void growCapacityBy(size_t increment) { growCapacityBy<FailureAction::Crash>(increment); }
+    bool tryGrowCapacityBy(size_t increment) { return growCapacityBy<FailureAction::Report>(increment); }
+
     void clear() { shrinkCapacity(0); }
 
     ALWAYS_INLINE void append(ValueType&& value) { append<ValueType>(std::forward<ValueType>(value)); }
@@ -844,8 +851,8 @@ public:
 
     template<typename U> ALWAYS_INLINE void append(const U* u, size_t size) { append<FailureAction::Crash>(u, size); }
     template<typename U> ALWAYS_INLINE bool tryAppend(const U* u, size_t size) { return append<FailureAction::Report>(u, size); }
-    template<typename U> ALWAYS_INLINE void append(Span<const U> span) { append(span.data(), span.size()); }
-    template<typename U> ALWAYS_INLINE void uncheckedAppend(Span<const U> span) { uncheckedAppend<FailureAction::Crash>(span.data(), span.size()); }
+    template<typename U> ALWAYS_INLINE void append(std::span<const U> span) { append(span.data(), span.size()); }
+    template<typename U> ALWAYS_INLINE void uncheckedAppend(std::span<const U> span) { uncheckedAppend<FailureAction::Crash>(span.data(), span.size()); }
     template<typename U, size_t otherCapacity, typename OtherOverflowHandler, size_t otherMinCapacity, typename OtherMalloc> void appendVector(const Vector<U, otherCapacity, OtherOverflowHandler, otherMinCapacity, OtherMalloc>&);
     template<typename U, size_t otherCapacity, typename OtherOverflowHandler, size_t otherMinCapacity, typename OtherMalloc> void appendVector(Vector<U, otherCapacity, OtherOverflowHandler, otherMinCapacity, OtherMalloc>&&);
 
@@ -911,6 +918,7 @@ public:
 private:
     template<FailureAction> bool reserveCapacity(size_t newCapacity);
     template<FailureAction> bool reserveInitialCapacity(size_t initialCapacity);
+    template<FailureAction> bool growCapacityBy(size_t increment);
 
     template<FailureAction> bool expandCapacity(size_t newMinCapacity);
     template<FailureAction> T* expandCapacity(size_t newMinCapacity, T*);
@@ -996,7 +1004,7 @@ Vector<T, inlineCapacity, OverflowHandler, minCapacity, Malloc>& Vector<T, inlin
 
     asanBufferSizeWillChangeTo(other.size());
 
-    std::copy(other.begin(), other.begin() + size(), begin());
+    std::copy_n(other.begin(), size(), begin());
     TypeOperations::uninitializedCopy(other.begin() + size(), other.end(), end());
     m_size = other.size();
 
@@ -1024,7 +1032,7 @@ Vector<T, inlineCapacity, OverflowHandler, minCapacity, Malloc>& Vector<T, inlin
     
     asanBufferSizeWillChangeTo(other.size());
 
-    std::copy(other.begin(), other.begin() + size(), begin());
+    std::copy_n(other.begin(), size(), begin());
     TypeOperations::uninitializedCopy(other.begin() + size(), other.end(), end());
     m_size = other.size();
 
@@ -1268,6 +1276,8 @@ inline void Vector<T, inlineCapacity, OverflowHandler, minCapacity, Malloc>::asa
     if (!buffer())
         return;
 
+    RELEASE_ASSERT_WITH_MESSAGE(newSize <= capacity(), "Attempt to expand size (%lu) beyond current capacity (%lu)", newSize, capacity());
+
     // Change allowed range.
     __sanitizer_annotate_contiguous_container(buffer(), endOfBuffer(), buffer() + size(), buffer() + newSize);
 #else
@@ -1314,6 +1324,23 @@ inline bool Vector<T, inlineCapacity, OverflowHandler, minCapacity, Malloc>::res
     if (initialCapacity <= inlineCapacity)
         return true;
     return Base::template allocateBuffer<action>(initialCapacity);
+}
+
+template<typename T, size_t inlineCapacity, typename OverflowHandler, size_t minCapacity, typename Malloc>
+template<FailureAction action>
+bool Vector<T, inlineCapacity, OverflowHandler, minCapacity, Malloc>::growCapacityBy(size_t increment)
+{
+    static_assert(action == FailureAction::Crash || action == FailureAction::Report);
+    unsigned increment32 = static_cast<unsigned>(increment);
+    unsigned capacity32 = static_cast<unsigned>(capacity());
+    unsigned newCapacity = increment32 + capacity32;
+    if (increment32 < increment || newCapacity < capacity32) {
+        if constexpr (action == FailureAction::Crash)
+            CRASH();
+        else
+            return false;
+    }
+    return reserveCapacity<action>(newCapacity);
 }
 
 template<typename T, size_t inlineCapacity, typename OverflowHandler, size_t minCapacity, typename Malloc>
@@ -1385,7 +1412,7 @@ ALWAYS_INLINE bool Vector<T, inlineCapacity, OverflowHandler, minCapacity, Mallo
     if (!dataSize)
         return true;
 
-    ASSERT(size() < capacity());
+    ASSERT_WITH_MESSAGE((Checked<size_t>(size()) + dataSize) <= capacity(), "uncheckedAppend() without expanding capacity");
 
     size_t newSize = m_size + dataSize;
     asanBufferSizeWillChangeTo(newSize);
@@ -1738,12 +1765,6 @@ bool operator==(const Vector<T, inlineCapacityA, OverflowHandlerA, minCapacityA,
     return VectorTypeOperations<T>::compare(a.data(), b.data(), a.size());
 }
 
-template<typename T, size_t inlineCapacityA, typename OverflowHandlerA, size_t minCapacityA, typename MallocA, size_t inlineCapacityB, typename OverflowHandlerB, size_t minCapacityB, typename MallocB>
-inline bool operator!=(const Vector<T, inlineCapacityA, OverflowHandlerA, minCapacityA, MallocA>& a, const Vector<T, inlineCapacityB, OverflowHandlerB, minCapacityB, MallocB>& b)
-{
-    return !(a == b);
-}
-
 #if ASSERT_ENABLED
 template<typename T> struct ValueCheck<Vector<T>> {
     typedef Vector<T> TraitType;
@@ -1899,14 +1920,28 @@ inline auto copyToVectorOf(const Collection& collection) -> Vector<DestinationIt
 }
 
 template<typename Collection>
-struct CopyToVectorResult {
+struct CopyOrMoveToVectorResult {
     using Type = typename std::remove_cv<typename CollectionInspector<Collection>::SourceItemType>::type;
 };
 
 template<typename Collection>
-inline auto copyToVector(const Collection& collection) -> Vector<typename CopyToVectorResult<Collection>::Type>
+inline Vector<typename CopyOrMoveToVectorResult<Collection>::Type> copyToVector(const Collection& collection)
 {
-    return copyToVectorOf<typename CopyToVectorResult<Collection>::Type>(collection);
+    return copyToVectorOf<typename CopyOrMoveToVectorResult<Collection>::Type>(collection);
+}
+
+template<typename DestinationItemType, typename Collection>
+inline auto moveToVectorOf(Collection&& collection) -> Vector<DestinationItemType>
+{
+    return WTF::map(collection, [] (auto&& v) -> DestinationItemType {
+        return WTFMove(v);
+    });
+}
+
+template<typename Collection>
+inline Vector<typename CopyOrMoveToVectorResult<Collection>::Type> moveToVector(Collection&& collection)
+{
+    return moveToVectorOf<typename CopyOrMoveToVectorResult<Collection>::Type>(collection);
 }
 
 } // namespace WTF

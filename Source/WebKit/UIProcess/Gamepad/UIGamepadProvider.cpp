@@ -61,7 +61,7 @@ UIGamepadProvider::~UIGamepadProvider()
 
 void UIGamepadProvider::gamepadSyncTimerFired()
 {
-    auto webPageProxy = platformWebPageProxyForGamepadInput();
+    RefPtr webPageProxy = platformWebPageProxyForGamepadInput();
     if (!webPageProxy || !m_processPoolsUsingGamepads.contains(&webPageProxy->process().processPool()))
         return;
 
@@ -161,7 +161,7 @@ void UIGamepadProvider::viewBecameActive(WebPageProxy& page)
 
 void UIGamepadProvider::viewBecameInactive(WebPageProxy& page)
 {
-    auto pageForGamepadInput = platformWebPageProxyForGamepadInput();
+    RefPtr pageForGamepadInput = platformWebPageProxyForGamepadInput();
     if (pageForGamepadInput == &page)
         platformStopMonitoringInput();
 }
@@ -189,10 +189,10 @@ void UIGamepadProvider::stopMonitoringGamepads()
     m_gamepads.clear();
 }
 
-Vector<GamepadData> UIGamepadProvider::snapshotGamepads()
+Vector<std::optional<GamepadData>> UIGamepadProvider::snapshotGamepads()
 {
     return m_gamepads.map([](auto& gamepad) {
-        return gamepad ? gamepad->gamepadData() : GamepadData { };
+        return gamepad ? std::optional<GamepadData>(gamepad->gamepadData()) : std::nullopt;
     });
 }
 

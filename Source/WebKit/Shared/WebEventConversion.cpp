@@ -65,7 +65,7 @@ public:
             break;
         case WebEventType::MouseUp:
             m_type = WebCore::PlatformEvent::Type::MouseReleased;
-            m_force = WebCore::ForceAtClick;
+            m_force = 0;
             break;
         case WebEventType::MouseMove:
             m_type = WebCore::PlatformEvent::Type::MouseMoved;
@@ -81,7 +81,7 @@ public:
             break;
         case WebEventType::MouseForceUp:
             m_type = WebCore::PlatformEvent::Type::MouseForceUp;
-            m_force = WebCore::ForceAtForceClick;
+            m_force = 0;
             break;
         default:
             ASSERT_NOT_REACHED();
@@ -90,23 +90,24 @@ public:
         m_modifiers = platform(webEvent.modifiers());
 
         m_timestamp = webEvent.timestamp();
+        m_authorizationToken = webEvent.authorizationToken();
 
         // PlatformMouseEvent
         switch (webEvent.button()) {
-        case WebMouseEventButton::NoButton:
-            m_button = WebCore::NoButton;
+        case WebMouseEventButton::None:
+            m_button = WebCore::MouseButton::None;
             break;
-        case WebMouseEventButton::LeftButton:
-            m_button = WebCore::LeftButton;
+        case WebMouseEventButton::Left:
+            m_button = WebCore::MouseButton::Left;
             break;
-        case WebMouseEventButton::MiddleButton:
-            m_button = WebCore::MiddleButton;
+        case WebMouseEventButton::Middle:
+            m_button = WebCore::MouseButton::Middle;
             break;
-        case WebMouseEventButton::RightButton:
-            m_button = WebCore::RightButton;
+        case WebMouseEventButton::Right:
+            m_button = WebCore::MouseButton::Right;
             break;
         default:
-            ASSERT_NOT_REACHED();
+            RELEASE_ASSERT_NOT_REACHED();
         }
 
         m_buttons = webEvent.buttons();
@@ -120,6 +121,8 @@ public:
         m_menuTypeForEvent = webEvent.menuTypeForEvent();
 #elif PLATFORM(GTK)
         m_isTouchEvent = webEvent.isTouchEvent();
+#elif PLATFORM(WPE)
+        m_syntheticClickType = static_cast<WebCore::SyntheticClickType>(webEvent.syntheticClickType());
 #endif
         m_modifierFlags = 0;
         if (webEvent.shiftKey())
@@ -247,15 +250,15 @@ WebCore::PlatformKeyboardEvent platform(const WebKeyboardEvent& webEvent)
 static WebCore::PlatformTouchPoint::TouchPhaseType touchEventType(const WebPlatformTouchPoint& webTouchPoint)
 {
     switch (webTouchPoint.phase()) {
-    case WebPlatformTouchPoint::TouchReleased:
+    case WebPlatformTouchPoint::State::Released:
         return WebCore::PlatformTouchPoint::TouchPhaseEnded;
-    case WebPlatformTouchPoint::TouchPressed:
+    case WebPlatformTouchPoint::State::Pressed:
         return WebCore::PlatformTouchPoint::TouchPhaseBegan;
-    case WebPlatformTouchPoint::TouchMoved:
+    case WebPlatformTouchPoint::State::Moved:
         return WebCore::PlatformTouchPoint::TouchPhaseMoved;
-    case WebPlatformTouchPoint::TouchStationary:
+    case WebPlatformTouchPoint::State::Stationary:
         return WebCore::PlatformTouchPoint::TouchPhaseStationary;
-    case WebPlatformTouchPoint::TouchCancelled:
+    case WebPlatformTouchPoint::State::Cancelled:
         return WebCore::PlatformTouchPoint::TouchPhaseCancelled;
     }
 }
@@ -291,19 +294,19 @@ public:
         m_id = webTouchPoint.id();
 
         switch (webTouchPoint.state()) {
-        case WebPlatformTouchPoint::TouchReleased:
+        case WebPlatformTouchPoint::State::Released:
             m_state = PlatformTouchPoint::TouchReleased;
             break;
-        case WebPlatformTouchPoint::TouchPressed:
+        case WebPlatformTouchPoint::State::Pressed:
             m_state = PlatformTouchPoint::TouchPressed;
             break;
-        case WebPlatformTouchPoint::TouchMoved:
+        case WebPlatformTouchPoint::State::Moved:
             m_state = PlatformTouchPoint::TouchMoved;
             break;
-        case WebPlatformTouchPoint::TouchStationary:
+        case WebPlatformTouchPoint::State::Stationary:
             m_state = PlatformTouchPoint::TouchStationary;
             break;
-        case WebPlatformTouchPoint::TouchCancelled:
+        case WebPlatformTouchPoint::State::Cancelled:
             m_state = PlatformTouchPoint::TouchCancelled;
             break;
         default:

@@ -25,17 +25,30 @@
 
 #pragma once
 
+#include "LayerProperties.h"
 #include "RemoteLayerTreeTransaction.h"
+#include <WebCore/HTMLMediaElementIdentifier.h>
 #include <WebCore/PlatformCALayer.h>
+#include <WebCore/PlatformCALayerDelegatedContents.h>
 #include <WebCore/PlatformLayer.h>
 
 namespace WebCore {
 class LayerPool;
+#if ENABLE(THREADED_ANIMATION_RESOLUTION)
+class AcceleratedEffect;
+struct AcceleratedEffectValues;
+#endif
 }
 
 namespace WebKit {
 
 class RemoteLayerTreeContext;
+
+struct PlatformCALayerRemoteDelegatedContents {
+    ImageBufferBackendHandle surface;
+    RefPtr<WebCore::PlatformCALayerDelegatedContentsFence> finishedFence;
+    std::optional<WebCore::RenderingResourceIdentifier> surfaceIdentifier;
+};
 
 class PlatformCALayerRemote : public WebCore::PlatformCALayer {
 public:
@@ -43,6 +56,9 @@ public:
     static Ref<PlatformCALayerRemote> create(PlatformLayer *, WebCore::PlatformCALayerClient*, RemoteLayerTreeContext&);
 #if ENABLE(MODEL_ELEMENT)
     static Ref<PlatformCALayerRemote> create(Ref<WebCore::Model>, WebCore::PlatformCALayerClient*, RemoteLayerTreeContext&);
+#endif
+#if HAVE(AVKIT)
+    static Ref<PlatformCALayerRemote> create(WebCore::HTMLVideoElement&, WebCore::PlatformCALayerClient*, RemoteLayerTreeContext&);
 #endif
     static Ref<PlatformCALayerRemote> create(const PlatformCALayerRemote&, WebCore::PlatformCALayerClient*, RemoteLayerTreeContext&);
 
@@ -74,7 +90,12 @@ public:
     void animationStarted(const String& key, MonotonicTime beginTime) override;
     void animationEnded(const String& key) override;
 
-    void setMask(WebCore::PlatformCALayer*) override;
+#if ENABLE(THREADED_ANIMATION_RESOLUTION)
+    void clearAcceleratedEffectsAndBaseValues() override;
+    void setAcceleratedEffectsAndBaseValues(const WebCore::AcceleratedEffects&, WebCore::AcceleratedEffectValues&) override;
+#endif
+
+    void setMaskLayer(RefPtr<WebCore::PlatformCALayer>&&) override;
 
     bool isOpaque() const override;
     void setOpaque(bool) override;
@@ -106,6 +127,10 @@ public:
     void setBackingStoreAttached(bool) override;
     bool backingStoreAttached() const override;
 
+#if ENABLE(INTERACTION_REGIONS_IN_EVENT_REGION)
+    void setVisibleRect(const WebCore::FloatRect&) override;
+#endif
+
     bool geometryFlipped() const override;
     void setGeometryFlipped(bool) override;
 
@@ -124,10 +149,8 @@ public:
     bool hasContents() const override;
     CFTypeRef contents() const override;
     void setContents(CFTypeRef) override;
-#if HAVE(IOSURFACE)
-    void setContents(const WebCore::IOSurface&) override;
-    void setContents(const WTF::MachSendRight&) override;
-#endif
+    void setDelegatedContents(const WebCore::PlatformCALayerDelegatedContents&) override;
+    void setRemoteDelegatedContents(const PlatformCALayerRemoteDelegatedContents&);
     void setContentsRect(const WebCore::FloatRect&) override;
 
     void setMinificationFilter(WebCore::PlatformCALayer::FilterType) override;
@@ -163,6 +186,9 @@ public:
     void setCornerRadius(float) override;
 
     void setAntialiasesEdges(bool) override;
+
+    WebCore::MediaPlayerVideoGravity videoGravity() const override;
+    void setVideoGravity(WebCore::MediaPlayerVideoGravity) override;
 
     // FIXME: Having both shapeRoundedRect and shapePath is redundant. We could use shapePath for everything.
     WebCore::FloatRoundedRect shapeRoundedRect() const override;
@@ -211,8 +237,8 @@ public:
 
     void setClonedLayer(const PlatformCALayer*);
 
-    RemoteLayerTreeTransaction::LayerProperties& properties() { return m_properties; }
-    const RemoteLayerTreeTransaction::LayerProperties& properties() const { return m_properties; }
+    LayerProperties& properties() { return m_properties; }
+    const LayerProperties& properties() const { return m_properties; }
 
     void didCommit();
 
@@ -229,19 +255,22 @@ protected:
     void updateClonedLayerProperties(PlatformCALayerRemote& clone, bool copyContents = true) const;
 
 private:
-    bool isPlatformCALayerRemote() const override { return true; }
+    Type type() const override { return Type::Remote; }
     void ensureBackingStore();
     void updateBackingStore();
     void removeSublayer(PlatformCALayerRemote*);
+
+#if ENABLE(CG_DISPLAY_LIST_BACKED_IMAGE_BUFFER)
+    RemoteLayerBackingStore::IncludeDisplayList shouldIncludeDisplayListInBackingStore() const;
+#endif
 
     bool requiresCustomAppearanceUpdateOnBoundsChange() const;
 
     WebCore::LayerPool& layerPool() override;
 
-    RemoteLayerTreeTransaction::LayerProperties m_properties;
+    LayerProperties m_properties;
     WebCore::PlatformCALayerList m_children;
     PlatformCALayerRemote* m_superlayer { nullptr };
-    PlatformCALayerRemote* m_maskLayer { nullptr };
     HashMap<String, RefPtr<WebCore::PlatformCAAnimation>> m_animations;
 
     bool m_acceleratesDrawing { false };
@@ -252,4 +281,18 @@ private:
 
 } // namespace WebKit
 
-SPECIALIZE_TYPE_TRAITS_PLATFORM_CALAYER(WebKit::PlatformCALayerRemote, isPlatformCALayerRemote())
+SPECIALIZE_TYPE_TRAITS_BEGIN(WebKit::PlatformCALayerRemote)
+static bool isType(const WebCore::PlatformCALayer& layer)
+{
+    switch (layer.type()) {
+    case WebCore::PlatformCALayer::Type::Cocoa:
+        break;
+    case WebCore::PlatformCALayer::Type::Remote:
+    case WebCore::PlatformCALayer::Type::RemoteCustom:
+    case WebCore::PlatformCALayer::Type::RemoteHost:
+    case WebCore::PlatformCALayer::Type::RemoteModel:
+        return true;
+    };
+    return false;
+}
+SPECIALIZE_TYPE_TRAITS_END()

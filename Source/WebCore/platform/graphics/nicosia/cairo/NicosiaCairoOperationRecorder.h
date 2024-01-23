@@ -80,8 +80,8 @@ private:
     void drawFocusRing(const WebCore::Path&, float outlineWidth, const WebCore::Color&) override;
     void drawFocusRing(const Vector<WebCore::FloatRect>&, float outlineOffset, float outlineWidth, const WebCore::Color&) override;
 
-    void save() override;
-    void restore() override;
+    void save(WebCore::GraphicsContextState::Purpose = WebCore::GraphicsContextState::Purpose::SaveRestore) override;
+    void restore(WebCore::GraphicsContextState::Purpose = WebCore::GraphicsContextState::Purpose::SaveRestore) override;
 
     void translate(float, float) override;
     void rotate(float angleInRadians) override;
@@ -93,6 +93,7 @@ private:
     void beginTransparencyLayer(float) override;
     void endTransparencyLayer() override;
 
+    void resetClip() override;
     void clip(const WebCore::FloatRect&) override;
     void clipOut(const WebCore::FloatRect&) override;
     void clipOut(const WebCore::Path&) override;

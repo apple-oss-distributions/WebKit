@@ -28,6 +28,7 @@
 
 #import "DisplayCaptureSessionManager.h"
 #import "UserMediaPermissionRequestManagerProxy.h"
+#import "WebPreferences.h"
 
 namespace WebKit {
 using namespace WebCore;
@@ -48,11 +49,11 @@ UserMediaPermissionRequestProxyMac::~UserMediaPermissionRequestProxyMac()
 
 void UserMediaPermissionRequestProxyMac::promptForGetDisplayMedia(UserMediaDisplayCapturePromptType promptType)
 {
-#if PLATFORM(COCOA) && ENABLE(MEDIA_STREAM)
+#if ENABLE(MEDIA_STREAM)
     if (!manager())
         return;
 
-    DisplayCaptureSessionManager::singleton().promptForGetDisplayMedia(promptType, manager()->page(), topLevelDocumentSecurityOrigin().data(), [protectedThis = Ref { *this }](std::optional<CaptureDevice> device) mutable {
+    DisplayCaptureSessionManager::singleton().promptForGetDisplayMedia(promptType, Ref { manager()->page() }, topLevelDocumentSecurityOrigin().data(), [protectedThis = Ref { *this }](std::optional<CaptureDevice> device) mutable {
 
         if (!device) {
             protectedThis->deny(UserMediaPermissionRequestProxy::UserMediaAccessDenialReason::PermissionDenied);
@@ -67,10 +68,13 @@ void UserMediaPermissionRequestProxyMac::promptForGetDisplayMedia(UserMediaDispl
 #endif
 }
 
-bool UserMediaPermissionRequestProxyMac::canPromptForGetDisplayMedia()
+bool UserMediaPermissionRequestProxyMac::canRequestDisplayCapturePermission()
 {
-#if PLATFORM(COCOA) && ENABLE(MEDIA_STREAM)
-    return DisplayCaptureSessionManager::isAvailable();
+#if ENABLE(MEDIA_STREAM)
+    if (!manager() || manager()->page().preferences().requireUAGetDisplayMediaPrompt())
+        return false;
+
+    return DisplayCaptureSessionManager::singleton().canRequestDisplayCapturePermission();
 #else
     return false;
 #endif

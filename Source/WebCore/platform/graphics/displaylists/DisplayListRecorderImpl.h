@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2021-2022 Apple Inc. All rights reserved.
+ * Copyright (C) 2021-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -40,9 +40,6 @@ public:
 
     bool isEmpty() const { return m_displayList.isEmpty(); }
 
-    void convertToLuminanceMask() final { }
-    void transformToColorSpace(const DestinationColorSpace&) final { }
-
 private:
     void recordSave() final;
     void recordRestore() final;
@@ -51,17 +48,19 @@ private:
     void recordScale(const FloatSize&) final;
     void recordSetCTM(const AffineTransform&) final;
     void recordConcatenateCTM(const AffineTransform&) final;
-    void recordSetInlineFillColor(SRGBA<uint8_t>) final;
-    void recordSetInlineStrokeColor(SRGBA<uint8_t>) final;
-    void recordSetStrokeThickness(float) final;
+    void recordSetInlineFillColor(PackedColor::RGBA) final;
+    void recordSetInlineStroke(SetInlineStroke&&) final;
     void recordSetState(const GraphicsContextState&) final;
     void recordSetLineCap(LineCap) final;
     void recordSetLineDash(const DashArray&, float dashOffset) final;
     void recordSetLineJoin(LineJoin) final;
     void recordSetMiterLimit(float) final;
     void recordClearShadow() final;
+    void recordResetClip() final;
     void recordClip(const FloatRect&) final;
+    void recordClipRoundedRect(const FloatRoundedRect&) final;
     void recordClipOut(const FloatRect&) final;
+    void recordClipOutRoundedRect(const FloatRoundedRect&) final;
     void recordClipToImageBuffer(ImageBuffer&, const FloatRect& destinationRect) final;
     void recordClipOutToPath(const Path&) final;
     void recordClipPath(const Path&, WindRule) final;
@@ -89,11 +88,12 @@ private:
     void recordFillRoundedRect(const FloatRoundedRect&, const Color&, BlendMode) final;
     void recordFillRectWithRoundedHole(const FloatRect&, const FloatRoundedRect&, const Color&) final;
 #if ENABLE(INLINE_PATH_DATA)
-    void recordFillLine(const LineData&) final;
-    void recordFillArc(const ArcData&) final;
-    void recordFillQuadCurve(const QuadCurveData&) final;
-    void recordFillBezierCurve(const BezierCurveData&) final;
+    void recordFillLine(const PathDataLine&) final;
+    void recordFillArc(const PathArc&) final;
+    void recordFillQuadCurve(const PathDataQuadCurve&) final;
+    void recordFillBezierCurve(const PathDataBezierCurve&) final;
 #endif
+    void recordFillPathSegment(const PathSegment&) final;
     void recordFillPath(const Path&) final;
     void recordFillEllipse(const FloatRect&) final;
 #if ENABLE(VIDEO)
@@ -102,12 +102,13 @@ private:
 #endif
     void recordStrokeRect(const FloatRect&, float) final;
 #if ENABLE(INLINE_PATH_DATA)
-    void recordStrokeLine(const LineData&) final;
-    void recordStrokeLineWithColorAndThickness(SRGBA<uint8_t>, float, const LineData&) final;
-    void recordStrokeArc(const ArcData&) final;
-    void recordStrokeQuadCurve(const QuadCurveData&) final;
-    void recordStrokeBezierCurve(const BezierCurveData&) final;
+    void recordStrokeLine(const PathDataLine&) final;
+    void recordStrokeLineWithColorAndThickness(const PathDataLine&, SetInlineStroke&&) final;
+    void recordStrokeArc(const PathArc&) final;
+    void recordStrokeQuadCurve(const PathDataQuadCurve&) final;
+    void recordStrokeBezierCurve(const PathDataBezierCurve&) final;
 #endif
+    void recordStrokePathSegment(const PathSegment&) final;
     void recordStrokePath(const Path&) final;
     void recordStrokeEllipse(const FloatRect&) final;
     void recordClearRect(const FloatRect&) final;
@@ -123,11 +124,12 @@ private:
     bool recordResourceUse(const SourceImage&) final;
     bool recordResourceUse(Font&) final;
     bool recordResourceUse(DecomposedGlyphs&) final;
+    bool recordResourceUse(Gradient&) final;
+    bool recordResourceUse(Filter&) final;
 
-    template<typename T, class... Args>
-    void append(Args&&... args)
+    void append(Item&& item)
     {
-        m_displayList.append<T>(std::forward<Args>(args)...);
+        m_displayList.append(WTFMove(item));
     }
 
     DisplayList& m_displayList;

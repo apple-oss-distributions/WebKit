@@ -52,12 +52,13 @@ RefPtr<WebExtensionContextProxy> WebExtensionContextProxy::get(WebExtensionConte
     return webExtensionContextProxies().get(identifier).get();
 }
 
-Ref<WebExtensionContextProxy> WebExtensionContextProxy::getOrCreate(WebExtensionContextParameters parameters)
+Ref<WebExtensionContextProxy> WebExtensionContextProxy::getOrCreate(const WebExtensionContextParameters& parameters)
 {
     auto updateProperties = [&](WebExtensionContextProxy& context) {
         context.m_baseURL = parameters.baseURL;
         context.m_uniqueIdentifier = parameters.uniqueIdentifier;
-        context.m_manifest = parameters.manifest;
+        context.m_localization = parseLocalization(parameters.localizationJSON.get());
+        context.m_manifest = parseJSON(parameters.manifestJSON.get());
         context.m_manifestVersion = parameters.manifestVersion;
         context.m_testingMode = parameters.testingMode;
     };
@@ -72,7 +73,7 @@ Ref<WebExtensionContextProxy> WebExtensionContextProxy::getOrCreate(WebExtension
     return result.releaseNonNull();
 }
 
-WebExtensionContextProxy::WebExtensionContextProxy(WebExtensionContextParameters parameters)
+WebExtensionContextProxy::WebExtensionContextProxy(const WebExtensionContextParameters& parameters)
     : m_identifier(parameters.identifier)
 {
     ASSERT(!webExtensionContextProxies().contains(m_identifier));

@@ -55,6 +55,12 @@ public:
         m_value = o.release();
     }
 
+    explicit UnixFileDescriptor(const UnixFileDescriptor& o)
+    {
+        if (o.m_value >= 0)
+            m_value = dupCloseOnExec(o.m_value);
+    }
+
     UnixFileDescriptor& operator=(UnixFileDescriptor&& o)
     {
         if (&o == this)
@@ -68,7 +74,7 @@ public:
     ~UnixFileDescriptor()
     {
         if (m_value >= 0)
-            closeWithRetry(m_value);
+            closeWithRetry(std::exchange(m_value, -1));
     }
 
     explicit operator bool() const { return m_value >= 0; }

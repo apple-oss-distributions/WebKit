@@ -27,23 +27,36 @@
 
 #include "GridLayoutFunctions.h"
 #include "GridPositionsResolver.h"
+#include "RenderBoxInlines.h"
 #include "RenderGrid.h"
+#include "RenderStyleInlines.h"
+#include "StyleGridData.h"
 #include "WritingMode.h"
 
 namespace WebCore {
 
-void GridMasonryLayout::performMasonryPlacement(unsigned gridAxisTracks, GridTrackSizingDirection masonryAxisDirection)
+void GridMasonryLayout::initializeMasonry(unsigned gridAxisTracks, GridTrackSizingDirection masonryAxisDirection)
 {
+    // Reset global variables as they may contain state from previous runs of Masonry.
     m_masonryAxisDirection = masonryAxisDirection;
     m_masonryAxisGridGap = m_renderGrid.gridGap(m_masonryAxisDirection);
     m_gridAxisTracksCount = gridAxisTracks;
+    m_gridContentSize = 0;
 
     allocateCapacityForMasonryVectors();
     collectMasonryItems();
     m_renderGrid.currentGrid().setupGridForMasonryLayout();
     m_renderGrid.populateExplicitGridAndOrderIterator();
 
-    resizeAndResetRunningPositions(); 
+    resizeAndResetRunningPositions();
+}
+
+void GridMasonryLayout::performMasonryPlacement(unsigned gridAxisTracks, GridTrackSizingDirection masonryAxisDirection)
+{
+    initializeMasonry(gridAxisTracks, masonryAxisDirection);
+
+    m_renderGrid.populateGridPositionsForDirection(GridTrackSizingDirection::ForColumns);
+    m_renderGrid.populateGridPositionsForDirection(GridTrackSizingDirection::ForRows);
 
     // 2.4 Masonry Layout Algorithm
     addItemsToFirstTrack();
@@ -82,13 +95,12 @@ void GridMasonryLayout::collectMasonryItems()
             else
                 m_itemsWithIndefiniteGridAxisPosition.append(child);
         }
-            
     }
 }
 
 void GridMasonryLayout::allocateCapacityForMasonryVectors()
 {
-    auto gridCapacity = m_renderGrid.currentGrid().numTracks(ForRows) * m_renderGrid.currentGrid().numTracks(ForColumns);
+    auto gridCapacity = m_renderGrid.currentGrid().numTracks(GridTrackSizingDirection::ForRows) * m_renderGrid.currentGrid().numTracks(GridTrackSizingDirection::ForColumns);
     if (m_renderGrid.style().masonryAutoFlow().placementOrder == MasonryAutoFlowPlacementOrder::DefiniteFirst) {
         m_itemsWithDefiniteGridAxisPosition.reserveCapacity(gridCapacity / m_masonryDefiniteItemsQuarterCapacity);
         m_itemsWithIndefiniteGridAxisPosition.reserveCapacity(gridCapacity / m_masonryIndefiniteItemsHalfCapacity);
@@ -167,10 +179,10 @@ void GridMasonryLayout::placeItemsWithIndefiniteGridAxisPosition()
 
 void GridMasonryLayout::setItemGridAxisContainingBlockToGridArea(RenderBox& child)
 {
-    if (gridAxisDirection() == ForColumns)
-        child.setOverridingContainingBlockContentLogicalWidth(m_renderGrid.m_trackSizingAlgorithm.gridAreaBreadthForChild(child, ForColumns));
+    if (gridAxisDirection() == GridTrackSizingDirection::ForColumns)
+        child.setOverridingContainingBlockContentLogicalWidth(m_renderGrid.m_trackSizingAlgorithm.gridAreaBreadthForChild(child, GridTrackSizingDirection::ForColumns));
     else
-        child.setOverridingContainingBlockContentLogicalHeight(m_renderGrid.m_trackSizingAlgorithm.gridAreaBreadthForChild(child, ForRows));
+        child.setOverridingContainingBlockContentLogicalHeight(m_renderGrid.m_trackSizingAlgorithm.gridAreaBreadthForChild(child, GridTrackSizingDirection::ForRows));
     
     // FIXME(249230): Try to cache masonry layout sizes
     child.setChildNeedsLayout(MarkOnlyThis);
@@ -188,7 +200,7 @@ void GridMasonryLayout::insertIntoGridAndLayoutItem(RenderBox& child, const Grid
 LayoutUnit GridMasonryLayout::masonryAxisMarginBoxForItem(const RenderBox& child)
 {
     LayoutUnit marginBoxSize;
-    if (m_masonryAxisDirection == ForRows) {
+    if (m_masonryAxisDirection == GridTrackSizingDirection::ForRows) {
         if (GridLayoutFunctions::isOrthogonalChild(m_renderGrid, child))
             marginBoxSize = child.isHorizontalWritingMode() ? child.width() + child.horizontalMarginExtent() : child.height() + child.verticalMarginExtent();
         else
@@ -224,7 +236,8 @@ void GridMasonryLayout::updateRunningPositions(const RenderBox& child, const Gri
 
 void GridMasonryLayout::updateItemOffset(const RenderBox& child, LayoutUnit offset)
 {
-    m_itemOffsets.add(&child, offset);
+    // We set() and not add() to update the value if the child is already inserted
+    m_itemOffsets.set(&child, offset);
 }
 
 GridSpan GridMasonryLayout::gridAxisPositionUsingPackAutoFlow(const RenderBox& item) const
@@ -272,7 +285,7 @@ inline GridTrackSizingDirection GridMasonryLayout::gridAxisDirection() const
 {
     // The masonry axis and grid axis can never be the same. 
     // They are always perpendicular to each other.
-    return m_masonryAxisDirection == ForRows ? ForColumns : ForRows;
+    return m_masonryAxisDirection == GridTrackSizingDirection::ForRows ? GridTrackSizingDirection::ForColumns : GridTrackSizingDirection::ForRows;
 }
 
 bool GridMasonryLayout::hasDefiniteGridAxisPosition(const RenderBox& child, GridTrackSizingDirection gridAxisDirection) const 
@@ -283,12 +296,12 @@ bool GridMasonryLayout::hasDefiniteGridAxisPosition(const RenderBox& child, Grid
 
 GridSpan GridMasonryLayout::gridAxisSpanFromArea(const GridArea& gridArea) const
 {
-    return gridAxisDirection() == ForRows ? gridArea.rows : gridArea.columns;
+    return gridAxisDirection() == GridTrackSizingDirection::ForRows ? gridArea.rows : gridArea.columns;
 }
 
 GridArea GridMasonryLayout::masonryGridAreaFromGridAxisSpan(const GridSpan& gridAxisSpan) const
 {
-    return m_masonryAxisDirection == ForRows ? GridArea { m_masonryAxisSpan, gridAxisSpan } : GridArea { gridAxisSpan, m_masonryAxisSpan };
+    return m_masonryAxisDirection == GridTrackSizingDirection::ForRows ? GridArea { m_masonryAxisSpan, gridAxisSpan } : GridArea { gridAxisSpan, m_masonryAxisSpan };
 }
 
 bool GridMasonryLayout::hasEnoughSpaceAtPosition(unsigned startingPosition, unsigned spanLength) const

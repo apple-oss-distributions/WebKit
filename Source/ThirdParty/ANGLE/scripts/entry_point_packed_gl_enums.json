@@ -151,6 +151,10 @@
     "glClientWaitSync": {
         "sync": "SyncID"
     },
+    "glClipControl": {
+        "origin": "ClipOrigin",
+        "depth": "ClipDepthMode"
+    },
     "glColorPointer": {
         "type": "VertexAttribType"
     },
@@ -1221,6 +1225,12 @@
     },
     "glPointSizePointer": {
         "type": "VertexAttribType"
+    },
+    "glPolygonMode": {
+        "mode": "PolygonMode"
+    },
+    "glPolygonModeNV": {
+        "mode": "PolygonMode"
     },
     "glProgramBinary": {
         "program": "ShaderProgramID"

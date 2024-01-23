@@ -31,9 +31,9 @@
 #include "RemoteRealtimeMediaSourceProxy.h"
 #include <WebCore/CaptureDevice.h>
 #include <WebCore/RealtimeMediaSourceIdentifier.h>
-#include <WebCore/VideoFrame.h>
 
 namespace WebCore {
+class VideoFrame;
 struct MediaConstraints;
 }
 
@@ -55,6 +55,10 @@ private:
     Ref<RealtimeMediaSource> clone() final;
     void endProducingData() final;
     bool setShouldApplyRotation(bool) final;
+    double observedFrameRate() const final { return m_observedFrameRate; }
+
+    Deque<double> m_observedFrameTimeStamps;
+    double m_observedFrameRate { 0 };
 };
 
 } // namespace WebKit

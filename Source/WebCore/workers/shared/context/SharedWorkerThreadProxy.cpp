@@ -26,14 +26,15 @@
 #include "config.h"
 #include "SharedWorkerThreadProxy.h"
 
+#include "BadgeClient.h"
 #include "CacheStorageProvider.h"
 #include "Chrome.h"
 #include "ErrorEvent.h"
 #include "EventLoop.h"
 #include "EventNames.h"
-#include "Frame.h"
 #include "FrameLoader.h"
 #include "LoaderStrategy.h"
+#include "LocalFrame.h"
 #include "MessageEvent.h"
 #include "MessagePort.h"
 #include "Page.h"
@@ -81,7 +82,8 @@ static WorkerParameters generateWorkerParameters(const WorkerFetchResult& worker
 #if ENABLE(SERVICE_WORKER)
         WTFMove(initializationData.serviceWorkerData),
 #endif
-        *initializationData.clientIdentifier
+        *initializationData.clientIdentifier,
+        document.noiseInjectionHashSalt()
     };
 }
 
@@ -97,7 +99,7 @@ bool SharedWorkerThreadProxy::hasInstances()
 
 SharedWorkerThreadProxy::SharedWorkerThreadProxy(UniqueRef<Page>&& page, SharedWorkerIdentifier sharedWorkerIdentifier, const ClientOrigin& clientOrigin, WorkerFetchResult&& workerFetchResult, WorkerOptions&& workerOptions, WorkerInitializationData&& initializationData, CacheStorageProvider& cacheStorageProvider)
     : m_page(WTFMove(page))
-    , m_document(*m_page->mainFrame().document())
+    , m_document(*dynamicDowncast<LocalFrame>(m_page->mainFrame())->document())
     , m_contextIdentifier(*initializationData.clientIdentifier)
     , m_workerThread(SharedWorkerThread::create(sharedWorkerIdentifier, generateWorkerParameters(workerFetchResult, WTFMove(workerOptions), WTFMove(initializationData), m_document), WTFMove(workerFetchResult.script), *this, *this, *this, *this, WorkerThreadStartMode::Normal, clientOrigin.topOrigin.securityOrigin(), m_document->idbConnectionProxy(), m_document->socketProvider(), JSC::RuntimeFlags::createAllEnabled()))
     , m_cacheStorageProvider(cacheStorageProvider)
@@ -120,6 +122,8 @@ SharedWorkerThreadProxy::~SharedWorkerThreadProxy()
 {
     ASSERT(allSharedWorkerThreadProxies().contains(m_contextIdentifier));
     allSharedWorkerThreadProxies().remove(m_contextIdentifier);
+
+    m_workerThread->clearProxies();
 }
 
 SharedWorkerIdentifier SharedWorkerThreadProxy::identifier() const
@@ -148,8 +152,20 @@ void SharedWorkerThreadProxy::postExceptionToWorkerObject(const String& errorMes
         return;
 
     callOnMainThread([sharedWorkerIdentifier = m_workerThread->identifier(), errorMessage = errorMessage.isolatedCopy(), lineNumber, columnNumber, sourceURL = sourceURL.isolatedCopy()] {
+        bool isErrorEvent = true;
         if (auto* connection = SharedWorkerContextManager::singleton().connection())
-            connection->postExceptionToWorkerObject(sharedWorkerIdentifier, errorMessage, lineNumber, columnNumber, sourceURL);
+            connection->postErrorToWorkerObject(sharedWorkerIdentifier, errorMessage, lineNumber, columnNumber, sourceURL, isErrorEvent);
+    });
+}
+
+void SharedWorkerThreadProxy::reportErrorToWorkerObject(const String& errorMessage)
+{
+    ASSERT(!isMainThread());
+
+    callOnMainThread([sharedWorkerIdentifier = m_workerThread->identifier(), errorMessage = errorMessage.isolatedCopy()] {
+        bool isErrorEvent = false;
+        if (auto* connection = SharedWorkerContextManager::singleton().connection())
+            connection->postErrorToWorkerObject(sharedWorkerIdentifier, errorMessage, 0, 0, { }, isErrorEvent);
     });
 }
 

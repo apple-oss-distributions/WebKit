@@ -72,11 +72,8 @@ Ref<EventTarget> EventTarget::create(ScriptExecutionContext& context)
 EventTarget::~EventTarget()
 {
     // Explicitly tearing down since WeakPtrImpl can be alive longer than EventTarget.
-    if (hasEventTargetData()) {
-        auto* eventTargetData = this->eventTargetData();
-        ASSERT(eventTargetData);
+    if (auto* eventTargetData = this->eventTargetData())
         eventTargetData->clear();
-    }
 }
 
 bool EventTarget::isPaymentRequest() const
@@ -332,10 +329,10 @@ void EventTarget::innerInvokeEventListeners(Event& event, EventListenerVector li
     ASSERT(!listeners.isEmpty());
     ASSERT(scriptExecutionContext());
 
-    auto& context = *scriptExecutionContext();
+    Ref context = *scriptExecutionContext();
     bool contextIsDocument = is<Document>(context);
     if (contextIsDocument)
-        InspectorInstrumentation::willDispatchEvent(downcast<Document>(context), event);
+        InspectorInstrumentation::willDispatchEvent(downcast<Document>(context.get()), event);
 
     for (auto& registeredListener : listeners) {
         if (UNLIKELY(registeredListener->wasRemoved()))
@@ -380,7 +377,7 @@ void EventTarget::innerInvokeEventListeners(Event& event, EventListenerVector li
     }
 
     if (contextIsDocument)
-        InspectorInstrumentation::didDispatchEvent(downcast<Document>(context), event);
+        InspectorInstrumentation::didDispatchEvent(downcast<Document>(context.get()), event);
 }
 
 Vector<AtomString> EventTarget::eventTypes() const
@@ -428,8 +425,8 @@ void EventTarget::invalidateEventListenerRegions()
     auto* document = [&]() -> Document* {
         if (is<Document>(*this))
             return &downcast<Document>(*this);
-        if (is<DOMWindow>(*this))
-            return downcast<DOMWindow>(*this).document();
+        if (is<LocalDOMWindow>(*this))
+            return downcast<LocalDOMWindow>(*this).document();
         return nullptr;
     }();
 

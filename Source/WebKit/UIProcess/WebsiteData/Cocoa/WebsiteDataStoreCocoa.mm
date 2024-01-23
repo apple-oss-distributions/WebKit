@@ -28,6 +28,7 @@
 
 #import "CookieStorageUtilsCF.h"
 #import "DefaultWebBrowserChecks.h"
+#import "LegacyGlobalSettings.h"
 #import "NetworkProcessProxy.h"
 #import "SandboxUtilities.h"
 #import "UnifiedOriginStorageLevel.h"
@@ -46,6 +47,7 @@
 #import <wtf/NeverDestroyed.h>
 #import <wtf/ProcessPrivilege.h>
 #import <wtf/URL.h>
+#import <wtf/UUID.h>
 #import <wtf/cocoa/Entitlements.h>
 #import <wtf/text/cf/StringConcatenateCF.h>
 
@@ -60,6 +62,11 @@
 #endif
 
 namespace WebKit {
+
+static constexpr double defaultBrowserTotalQuotaRatio = 0.8;
+static constexpr double defaultBrowserOriginQuotaRatio = 0.6;
+static constexpr double defaultAppTotalQuotaRatio = 0.2;
+static constexpr double defaultAppOriginQuotaRatio = 0.15;
 
 static HashSet<WebsiteDataStore*>& dataStores()
 {
@@ -88,7 +95,7 @@ static std::atomic<bool> hasInitializedManagedDomains = false;
 static std::atomic<bool> managedKeyExists = false;
 #endif
 
-static bool experimentalFeatureEnabled(const String& key, bool defaultValue = false)
+bool experimentalFeatureEnabled(const String& key, bool defaultValue)
 {
     auto defaultsKey = adoptNS([[NSString alloc] initWithFormat:@"WebKitExperimental%@", static_cast<NSString *>(key)]);
     if ([[NSUserDefaults standardUserDefaults] objectForKey:defaultsKey.get()] != nil)
@@ -178,7 +185,7 @@ void WebsiteDataStore::platformSetNetworkParameters(WebsiteDataStoreParameters& 
     if (!httpsProxy.isValid() && (isSafari || isMiniBrowser))
         httpsProxy = URL { [defaults stringForKey:(NSString *)WebKit2HTTPSProxyDefaultsKey] };
 
-#if HAVE(CFNETWORK_ALTERNATIVE_SERVICE)
+#if HAVE(ALTERNATIVE_SERVICE)
     SandboxExtension::Handle alternativeServiceStorageDirectoryExtensionHandle;
     String alternativeServiceStorageDirectory = resolvedAlternativeServicesStorageDirectory();
     createHandleFromResolvedPathIfPossible(alternativeServiceStorageDirectory, alternativeServiceStorageDirectoryExtensionHandle);
@@ -192,7 +199,7 @@ void WebsiteDataStore::platformSetNetworkParameters(WebsiteDataStoreParameters& 
     parameters.networkSessionParameters.shouldLogCookieInformation = shouldLogCookieInformation;
     parameters.networkSessionParameters.httpProxy = WTFMove(httpProxy);
     parameters.networkSessionParameters.httpsProxy = WTFMove(httpsProxy);
-#if HAVE(CFNETWORK_ALTERNATIVE_SERVICE)
+#if HAVE(ALTERNATIVE_SERVICE)
     parameters.networkSessionParameters.alternativeServiceDirectory = WTFMove(alternativeServiceStorageDirectory);
     parameters.networkSessionParameters.alternativeServiceDirectoryExtensionHandle = WTFMove(alternativeServiceStorageDirectoryExtensionHandle);
 #endif
@@ -243,11 +250,6 @@ void WebsiteDataStore::platformDestroy()
     dataStores().remove(this);
 }
 
-void WebsiteDataStore::platformRemoveRecentSearches(WallTime oldestTimeToRemove)
-{
-    WebCore::removeRecentlyModifiedRecentSearches(oldestTimeToRemove);
-}
-
 static String defaultWebsiteDataStoreRootDirectory()
 {
     static dispatch_once_t onceToken;
@@ -265,29 +267,55 @@ static String defaultWebsiteDataStoreRootDirectory()
     return websiteDataStoreDirectory.get().get().absoluteURL.path;
 }
 
-void WebsiteDataStore::fetchAllDataStoreIdentifiers(CompletionHandler<void(Vector<UUID>&&)>&& completionHandler)
+void WebsiteDataStore::fetchAllDataStoreIdentifiers(CompletionHandler<void(Vector<WTF::UUID>&&)>&& completionHandler)
 {
-    Vector<UUID> identifiers;
-    for (auto identifierString : FileSystem::listDirectory(defaultWebsiteDataStoreRootDirectory())) {
-        if (auto identifier = UUID::parse(identifierString))
-            identifiers.append(*identifier);
-    }
+    ASSERT(isMainRunLoop());
 
-    completionHandler(WTFMove(identifiers));
+    websiteDataStoreIOQueue().dispatch([completionHandler = WTFMove(completionHandler), directory = defaultWebsiteDataStoreRootDirectory().isolatedCopy()]() mutable {
+        auto identifiers = WTF::compactMap(FileSystem::listDirectory(directory), [](auto&& identifierString) {
+            return WTF::UUID::parse(identifierString);
+        });
+        RunLoop::main().dispatch([completionHandler = WTFMove(completionHandler), identifiers = crossThreadCopy(WTFMove(identifiers))]() mutable {
+            completionHandler(WTFMove(identifiers));
+        });
+    });
 }
 
-void WebsiteDataStore::removeDataStoreWithIdentifier(const UUID& identifier, CompletionHandler<void(const String&)>&& completionHandler)
+void WebsiteDataStore::removeDataStoreWithIdentifier(const WTF::UUID& identifier, CompletionHandler<void(const String&)>&& completionHandler)
 {
-    if (!identifier)
+    ASSERT(isMainRunLoop());
+
+    if (!identifier.isValid())
         return completionHandler("Identifier is invalid"_s);
 
-    if (!FileSystem::deleteNonEmptyDirectory(defaultWebsiteDataStoreDirectory(identifier)))
-        return completionHandler("WebsiteDataStore with this identifier does not exist or deletion failed"_s);
+    if (auto existingDataStore = existingDataStoreForIdentifier(identifier)) {
+        if (existingDataStore->hasActivePages())
+            return completionHandler("Data store is in use"_s);
+        
+        // FIXME: Try removing session from network process instead of returning error.
+        if (existingDataStore->networkProcessIfExists())
+            return completionHandler("Data store is in use (by network process)"_s);
+    }
 
-    return completionHandler({ });
+    auto nsCredentialStorage = adoptNS([[NSURLCredentialStorage alloc] _initWithIdentifier:identifier.toString() private:NO]);
+    auto* credentials = [nsCredentialStorage.get() allCredentials];
+    for (NSURLProtectionSpace *space in credentials) {
+        for (NSURLCredential *credential in [credentials[space] allValues])
+            [nsCredentialStorage.get() removeCredential:credential forProtectionSpace:space];
+    }
+
+    websiteDataStoreIOQueue().dispatch([completionHandler = WTFMove(completionHandler), directory = defaultWebsiteDataStoreDirectory(identifier).isolatedCopy()]() mutable {
+        bool deleted = FileSystem::deleteNonEmptyDirectory(directory);
+        RunLoop::main().dispatch([completionHandler = WTFMove(completionHandler), deleted]() mutable {
+            if (!deleted)
+                return completionHandler("Failed to delete files on disk"_s);
+
+            completionHandler({ });
+        });
+    });
 }
 
-String WebsiteDataStore::defaultWebsiteDataStoreDirectory(const UUID& identifier)
+String WebsiteDataStore::defaultWebsiteDataStoreDirectory(const WTF::UUID& identifier)
 {
     return FileSystem::pathByAppendingComponent(defaultWebsiteDataStoreRootDirectory(), identifier.toString());
 }
@@ -298,6 +326,14 @@ String WebsiteDataStore::defaultCookieStorageFile(const String& baseDirectory)
         return { };
 
     return FileSystem::pathByAppendingComponents(baseDirectory, { "Cookies"_s, "Cookies.binarycookies"_s });
+}
+
+String WebsiteDataStore::defaultSearchFieldHistoryDirectory(const String& baseDirectory)
+{
+    if (!baseDirectory.isEmpty())
+        return FileSystem::pathByAppendingComponent(baseDirectory, "SearchHistory"_s);
+
+    return websiteDataDirectoryFileSystemRepresentation("SearchHistory"_s);
 }
 
 String WebsiteDataStore::defaultApplicationCacheDirectory(const String& baseDirectory)
@@ -817,9 +853,19 @@ bool WebsiteDataStore::networkProcessHasEntitlementForTesting(const String& enti
     return WTF::hasEntitlement(networkProcess().connection()->xpcConnection(), entitlement);
 }
 
+std::optional<double> WebsiteDataStore::defaultOriginQuotaRatio()
+{
+    return isFullWebBrowserOrRunningTest() ? defaultBrowserOriginQuotaRatio : defaultAppOriginQuotaRatio;
+}
+
+std::optional<double> WebsiteDataStore::defaultTotalQuotaRatio()
+{
+    return isFullWebBrowserOrRunningTest() ? defaultBrowserTotalQuotaRatio : defaultAppTotalQuotaRatio;
+}
+
 UnifiedOriginStorageLevel WebsiteDataStore::defaultUnifiedOriginStorageLevel()
 {
-    auto defaultUnifiedOriginStorageLevelValue = UnifiedOriginStorageLevel::Basic;
+    auto defaultUnifiedOriginStorageLevelValue = UnifiedOriginStorageLevel::Standard;
     NSString* unifiedOriginStorageLevelKey = @"WebKitDebugUnifiedOriginStorageLevel";
     if ([[NSUserDefaults standardUserDefaults] objectForKey:unifiedOriginStorageLevelKey] == nil)
         return defaultUnifiedOriginStorageLevelValue;
@@ -916,5 +962,30 @@ void WebsiteDataStore::setBackupExclusionPeriodForTesting(Seconds period, Comple
 }
 
 #endif
+
+void WebsiteDataStore::saveRecentSearches(const String& name, const Vector<WebCore::RecentSearch>& searchItems)
+{
+    m_queue->dispatch([name = name.isolatedCopy(), searchItems = crossThreadCopy(searchItems), directory = resolvedSearchFieldHistoryDirectory().isolatedCopy()] {
+        WebCore::saveRecentSearchesToFile(name, searchItems, directory);
+    });
+}
+
+void WebsiteDataStore::loadRecentSearches(const String& name, CompletionHandler<void(Vector<WebCore::RecentSearch>&&)>&& completionHandler)
+{
+    m_queue->dispatch([name = name.isolatedCopy(), completionHandler = WTFMove(completionHandler), directory = resolvedSearchFieldHistoryDirectory().isolatedCopy()]() mutable {
+        auto result = WebCore::loadRecentSearchesFromFile(name, directory);
+        RunLoop::main().dispatch([completionHandler = WTFMove(completionHandler), result = crossThreadCopy(result)]() mutable {
+            completionHandler(WTFMove(result));
+        });
+    });
+}
+
+void WebsiteDataStore::removeRecentSearches(WallTime oldestTimeToRemove, CompletionHandler<void()>&& completionHandler)
+{
+    m_queue->dispatch([time = oldestTimeToRemove.isolatedCopy(), directory = resolvedSearchFieldHistoryDirectory().isolatedCopy(), completionHandler = WTFMove(completionHandler)]() mutable {
+        WebCore::removeRecentlyModifiedRecentSearchesFromFile(time, directory);
+        RunLoop::main().dispatch(WTFMove(completionHandler));
+    });
+}
 
 }

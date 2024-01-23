@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2006-2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2006-2023 Apple Inc. All rights reserved.
  * Copyright (C) 2008, 2010 Nokia Corporation and/or its subsidiary(-ies)
  *
  * Redistribution and use in source and binary forms, with or without
@@ -65,8 +65,6 @@
 #import <WebCore/FileChooser.h>
 #import <WebCore/FileIconLoader.h>
 #import <WebCore/FloatRect.h>
-#import <WebCore/Frame.h>
-#import <WebCore/FrameView.h>
 #import <WebCore/FullscreenManager.h>
 #import <WebCore/GraphicsLayer.h>
 #import <WebCore/HTMLInputElement.h>
@@ -77,6 +75,8 @@
 #import <WebCore/Icon.h>
 #import <WebCore/IntPoint.h>
 #import <WebCore/IntRect.h>
+#import <WebCore/LocalFrame.h>
+#import <WebCore/LocalFrameView.h>
 #import <WebCore/ModalContainerTypes.h>
 #import <WebCore/NavigationAction.h>
 #import <WebCore/NotImplemented.h>
@@ -94,7 +94,14 @@
 #import <wtf/text/WTFString.h>
 
 #if HAVE(WEBGPU_IMPLEMENTATION)
-#import <pal/graphics/WebGPU/Impl/WebGPUCreateImpl.h>
+#import <WebCore/WebGPU.h>
+#import <WebCore/WebGPUCreateImpl.h>
+#endif
+
+#if HAVE(SHAPE_DETECTION_API_IMPLEMENTATION)
+#import <WebCore/BarcodeDetectorImplementation.h>
+#import <WebCore/FaceDetectorImplementation.h>
+#import <WebCore/TextDetectorImplementation.h>
 #endif
 
 #if PLATFORM(IOS_FAMILY) && ENABLE(GEOLOCATION)
@@ -157,7 +164,6 @@ WebChromeClient::WebChromeClient(WebView *webView)
 
 void WebChromeClient::chromeDestroyed()
 {
-    delete this;
 }
 
 // These functions scale between window and WebView coordinates because JavaScript/DOM operations 
@@ -171,7 +177,7 @@ void WebChromeClient::setWindowRect(const FloatRect& rect)
 #endif
 }
 
-FloatRect WebChromeClient::windowRect()
+FloatRect WebChromeClient::windowRect() const
 {
 #if !PLATFORM(IOS_FAMILY)
     NSRect windowRect = [[m_webView _UIDelegateForwarder] webViewFrame:m_webView];
@@ -182,7 +188,7 @@ FloatRect WebChromeClient::windowRect()
 }
 
 // FIXME: We need to add API for setting and getting this.
-FloatRect WebChromeClient::pageRect()
+FloatRect WebChromeClient::pageRect() const
 {
     return [m_webView frame];
 }
@@ -197,7 +203,7 @@ void WebChromeClient::unfocus()
     [[m_webView _UIDelegateForwarder] webViewUnfocus:m_webView];
 }
 
-bool WebChromeClient::canTakeFocus(FocusDirection)
+bool WebChromeClient::canTakeFocus(FocusDirection) const
 {
     // There's unfortunately no way to determine if we will become first responder again
     // once we give it up, so we just have to guess that we won't.
@@ -238,11 +244,11 @@ void WebChromeClient::focusedElementChanged(Element* element)
     CallFormDelegate(m_webView, @selector(didFocusTextField:inFrame:), kit(&inputElement), kit(inputElement.document().frame()));
 }
 
-void WebChromeClient::focusedFrameChanged(Frame*)
+void WebChromeClient::focusedFrameChanged(LocalFrame*)
 {
 }
 
-Page* WebChromeClient::createWindow(Frame& frame, const WindowFeatures& features, const NavigationAction&)
+Page* WebChromeClient::createWindow(LocalFrame& frame, const WindowFeatures& features, const NavigationAction&)
 {
     id delegate = [m_webView UIDelegate];
     WebView *newWebView;
@@ -254,14 +260,9 @@ Page* WebChromeClient::createWindow(Frame& frame, const WindowFeatures& features
     
     if ([delegate respondsToSelector:@selector(webView:createWebViewWithRequest:windowFeatures:)]) {
         auto dictFeatures = adoptNS([[NSMutableDictionary alloc] initWithObjectsAndKeys:
-                                             @(features.menuBarVisible), @"menuBarVisible",
-                                             @(features.statusBarVisible), @"statusBarVisible",
-                                             @(features.toolBarVisible), @"toolBarVisible",
-                                             @(features.scrollbarsVisible), @"scrollbarsVisible",
-                                             @(features.resizable), @"resizable",
-                                             @(features.fullscreen), @"fullscreen",
-                                             @(features.dialog), @"dialog",
-                                             nil]);
+            @(features.wantsPopup()), @"wantsPopup",
+            @(features.hasAdditionalFeatures), @"hasAdditionalFeatures",
+            nil]);
         
         if (features.x)
             [dictFeatures setObject:@(*features.x) forKey:@"x"];
@@ -271,7 +272,23 @@ Page* WebChromeClient::createWindow(Frame& frame, const WindowFeatures& features
             [dictFeatures setObject:@(*features.width) forKey:@"width"];
         if (features.height)
             [dictFeatures setObject:@(*features.height) forKey:@"height"];
-        
+        if (features.popup)
+            [dictFeatures setObject:@(*features.dialog) forKey:@"popup"];
+        if (features.menuBarVisible)
+            [dictFeatures setObject:@(*features.menuBarVisible) forKey:@"menuBarVisible"];
+        if (features.statusBarVisible)
+            [dictFeatures setObject:@(*features.statusBarVisible) forKey:@"statusBarVisible"];
+        if (features.toolBarVisible)
+            [dictFeatures setObject:@(*features.toolBarVisible) forKey:@"toolBarVisible"];
+        if (features.scrollbarsVisible)
+            [dictFeatures setObject:@(*features.scrollbarsVisible) forKey:@"scrollbarsVisible"];
+        if (features.resizable)
+            [dictFeatures setObject:@(*features.resizable) forKey:@"resizable"];
+        if (features.fullscreen)
+            [dictFeatures setObject:@(*features.fullscreen) forKey:@"fullscreen"];
+        if (features.dialog)
+            [dictFeatures setObject:@(*features.dialog) forKey:@"dialog"];
+
         newWebView = CallUIDelegate(m_webView, @selector(webView:createWebViewWithRequest:windowFeatures:), nil, dictFeatures.get());
     } else if (features.dialog && [delegate respondsToSelector:@selector(webView:createWebViewModalDialogWithRequest:)])
         newWebView = CallUIDelegate(m_webView, @selector(webView:createWebViewModalDialogWithRequest:), nil);
@@ -285,7 +302,7 @@ void WebChromeClient::show()
     [[m_webView _UIDelegateForwarder] webViewShow:m_webView];
 }
 
-bool WebChromeClient::canRunModal()
+bool WebChromeClient::canRunModal() const
 {
     return [[m_webView UIDelegate] respondsToSelector:@selector(webViewRunModal:)];
 }
@@ -300,7 +317,7 @@ void WebChromeClient::setToolbarsVisible(bool b)
     [[m_webView _UIDelegateForwarder] webView:m_webView setToolbarsVisible:b];
 }
 
-bool WebChromeClient::toolbarsVisible()
+bool WebChromeClient::toolbarsVisible() const
 {
     return CallUIDelegateReturningBoolean(NO, m_webView, @selector(webViewAreToolbarsVisible:));
 }
@@ -310,7 +327,7 @@ void WebChromeClient::setStatusbarVisible(bool b)
     [[m_webView _UIDelegateForwarder] webView:m_webView setStatusBarVisible:b];
 }
 
-bool WebChromeClient::statusbarVisible()
+bool WebChromeClient::statusbarVisible() const
 {
     return CallUIDelegateReturningBoolean(NO, m_webView, @selector(webViewIsStatusBarVisible:));
 }
@@ -320,7 +337,7 @@ void WebChromeClient::setScrollbarsVisible(bool b)
     [[[m_webView mainFrame] frameView] setAllowsScrolling:b];
 }
 
-bool WebChromeClient::scrollbarsVisible()
+bool WebChromeClient::scrollbarsVisible() const
 {
     return [[[m_webView mainFrame] frameView] allowsScrolling];
 }
@@ -331,7 +348,7 @@ void WebChromeClient::setMenubarVisible(bool)
     return;
 }
 
-bool WebChromeClient::menubarVisible()
+bool WebChromeClient::menubarVisible() const
 {
     // The menubar is always visible in Mac OS X.
     return true;
@@ -456,7 +473,7 @@ bool WebChromeClient::canRunBeforeUnloadConfirmPanel()
     return [[m_webView UIDelegate] respondsToSelector:@selector(webView:runBeforeUnloadConfirmPanelWithMessage:initiatedByFrame:)];
 }
 
-bool WebChromeClient::runBeforeUnloadConfirmPanel(const String& message, Frame& frame)
+bool WebChromeClient::runBeforeUnloadConfirmPanel(const String& message, LocalFrame& frame)
 {
     return CallUIDelegateReturningBoolean(true, m_webView, @selector(webView:runBeforeUnloadConfirmPanelWithMessage:initiatedByFrame:), message, kit(&frame));
 }
@@ -481,7 +498,7 @@ void WebChromeClient::closeWindow()
     [m_webView _closeWindow];
 }
 
-void WebChromeClient::runJavaScriptAlert(Frame& frame, const String& message)
+void WebChromeClient::runJavaScriptAlert(LocalFrame& frame, const String& message)
 {
     id delegate = [m_webView UIDelegate];
     SEL selector = @selector(webView:runJavaScriptAlertPanelWithMessage:initiatedByFrame:);
@@ -498,7 +515,7 @@ void WebChromeClient::runJavaScriptAlert(Frame& frame, const String& message)
     }
 }
 
-bool WebChromeClient::runJavaScriptConfirm(Frame& frame, const String& message)
+bool WebChromeClient::runJavaScriptConfirm(LocalFrame& frame, const String& message)
 {
     id delegate = [m_webView UIDelegate];
     SEL selector = @selector(webView:runJavaScriptConfirmPanelWithMessage:initiatedByFrame:);
@@ -513,7 +530,7 @@ bool WebChromeClient::runJavaScriptConfirm(Frame& frame, const String& message)
     return NO;
 }
 
-bool WebChromeClient::runJavaScriptPrompt(Frame& frame, const String& prompt, const String& defaultText, String& result)
+bool WebChromeClient::runJavaScriptPrompt(LocalFrame& frame, const String& prompt, const String& defaultText, String& result)
 {
     id delegate = [m_webView UIDelegate];
     SEL selector = @selector(webView:runJavaScriptTextInputPanelWithPrompt:defaultText:initiatedByFrame:);
@@ -591,7 +608,7 @@ PlatformPageClient WebChromeClient::platformPageClient() const
     return 0;
 }
 
-void WebChromeClient::contentsSizeChanged(Frame&, const IntSize&) const
+void WebChromeClient::contentsSizeChanged(LocalFrame&, const IntSize&) const
 {
 }
 
@@ -628,10 +645,10 @@ void WebChromeClient::unavailablePluginButtonClicked(Element& element, RenderEmb
     CallUIDelegate(m_webView, @selector(webView:didPressMissingPluginButton:), kit(&element));
 }
 
-void WebChromeClient::mouseDidMoveOverElement(const HitTestResult& result, unsigned modifierFlags, const String& toolTip, TextDirection)
+void WebChromeClient::mouseDidMoveOverElement(const HitTestResult& result, OptionSet<WebCore::PlatformEventModifier> modifiers, const String& toolTip, TextDirection)
 {
     auto element = adoptNS([[WebElementDictionary alloc] initWithHitTestResult:result]);
-    [m_webView _mouseDidMoveOverElement:element.get() modifierFlags:modifierFlags];
+    [m_webView _mouseDidMoveOverElement:element.get() modifierFlags:modifiers.toRaw()];
     setToolTip(toolTip);
 }
 
@@ -642,7 +659,7 @@ void WebChromeClient::setToolTip(const String& toolTip)
         [(WebHTMLView *)documentView _setToolTip:toolTip];
 }
 
-void WebChromeClient::print(Frame& frame, const StringWithDirection&)
+void WebChromeClient::print(LocalFrame& frame, const StringWithDirection&)
 {
     WebFrame *webFrame = kit(&frame);
     if ([[m_webView UIDelegate] respondsToSelector:@selector(webView:printFrame:)])
@@ -651,7 +668,7 @@ void WebChromeClient::print(Frame& frame, const StringWithDirection&)
         CallUIDelegate(m_webView, @selector(webView:printFrameView:), [webFrame frameView]);
 }
 
-void WebChromeClient::exceededDatabaseQuota(Frame& frame, const String& databaseName, DatabaseDetails)
+void WebChromeClient::exceededDatabaseQuota(LocalFrame& frame, const String& databaseName, DatabaseDetails)
 {
     BEGIN_BLOCK_OBJC_EXCEPTIONS
 
@@ -741,7 +758,7 @@ void WebChromeClient::requestPointerUnlock()
 }
 #endif
 
-void WebChromeClient::runOpenPanel(Frame&, FileChooser& chooser)
+void WebChromeClient::runOpenPanel(LocalFrame&, FileChooser& chooser)
 {
     BEGIN_BLOCK_OBJC_EXCEPTIONS
     BOOL allowMultipleFiles = chooser.settings().allowsMultipleFiles;
@@ -892,7 +909,7 @@ bool WebChromeClient::shouldPaintEntireContents() const
 #endif
 }
 
-void WebChromeClient::attachRootGraphicsLayer(Frame& frame, GraphicsLayer* graphicsLayer)
+void WebChromeClient::attachRootGraphicsLayer(LocalFrame& frame, GraphicsLayer* graphicsLayer)
 {
 #if !PLATFORM(MAC)
     UNUSED_PARAM(frame);
@@ -1155,12 +1172,48 @@ void WebChromeClient::changeUniversalAccessZoomFocus(const WebCore::IntRect& vie
 }
 #endif
 
-RefPtr<PAL::WebGPU::GPU> WebChromeClient::createGPUForWebGPU() const
+RefPtr<WebCore::WebGPU::GPU> WebChromeClient::createGPUForWebGPU() const
 {
 #if HAVE(WEBGPU_IMPLEMENTATION)
-    return PAL::WebGPU::create([](PAL::WebGPU::WorkItem&& workItem) {
+    return WebCore::WebGPU::create([](WebCore::WebGPU::WorkItem&& workItem) {
         callOnMainRunLoop(WTFMove(workItem));
     });
+#else
+    return nullptr;
+#endif
+}
+
+RefPtr<WebCore::ShapeDetection::BarcodeDetector> WebChromeClient::createBarcodeDetector(const WebCore::ShapeDetection::BarcodeDetectorOptions& barcodeDetectorOptions) const
+{
+#if HAVE(SHAPE_DETECTION_API_IMPLEMENTATION)
+    return WebCore::ShapeDetection::BarcodeDetectorImpl::create(barcodeDetectorOptions);
+#else
+    return nullptr;
+#endif
+}
+
+void WebChromeClient::getBarcodeDetectorSupportedFormats(CompletionHandler<void(Vector<WebCore::ShapeDetection::BarcodeFormat>&&)>&& completionHandler) const
+{
+#if HAVE(SHAPE_DETECTION_API_IMPLEMENTATION)
+    WebCore::ShapeDetection::BarcodeDetectorImpl::getSupportedFormats(WTFMove(completionHandler));
+#else
+    completionHandler({ });
+#endif
+}
+
+RefPtr<WebCore::ShapeDetection::FaceDetector> WebChromeClient::createFaceDetector(const WebCore::ShapeDetection::FaceDetectorOptions& faceDetectorOptions) const
+{
+#if HAVE(SHAPE_DETECTION_API_IMPLEMENTATION)
+    return WebCore::ShapeDetection::FaceDetectorImpl::create(faceDetectorOptions);
+#else
+    return nullptr;
+#endif
+}
+
+RefPtr<WebCore::ShapeDetection::TextDetector> WebChromeClient::createTextDetector() const
+{
+#if HAVE(SHAPE_DETECTION_API_IMPLEMENTATION)
+    return WebCore::ShapeDetection::TextDetectorImpl::create();
 #else
     return nullptr;
 #endif
@@ -1169,14 +1222,4 @@ RefPtr<PAL::WebGPU::GPU> WebChromeClient::createGPUForWebGPU() const
 void WebChromeClient::requestCookieConsent(CompletionHandler<void(CookieConsentDecisionResult)>&& completion)
 {
     completion(CookieConsentDecisionResult::NotSupported);
-}
-
-void WebChromeClient::classifyModalContainerControls(Vector<String>&&, CompletionHandler<void(Vector<ModalContainerControlType>&&)>&& completion)
-{
-    completion({ });
-}
-
-void WebChromeClient::decidePolicyForModalContainer(OptionSet<ModalContainerControlType>, CompletionHandler<void(ModalContainerDecision)>&& completion)
-{
-    completion(ModalContainerDecision::Show);
 }

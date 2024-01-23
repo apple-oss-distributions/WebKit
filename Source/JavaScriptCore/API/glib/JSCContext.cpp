@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2018 Igalia S.L.
+ * Copyright (C) 2023 Apple Inc.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -93,7 +94,7 @@ struct _JSCContextPrivate {
     Vector<JSCContextExceptionHandler> exceptionHandlers;
 };
 
-WEBKIT_DEFINE_TYPE(JSCContext, jsc_context, G_TYPE_OBJECT)
+WEBKIT_DEFINE_FINAL_TYPE(JSCContext, jsc_context, G_TYPE_OBJECT, GObject)
 
 static void jscContextSetVirtualMachine(JSCContext* context, GRefPtr<JSCVirtualMachine>&& vm)
 {
@@ -294,7 +295,7 @@ JSValueRef jscContextGArrayToJSArray(JSCContext* context, GPtrArray* gArray, JSV
         else if (JSC_IS_VALUE(item))
             JSObjectSetPropertyAtIndex(priv->jsContext.get(), jsArrayObject, i, jscValueGetJSValue(JSC_VALUE(item)), exception);
         else
-            *exception = toRef(JSC::createTypeError(globalObject, makeString("invalid item type in GPtrArray")));
+            *exception = toRef(JSC::createTypeError(globalObject, "invalid item type in GPtrArray"_s));
 
         if (*exception)
             return JSValueMakeUndefined(priv->jsContext.get());
@@ -313,7 +314,7 @@ static GRefPtr<GPtrArray> jscContextJSArrayToGArray(JSCContext* context, JSValue
         return nullptr;
 
     if (!JSValueIsArray(priv->jsContext.get(), jsArray)) {
-        *exception = toRef(JSC::createTypeError(globalObject, makeString("invalid js type for GPtrArray")));
+        *exception = toRef(JSC::createTypeError(globalObject, "invalid js type for GPtrArray"_s));
         return nullptr;
     }
 
@@ -352,7 +353,7 @@ GUniquePtr<char*> jscContextJSArrayToGStrv(JSCContext* context, JSValueRef jsArr
         return nullptr;
 
     if (!JSValueIsArray(priv->jsContext.get(), jsArray)) {
-        *exception = toRef(JSC::createTypeError(globalObject, makeString("invalid js type for GStrv")));
+        *exception = toRef(JSC::createTypeError(globalObject, "invalid js type for GStrv"_s));
         return nullptr;
     }
 
@@ -377,7 +378,7 @@ GUniquePtr<char*> jscContextJSArrayToGStrv(JSCContext* context, JSValueRef jsArr
 
         auto jsValueItem = jscContextGetOrCreateValue(context, jsItem);
         if (!jsc_value_is_string(jsValueItem.get())) {
-            *exception = toRef(JSC::createTypeError(globalObject, makeString("invalid js type for GStrv: item ", String::number(i), " is not a string")));
+            *exception = toRef(JSC::createTypeError(globalObject, makeString("invalid js type for GStrv: item "_s, i, " is not a string"_s)));
             return nullptr;
         }
 
@@ -459,7 +460,7 @@ JSValueRef jscContextGValueToJSValue(JSCContext* context, const GValue* value, J
         break;
     }
 
-    *exception = toRef(JSC::createTypeError(globalObject, makeString("unsupported type ", g_type_name(G_VALUE_TYPE(value)))));
+    *exception = toRef(JSC::createTypeError(globalObject, makeString("unsupported type "_s, g_type_name(G_VALUE_TYPE(value)))));
     return JSValueMakeUndefined(priv->jsContext.get());
 }
 
@@ -579,7 +580,7 @@ void jscContextJSValueToGValue(JSCContext* context, JSValueRef jsValue, GType ty
     case G_TYPE_INTERFACE:
     case G_TYPE_VARIANT:
     default:
-        *exception = toRef(JSC::createTypeError(globalObject, makeString("unsupported type ", g_type_name(G_VALUE_TYPE(value)))));
+        *exception = toRef(JSC::createTypeError(globalObject, makeString("unsupported type "_s, g_type_name(G_VALUE_TYPE(value)))));
         break;
     }
 }
@@ -759,7 +760,7 @@ void jsc_context_clear_exception(JSCContext* context)
  * JSCExceptionHandler:
  * @context: a #JSCContext
  * @exception: a #JSCException
- * @user_data: user data
+ * @user_data: (closure): user data
  *
  * Function used to handle JavaScript exceptions in a #JSCContext.
  */
@@ -767,8 +768,8 @@ void jsc_context_clear_exception(JSCContext* context)
 /**
  * jsc_context_push_exception_handler:
  * @context: a #JSCContext
- * @handler: a #JSCExceptionHandler
- * @user_data: (closure): user data to pass to @handler
+ * @handler: (closure user_data): a #JSCExceptionHandler
+ * @user_data: user data to pass to @handler
  * @destroy_notify: (nullable): destroy notifier for @user_data
  *
  * Push an exception handler in @context. Whenever a JavaScript exception happens in
@@ -972,7 +973,7 @@ JSCCheckSyntaxResult jsc_context_check_syntax(JSCContext* context, const char* c
     JSC::JSLockHolder locker(vm);
 
     URL sourceURL = uri ? URL(String::fromLatin1(uri)) : URL();
-    JSC::SourceCode source = JSC::makeSource(String::fromUTF8(code, length < 0 ? strlen(code) : length), JSC::SourceOrigin { sourceURL },
+    JSC::SourceCode source = JSC::makeSource(String::fromUTF8(code, length < 0 ? strlen(code) : length), JSC::SourceOrigin { sourceURL }, JSC::SourceTaintedOrigin::Untainted,
         sourceURL.string() , TextPosition(OrdinalNumber::fromOneBasedInt(lineNumber), OrdinalNumber()));
     bool success = false;
     JSC::ParserError error;

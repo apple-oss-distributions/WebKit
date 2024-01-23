@@ -30,7 +30,7 @@
 #include "CSSPropertyParser.h"
 #include "Document.h"
 #include "Element.h"
-#include "RenderStyle.h"
+#include "RenderStyleInlines.h"
 #include "StylePropertyShorthand.h"
 #include "StyleScope.h"
 #include <wtf/KeyValuePair.h>
@@ -102,6 +102,7 @@ Vector<StylePropertyMapReadOnly::StylePropertyMapEntry> ComputedStylePropertyMap
     for (auto* map : { &nonInheritedCustomProperties, &inheritedCustomProperties }) {
         map->forEach([&](auto& it) {
             values.uncheckedAppend(makeKeyValuePair(it.key, StylePropertyMapReadOnly::reifyValueToVector(const_cast<CSSCustomPropertyValue*>(it.value.get()), std::nullopt, m_element->document())));
+            return IterationStatus::Continue;
         });
     }
 

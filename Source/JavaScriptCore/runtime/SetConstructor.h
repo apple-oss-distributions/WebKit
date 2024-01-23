@@ -45,10 +45,7 @@ public:
 
     DECLARE_INFO;
 
-    static Structure* createStructure(VM& vm, JSGlobalObject* globalObject, JSValue prototype)
-    {
-        return Structure::create(vm, globalObject, prototype, TypeInfo(InternalFunctionType, StructureFlags), info());
-    }
+    inline static Structure* createStructure(VM&, JSGlobalObject*, JSValue);
 
 private:
     SetConstructor(VM&, Structure*);
@@ -59,5 +56,6 @@ STATIC_ASSERT_ISO_SUBSPACE_SHARABLE(SetConstructor, InternalFunction);
 JSC_DECLARE_HOST_FUNCTION(setPrivateFuncSetBucketHead);
 JSC_DECLARE_HOST_FUNCTION(setPrivateFuncSetBucketNext);
 JSC_DECLARE_HOST_FUNCTION(setPrivateFuncSetBucketKey);
+JSC_DECLARE_HOST_FUNCTION(setPrivateFuncClone);
 
 } // namespace JSC

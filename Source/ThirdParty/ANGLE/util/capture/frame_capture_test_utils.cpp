@@ -11,7 +11,6 @@
 
 #include "common/frame_capture_utils.h"
 #include "common/string_utils.h"
-#include "trace_fixture.h"
 
 #include <rapidjson/document.h>
 #include <rapidjson/istreamwrapper.h>
@@ -19,6 +18,7 @@
 
 namespace angle
 {
+
 namespace
 {
 bool LoadJSONFromFile(const std::string &fileName, rapidjson::Document *doc)
@@ -32,6 +32,46 @@ bool LoadJSONFromFile(const std::string &fileName, rapidjson::Document *doc)
     rapidjson::IStreamWrapper inWrapper(ifs);
     doc->ParseStream(inWrapper);
     return !doc->HasParseError();
+}
+
+// Branched from:
+// https://crsrc.org/c/third_party/zlib/google/compression_utils_portable.cc;drc=9fc44ce454cc889b603900ccd14b7024ea2c284c;l=167
+// Unmodified other than inlining ZlibStreamWrapperType and z_stream arg to access .msg
+int GzipUncompressHelperPatched(Bytef *dest,
+                                uLongf *dest_length,
+                                const Bytef *source,
+                                uLong source_length,
+                                z_stream &stream)
+{
+    stream.next_in  = static_cast<z_const Bytef *>(const_cast<Bytef *>(source));
+    stream.avail_in = static_cast<uInt>(source_length);
+    if (static_cast<uLong>(stream.avail_in) != source_length)
+        return Z_BUF_ERROR;
+
+    stream.next_out  = dest;
+    stream.avail_out = static_cast<uInt>(*dest_length);
+    if (static_cast<uLong>(stream.avail_out) != *dest_length)
+        return Z_BUF_ERROR;
+
+    stream.zalloc = static_cast<alloc_func>(0);
+    stream.zfree  = static_cast<free_func>(0);
+
+    int err = inflateInit2(&stream, MAX_WBITS + 16);
+    if (err != Z_OK)
+        return err;
+
+    err = inflate(&stream, Z_FINISH);
+    if (err != Z_STREAM_END)
+    {
+        inflateEnd(&stream);
+        if (err == Z_NEED_DICT || (err == Z_BUF_ERROR && stream.avail_in == 0))
+            return Z_DATA_ERROR;
+        return err;
+    }
+    *dest_length = stream.total_out;
+
+    err = inflateEnd(&stream);
+    return err;
 }
 }  // namespace
 
@@ -130,6 +170,20 @@ bool LoadTraceInfoFromJSON(const std::string &traceName,
         }
     }
 
+    if (meta.HasMember("KeyFrames"))
+    {
+        const rapidjson::Value &keyFrames = meta["KeyFrames"];
+        if (!keyFrames.IsArray())
+        {
+            return false;
+        }
+        for (rapidjson::SizeType i = 0; i < keyFrames.Size(); i++)
+        {
+            int frame = keyFrames[i].GetInt();
+            traceInfoOut->keyFrames.push_back(frame);
+        }
+    }
+
     const rapidjson::Document::Array &traceFiles = doc["TraceFiles"].GetArray();
     for (const rapidjson::Value &value : traceFiles)
     {
@@ -140,46 +194,99 @@ bool LoadTraceInfoFromJSON(const std::string &traceName,
     return true;
 }
 
-void ReplayTraceFunction(const TraceFunction &func, const TraceFunctionMap &customFunctions)
+TraceLibrary::TraceLibrary(const std::string &traceName, const TraceInfo &traceInfo)
 {
-    for (const CallCapture &call : func)
+    std::stringstream libNameStr;
+    SearchType searchType = SearchType::ModuleDir;
+
+#if defined(ANGLE_TRACE_EXTERNAL_BINARIES)
+    // This means we are using the binary build of traces on Android, which are
+    // not bundled in the APK, but located in the app's home directory.
+    searchType = SearchType::SystemDir;
+    libNameStr << "/data/user/0/com.android.angle.test/angle_traces/";
+#endif  // defined(ANGLE_TRACE_EXTERNAL_BINARIES)
+#if !defined(ANGLE_PLATFORM_WINDOWS)
+    libNameStr << "lib";
+#endif  // !defined(ANGLE_PLATFORM_WINDOWS)
+    libNameStr << traceName;
+#if defined(ANGLE_PLATFORM_ANDROID) && defined(COMPONENT_BUILD)
+    // Added to shared library names in Android component builds in
+    // https://chromium.googlesource.com/chromium/src/+/9bacc8c4868cc802f69e1e858eea6757217a508f/build/toolchain/toolchain.gni#56
+    libNameStr << ".cr";
+#endif  // defined(ANGLE_PLATFORM_ANDROID) && defined(COMPONENT_BUILD)
+    std::string libName = libNameStr.str();
+    std::string loadError;
+    mTraceLibrary.reset(OpenSharedLibraryAndGetError(libName.c_str(), searchType, &loadError));
+    if (mTraceLibrary->getNative() == nullptr)
     {
-        ReplayTraceFunctionCall(call, customFunctions);
+        FATAL() << "Failed to load trace library (" << libName << "): " << loadError;
     }
+
+    callFunc<SetupEntryPoints>("SetupEntryPoints", static_cast<angle::TraceCallbacks *>(this),
+                               &mTraceFunctions);
+    mTraceFunctions->SetTraceInfo(traceInfo);
+    mTraceInfo = traceInfo;
 }
 
-GLuint GetResourceIDMapValue(ResourceIDType resourceIDType, GLuint key)
+uint8_t *TraceLibrary::LoadBinaryData(const char *fileName)
 {
-    switch (resourceIDType)
+    std::ostringstream pathBuffer;
+    pathBuffer << mBinaryDataDir << "/" << fileName;
+    FILE *fp = fopen(pathBuffer.str().c_str(), "rb");
+    if (fp == 0)
     {
-        case ResourceIDType::Buffer:
-            return gBufferMap[key];
-        case ResourceIDType::FenceNV:
-            return gFenceNVMap[key];
-        case ResourceIDType::Framebuffer:
-            return gFramebufferMap[key];
-        case ResourceIDType::ProgramPipeline:
-            return gProgramPipelineMap[key];
-        case ResourceIDType::Query:
-            return gQueryMap[key];
-        case ResourceIDType::Renderbuffer:
-            return gRenderbufferMap[key];
-        case ResourceIDType::Sampler:
-            return gSamplerMap[key];
-        case ResourceIDType::Semaphore:
-            return gSemaphoreMap[key];
-        case ResourceIDType::ShaderProgram:
-            return gShaderProgramMap[key];
-        case ResourceIDType::Texture:
-            return gTextureMap[key];
-        case ResourceIDType::TransformFeedback:
-            return gTransformFeedbackMap[key];
-        case ResourceIDType::VertexArray:
-            return gVertexArrayMap[key];
-        default:
-            printf("Incompatible resource ID type: %d\n", static_cast<int>(resourceIDType));
-            UNREACHABLE();
-            return 0;
+        fprintf(stderr, "Error loading binary data file: %s\n", fileName);
+        exit(1);
     }
+    fseek(fp, 0, SEEK_END);
+    long size = ftell(fp);
+    fseek(fp, 0, SEEK_SET);
+    if (mTraceInfo.isBinaryDataCompressed)
+    {
+        if (!strstr(fileName, ".gz"))
+        {
+            fprintf(stderr, "Filename does not end in .gz");
+            exit(1);
+        }
+
+        std::vector<uint8_t> compressedData(size);
+        size_t bytesRead = fread(compressedData.data(), 1, size, fp);
+        if (bytesRead != static_cast<size_t>(size))
+        {
+            std::cerr << "Failed to read binary data: " << bytesRead << " != " << size << "\n";
+            exit(1);
+        }
+
+        uint32_t uncompressedSize =
+            zlib_internal::GetGzipUncompressedSize(compressedData.data(), compressedData.size());
+
+        mBinaryData.resize(uncompressedSize + 1);  // +1 to make sure .data() is valid
+        uLong destLen = uncompressedSize;
+        z_stream stream;
+        int zResult =
+            GzipUncompressHelperPatched(mBinaryData.data(), &destLen, compressedData.data(),
+                                        static_cast<uLong>(compressedData.size()), stream);
+
+        if (zResult != Z_OK)
+        {
+            std::cerr << "Failure to decompressed binary data: " << zResult
+                      << " msg=" << (stream.msg ? stream.msg : "nil") << "\n";
+            exit(1);
+        }
+    }
+    else
+    {
+        if (!strstr(fileName, ".angledata"))
+        {
+            fprintf(stderr, "Filename does not end in .angledata");
+            exit(1);
+        }
+        mBinaryData.resize(size + 1);
+        (void)fread(mBinaryData.data(), 1, size, fp);
+    }
+    fclose(fp);
+
+    return mBinaryData.data();
 }
+
 }  // namespace angle

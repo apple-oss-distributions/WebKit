@@ -28,7 +28,6 @@
 
 #if PLATFORM(IOS_FAMILY)
 
-#import "UserInterfaceIdiom.h"
 #import "WKContentView.h"
 #import "WKContentViewInteraction.h"
 #import "WKFormPopover.h"
@@ -36,6 +35,7 @@
 #import "WKFormSelectPopover.h"
 #import "WebPageProxy.h"
 #import <UIKit/UIPickerView.h>
+#import <pal/system/ios/UserInterfaceIdiom.h>
 #import <wtf/RetainPtr.h>
 
 using namespace WebKit;
@@ -81,18 +81,21 @@ CGFloat adjustedFontSize(CGFloat textWidth, UIFont *font, CGFloat initialFontSiz
             control = adoptNS([[WKSelectMultiplePicker alloc] initWithView:view]);
         else
             control = adoptNS([[WKSelectPicker alloc] initWithView:view]);
-        return [super initWithView:view control:WTFMove(control)];
+
+        self = [super initWithView:view control:WTFMove(control)];
+        return self;
     }
 #endif
 
-    if (!currentUserInterfaceIdiomIsSmallScreen())
+    if (!PAL::currentUserInterfaceIdiomIsSmallScreen())
         control = adoptNS([[WKSelectPopover alloc] initWithView:view hasGroups:hasGroups]);
     else if (view.focusedElementInformation.isMultiSelect || hasGroups)
         control = adoptNS([[WKMultipleSelectPicker alloc] initWithView:view]);
     else
         control = adoptNS([[WKSelectSinglePicker alloc] initWithView:view]);
 
-    return [super initWithView:view control:WTFMove(control)];
+    self = [super initWithView:view control:WTFMove(control)];
+    return self;
 }
 
 @end
@@ -116,6 +119,13 @@ CGFloat adjustedFontSize(CGFloat textWidth, UIFont *font, CGFloat initialFontSiz
 {
     return [self.control respondsToSelector:@selector(selectFormAccessoryHasCheckedItemAtRow:)]
         && [id<WKSelectTesting>(self.control) selectFormAccessoryHasCheckedItemAtRow:rowIndex];
+}
+
+- (NSArray<NSString *> *)menuItemTitles
+{
+    if ([self.control respondsToSelector:@selector(menuItemTitles)])
+        return [id<WKSelectTesting>(self.control) menuItemTitles];
+    return nil;
 }
 
 @end

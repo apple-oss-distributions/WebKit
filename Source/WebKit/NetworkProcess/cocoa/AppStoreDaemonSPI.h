@@ -28,10 +28,15 @@
 #if HAVE(SKADNETWORK_v4)
 #if USE(APPLE_INTERNAL_SDK)
 
-#import <AppStoreDaemon/ASDInstallAttribution.h>
+#if HAVE(ASD_INSTALL_WEB_ATTRIBUTION_SERVICE)
+#import <AppStoreDaemon/ASDInstallWebAttributionService.h>
+#endif
+
 #import <AppStoreDaemon/ASDInstallWebAttributionParamsConfig.h>
 
 #else // USE(APPLE_INTERNAL_SDK)
+
+NS_ASSUME_NONNULL_BEGIN
 
 @interface ASDInstallWebAttributionParamsConfig : NSObject <NSSecureCoding>
 typedef NS_ENUM(NSInteger, ASDInstallWebAttributionContext) {
@@ -45,10 +50,14 @@ typedef NS_ENUM(NSInteger, ASDInstallWebAttributionContext) {
 @property (nonatomic, assign) ASDInstallWebAttributionContext attributionContext;
 @end
 
-@interface ASDInstallAttribution : NSObject
-+ (instancetype)sharedInstance;
-- (void)addInstallWebAttributionParamsWithConfig:(ASDInstallWebAttributionParamsConfig *)config completionHandler:(void (^)(NSError *error))completionHandler;
+#if HAVE(ASD_INSTALL_WEB_ATTRIBUTION_SERVICE)
+@interface ASDInstallWebAttributionService : NSObject
+@property (class, readonly) ASDInstallWebAttributionService *sharedInstance;
+- (void)addInstallWebAttributionParamsWithConfig:(ASDInstallWebAttributionParamsConfig *)config completionHandler:(nullable void (^)(NSError *error))completionHandler;
 @end
+#endif
+
+NS_ASSUME_NONNULL_END
 
 #endif // USE(APPLE_INTERNAL_SDK)
 #endif // HAVE(SKADNETWORK_v4)

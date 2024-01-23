@@ -1777,7 +1777,7 @@ namespace JSC {
     class ForNode final : public StatementNode, public VariableEnvironmentNode {
         JSC_MAKE_PARSER_ARENA_DELETABLE_ALLOCATED(ForNode);
     public:
-        ForNode(const JSTokenLocation&, ExpressionNode* expr1, ExpressionNode* expr2, ExpressionNode* expr3, StatementNode*, VariableEnvironment&&);
+        ForNode(const JSTokenLocation&, ExpressionNode* expr1, ExpressionNode* expr2, ExpressionNode* expr3, StatementNode*, VariableEnvironment&&, bool initializerContainsClosure);
 
     private:
         void emitBytecode(BytecodeGenerator&, RegisterID* = nullptr) final;
@@ -1786,6 +1786,7 @@ namespace JSC {
         ExpressionNode* m_expr2;
         ExpressionNode* m_expr3;
         StatementNode* m_statement;
+        bool m_initializerContainsClosure;
     };
     
     class DestructuringPatternNode;
@@ -2093,19 +2094,19 @@ namespace JSC {
         Specifiers m_specifiers;
     };
 
-    class ImportAssertionListNode final : public ParserArenaDeletable {
-        JSC_MAKE_PARSER_ARENA_DELETABLE_ALLOCATED(ImportAssertionListNode);
+    class ImportAttributesListNode final : public ParserArenaDeletable {
+        JSC_MAKE_PARSER_ARENA_DELETABLE_ALLOCATED(ImportAttributesListNode);
     public:
-        using Assertions = Vector<std::tuple<const Identifier*, const Identifier*>, 3>;
+        using Attributes = Vector<std::tuple<const Identifier*, const Identifier*>, 3>;
 
-        const Assertions& assertions() const { return m_assertions; }
+        const Attributes& attributes() const { return m_attributes; }
         void append(const Identifier& key, const Identifier& value)
         {
-            m_assertions.append(std::tuple { &key, &value });
+            m_attributes.append(std::tuple { &key, &value });
         }
 
     private:
-        Assertions m_assertions;
+        Attributes m_attributes;
     };
 
     class ModuleDeclarationNode : public StatementNode {
@@ -2120,11 +2121,11 @@ namespace JSC {
 
     class ImportDeclarationNode final : public ModuleDeclarationNode {
     public:
-        ImportDeclarationNode(const JSTokenLocation&, ImportSpecifierListNode*, ModuleNameNode*, ImportAssertionListNode*);
+        ImportDeclarationNode(const JSTokenLocation&, ImportSpecifierListNode*, ModuleNameNode*, ImportAttributesListNode*);
 
         ImportSpecifierListNode* specifierList() const { return m_specifierList; }
         ModuleNameNode* moduleName() const { return m_moduleName; }
-        ImportAssertionListNode* assertionList() const { return m_assertionList; }
+        ImportAttributesListNode* attributesList() const { return m_attributesList; }
 
     private:
         void emitBytecode(BytecodeGenerator&, RegisterID* = nullptr) final;
@@ -2132,22 +2133,22 @@ namespace JSC {
 
         ImportSpecifierListNode* m_specifierList;
         ModuleNameNode* m_moduleName;
-        ImportAssertionListNode* m_assertionList;
+        ImportAttributesListNode* m_attributesList;
     };
 
     class ExportAllDeclarationNode final : public ModuleDeclarationNode {
     public:
-        ExportAllDeclarationNode(const JSTokenLocation&, ModuleNameNode*, ImportAssertionListNode*);
+        ExportAllDeclarationNode(const JSTokenLocation&, ModuleNameNode*, ImportAttributesListNode*);
 
         ModuleNameNode* moduleName() const { return m_moduleName; }
-        ImportAssertionListNode* assertionList() const { return m_assertionList; }
+        ImportAttributesListNode* attributesList() const { return m_attributesList; }
 
     private:
         void emitBytecode(BytecodeGenerator&, RegisterID* = nullptr) final;
         bool analyzeModule(ModuleAnalyzer&) final;
 
         ModuleNameNode* m_moduleName;
-        ImportAssertionListNode* m_assertionList;
+        ImportAttributesListNode* m_attributesList;
     };
 
     class ExportDefaultDeclarationNode final : public ModuleDeclarationNode {
@@ -2205,18 +2206,18 @@ namespace JSC {
 
     class ExportNamedDeclarationNode final : public ModuleDeclarationNode {
     public:
-        ExportNamedDeclarationNode(const JSTokenLocation&, ExportSpecifierListNode*, ModuleNameNode*, ImportAssertionListNode*);
+        ExportNamedDeclarationNode(const JSTokenLocation&, ExportSpecifierListNode*, ModuleNameNode*, ImportAttributesListNode*);
 
         ExportSpecifierListNode* specifierList() const { return m_specifierList; }
         ModuleNameNode* moduleName() const { return m_moduleName; }
-        ImportAssertionListNode* assertionList() const { return m_assertionList; }
+        ImportAttributesListNode* attributesList() const { return m_attributesList; }
 
     private:
         void emitBytecode(BytecodeGenerator&, RegisterID* = nullptr) final;
         bool analyzeModule(ModuleAnalyzer&) final;
         ExportSpecifierListNode* m_specifierList;
         ModuleNameNode* m_moduleName { nullptr };
-        ImportAssertionListNode* m_assertionList { nullptr };
+        ImportAttributesListNode* m_attributesList { nullptr };
     };
 
     class FunctionMetadataNode final : public ParserArenaDeletable, public Node {
@@ -2224,13 +2225,13 @@ namespace JSC {
     public:
         FunctionMetadataNode(
             ParserArena&, const JSTokenLocation& start, const JSTokenLocation& end, 
-            unsigned startColumn, unsigned endColumn, int functionKeywordStart, 
+            unsigned startColumn, unsigned endColumn, unsigned functionStart,
             int functionNameStart, int parametersStart, ImplementationVisibility, LexicalScopeFeatures,
             ConstructorKind, SuperBinding, unsigned parameterCount,
             SourceParseMode, bool isArrowFunctionBodyExpression);
         FunctionMetadataNode(
             const JSTokenLocation& start, const JSTokenLocation& end, 
-            unsigned startColumn, unsigned endColumn, int functionKeywordStart, 
+            unsigned startColumn, unsigned endColumn, unsigned functionStart,
             int functionNameStart, int parametersStart, ImplementationVisibility, LexicalScopeFeatures,
             ConstructorKind, SuperBinding, unsigned parameterCount,
             SourceParseMode, bool isArrowFunctionBodyExpression);
@@ -2250,7 +2251,7 @@ namespace JSC {
         FunctionMode functionMode() { return m_functionMode; }
 
         int functionNameStart() const { return m_functionNameStart; }
-        int functionKeywordStart() const { return m_functionKeywordStart; }
+        unsigned functionStart() const { return m_functionStart; }
         int parametersStart() const { return m_parametersStart; }
         unsigned startColumn() const { return m_startColumn; }
         unsigned endColumn() const { return m_endColumn; }
@@ -2285,10 +2286,6 @@ namespace JSC {
         unsigned lastLine() const { return m_lastLine; }
 
         bool operator==(const FunctionMetadataNode&) const;
-        bool operator!=(const FunctionMetadataNode& other) const
-        {
-            return !(*this == other);
-        }
 
     public:
         unsigned m_implementationVisibility : bitWidthOfImplementationVisibility;
@@ -2304,7 +2301,7 @@ namespace JSC {
         Identifier m_ecmaName;
         unsigned m_startColumn;
         unsigned m_endColumn;
-        int m_functionKeywordStart;
+        unsigned m_functionStart;
         int m_functionNameStart;
         int m_parametersStart;
         SourceCode m_source;

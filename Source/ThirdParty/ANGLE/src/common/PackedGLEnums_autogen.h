@@ -106,6 +106,34 @@ ClientVertexArrayType FromGLenum<ClientVertexArrayType>(GLenum from);
 GLenum ToGLenum(ClientVertexArrayType from);
 std::ostream &operator<<(std::ostream &os, ClientVertexArrayType value);
 
+enum class ClipDepthMode : uint8_t
+{
+    NegativeOneToOne = 0,
+    ZeroToOne        = 1,
+
+    InvalidEnum = 2,
+    EnumCount   = 2,
+};
+
+template <>
+ClipDepthMode FromGLenum<ClipDepthMode>(GLenum from);
+GLenum ToGLenum(ClipDepthMode from);
+std::ostream &operator<<(std::ostream &os, ClipDepthMode value);
+
+enum class ClipOrigin : uint8_t
+{
+    LowerLeft = 0,
+    UpperLeft = 1,
+
+    InvalidEnum = 2,
+    EnumCount   = 2,
+};
+
+template <>
+ClipOrigin FromGLenum<ClipOrigin>(GLenum from);
+GLenum ToGLenum(ClipOrigin from);
+std::ostream &operator<<(std::ostream &os, ClipOrigin value);
+
 enum class CullFaceMode : uint8_t
 {
     Back         = 0,
@@ -321,6 +349,21 @@ template <>
 PointParameter FromGLenum<PointParameter>(GLenum from);
 GLenum ToGLenum(PointParameter from);
 std::ostream &operator<<(std::ostream &os, PointParameter value);
+
+enum class PolygonMode : uint8_t
+{
+    Point = 0,
+    Line  = 1,
+    Fill  = 2,
+
+    InvalidEnum = 3,
+    EnumCount   = 3,
+};
+
+template <>
+PolygonMode FromGLenum<PolygonMode>(GLenum from);
+GLenum ToGLenum(PolygonMode from);
+std::ostream &operator<<(std::ostream &os, PolygonMode value);
 
 enum class ProvokingVertexConvention : uint8_t
 {
@@ -571,6 +614,20 @@ template <>
 TextureType FromGLenum<TextureType>(GLenum from);
 GLenum ToGLenum(TextureType from);
 std::ostream &operator<<(std::ostream &os, TextureType value);
+
+enum class TilingMode : uint8_t
+{
+    Optimal = 0,
+    Linear  = 1,
+
+    InvalidEnum = 2,
+    EnumCount   = 2,
+};
+
+template <>
+TilingMode FromGLenum<TilingMode>(GLenum from);
+GLenum ToGLenum(TilingMode from);
+std::ostream &operator<<(std::ostream &os, TilingMode value);
 
 enum class VertexArrayType : uint8_t
 {

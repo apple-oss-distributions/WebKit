@@ -57,6 +57,32 @@
              </dict>
              <dict>
                  <key>Name</key>
+                 <string>Incremental Sweep</string>
+                 <key>Type</key>
+                 <string>Interval</string>
+                 <key>Component</key>
+                 <string>47</string>
+                 <key>CodeBegin</key>
+                 <string>2511</string>
+                 <key>CodeEnd</key>
+                 <string>2512</string>
+                 <key>ArgNamesBegin</key>
+                 <dict>
+                     <key>Arg1</key>
+                     <string>Heap Size</string>
+                     <key>Arg2</key>
+                     <string>Heap Capacity</string>
+                 </dict>
+                 <key>ArgValueTypesBegin</key>
+                 <dict>
+                     <key>Arg1</key>
+                     <string>UInt64</string>
+                     <key>Arg2</key>
+                     <string>UInt64</string>
+                 </dict>
+             </dict>
+             <dict>
+                 <key>Name</key>
                  <string>Main Resource Load</string>
                  <key>Type</key>
                  <string>Interval</string>
@@ -155,7 +181,7 @@
              </dict>
              <dict>
                  <key>Name</key>
-                 <string>Layout</string>
+                 <string>Layout (including before/after activities)</string>
                  <key>Type</key>
                  <string>Interval</string>
                  <key>Component</key>
@@ -430,6 +456,40 @@
              </dict>
              <dict>
                  <key>Name</key>
+                 <string>Render tree layout</string>
+                 <key>Type</key>
+                 <string>Interval</string>
+                 <key>Component</key>
+                 <string>47</string>
+                 <key>CodeBegin</key>
+                 <string>5045</string>
+                 <key>CodeEnd</key>
+                 <string>5046</string>
+             </dict>
+             <dict>
+                 <key>Name</key>
+                 <string>Perform opportunistically scheduled tasks</string>
+                 <key>Type</key>
+                 <string>Interval</string>
+                 <key>Component</key>
+                 <string>47</string>
+                 <key>CodeBegin</key>
+                 <string>5047</string>
+                 <key>CodeEnd</key>
+                 <string>5048</string>
+                 <key>ArgNamesBegin</key>
+                 <dict>
+                     <key>Arg1</key>
+                     <string>Time remaining (microseconds)</string>
+                 </dict>
+                 <key>ArgValueTypesBegin</key>
+                 <dict>
+                     <key>Arg1</key>
+                     <string>UInt64</string>
+                 </dict>
+             </dict>
+             <dict>
+                 <key>Name</key>
                  <string>Paint WebHTMLView</string>
                  <key>Type</key>
                  <string>Interval</string>
@@ -535,6 +595,30 @@
                  <string>12015</string>
                  <key>CodeEnd</key>
                  <string>12016</string>
+                 <key>ArgNamesBegin</key>
+                 <dict>
+                     <key>Arg1</key>
+                     <string>Flush ID</string>
+                 </dict>
+                 <key>ArgValueTypesBegin</key>
+                 <dict>
+                     <key>Arg1</key>
+                     <string>Hex</string>
+                 </dict>
+                 <key>ArgNamesEnd</key>
+                 <dict>
+                     <key>Arg1</key>
+                     <string>Flush ID</string>
+                     <key>Arg2</key>
+                     <string>Was Completed/Discarded</string>
+                 </dict>
+                 <key>ArgValueTypesEnd</key>
+                 <dict>
+                     <key>Arg1</key>
+                     <string>Hex</string>
+                     <key>Arg2</key>
+                     <string>Decimal</string>
+                 </dict>
              </dict>
              <dict>
                  <key>Name</key>
@@ -635,6 +719,21 @@
                  <string>Arg3</string>
                  <key>LevelDataType</key>
                  <string>UInt64</string>
+             </dict>
+             <dict>
+                 <key>Name</key>
+                 <string>Schedule rendering update</string>
+                 <key>Type</key>
+                 <string>Impulse</string>
+                 <key>Component</key>
+                 <string>47</string>
+                 <key>Code</key>
+                 <string>12028</string>
+                 <key>ArgNames</key>
+                 <dict>
+                     <key>Arg1</key>
+                     <string>Waiting for backing store swap</string>
+                 </dict>
              </dict>
              <dict>
                  <key>Name</key>

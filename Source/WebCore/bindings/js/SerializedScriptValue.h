@@ -38,6 +38,9 @@
 #include <wtf/text/WTFString.h>
 
 #if ENABLE(WEB_CODECS)
+#include "WebCodecsAudioData.h"
+#include "WebCodecsAudioInternalData.h"
+#include "WebCodecsEncodedAudioChunk.h"
 #include "WebCodecsEncodedVideoChunk.h"
 #include "WebCodecsVideoFrame.h"
 #endif
@@ -56,6 +59,7 @@ namespace WebCore {
 
 #if ENABLE(OFFSCREEN_CANVAS_IN_WORKERS)
 class DetachedOffscreenCanvas;
+class OffscreenCanvas;
 #endif
 class IDBValue;
 class MessagePort;
@@ -64,7 +68,7 @@ class FragmentedSharedBuffer;
 enum class SerializationReturnCode;
 
 enum class SerializationErrorMode { NonThrowing, Throwing };
-enum class SerializationContext { Default, WorkerPostMessage, WindowPostMessage };
+enum class SerializationContext { Default, WorkerPostMessage, WindowPostMessage, CloneAcrossWorlds };
 enum class SerializationForStorage : bool { No, Yes };
 
 using ArrayBufferContentsArray = Vector<JSC::ArrayBufferContents>;
@@ -125,13 +129,17 @@ private:
 #if ENABLE(WEB_CODECS)
         , Vector<RefPtr<WebCodecsEncodedVideoChunkStorage>>&& = { }
         , Vector<WebCodecsVideoFrameData>&& = { }
+        , Vector<RefPtr<WebCodecsEncodedAudioChunkStorage>>&& = { }
+        , Vector<WebCodecsAudioInternalData>&& = { }
 #endif
         );
 
     SerializedScriptValue(Vector<unsigned char>&&, Vector<URLKeepingBlobAlive>&& blobHandles, std::unique_ptr<ArrayBufferContentsArray>, std::unique_ptr<ArrayBufferContentsArray> sharedBuffers, Vector<std::optional<ImageBitmapBacking>>&& backingStores
 #if ENABLE(OFFSCREEN_CANVAS_IN_WORKERS)
         , Vector<std::unique_ptr<DetachedOffscreenCanvas>>&& = { }
+        , Vector<RefPtr<OffscreenCanvas>>&& = { }
 #endif
+        , Vector<RefPtr<MessagePort>>&& = { }
 #if ENABLE(WEB_RTC)
         , Vector<std::unique_ptr<DetachedRTCDataChannel>>&& = { }
 #endif
@@ -142,6 +150,8 @@ private:
 #if ENABLE(WEB_CODECS)
         , Vector<RefPtr<WebCodecsEncodedVideoChunkStorage>>&& = { }
         , Vector<WebCodecsVideoFrameData>&& = { }
+        , Vector<RefPtr<WebCodecsEncodedAudioChunkStorage>>&& = { }
+        , Vector<WebCodecsAudioInternalData>&& = { }
 #endif
         );
 
@@ -153,7 +163,9 @@ private:
     Vector<std::optional<ImageBitmapBacking>> m_backingStores;
 #if ENABLE(OFFSCREEN_CANVAS_IN_WORKERS)
     Vector<std::unique_ptr<DetachedOffscreenCanvas>> m_detachedOffscreenCanvases;
+    Vector<RefPtr<OffscreenCanvas>> m_inMemoryOffscreenCanvases;
 #endif
+    Vector<RefPtr<MessagePort>> m_inMemoryMessagePorts;
 #if ENABLE(WEB_RTC)
     Vector<std::unique_ptr<DetachedRTCDataChannel>> m_detachedRTCDataChannels;
 #endif
@@ -164,6 +176,8 @@ private:
 #if ENABLE(WEB_CODECS)
     Vector<RefPtr<WebCodecsEncodedVideoChunkStorage>> m_serializedVideoChunks;
     Vector<WebCodecsVideoFrameData> m_serializedVideoFrames;
+    Vector<RefPtr<WebCodecsEncodedAudioChunkStorage>> m_serializedAudioChunks;
+    Vector<WebCodecsAudioInternalData> m_serializedAudioData;
 #endif
     Vector<URLKeepingBlobAlive> m_blobHandles;
     size_t m_memoryCost { 0 };
@@ -180,7 +194,7 @@ void SerializedScriptValue::encode(Encoder& encoder) const
     if (hasArray) {
         encoder << static_cast<uint64_t>(m_arrayBufferContentsArray->size());
         for (const auto& arrayBufferContents : *m_arrayBufferContentsArray)
-            encoder << Span { reinterpret_cast<const uint8_t*>(arrayBufferContents.data()), arrayBufferContents.sizeInBytes() };
+            encoder << std::span(reinterpret_cast<const uint8_t*>(arrayBufferContents.data()), arrayBufferContents.sizeInBytes());
     }
 
 #if ENABLE(WEB_RTC)
@@ -195,6 +209,12 @@ void SerializedScriptValue::encode(Encoder& encoder) const
         encoder << videoChunk->data();
 
     // FIXME: encode video frames
+
+    encoder << static_cast<uint64_t>(m_serializedAudioChunks.size());
+    for (const auto& audioChunk : m_serializedAudioChunks)
+        encoder << audioChunk->data();
+
+    // FIXME: encode audio data
 #endif
 }
 
@@ -218,7 +238,7 @@ RefPtr<SerializedScriptValue> SerializedScriptValue::decode(Decoder& decoder)
 
         arrayBufferContentsArray = makeUnique<ArrayBufferContentsArray>();
         while (arrayLength--) {
-            Span<const uint8_t> data;
+            std::span<const uint8_t> data;
             if (!decoder.decode(data))
                 return nullptr;
 
@@ -226,7 +246,7 @@ RefPtr<SerializedScriptValue> SerializedScriptValue::decode(Decoder& decoder)
             if (!buffer)
                 return nullptr;
 
-            static_assert(sizeof(Span<const uint8_t>::element_type) == 1);
+            static_assert(sizeof(std::span<const uint8_t>::element_type) == 1);
             memcpy(buffer, data.data(), data.size_bytes());
             JSC::ArrayBufferDestructorFunction destructor = ArrayBuffer::primitiveGigacageDestructor();
             arrayBufferContentsArray->append({ buffer, data.size_bytes(), std::nullopt, WTFMove(destructor) });
@@ -262,6 +282,21 @@ RefPtr<SerializedScriptValue> SerializedScriptValue::decode(Decoder& decoder)
     }
     // FIXME: decode video frames
     Vector<WebCodecsVideoFrameData> serializedVideoFrames;
+
+    uint64_t serializedAudioChunksSize;
+    if (!decoder.decode(serializedAudioChunksSize))
+        return nullptr;
+
+    Vector<RefPtr<WebCodecsEncodedAudioChunkStorage>> serializedAudioChunks;
+    while (serializedAudioChunksSize--) {
+        std::optional<WebCodecsEncodedAudioChunkData> audioChunkData;
+        decoder >> audioChunkData;
+        if (!audioChunkData)
+            return nullptr;
+        serializedAudioChunks.append(WebCodecsEncodedAudioChunkStorage::create(WTFMove(*audioChunkData)));
+    }
+    // FIXME: decode audio data
+    Vector<WebCodecsAudioInternalData> serializedAudioData;
 #endif
 
     return adoptRef(*new SerializedScriptValue(WTFMove(data), WTFMove(arrayBufferContentsArray)
@@ -270,9 +305,9 @@ RefPtr<SerializedScriptValue> SerializedScriptValue::decode(Decoder& decoder)
 #endif
 #if ENABLE(WEB_CODECS)
         , WTFMove(serializedVideoChunks)
-#endif
-#if ENABLE(WEB_CODECS)
         , WTFMove(serializedVideoFrames)
+        , WTFMove(serializedAudioChunks)
+        , WTFMove(serializedAudioData)
 #endif
         ));
 }

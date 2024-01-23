@@ -28,9 +28,11 @@
 
 #if PLATFORM(IOS_FAMILY)
 
+#import "Logging.h"
 #import "UIKitSPI.h"
 #import "WKDeferringGestureRecognizer.h"
 #import "WKWebViewIOS.h"
+#import "WebPage.h"
 #import <pal/spi/cg/CoreGraphicsSPI.h>
 #import <wtf/WeakObjCPtr.h>
 #import <wtf/cocoa/RuntimeApplicationChecksCocoa.h>
@@ -68,7 +70,7 @@
     if (!signature)
         signature = [(NSObject *)_internalDelegate methodSignatureForSelector:aSelector];
     if (!signature)
-        signature = [(NSObject *)externalDelegate methodSignatureForSelector:aSelector];
+        signature = [(NSObject *)externalDelegate.get() methodSignatureForSelector:aSelector];
     return signature;
 }
 
@@ -168,7 +170,7 @@ static BOOL shouldForwardScrollViewDelegateMethodToExternalDelegate(SEL selector
 
     self.alwaysBounceVertical = YES;
     self.directionalLockEnabled = YES;
-    [self _setIndicatorInsetAdjustmentBehavior:UIScrollViewIndicatorInsetAdjustmentAlways];
+    self.automaticallyAdjustsScrollIndicatorInsets = YES;
 
 // FIXME: Likely we can remove this special case for watchOS and tvOS.
 #if !PLATFORM(WATCHOS) && !PLATFORM(APPLETV)
@@ -350,6 +352,17 @@ static inline bool valuesAreWithinOnePixel(CGFloat a, CGFloat b)
     [_internalDelegate _scheduleVisibleContentRectUpdate];
 }
 
+- (BOOL)_contentInsetWasExternallyOverridden
+{
+    return _contentInsetWasExternallyOverridden;
+}
+
+- (void)_resetContentInset
+{
+    super.contentInset = UIEdgeInsetsZero;
+    [_internalDelegate _scheduleVisibleContentRectUpdate];
+}
+
 // FIXME: Likely we can remove this special case for watchOS and tvOS.
 #if !PLATFORM(WATCHOS) && !PLATFORM(APPLETV)
 
@@ -375,6 +388,12 @@ static inline bool valuesAreWithinOnePixel(CGFloat a, CGFloat b)
         return;
 
     [super setContentInsetAdjustmentBehavior:insetAdjustmentBehavior];
+}
+
+- (void)_resetContentInsetAdjustmentBehavior
+{
+    _contentInsetAdjustmentBehaviorWasExternallyOverridden = NO;
+    [self _setContentInsetAdjustmentBehaviorInternal:UIScrollViewContentInsetAdjustmentAutomatic];
 }
 
 #endif
@@ -415,7 +434,7 @@ static inline bool valuesAreWithinOnePixel(CGFloat a, CGFloat b)
     CGSize currentContentSize = [self contentSize];
 
     BOOL mightBeRubberbanding = self.isDragging || self.isVerticalBouncing || self.isHorizontalBouncing || self.refreshControl;
-    if (!mightBeRubberbanding || CGSizeEqualToSize(currentContentSize, CGSizeZero) || CGSizeEqualToSize(currentContentSize, contentSize) || self.zoomScale < self.minimumZoomScale) {
+    if (!mightBeRubberbanding || CGSizeEqualToSize(currentContentSize, CGSizeZero) || CGSizeEqualToSize(currentContentSize, contentSize) || ((self.zoomScale < self.minimumZoomScale) && !WebKit::scalesAreEssentiallyEqual(self.zoomScale, self.minimumZoomScale))) {
         // FIXME: rdar://problem/65277759 Find out why iOS Mail needs this call even when the contentSize has not changed.
         [self setContentSize:contentSize];
         return;
@@ -513,6 +532,47 @@ static inline bool valuesAreWithinOnePixel(CGFloat a, CGFloat b)
 - (void)_updateZoomability
 {
     [super setZoomEnabled:(_zoomEnabledByClient && _zoomEnabledInternal)];
+}
+
+- (void)_sendPinchGestureActionEarlyIfNeeded
+{
+    static BOOL canHandlePinch = NO;
+    static std::once_flag flag;
+    std::call_once(flag, [] {
+        canHandlePinch = [UIScrollView instancesRespondToSelector:@selector(handlePinch:)];
+    });
+
+    if (UNLIKELY(!canHandlePinch)) {
+        static BOOL shouldLogFault = YES;
+        if (shouldLogFault) {
+            RELEASE_LOG_FAULT(Scrolling, "UIScrollView no longer responds to -handlePinch:.");
+            shouldLogFault = NO;
+        }
+        return;
+    }
+
+    if (!self.zooming)
+        return;
+
+    auto pinchGesture = self.pinchGestureRecognizer;
+    if (pinchGesture.state != UIGestureRecognizerStateEnded)
+        return;
+
+    auto activeTouchEvent = [pinchGesture _activeEventOfType:UIEventTypeTouches];
+    if (!activeTouchEvent)
+        return;
+
+    if ([pinchGesture _activeTouchesForEvent:activeTouchEvent].count)
+        return;
+
+    [self handlePinch:pinchGesture];
+}
+
+- (void)handlePan:(UIPanGestureRecognizer *)gesture
+{
+    [self _sendPinchGestureActionEarlyIfNeeded];
+
+    [super handlePan:gesture];
 }
 
 #if PLATFORM(WATCHOS)

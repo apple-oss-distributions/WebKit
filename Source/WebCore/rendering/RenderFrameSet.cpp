@@ -28,14 +28,16 @@
 #include "Document.h"
 #include "EventHandler.h"
 #include "EventNames.h"
-#include "Frame.h"
-#include "FrameView.h"
 #include "GraphicsContext.h"
 #include "HTMLFrameSetElement.h"
 #include "HitTestRequest.h"
 #include "HitTestResult.h"
+#include "LocalFrame.h"
+#include "LocalFrameView.h"
 #include "MouseEvent.h"
 #include "PaintInfo.h"
+#include "RenderBoxInlines.h"
+#include "RenderBoxModelObjectInlines.h"
 #include "RenderFrame.h"
 #include "RenderIterator.h"
 #include "RenderLayer.h"
@@ -55,7 +57,6 @@ WTF_MAKE_ISO_ALLOCATED_IMPL(RenderFrameSet);
 RenderFrameSet::RenderFrameSet(HTMLFrameSetElement& frameSet, RenderStyle&& style)
     : RenderBox(frameSet, WTFMove(style), 0)
     , m_isResizing(false)
-    , m_isChildResizing(false)
 {
     setInline(false);
 }
@@ -561,7 +562,7 @@ bool RenderFrameSet::userResize(MouseEvent& event)
     if (!m_isResizing) {
         if (needsLayout())
             return false;
-        if (event.type() == eventNames().mousedownEvent && event.button() == LeftButton) {
+        if (event.type() == eventNames().mousedownEvent && event.button() == MouseButton::Left) {
             FloatPoint localPos = absoluteToLocal(event.absoluteLocation(), UseTransforms);
             startResizing(m_cols, localPos.x());
             startResizing(m_rows, localPos.y());
@@ -571,11 +572,11 @@ bool RenderFrameSet::userResize(MouseEvent& event)
             }
         }
     } else {
-        if (event.type() == eventNames().mousemoveEvent || (event.type() == eventNames().mouseupEvent && event.button() == LeftButton)) {
+        if (event.type() == eventNames().mousemoveEvent || (event.type() == eventNames().mouseupEvent && event.button() == MouseButton::Left)) {
             FloatPoint localPos = absoluteToLocal(event.absoluteLocation(), UseTransforms);
             continueResizing(m_cols, localPos.x());
             continueResizing(m_rows, localPos.y());
-            if (event.type() == eventNames().mouseupEvent && event.button() == LeftButton) {
+            if (event.type() == eventNames().mouseupEvent && event.button() == MouseButton::Left) {
                 setIsResizing(false);
                 return true;
             }
@@ -588,19 +589,7 @@ bool RenderFrameSet::userResize(MouseEvent& event)
 void RenderFrameSet::setIsResizing(bool isResizing)
 {
     m_isResizing = isResizing;
-    for (auto& ancestor : ancestorsOfType<RenderFrameSet>(*this))
-        ancestor.m_isChildResizing = isResizing;
     frame().eventHandler().setResizingFrameSet(isResizing ? &frameSetElement() : nullptr);
-}
-
-bool RenderFrameSet::isResizingRow() const
-{
-    return m_isResizing && m_rows.m_splitBeingResized != noSplit;
-}
-
-bool RenderFrameSet::isResizingColumn() const
-{
-    return m_isResizing && m_cols.m_splitBeingResized != noSplit;
 }
 
 bool RenderFrameSet::canResizeRow(const IntPoint& p) const

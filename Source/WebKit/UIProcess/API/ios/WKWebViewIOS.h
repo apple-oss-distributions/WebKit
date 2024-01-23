@@ -26,12 +26,18 @@
 #import "WKWebViewInternal.h"
 #import "_WKTapHandlingResult.h"
 
-@class UIScrollEvent;
-
 #if PLATFORM(IOS_FAMILY)
+
+#import "UIKitSPI.h"
+
+@class UIScrollEvent;
 
 namespace WebKit {
 enum class TapHandlingResult : uint8_t;
+}
+
+namespace WebKit {
+class VisibleContentRectUpdateInfo;
 }
 
 @interface WKWebView (WKViewInternalIOS)
@@ -92,6 +98,7 @@ enum class TapHandlingResult : uint8_t;
 - (void)_willInvokeUIScrollViewDelegateCallback;
 - (void)_didInvokeUIScrollViewDelegateCallback;
 
+- (std::optional<WebKit::VisibleContentRectUpdateInfo>)_createVisibleContentRectUpdateInfo;
 - (void)_scheduleVisibleContentRectUpdate;
 - (void)_scheduleForcedVisibleContentRectUpdate;
 
@@ -117,6 +124,8 @@ enum class TapHandlingResult : uint8_t;
 
 - (void)_showPasswordViewWithDocumentName:(NSString *)documentName passwordHandler:(void (^)(NSString *))passwordHandler;
 - (void)_hidePasswordView;
+- (void)_didRequestPasswordForDocument;
+- (void)_didStopRequestingPasswordForDocument;
 
 - (void)_addShortcut:(id)sender;
 - (void)_define:(id)sender;
@@ -137,6 +146,9 @@ enum class TapHandlingResult : uint8_t;
 - (void)_findSelected:(id)sender;
 
 - (id<UITextSearching>)_searchableObject;
+
+- (void)_showFindOverlay;
+- (void)_hideFindOverlay;
 #endif
 
 - (void)_nextAccessoryTab:(id)sender;
@@ -144,16 +156,19 @@ enum class TapHandlingResult : uint8_t;
 
 - (void)_incrementFocusPreservationCount;
 - (void)_decrementFocusPreservationCount;
-- (void)_resetFocusPreservationCount;
+- (NSUInteger)_resetFocusPreservationCount;
 
 - (void)_setOpaqueInternal:(BOOL)opaque;
 - (NSString *)_contentSizeCategory;
-- (void)_dispatchSetDeviceOrientation:(int32_t)deviceOrientation;
+- (void)_dispatchSetDeviceOrientation:(WebCore::IntDegrees)deviceOrientation;
 - (WebCore::FloatSize)activeViewLayoutSize:(const CGRect&)bounds;
 - (void)_updateScrollViewInsetAdjustmentBehavior;
+- (void)_resetScrollViewInsetAdjustmentBehavior;
 
 - (BOOL)_effectiveAppearanceIsDark;
 - (BOOL)_effectiveUserInterfaceLevelIsElevated;
+
+- (_UIDataOwner)_effectiveDataOwner:(_UIDataOwner)clientSuppliedDataOwner;
 
 #if HAVE(UI_WINDOW_SCENE_LIVE_RESIZE)
 - (void)_beginLiveResize;
@@ -168,6 +183,10 @@ enum class TapHandlingResult : uint8_t;
 - (void)_scrollView:(UIScrollView *)scrollView asynchronouslyHandleScrollEvent:(UIScrollEvent *)scrollEvent completion:(void (^)(BOOL handled))completion;
 #endif
 
+- (UIColor *)_insertionPointColor;
+
+- (BOOL)_tryToHandleKeyEventInCustomContentView:(UIPressesEvent *)event;
+
 @property (nonatomic, readonly) WKPasswordView *_passwordView;
 @property (nonatomic, readonly) WKWebViewContentProviderRegistry *_contentProviderRegistry;
 @property (nonatomic, readonly) WKSelectionGranularity _selectionGranularity;
@@ -180,11 +199,20 @@ enum class TapHandlingResult : uint8_t;
 @property (nonatomic, readonly) UIEdgeInsets _computedObscuredInset;
 @property (nonatomic, readonly) UIEdgeInsets _computedUnobscuredSafeAreaInset;
 @property (nonatomic, readonly, getter=_isRetainingActiveFocusedState) BOOL _retainingActiveFocusedState;
-@property (nonatomic, readonly) int32_t _deviceOrientation;
+@property (nonatomic, readonly) WebCore::IntDegrees _deviceOrientationIgnoringOverrides;
 
 #if HAVE(UIKIT_RESIZABLE_WINDOWS)
 @property (nonatomic, readonly) BOOL _isWindowResizingEnabled;
 #endif
+
+@property (nonatomic, readonly) BOOL _haveSetUnobscuredSafeAreaInsets;
+@property (nonatomic, readonly) BOOL _hasOverriddenLayoutParameters;
+@property (nonatomic, readonly) std::optional<CGSize> _viewLayoutSizeOverride;
+@property (nonatomic, readonly) std::optional<CGSize> _minimumUnobscuredSizeOverride;
+@property (nonatomic, readonly) std::optional<CGSize> _maximumUnobscuredSizeOverride;
+- (void)_resetContentOffset;
+- (void)_resetUnobscuredSafeAreaInsets;
+- (void)_resetObscuredInsets;
 
 @end
 

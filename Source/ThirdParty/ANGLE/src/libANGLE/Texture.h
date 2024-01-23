@@ -144,10 +144,10 @@ class TextureState final : private angle::NonCopyable
     const SamplerState &getSamplerState() const { return mSamplerState; }
     GLenum getUsage() const { return mUsage; }
     bool hasProtectedContent() const { return mHasProtectedContent; }
+    bool renderabilityValidation() const { return mRenderabilityValidation; }
     GLenum getDepthStencilTextureMode() const { return mDepthStencilTextureMode; }
 
     bool hasBeenBoundAsImage() const { return mHasBeenBoundAsImage; }
-    bool is3DTextureAndHasBeenBoundAs2DImage() const { return mIs3DAndHasBeenBoundAs2DImage; }
     bool hasBeenBoundAsAttachment() const { return mHasBeenBoundAsAttachment; }
 
     gl::SrgbOverride getSRGBOverride() const { return mSrgbOverride; }
@@ -186,6 +186,8 @@ class TextureState final : private angle::NonCopyable
     const OffsetBindingPointer<Buffer> &getBuffer() const { return mBuffer; }
 
     const std::string &getLabel() const { return mLabel; }
+
+    gl::TilingMode getTilingMode() const { return mTilingMode; }
 
   private:
     // Texture needs access to the ImageDesc functions.
@@ -231,7 +233,6 @@ class TextureState final : private angle::NonCopyable
     GLenum mDepthStencilTextureMode;
 
     bool mHasBeenBoundAsImage;
-    bool mIs3DAndHasBeenBoundAs2DImage;
     bool mHasBeenBoundAsAttachment;
 
     bool mImmutableFormat;
@@ -242,6 +243,11 @@ class TextureState final : private angle::NonCopyable
 
     // GL_EXT_protected_textures
     bool mHasProtectedContent;
+
+    bool mRenderabilityValidation;
+
+    // GL_EXT_memory_object
+    gl::TilingMode mTilingMode;
 
     std::vector<ImageDesc> mImageDescs;
 
@@ -265,6 +271,18 @@ class TextureState final : private angle::NonCopyable
 
 bool operator==(const TextureState &a, const TextureState &b);
 bool operator!=(const TextureState &a, const TextureState &b);
+
+class TextureBufferContentsObservers final : angle::NonCopyable
+{
+  public:
+    TextureBufferContentsObservers(Texture *texture);
+    void enableForBuffer(Buffer *buffer);
+    void disableForBuffer(Buffer *buffer);
+    bool isEnabledForBuffer(Buffer *buffer);
+
+  private:
+    Texture *mTexture;
+};
 
 class Texture final : public RefCountObject<TextureID>,
                       public egl::ImageSibling,
@@ -350,6 +368,11 @@ class Texture final : public RefCountObject<TextureID>,
 
     void setProtectedContent(Context *context, bool hasProtectedContent);
     bool hasProtectedContent() const override;
+
+    void setRenderabilityValidation(Context *context, bool renderabilityValidation);
+
+    void setTilingMode(Context *context, GLenum tilingMode);
+    GLenum getTilingMode() const;
 
     const TextureState &getState() const { return mState; }
 
@@ -522,7 +545,6 @@ class Texture final : public RefCountObject<TextureID>,
     angle::Result generateMipmap(Context *context);
 
     void onBindAsImageTexture();
-    void onBind3DTextureAs2DImage();
 
     egl::Surface *getBoundSurface() const;
     egl::Stream *getBoundStream() const;
@@ -634,6 +656,7 @@ class Texture final : public RefCountObject<TextureID>,
         DIRTY_BIT_BASE_LEVEL,
         DIRTY_BIT_MAX_LEVEL,
         DIRTY_BIT_DEPTH_STENCIL_TEXTURE_MODE,
+        DIRTY_BIT_RENDERABILITY_VALIDATION_ANGLE,
 
         // Image state
         DIRTY_BIT_BOUND_AS_IMAGE,
@@ -657,6 +680,9 @@ class Texture final : public RefCountObject<TextureID>,
 
     // ObserverInterface implementation.
     void onSubjectStateChange(angle::SubjectIndex index, angle::SubjectMessage message) override;
+
+    // Texture buffer updates.
+    void onBufferContentsChange();
 
   private:
     rx::FramebufferAttachmentObjectImpl *getAttachmentImpl() const override;
@@ -727,6 +753,7 @@ class Texture final : public RefCountObject<TextureID>,
     };
 
     mutable SamplerCompletenessCache mCompletenessCache;
+    TextureBufferContentsObservers mBufferContentsObservers;
 };
 
 inline bool operator==(const TextureState &a, const TextureState &b)

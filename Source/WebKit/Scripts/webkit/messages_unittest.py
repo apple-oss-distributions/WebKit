@@ -44,6 +44,7 @@ _test_receiver_names = [
     'TestWithSuperclass',
     'TestWithLegacyReceiver',
     'TestWithoutAttributes',
+    'TestWithoutUsingIPCConnection',
     'TestWithIfMessage',
     'TestWithSemaphore',
     'TestWithImageData',
@@ -51,6 +52,8 @@ _test_receiver_names = [
     'TestWithStreamBatched',
     'TestWithStreamBuffer',
     'TestWithCVPixelBuffer',
+    'TestWithStreamServerConnectionHandle',
+    'TestWithEnabledIf',
 ]
 
 

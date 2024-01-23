@@ -28,6 +28,7 @@
 
 #include "ArgumentCoders.h"
 #include "DataReference.h"
+#include "MessageSenderInlines.h"
 #include "UserData.h"
 #include "WebConnectionMessages.h"
 #include <wtf/text/WTFString.h>
@@ -62,7 +63,8 @@ void WebConnection::didClose()
 
 void WebConnection::handleMessage(const String& messageName, const UserData& messageBody)
 {
-    m_client.didReceiveMessage(this, messageName, transformHandlesToObjects(messageBody.object()).get());
+    RefPtr protectedObject = messageBody.object();
+    m_client.didReceiveMessage(this, messageName, transformHandlesToObjects(protectedObject.get()).get());
 }
 
 } // namespace WebKit

@@ -22,6 +22,7 @@
 #include "RenderCombineText.h"
 
 #include "RenderBlock.h"
+#include "RenderStyleInlines.h"
 #include "StyleInheritedData.h"
 #include <wtf/IsoMallocInlines.h>
 #include <wtf/NeverDestroyed.h>
@@ -104,8 +105,8 @@ void RenderCombineText::combineTextIfNeeded()
     m_isCombined = false;
     m_needsFontUpdate = false;
 
-    // CSS3 spec says text-combine works only in vertical writing mode.
-    if (style().isHorizontalWritingMode())
+    // text-combine-upright works only in vertical typographic mode.
+    if (style().typographicMode() == TypographicMode::Horizontal)
         return;
 
     auto description = originalFont().fontDescription();

@@ -26,7 +26,20 @@
 
 #import <Foundation/Foundation.h>
 
+#if USE(APPLE_INTERNAL_SDK)
+#import <Foundation/NSPrivateDecls.h>
+#else // USE(APPLE_INTERNAL_SDK)
+
+@interface NSArray ()
+- (NSArray *)arrayByExcludingObjectsInArray:(NSArray *)otherArray;
+@end
+
+#endif // USE(APPLE_INTERNAL_SDK)
+
 @interface NSTextCheckingResult ()
 - (NSDictionary *)detail;
 @end
 
+@interface NSHTTPURLResponse ()
++ (BOOL)isErrorStatusCode:(NSInteger)statusCode;
+@end

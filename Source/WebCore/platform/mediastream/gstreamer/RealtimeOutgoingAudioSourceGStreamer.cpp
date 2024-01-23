@@ -22,24 +22,30 @@
 
 #if USE(GSTREAMER_WEBRTC)
 
+#include "GStreamerCommon.h"
 #include "GStreamerRegistryScanner.h"
 #include "MediaStreamTrack.h"
 
 #include <wtf/text/StringToIntegerConversion.h>
 
-GST_DEBUG_CATEGORY_EXTERN(webkit_webrtc_endpoint_debug);
-#define GST_CAT_DEFAULT webkit_webrtc_endpoint_debug
+GST_DEBUG_CATEGORY(webkit_webrtc_outgoing_audio_debug);
+#define GST_CAT_DEFAULT webkit_webrtc_outgoing_audio_debug
 
 namespace WebCore {
 
-RealtimeOutgoingAudioSourceGStreamer::RealtimeOutgoingAudioSourceGStreamer(const String& mediaStreamId, MediaStreamTrack& track)
-    : RealtimeOutgoingMediaSourceGStreamer(mediaStreamId, track)
+RealtimeOutgoingAudioSourceGStreamer::RealtimeOutgoingAudioSourceGStreamer(const RefPtr<UniqueSSRCGenerator>& ssrcGenerator, const String& mediaStreamId, MediaStreamTrack& track)
+    : RealtimeOutgoingMediaSourceGStreamer(ssrcGenerator, mediaStreamId, track)
 {
+    static std::once_flag debugRegisteredFlag;
+    std::call_once(debugRegisteredFlag, [] {
+        GST_DEBUG_CATEGORY_INIT(webkit_webrtc_outgoing_audio_debug, "webkitwebrtcoutgoingaudio", 0, "WebKit WebRTC outgoing audio");
+    });
     static Atomic<uint64_t> sourceCounter = 0;
     gst_element_set_name(m_bin.get(), makeString("outgoing-audio-source-", sourceCounter.exchangeAdd(1)).ascii().data());
     m_audioconvert = makeGStreamerElement("audioconvert", nullptr);
     m_audioresample = makeGStreamerElement("audioresample", nullptr);
-    gst_bin_add_many(GST_BIN_CAST(m_bin.get()), m_audioconvert.get(), m_audioresample.get(), nullptr);
+    m_inputCapsFilter = gst_element_factory_make("capsfilter", nullptr);
+    gst_bin_add_many(GST_BIN_CAST(m_bin.get()), m_audioconvert.get(), m_audioresample.get(), m_inputCapsFilter.get(), nullptr);
 }
 
 RTCRtpCapabilities RealtimeOutgoingAudioSourceGStreamer::rtpCapabilities() const
@@ -65,6 +71,8 @@ bool RealtimeOutgoingAudioSourceGStreamer::setPayloadType(const GRefPtr<GstCaps>
         return false;
     }
 
+    m_inputCaps = adoptGRef(gst_caps_new_any());
+
     if (encoding == "opus"_s) {
         m_encoder = makeGStreamerElement("opusenc", nullptr);
         if (!m_encoder)
@@ -73,18 +81,20 @@ bool RealtimeOutgoingAudioSourceGStreamer::setPayloadType(const GRefPtr<GstCaps>
         // FIXME: Enable dtx too?
         gst_util_set_object_arg(G_OBJECT(m_encoder.get()), "audio-type", "voice");
 
-        if (const char* useInbandFec = gst_structure_get_string(structure, "useinbandfec")) {
-            if (!strcmp(useInbandFec, "1"))
-                g_object_set(m_encoder.get(), "inband-fec", true, nullptr);
-        }
+        const char* useInbandFec = gst_structure_get_string(structure, "useinbandfec");
+        if (!g_strcmp0(useInbandFec, "1"))
+            g_object_set(m_encoder.get(), "inband-fec", true, nullptr);
+
+        const char* isStereo = gst_structure_get_string(structure, "stereo");
+        if (!g_strcmp0(isStereo, "1"))
+            m_inputCaps = adoptGRef(gst_caps_new_simple("audio/x-raw", "channels", G_TYPE_INT, 2, nullptr));
+
     } else if (encoding == "g722"_s)
         m_encoder = makeGStreamerElement("avenc_g722", nullptr);
     else if (encoding == "pcma"_s)
         m_encoder = makeGStreamerElement("alawenc", nullptr);
     else if (encoding == "pcmu"_s)
         m_encoder = makeGStreamerElement("mulawenc", nullptr);
-    else if (encoding == "isac"_s)
-        m_encoder = makeGStreamerElement("isacenc", nullptr);
     else {
         GST_ERROR_OBJECT(m_bin.get(), "Unsupported outgoing audio encoding: %s", encodingName);
         return false;
@@ -109,25 +119,26 @@ bool RealtimeOutgoingAudioSourceGStreamer::setPayloadType(const GRefPtr<GstCaps>
     if (gst_structure_get_int(structure, "payload", &payloadType))
         g_object_set(m_payloader.get(), "pt", payloadType, nullptr);
 
+    g_object_set(m_inputCapsFilter.get(), "caps", m_inputCaps.get(), nullptr);
     g_object_set(m_capsFilter.get(), "caps", caps.get(), nullptr);
 
     gst_bin_add_many(GST_BIN_CAST(m_bin.get()), m_payloader.get(), m_encoder.get(), nullptr);
 
     auto preEncoderSinkPad = adoptGRef(gst_element_get_static_pad(m_preEncoderQueue.get(), "sink"));
-    if (!gst_pad_is_linked(preEncoderSinkPad.get()))
-        gst_element_link_many(m_outgoingSource.get(), m_valve.get(), m_audioconvert.get(), m_audioresample.get(), m_preEncoderQueue.get(), nullptr);
+    if (!gst_pad_is_linked(preEncoderSinkPad.get())) {
+        if (!gst_element_link_many(m_outgoingSource.get(), m_inputSelector.get(), m_audioconvert.get(), m_audioresample.get(), m_inputCapsFilter.get(), m_preEncoderQueue.get(), nullptr)) {
+            GST_ERROR_OBJECT(m_bin.get(), "Unable to link outgoing source to pre-encoder queue");
+            return false;
+        }
+    }
 
-    gst_element_link_many(m_preEncoderQueue.get(), m_encoder.get(), m_payloader.get(), m_postEncoderQueue.get(), nullptr);
-    gst_bin_sync_children_states(GST_BIN_CAST(m_bin.get()));
-    return true;
+    return gst_element_link_many(m_preEncoderQueue.get(), m_encoder.get(), m_payloader.get(), m_postEncoderQueue.get(), nullptr);
 }
 
 void RealtimeOutgoingAudioSourceGStreamer::codecPreferencesChanged(const GRefPtr<GstCaps>& codecPreferences)
 {
     gst_element_set_locked_state(m_bin.get(), TRUE);
     if (m_payloader) {
-        gst_element_set_locked_state(m_payloader.get(), TRUE);
-        gst_element_set_locked_state(m_encoder.get(), TRUE);
         gst_element_set_state(m_payloader.get(), GST_STATE_NULL);
         gst_element_set_state(m_encoder.get(), GST_STATE_NULL);
         gst_element_unlink_many(m_preEncoderQueue.get(), m_encoder.get(), m_payloader.get(), m_postEncoderQueue.get(), nullptr);
@@ -135,11 +146,67 @@ void RealtimeOutgoingAudioSourceGStreamer::codecPreferencesChanged(const GRefPtr
         m_payloader.clear();
         m_encoder.clear();
     }
-    setPayloadType(codecPreferences);
+    if (!setPayloadType(codecPreferences)) {
+        gst_element_set_locked_state(m_bin.get(), FALSE);
+        GST_ERROR_OBJECT(m_bin.get(), "Unable to link encoder to webrtcbin");
+        return;
+    }
+
     gst_element_set_locked_state(m_bin.get(), FALSE);
+    gst_bin_sync_children_states(GST_BIN_CAST(m_bin.get()));
     gst_element_sync_state_with_parent(m_bin.get());
     GST_DEBUG_BIN_TO_DOT_FILE_WITH_TS(GST_BIN_CAST(m_bin.get()), GST_DEBUG_GRAPH_SHOW_ALL, "outgoing-audio-new-codec-prefs");
+    m_isStopped = false;
 }
+
+void RealtimeOutgoingAudioSourceGStreamer::connectFallbackSource()
+{
+    if (!m_fallbackPad) {
+        m_fallbackSource = makeGStreamerElement("audiotestsrc", nullptr);
+        if (!m_fallbackSource) {
+            WTFLogAlways("Unable to connect fallback audiotestsrc element, expect broken behavior. Please install gst-plugins-base.");
+            return;
+        }
+
+        gst_util_set_object_arg(G_OBJECT(m_fallbackSource.get()), "wave", "silence");
+
+        gst_bin_add(GST_BIN_CAST(m_bin.get()), m_fallbackSource.get());
+
+        m_fallbackPad = adoptGRef(gst_element_request_pad_simple(m_inputSelector.get(), "sink_%u"));
+
+        auto srcPad = adoptGRef(gst_element_get_static_pad(m_fallbackSource.get(), "src"));
+        gst_pad_link(srcPad.get(), m_fallbackPad.get());
+        gst_element_sync_state_with_parent(m_fallbackSource.get());
+    }
+
+    g_object_set(m_inputSelector.get(), "active-pad", m_fallbackPad.get(), nullptr);
+}
+
+void RealtimeOutgoingAudioSourceGStreamer::unlinkOutgoingSource()
+{
+    auto srcPad = adoptGRef(gst_element_get_static_pad(m_outgoingSource.get(), "audio_src0"));
+    auto peerPad = adoptGRef(gst_pad_get_peer(srcPad.get()));
+    if (!peerPad)
+        return;
+
+    gst_pad_unlink(srcPad.get(), peerPad.get());
+    gst_element_release_request_pad(m_inputSelector.get(), peerPad.get());
+}
+
+void RealtimeOutgoingAudioSourceGStreamer::linkOutgoingSource()
+{
+    auto srcPad = adoptGRef(gst_element_get_static_pad(m_outgoingSource.get(), "audio_src0"));
+    auto sinkPad = adoptGRef(gst_element_request_pad_simple(m_inputSelector.get(), "sink_%u"));
+    gst_pad_link(srcPad.get(), sinkPad.get());
+    g_object_set(m_inputSelector.get(), "active-pad", sinkPad.get(), nullptr);
+}
+
+void RealtimeOutgoingAudioSourceGStreamer::setParameters(GUniquePtr<GstStructure>&& parameters)
+{
+    m_parameters = WTFMove(parameters);
+}
+
+#undef GST_CAT_DEFAULT
 
 } // namespace WebCore
 

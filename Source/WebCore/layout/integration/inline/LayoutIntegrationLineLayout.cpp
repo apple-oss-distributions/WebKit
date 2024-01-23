@@ -48,10 +48,12 @@
 #include "PaintInfo.h"
 #include "RenderAttachment.h"
 #include "RenderBlockFlow.h"
+#include "RenderBoxInlines.h"
 #include "RenderButton.h"
 #include "RenderChildIterator.h"
 #include "RenderDeprecatedFlexibleBox.h"
 #include "RenderDescendantIterator.h"
+#include "RenderElementInlines.h"
 #include "RenderFlexibleBox.h"
 #include "RenderGrid.h"
 #include "RenderImage.h"
@@ -62,20 +64,25 @@
 #include "RenderListBox.h"
 #include "RenderListItem.h"
 #include "RenderListMarker.h"
+#include "RenderRubyRun.h"
 #include "RenderSlider.h"
 #include "RenderTable.h"
 #include "RenderTextControlMultiLine.h"
 #include "RenderTheme.h"
 #include "RenderView.h"
 #include "Settings.h"
+#include "ShapeOutsideInfo.h"
 #include <wtf/Assertions.h>
+#include <wtf/Range.h>
 
 namespace WebCore {
 namespace LayoutIntegration {
 
+DEFINE_ALLOCATOR_WITH_HEAP_IDENTIFIER(LayoutIntegration_LineLayout);
+
 LineLayout::LineLayout(RenderBlockFlow& flow)
     : m_boxTree(flow)
-    , m_layoutState(flow.view().ensureLayoutState())
+    , m_layoutState(flow.view().layoutState())
     , m_blockFormattingState(layoutState().ensureBlockFormattingState(rootLayoutBox()))
     , m_inlineFormattingState(layoutState().ensureInlineFormattingState(rootLayoutBox()))
 {
@@ -94,7 +101,7 @@ static inline bool isContentRenderer(const RenderObject& renderer)
     return !renderer.isReplica() && !renderer.isRenderScrollbarPart();
 }
 
-RenderBlockFlow* LineLayout::blockContainer(RenderObject& renderer)
+RenderBlockFlow* LineLayout::blockContainer(const RenderObject& renderer)
 {
     if (!isContentRenderer(renderer))
         return nullptr;
@@ -115,8 +122,13 @@ LineLayout* LineLayout::containing(RenderObject& renderer)
         return nullptr;
 
     if (!renderer.isInline()) {
-        // IFC may contain block level boxes (floats and out-of-flow boxes).
 
+        if (renderer.isRenderSVGBlock()) {
+            // SVG content inside svg root shows up as block (see RenderSVGBlock). We only support inline root svg as "atomic content".
+            return nullptr;
+        }
+
+        // IFC may contain block level boxes (floats and out-of-flow boxes).
         auto adjustedContainingBlock = [&] {
             RenderElement* containingBlock = nullptr;
             if (renderer.isOutOfFlowPositioned()) {
@@ -157,6 +169,12 @@ bool LineLayout::canUseFor(const RenderBlockFlow& flow)
     return canUseForLineLayout(flow);
 }
 
+bool LineLayout::canUseForPreferredWidthComputation(const RenderBlockFlow& flow)
+{
+    ASSERT(isEnabled());
+    return LayoutIntegration::canUseForPreferredWidthComputation(flow);
+}
+
 bool LineLayout::canUseForAfterStyleChange(const RenderBlockFlow& flow, StyleDifference diff)
 {
     ASSERT(isEnabled());
@@ -167,6 +185,18 @@ bool LineLayout::canUseForAfterInlineBoxStyleChange(const RenderInline& inlineBo
 {
     ASSERT(isEnabled());
     return canUseForLineLayoutAfterInlineBoxStyleChange(inlineBox, diff);
+}
+
+bool LineLayout::shouldInvalidateLineLayoutPathAfterContentChange(const RenderBlockFlow& parent, const RenderObject& rendererWithNewContent, const LineLayout& lineLayout)
+{
+    ASSERT(isEnabled());
+    return shouldInvalidateLineLayoutPathAfterChangeFor(parent, rendererWithNewContent, lineLayout, TypeOfChangeForInvalidation::NodeMutation);
+}
+
+bool LineLayout::shouldInvalidateLineLayoutPathAfterTreeMutation(const RenderBlockFlow& parent, const RenderObject& renderer, const LineLayout& lineLayout, bool isRemoval)
+{
+    ASSERT(isEnabled());
+    return shouldInvalidateLineLayoutPathAfterChangeFor(parent, renderer, lineLayout, isRemoval ? TypeOfChangeForInvalidation::NodeRemoval : TypeOfChangeForInvalidation::NodeInsertion);
 }
 
 bool LineLayout::shouldSwitchToLegacyOnInvalidation() const
@@ -218,11 +248,19 @@ void LineLayout::updateListMarkerDimensions(const RenderListMarker& listMarker)
     if (layoutBox.isListMarkerOutside()) {
         auto* ancestor = listMarker.containingBlock();
         auto offsetFromParentListItem = [&] {
+            auto hasAccountedForBorderAndPadding = false;
             auto offset = LayoutUnit { };
             for (; ancestor; ancestor = ancestor->containingBlock()) {
-                offset -= (ancestor->borderStart() + ancestor->paddingStart());
+                if (!hasAccountedForBorderAndPadding)
+                    offset -= (ancestor->borderStart() + ancestor->paddingStart());
                 if (is<RenderListItem>(*ancestor))
                     break;
+                if (ancestor->isFlexItem()) {
+                    offset -= ancestor->logicalLeft();
+                    hasAccountedForBorderAndPadding = true;
+                    continue;
+                }
+                hasAccountedForBorderAndPadding = false;
             }
             return offset;
         }();
@@ -246,7 +284,7 @@ void LineLayout::updateListMarkerDimensions(const RenderListMarker& listMarker)
             // the large negative margin (i.e. this ensures that logical left of the list content stays at the line start)
             listMarkerGeometry.setHorizontalMargin({ listMarkerGeometry.marginStart() + offsetFromParentListItem, listMarkerGeometry.marginEnd() - offsetFromParentListItem });
             if (auto nestedOffset = offsetFromAssociatedListItem - offsetFromParentListItem)
-                m_inlineFormattingState.addNestedListMarkerOffset(layoutBox, nestedOffset);
+                m_nestedListMarkerOffsets.set(&layoutBox, nestedOffset);
         }
     }
 }
@@ -278,13 +316,14 @@ static inline Layout::BoxGeometry::HorizontalMargin horizontalLogicalMargin(cons
     return { retainMarginStart ? marginBottom : 0_lu, retainMarginEnd ? marginTop : 0_lu };
 }
 
-static inline Layout::BoxGeometry::VerticalMargin verticalLogicalMargin(const RenderBoxModelObject& renderer, WritingMode writingMode)
+static inline Layout::BoxGeometry::VerticalMargin verticalLogicalMargin(const RenderBoxModelObject& renderer, BlockFlowDirection blockFlowDirection)
 {
-    switch (writingMode) {
-    case WritingMode::TopToBottom:
+    switch (blockFlowDirection) {
+    case BlockFlowDirection::TopToBottom:
+    case BlockFlowDirection::BottomToTop:
         return { renderer.marginTop(), renderer.marginBottom() };
-    case WritingMode::LeftToRight:
-    case WritingMode::RightToLeft:
+    case BlockFlowDirection::LeftToRight:
+    case BlockFlowDirection::RightToLeft:
         return { renderer.marginRight(), renderer.marginLeft() };
     default:
         ASSERT_NOT_REACHED();
@@ -292,14 +331,15 @@ static inline Layout::BoxGeometry::VerticalMargin verticalLogicalMargin(const Re
     }
 }
 
-static inline Layout::Edges logicalBorder(const RenderBoxModelObject& renderer, bool isLeftToRightInlineDirection, WritingMode writingMode, bool retainBorderStart = true, bool retainBorderEnd = true)
+enum class IsPartOfFormattingContext : bool { No, Yes };
+static inline Layout::Edges logicalBorder(const RenderBoxModelObject& renderer, bool isLeftToRightInlineDirection, BlockFlowDirection blockFlowDirection, IsPartOfFormattingContext isPartOfFormattingContext = IsPartOfFormattingContext::No, bool retainBorderStart = true, bool retainBorderEnd = true)
 {
     auto borderLeft = renderer.borderLeft();
     auto borderRight = renderer.borderRight();
     auto borderTop = renderer.borderTop();
     auto borderBottom = renderer.borderBottom();
 
-    if (writingMode == WritingMode::TopToBottom) {
+    if (blockFlowDirection == BlockFlowDirection::TopToBottom || blockFlowDirection == BlockFlowDirection::BottomToTop) {
         if (isLeftToRightInlineDirection)
             return { { retainBorderStart ? borderLeft : 0_lu, retainBorderEnd ? borderRight : 0_lu }, { borderTop, borderBottom } };
         return { { retainBorderStart ? borderRight : 0_lu, retainBorderEnd ? borderLeft : 0_lu }, { borderTop, borderBottom } };
@@ -307,19 +347,20 @@ static inline Layout::Edges logicalBorder(const RenderBoxModelObject& renderer, 
 
     auto borderLogicalLeft = retainBorderStart ? isLeftToRightInlineDirection ? borderTop : borderBottom : 0_lu;
     auto borderLogicalRight = retainBorderEnd ? isLeftToRightInlineDirection ? borderBottom : borderTop : 0_lu;
-    auto borderLogicalTop = writingMode == WritingMode::LeftToRight ? borderLeft : borderRight;
-    auto borderLogicalBottom = writingMode == WritingMode::LeftToRight ? borderRight : borderLeft;
+    // For boxes inside the formatting context, right border (padding) always points up, while when converting the formatting context root's border (padding) the directionality matters.
+    auto borderLogicalTop = isPartOfFormattingContext == IsPartOfFormattingContext::Yes ? borderRight : blockFlowDirection == BlockFlowDirection::LeftToRight ? borderLeft : borderRight;
+    auto borderLogicalBottom = isPartOfFormattingContext == IsPartOfFormattingContext::Yes ? borderLeft : blockFlowDirection == BlockFlowDirection::LeftToRight ? borderRight : borderLeft;
     return { { borderLogicalLeft, borderLogicalRight }, { borderLogicalTop, borderLogicalBottom } };
 }
 
-static inline Layout::Edges logicalPadding(const RenderBoxModelObject& renderer, bool isLeftToRightInlineDirection, WritingMode writingMode, bool retainPaddingStart = true, bool retainPaddingEnd = true)
+static inline Layout::Edges logicalPadding(const RenderBoxModelObject& renderer, bool isLeftToRightInlineDirection, BlockFlowDirection blockFlowDirection, IsPartOfFormattingContext isPartOfFormattingContext = IsPartOfFormattingContext::No, bool retainPaddingStart = true, bool retainPaddingEnd = true)
 {
     auto paddingLeft = renderer.paddingLeft();
     auto paddingRight = renderer.paddingRight();
     auto paddingTop = renderer.paddingTop();
     auto paddingBottom = renderer.paddingBottom();
 
-    if (writingMode == WritingMode::TopToBottom) {
+    if (blockFlowDirection == BlockFlowDirection::TopToBottom || blockFlowDirection == BlockFlowDirection::BottomToTop) {
         if (isLeftToRightInlineDirection)
             return { { retainPaddingStart ? paddingLeft : 0_lu, retainPaddingEnd ? paddingRight : 0_lu }, { paddingTop, paddingBottom } };
         return { { retainPaddingStart ? paddingRight : 0_lu, retainPaddingEnd ? paddingLeft : 0_lu }, { paddingTop, paddingBottom } };
@@ -327,15 +368,16 @@ static inline Layout::Edges logicalPadding(const RenderBoxModelObject& renderer,
 
     auto paddingLogicalLeft = retainPaddingStart ? isLeftToRightInlineDirection ? paddingTop : paddingBottom : 0_lu;
     auto paddingLogicalRight = retainPaddingEnd ? isLeftToRightInlineDirection ? paddingBottom : paddingTop : 0_lu;
-    auto paddingLogicalTop = writingMode == WritingMode::LeftToRight ? paddingLeft : paddingRight;
-    auto paddingLogicalBottom = writingMode == WritingMode::LeftToRight ? paddingRight : paddingLeft;
+    // For boxes inside the formatting context, right padding (border) always points up, while when converting the formatting context root's padding (border) the directionality matters.
+    auto paddingLogicalTop = isPartOfFormattingContext == IsPartOfFormattingContext::Yes ? paddingRight : blockFlowDirection == BlockFlowDirection::LeftToRight ? paddingLeft : paddingRight;
+    auto paddingLogicalBottom = isPartOfFormattingContext == IsPartOfFormattingContext::Yes ? paddingLeft : blockFlowDirection == BlockFlowDirection::LeftToRight ? paddingRight : paddingLeft;
     return { { paddingLogicalLeft, paddingLogicalRight }, { paddingLogicalTop, paddingLogicalBottom } };
 }
 
 static inline LayoutSize scrollbarLogicalSize(const RenderBox& renderer)
 {
     // Scrollbars eat into the padding box area. They never stretch the border box but they may shrink the padding box.
-    // In legacy render tree, RenderBox::contentWidth/contentHeight values are adjusted to accomodate the scrollbar width/height.
+    // In legacy render tree, RenderBox::contentWidth/contentHeight values are adjusted to accommodate the scrollbar width/height.
     // e.g. <div style="width: 10px; overflow: scroll;">content</div>, RenderBox::contentWidth() won't be returning the value of 10px but instead 0px (10px - 15px).
     auto horizontalSpaceReservedForScrollbar = std::max(0_lu, renderer.paddingBoxRectIncludingScrollbar().width() - renderer.paddingBoxWidth());
     auto verticalSpaceReservedForScrollbar = std::max(0_lu, renderer.paddingBoxRectIncludingScrollbar().height() - renderer.paddingBoxHeight());
@@ -355,17 +397,18 @@ void LineLayout::updateLayoutBoxDimensions(const RenderBox& replacedOrInlineBloc
     replacedBoxGeometry.setContentBoxHeight(contentLogicalHeightForRenderer(replacedOrInlineBlock));
 
     auto isLeftToRightInlineDirection = replacedOrInlineBlock.parent()->style().isLeftToRightDirection();
-    auto writingMode = replacedOrInlineBlock.parent()->style().writingMode();
+    auto blockFlowDirection = writingModeToBlockFlowDirection(replacedOrInlineBlock.parent()->style().writingMode());
 
-    replacedBoxGeometry.setVerticalMargin(verticalLogicalMargin(replacedOrInlineBlock, writingMode));
-    replacedBoxGeometry.setHorizontalMargin(horizontalLogicalMargin(replacedOrInlineBlock, isLeftToRightInlineDirection, writingMode == WritingMode::TopToBottom));
-    replacedBoxGeometry.setBorder(logicalBorder(replacedOrInlineBlock, isLeftToRightInlineDirection, writingMode));
-    replacedBoxGeometry.setPadding(logicalPadding(replacedOrInlineBlock, isLeftToRightInlineDirection, writingMode));
+    replacedBoxGeometry.setVerticalMargin(verticalLogicalMargin(replacedOrInlineBlock, blockFlowDirection));
+    replacedBoxGeometry.setHorizontalMargin(horizontalLogicalMargin(replacedOrInlineBlock, isLeftToRightInlineDirection, blockFlowDirection == BlockFlowDirection::TopToBottom || blockFlowDirection == BlockFlowDirection::BottomToTop));
+    replacedBoxGeometry.setBorder(logicalBorder(replacedOrInlineBlock, isLeftToRightInlineDirection, blockFlowDirection));
+    replacedBoxGeometry.setPadding(logicalPadding(replacedOrInlineBlock, isLeftToRightInlineDirection, blockFlowDirection));
 
     auto hasNonSyntheticBaseline = [&] {
         if (is<RenderListMarker>(replacedOrInlineBlock))
             return !downcast<RenderListMarker>(replacedOrInlineBlock).isImage();
-        if (is<RenderReplaced>(replacedOrInlineBlock)
+
+        if ((is<RenderReplaced>(replacedOrInlineBlock) && replacedOrInlineBlock.style().display() == DisplayType::Inline)
             || is<RenderListBox>(replacedOrInlineBlock)
             || is<RenderSlider>(replacedOrInlineBlock)
             || is<RenderTextControlMultiLine>(replacedOrInlineBlock)
@@ -376,21 +419,33 @@ void LineLayout::updateLayoutBoxDimensions(const RenderBox& replacedOrInlineBloc
 #if ENABLE(ATTACHMENT_ELEMENT)
             || is<RenderAttachment>(replacedOrInlineBlock)
 #endif
-            || is<RenderButton>(replacedOrInlineBlock)) {
+            || is<RenderButton>(replacedOrInlineBlock)
+            || is<RenderRubyRun>(replacedOrInlineBlock)) {
             // These are special RenderBlock renderers that override the default baseline position behavior of the inline block box.
             return true;
         }
+        if (!is<RenderBlockFlow>(replacedOrInlineBlock))
+            return false;
         auto& blockFlow = downcast<RenderBlockFlow>(replacedOrInlineBlock);
         auto hasAppareance = blockFlow.style().hasEffectiveAppearance() && !blockFlow.theme().isControlContainer(blockFlow.style().effectiveAppearance());
         return hasAppareance || !blockFlow.childrenInline() || blockFlow.hasLines() || blockFlow.hasLineIfEmpty();
     }();
     if (hasNonSyntheticBaseline) {
-        auto baseline = replacedOrInlineBlock.baselinePosition(AlphabeticBaseline, false /* firstLine */, writingMode == WritingMode::TopToBottom ? HorizontalLine : VerticalLine, PositionOnContainingLine);
-        if (is<RenderListMarker>(replacedOrInlineBlock)) {
-            ASSERT(!downcast<RenderListMarker>(replacedOrInlineBlock).isImage());
-            baseline = replacedOrInlineBlock.style().metricsOfPrimaryFont().ascent();
-        }
+        auto baseline = replacedOrInlineBlock.baselinePosition(AlphabeticBaseline, false /* firstLine */, blockFlowDirection == BlockFlowDirection::TopToBottom || blockFlowDirection == BlockFlowDirection::BottomToTop ? HorizontalLine : VerticalLine, PositionOnContainingLine);
         layoutBox.setBaselineForIntegration(roundToInt(baseline));
+    }
+
+    if (auto* shapeOutsideInfo = replacedOrInlineBlock.shapeOutsideInfo())
+        layoutBox.setShape(&shapeOutsideInfo->computedShape());
+
+    if (auto* rubyRun = dynamicDowncast<RenderRubyRun>(replacedOrInlineBlock)) {
+        auto adjustments = makeUnique<Layout::RubyAdjustments>();
+
+        std::tie(adjustments->annotationAbove, adjustments->annotationBelow) = rubyRun->annotationsAboveAndBelow();
+        std::tie(adjustments->overhang.start, adjustments->overhang.end) = rubyRun->startAndEndOverhang(false);
+        std::tie(adjustments->firstLineOverhang.start, adjustments->firstLineOverhang.end) = rubyRun->startAndEndOverhang(true);
+
+        layoutBox.setRubyAdjustments(WTFMove(adjustments));
     }
 }
 
@@ -404,6 +459,8 @@ void LineLayout::updateLineBreakBoxDimensions(const RenderLineBreak& lineBreakBo
     boxGeometry.setPadding({ });
     boxGeometry.setContentBoxWidth({ });
     boxGeometry.setVerticalMargin({ });
+    if (lineBreakBox.style().hasOutOfFlowPosition())
+        boxGeometry.setContentBoxHeight({ });
 }
 
 void LineLayout::updateInlineBoxDimensions(const RenderInline& renderInline)
@@ -416,12 +473,12 @@ void LineLayout::updateInlineBoxDimensions(const RenderInline& renderInline)
 
     boxGeometry.setVerticalMargin({ });
     auto isLeftToRightInlineDirection = renderInline.style().isLeftToRightDirection();
-    auto writingMode = renderInline.style().writingMode();
+    auto blockFlowDirection = writingModeToBlockFlowDirection(renderInline.style().writingMode());
 
-    boxGeometry.setHorizontalMargin(horizontalLogicalMargin(renderInline, isLeftToRightInlineDirection, writingMode == WritingMode::TopToBottom, !shouldNotRetainBorderPaddingAndMarginStart, !shouldNotRetainBorderPaddingAndMarginEnd));
-    boxGeometry.setVerticalMargin(verticalLogicalMargin(renderInline, writingMode));
-    boxGeometry.setBorder(logicalBorder(renderInline, isLeftToRightInlineDirection, writingMode, !shouldNotRetainBorderPaddingAndMarginStart, !shouldNotRetainBorderPaddingAndMarginEnd));
-    boxGeometry.setPadding(logicalPadding(renderInline, isLeftToRightInlineDirection, writingMode, !shouldNotRetainBorderPaddingAndMarginStart, !shouldNotRetainBorderPaddingAndMarginEnd));
+    boxGeometry.setHorizontalMargin(horizontalLogicalMargin(renderInline, isLeftToRightInlineDirection, blockFlowDirection == BlockFlowDirection::TopToBottom || blockFlowDirection == BlockFlowDirection::BottomToTop, !shouldNotRetainBorderPaddingAndMarginStart, !shouldNotRetainBorderPaddingAndMarginEnd));
+    boxGeometry.setVerticalMargin(verticalLogicalMargin(renderInline, blockFlowDirection));
+    boxGeometry.setBorder(logicalBorder(renderInline, isLeftToRightInlineDirection, blockFlowDirection, IsPartOfFormattingContext::Yes, !shouldNotRetainBorderPaddingAndMarginStart, !shouldNotRetainBorderPaddingAndMarginEnd));
+    boxGeometry.setPadding(logicalPadding(renderInline, isLeftToRightInlineDirection, blockFlowDirection, IsPartOfFormattingContext::Yes, !shouldNotRetainBorderPaddingAndMarginStart, !shouldNotRetainBorderPaddingAndMarginEnd));
 }
 
 void LineLayout::updateInlineContentDimensions()
@@ -462,124 +519,154 @@ void LineLayout::updateInlineContentDimensions()
 
 void LineLayout::updateStyle(const RenderBoxModelObject& renderer, const RenderStyle& oldStyle)
 {
-    auto invalidation = Layout::InlineInvalidation { ensureLineDamage() };
-    invalidation.styleChanged(m_boxTree.layoutBoxForRenderer(renderer), oldStyle);
-
+    if (m_inlineContent) {
+        auto invalidation = Layout::InlineInvalidation { ensureLineDamage(), m_inlineFormattingState.inlineItems(), m_inlineContent->displayContent() };
+        invalidation.styleChanged(m_boxTree.layoutBoxForRenderer(renderer), oldStyle);
+    }
     m_boxTree.updateStyle(renderer);
 }
 
 void LineLayout::updateOverflow()
 {
-    auto inlineContentBuilder = InlineContentBuilder { flow(), m_boxTree };
-    inlineContentBuilder.updateLineOverflow(m_inlineFormattingState, *m_inlineContent);
+    InlineContentBuilder { flow(), m_boxTree }.updateLineOverflow(*m_inlineContent);
 }
 
 std::pair<LayoutUnit, LayoutUnit> LineLayout::computeIntrinsicWidthConstraints()
 {
-    auto inlineFormattingContext = Layout::InlineFormattingContext { rootLayoutBox(), m_inlineFormattingState, nullptr };
-    auto constraints = inlineFormattingContext.computedIntrinsicWidthConstraintsForIntegration();
-
+    auto constraints = Layout::InlineFormattingContext { rootLayoutBox(), m_inlineFormattingState }.computedIntrinsicSizes(m_lineDamage.get());
     return { constraints.minimum, constraints.maximum };
 }
 
 static inline std::optional<Layout::BlockLayoutState::LineClamp> lineClamp(const RenderBlockFlow& rootRenderer)
 {
     auto& layoutState = *rootRenderer.view().frameView().layoutContext().layoutState();
-    if (layoutState.hasLineClamp()) {
-        // FIXME: This is a rather odd behavior when we let line-clamp place ellipsis on a line and still
-        // continue with constructing subsequent, visible lines on the block (other browsers match this exoctic behavior).
-        auto isLineClampRootOverflowHidden = true;
-        for (const RenderBlock* ancestor = &rootRenderer; ancestor; ancestor = ancestor->containingBlock()) {
-            if (!ancestor->style().lineClamp().isNone()) {
-                isLineClampRootOverflowHidden = ancestor->style().overflowY() == Overflow::Hidden;
-                break;
-            }
-        }
-        return Layout::BlockLayoutState::LineClamp { *layoutState.maximumLineCountForLineClamp(), layoutState.visibleLineCountForLineClamp().value_or(0), isLineClampRootOverflowHidden };
-    }
+    if (auto lineClamp = layoutState.lineClamp())
+        return Layout::BlockLayoutState::LineClamp { lineClamp->maximumLineCount, lineClamp->currentLineCount };
     return { };
 }
 
-static inline Layout::BlockLayoutState::LeadingTrim leadingTrim(const RenderBlockFlow& rootRenderer)
+static inline Layout::BlockLayoutState::TextBoxTrim textBoxTrim(const RenderBlockFlow& rootRenderer)
 {
     auto* layoutState = rootRenderer.view().frameView().layoutContext().layoutState();
     if (!layoutState)
         return { };
-    auto leadingTrimForIFC = Layout::BlockLayoutState::LeadingTrim { };
-    if (layoutState->hasLeadingTrimStart())
-        leadingTrimForIFC.add(Layout::BlockLayoutState::LeadingTrimSide::Start);
-    if (layoutState->hasLeadingTrimEnd(rootRenderer))
-        leadingTrimForIFC.add(Layout::BlockLayoutState::LeadingTrimSide::End);
-    return leadingTrimForIFC;
+    auto textBoxTrimForIFC = Layout::BlockLayoutState::TextBoxTrim { };
+    if (layoutState->hasTextBoxTrimStart())
+        textBoxTrimForIFC.add(Layout::BlockLayoutState::TextBoxTrimSide::Start);
+    if (layoutState->hasTextBoxTrimEnd(rootRenderer))
+        textBoxTrimForIFC.add(Layout::BlockLayoutState::TextBoxTrimSide::End);
+    return textBoxTrimForIFC;
 }
 
-void LineLayout::layout()
+std::optional<LayoutRect> LineLayout::layout()
 {
-    auto& rootLayoutBox = this->rootLayoutBox();
-    if (!rootLayoutBox.hasInFlowOrFloatingChild())
-        return;
-
     prepareLayoutState();
     prepareFloatingState();
 
-    // FIXME: Do not clear the lines and boxes here unconditionally, but consult with the damage object instead.
-    clearInlineContent();
+    // FIXME: Partial layout should not rely on inline display content, but instead InlineFormattingState
+    // should retain all the pieces of data required -and then we can destroy damaged content here instead of after
+    // layout in constructContent.
+    auto isPartialLayout = isDamaged() && m_lineDamage->start();
+    if (!isPartialLayout) {
+        m_lineDamage = { };
+        clearInlineContent();
+    }
     ASSERT(m_inlineContentConstraints);
     auto intrusiveInitialLetterBottom = [&]() -> std::optional<LayoutUnit> {
         if (auto lowestInitialLetterLogicalBottom = flow().lowestInitialLetterLogicalBottom())
             return { *lowestInitialLetterLogicalBottom - m_inlineContentConstraints->logicalTop() };
         return { };
     };
-    auto blockLayoutState = Layout::BlockLayoutState { m_blockFormattingState.floatingState(), lineClamp(flow()), leadingTrim(flow()), intrusiveInitialLetterBottom() };
-    Layout::InlineFormattingContext { rootLayoutBox, m_inlineFormattingState, m_lineDamage.get() }.layoutInFlowContentForIntegration(*m_inlineContentConstraints, blockLayoutState);
+    auto inlineContentConstraints = [&]() -> Layout::ConstraintsForInlineContent {
+        if (!isPartialLayout || !m_inlineContent)
+            return *m_inlineContentConstraints;
+        auto damagedLineIndex = m_lineDamage->start()->lineIndex;
+        if (!damagedLineIndex)
+            return *m_inlineContentConstraints;
+        if (damagedLineIndex >= m_inlineContent->displayContent().lines.size()) {
+            ASSERT_NOT_REACHED();
+            return *m_inlineContentConstraints;
+        }
+        auto partialContentTop = LayoutUnit { m_inlineContent->displayContent().lines[damagedLineIndex - 1].lineBoxLogicalRect().maxY() };
+        auto constraintsForInFlowContent = Layout::ConstraintsForInFlowContent { m_inlineContentConstraints->horizontal(), partialContentTop };
+        return { constraintsForInFlowContent, m_inlineContentConstraints->visualLeft() };
+    }();
+    auto parentBlockLayoutState = Layout::BlockLayoutState { m_blockFormattingState.floatingState(), lineClamp(flow()), textBoxTrim(flow()), intrusiveInitialLetterBottom() };
+    auto inlineLayoutState = Layout::InlineLayoutState { parentBlockLayoutState, WTFMove(m_nestedListMarkerOffsets) };
+    auto inlineFormattingContext = Layout::InlineFormattingContext { rootLayoutBox(), m_inlineFormattingState };
+    auto layoutResult = inlineFormattingContext.layoutInFlowAndFloatContent(inlineContentConstraints, inlineLayoutState, m_lineDamage.get());
+    inlineFormattingContext.layoutOutOfFlowContent(inlineContentConstraints, inlineLayoutState, layoutResult.displayContent);
 
-    constructContent();
+    auto repaintRect = LayoutRect { constructContent(inlineLayoutState, WTFMove(layoutResult)) };
+
+    auto adjustments = adjustContent();
+
+    updateRenderTreePositions(adjustments);
 
     m_lineDamage = { };
+
+    return isPartialLayout ? std::make_optional(repaintRect) : std::nullopt;
 }
 
-void LineLayout::constructContent()
+FloatRect LineLayout::constructContent(const Layout::InlineLayoutState& inlineLayoutState, Layout::InlineLayoutResult&& layoutResult)
 {
-    if (!m_inlineFormattingState.lines().isEmpty()) {
-        InlineContentBuilder { flow(), m_boxTree }.build(m_inlineFormattingState, ensureInlineContent());
-        ASSERT(m_inlineContent);
-        m_inlineContent->clearGapBeforeFirstLine = m_inlineFormattingState.clearGapBeforeFirstLine();
-        m_inlineContent->clearGapAfterLastLine = m_inlineFormattingState.clearGapAfterLastLine();
-        m_inlineContent->shrinkToFit();
-    }
+    auto damagedRect = InlineContentBuilder { flow(), m_boxTree }.build(WTFMove(layoutResult), ensureInlineContent(), m_lineDamage.get());
+
+    m_inlineContent->clearGapBeforeFirstLine = inlineLayoutState.clearGapBeforeFirstLine();
+    m_inlineContent->clearGapAfterLastLine = inlineLayoutState.clearGapAfterLastLine();
+    m_inlineContent->shrinkToFit();
+
+    m_inlineFormattingState.shrinkToFit();
+    m_blockFormattingState.shrinkToFit();
+
+    // FIXME: These needs to be incorporated into the partial damage.
+    auto additionalHeight = m_inlineContent->firstLinePaginationOffset + m_inlineContent->clearGapBeforeFirstLine + m_inlineContent->clearGapAfterLastLine;
+    damagedRect.expand({ 0, additionalHeight });
+    return damagedRect;
+}
+
+void LineLayout::updateRenderTreePositions(const Vector<LineAdjustment>& lineAdjustments)
+{
+    if (!m_inlineContent)
+        return;
 
     auto& blockFlow = flow();
     auto& rootStyle = blockFlow.style();
     auto isLeftToRightFloatingStateInlineDirection = m_blockFormattingState.floatingState().isLeftToRightDirection();
     auto isHorizontalWritingMode = rootStyle.isHorizontalWritingMode();
     auto isFlippedBlocksWritingMode = rootStyle.isFlippedBlocksWritingMode();
-    for (auto& renderObject : m_boxTree.renderers()) {
-        auto& layoutBox = *renderObject->layoutBox();
-        
-        bool needsRenderTreePositioning = layoutBox.isAtomicInlineLevelBox() || layoutBox.isFloatingPositioned() || layoutBox.isOutOfFlowPositioned();
-        if (!needsRenderTreePositioning)
+    for (auto& box : m_inlineContent->displayContent().boxes) {
+        if (box.isInlineBox() || box.isText())
             continue;
 
-        auto& renderer = downcast<RenderBox>(*renderObject);
+        auto& layoutBox = box.layoutBox();
+
+        if (!layoutBox.isAtomicInlineLevelBox())
+            continue;
+
+        auto& renderer = downcast<RenderBox>(m_boxTree.rendererForLayoutBox(layoutBox));
+        if (auto* layer = renderer.layer())
+            layer->setIsHiddenByOverflowTruncation(box.isFullyTruncated());
+
         auto& logicalGeometry = m_inlineFormattingState.boxGeometry(layoutBox);
 
-        if (layoutBox.isOutOfFlowPositioned()) {
-            ASSERT(renderer.layer());
-            auto& layer = *renderer.layer();
-            auto logicalBorderBoxRect = LayoutRect { Layout::BoxGeometry::borderBoxRect(logicalGeometry) };
+        auto logicalOffset = lineAdjustments.isEmpty() ? LayoutSize { } : LayoutSize { 0_lu, lineAdjustments[box.lineIndex()].offset };
 
-            if (layoutBox.style().isOriginalDisplayInlineType())
-                blockFlow.setStaticInlinePositionForChild(renderer, logicalBorderBoxRect.y(), logicalBorderBoxRect.x());
+        renderer.setLocation(Layout::BoxGeometry::borderBoxRect(logicalGeometry).topLeft() + logicalOffset);
+    }
 
-            layer.setStaticBlockPosition(logicalBorderBoxRect.y());
-            layer.setStaticInlinePosition(logicalBorderBoxRect.x());
-
-            if (layoutBox.style().hasStaticInlinePosition(renderer.isHorizontalWritingMode()))
-                renderer.setChildNeedsLayout(MarkOnlyThis);
+    // FIXME: Loop through the floating state?
+    for (auto& renderObject : m_boxTree.renderers()) {
+        auto& layoutBox = *renderObject->layoutBox();
+        if (!layoutBox.isFloatingPositioned() && !layoutBox.isOutOfFlowPositioned())
             continue;
-        }
+        if (layoutBox.isLineBreakBox())
+            continue;
+        auto& renderer = downcast<RenderBox>(m_boxTree.rendererForLayoutBox(layoutBox));
+        auto& logicalGeometry = m_inlineFormattingState.boxGeometry(layoutBox);
 
         if (layoutBox.isFloatingPositioned()) {
+            // FIXME: Adjust floats for pagination.
             auto& floatingObject = flow().insertFloatingObjectForIFC(renderer);
 
             ASSERT(m_inlineContentConstraints);
@@ -593,15 +680,40 @@ void LineLayout::constructContent()
             floatingObject.setMarginOffset({ marginLeft, marginTop });
             floatingObject.setIsPlaced(true);
 
+            auto oldRect = renderer.frameRect();
             renderer.setLocation(Layout::BoxGeometry::borderBoxRect(visualGeometry).topLeft());
+            if (renderer.checkForRepaintDuringLayout()) {
+                auto hasMoved = oldRect.location() != renderer.location();
+                if (hasMoved)
+                    renderer.repaintDuringLayoutIfMoved(oldRect);
+                else
+                    renderer.repaint();
+            }
             continue;
         }
-        renderer.setLocation(Layout::BoxGeometry::borderBoxRect(logicalGeometry).topLeft());
-    }
 
-    m_inlineFormattingState.resetNestedListMarkerOffsets();
-    m_inlineFormattingState.shrinkToFit();
-    m_blockFormattingState.shrinkToFit();
+        if (layoutBox.isOutOfFlowPositioned()) {
+            ASSERT(renderer.layer());
+            auto& layer = *renderer.layer();
+            auto logicalBorderBoxRect = LayoutRect { Layout::BoxGeometry::borderBoxRect(logicalGeometry) };
+            auto previousStaticPosition = LayoutPoint { layer.staticInlinePosition(), layer.staticBlockPosition() };
+            auto delta = logicalBorderBoxRect.location() - previousStaticPosition;
+            auto hasStaticInlinePositioning = layoutBox.style().hasStaticInlinePosition(renderer.isHorizontalWritingMode());
+
+            if (layoutBox.style().isOriginalDisplayInlineType()) {
+                blockFlow.setStaticInlinePositionForChild(renderer, logicalBorderBoxRect.y(), logicalBorderBoxRect.x());
+                if (hasStaticInlinePositioning)
+                    renderer.move(delta.width(), delta.height());
+            }
+
+            layer.setStaticBlockPosition(logicalBorderBoxRect.y());
+            layer.setStaticInlinePosition(logicalBorderBoxRect.x());
+
+            if (!delta.isZero() && hasStaticInlinePositioning)
+                renderer.setChildNeedsLayout(MarkOnlyThis);
+            continue;
+        }
+    }
 }
 
 void LineLayout::updateInlineContentConstraints()
@@ -609,17 +721,19 @@ void LineLayout::updateInlineContentConstraints()
     auto& flow = this->flow();
     auto isLeftToRightInlineDirection = flow.style().isLeftToRightDirection();
     auto writingMode = flow.style().writingMode();
-
-    auto padding = logicalPadding(flow, isLeftToRightInlineDirection, writingMode);
-    auto border = logicalBorder(flow, isLeftToRightInlineDirection, writingMode);
+    auto blockFlowDirection = writingModeToBlockFlowDirection(writingMode);
+    auto padding = logicalPadding(flow, isLeftToRightInlineDirection, blockFlowDirection, IsPartOfFormattingContext::No);
+    auto border = logicalBorder(flow, isLeftToRightInlineDirection, blockFlowDirection, IsPartOfFormattingContext::No);
     auto scrollbarSize = scrollbarLogicalSize(flow);
+    auto shouldPlaceVerticalScrollbarOnLeft = flow.shouldPlaceVerticalScrollbarOnLeft();
 
     auto contentBoxWidth = WebCore::isHorizontalWritingMode(writingMode) ? flow.contentWidth() : flow.contentHeight();
-    auto contentBoxLeft = border.horizontal.left + padding.horizontal.left;
+    auto contentBoxLeft = border.horizontal.left + padding.horizontal.left + (isLeftToRightInlineDirection && shouldPlaceVerticalScrollbarOnLeft ? scrollbarSize.width() : 0_lu);
     auto contentBoxTop = border.vertical.top + padding.vertical.top;
 
     auto horizontalConstraints = Layout::HorizontalConstraints { contentBoxLeft, contentBoxWidth };
-    auto visualLeft = rootLayoutBox().style().isLeftToRightDirection() ? contentBoxLeft : border.horizontal.right + scrollbarSize.width() + padding.horizontal.right;
+    auto visualLeft = !isLeftToRightInlineDirection || shouldPlaceVerticalScrollbarOnLeft ? border.horizontal.right + scrollbarSize.width() + padding.horizontal.right : contentBoxLeft;
+
     m_inlineContentConstraints = { { horizontalConstraints, contentBoxTop }, visualLeft };
 
     auto createRootGeometryIfNeeded = [&] {
@@ -698,45 +812,47 @@ void LineLayout::prepareFloatingState()
         boxGeometry.setPadding({ });
         boxGeometry.setHorizontalMargin({ });
         boxGeometry.setVerticalMargin({ });
-        floatingState.append({ logicalPosition(), boxGeometry });
+
+        auto shapeOutsideInfo = floatingObject->renderer().shapeOutsideInfo();
+        auto* shape = shapeOutsideInfo ? &shapeOutsideInfo->computedShape() : nullptr;
+
+        floatingState.append({ logicalPosition(), boxGeometry, logicalRect.location(), shape });
     }
 }
 
-std::optional<size_t> LineLayout::lastLineIndexForContentHeight() const
+bool LineLayout::isPaginated() const
+{
+    return m_inlineContent && m_inlineContent->isPaginated;
+}
+
+std::optional<LayoutUnit> LineLayout::clampedContentLogicalHeight() const
 {
     if (!m_inlineContent)
         return { };
 
-    auto& lines = m_inlineContent->lines;
+    auto& lines = m_inlineContent->displayContent().lines;
     if (lines.isEmpty()) {
-        // We should always have at least one line whenever we have inline content.
-        ASSERT_NOT_REACHED();
+        // Out-of-flow only content (and/or with floats) may produce blank inline content.
         return { };
     }
-    auto* layoutState = flow().view().frameView().layoutContext().layoutState();
-    if (!layoutState || !layoutState->hasLineClamp())
-        return lines.size() - 1;
 
-    auto maximumLines = *layoutState->maximumLineCountForLineClamp();
-    if (!maximumLines) {
-        ASSERT_NOT_REACHED();
-        return lines.size() - 1;
-    }
-    auto visibleLines = layoutState->visibleLineCountForLineClamp();
-    // Previous block containers may have already produced some lines.
-    auto remainingNumberOfLines = maximumLines - visibleLines.value_or(0);
-    if (!remainingNumberOfLines) {
-        // This block is fully collapsed.
+    auto firstTruncatedLineIndex = [&]() -> std::optional<size_t> {
+        for (size_t lineIndex = 0; lineIndex < lines.size(); ++lineIndex) {
+            if (lines[lineIndex].isTruncatedInBlockDirection())
+                return lineIndex;
+        }
         return { };
+    }();
+    if (!firstTruncatedLineIndex)
+        return { };
+    if (!*firstTruncatedLineIndex) {
+        // This content is fully truncated in the block direction.
+        return LayoutUnit { };
     }
-    if (remainingNumberOfLines > 0) {
-        auto lastLineIndex = std::min(lines.size(), remainingNumberOfLines) - 1;
-        // FIXME: Clamped line is supposed to have trailing ellipsis. Assert on lines[lastLineIndex].hasEllipsis() when we have some means to clear
-        // line content after probing layout.
-        return lastLineIndex;
-    }
-    ASSERT_NOT_REACHED();
-    return lines.size() - 1;
+
+    auto contentHeight = lines[*firstTruncatedLineIndex - 1].lineBoxLogicalRect().maxY() - lines.first().lineBoxLogicalRect().y();
+    auto additionalHeight = m_inlineContent->firstLinePaginationOffset + m_inlineContent->clearGapBeforeFirstLine + m_inlineContent->clearGapAfterLastLine;
+    return LayoutUnit { contentHeight + additionalHeight };
 }
 
 LayoutUnit LineLayout::contentBoxLogicalHeight() const
@@ -744,14 +860,25 @@ LayoutUnit LineLayout::contentBoxLogicalHeight() const
     if (!m_inlineContent)
         return { };
 
-    auto lastLineIndex = lastLineIndexForContentHeight();
-    if (!lastLineIndex)
+    auto& lines = m_inlineContent->displayContent().lines;
+    if (lines.isEmpty()) {
+        // Out-of-flow only content (and/or with floats) may produce blank inline content.
         return { };
+    }
 
-    auto& lines = m_inlineContent->lines;
-    auto& firstLine = lines[0];
-    auto& lastLine = lines[*lastLineIndex];
-    return LayoutUnit { m_inlineContent->clearGapBeforeFirstLine + (lastLine.lineBoxLogicalRect().maxY() - firstLine.lineBoxLogicalRect().y()) + m_inlineContent->clearGapAfterLastLine };
+    auto lastLineWithInlineContent = [&] {
+        // Out-of-flow/float content only don't produce lines with inline content. They should not be taken into
+        // account when computing content box height.
+        for (auto& line : makeReversedRange(lines)) {
+            ASSERT(line.boxCount());
+            if (line.boxCount() > 1)
+                return line;
+        }
+        return lines.first();
+    };
+    auto contentHeight = lastLineWithInlineContent().lineBoxLogicalRect().maxY() - lines.first().lineBoxLogicalRect().y();
+    auto additionalHeight = m_inlineContent->firstLinePaginationOffset + m_inlineContent->clearGapBeforeFirstLine + m_inlineContent->clearGapAfterLastLine;
+    return LayoutUnit { contentHeight + additionalHeight };
 }
 
 size_t LineLayout::lineCount() const
@@ -761,7 +888,7 @@ size_t LineLayout::lineCount() const
     if (!m_inlineContent->hasContent())
         return 0;
 
-    return m_inlineContent->lines.size();
+    return m_inlineContent->displayContent().lines.size();
 }
 
 bool LineLayout::hasVisualOverflow() const
@@ -771,34 +898,35 @@ bool LineLayout::hasVisualOverflow() const
 
 LayoutUnit LineLayout::firstLinePhysicalBaseline() const
 {
-    if (!m_inlineContent || m_inlineContent->lines.isEmpty()) {
+    if (!m_inlineContent || m_inlineContent->displayContent().boxes.isEmpty()) {
         ASSERT_NOT_REACHED();
         return { };
     }
 
-    auto& firstLine = m_inlineContent->lines.first();
+    auto& firstLine = m_inlineContent->displayContent().lines.first();
     return physicalBaselineForLine(firstLine); 
 }
 
 LayoutUnit LineLayout::lastLinePhysicalBaseline() const
 {
-    if (!m_inlineContent || m_inlineContent->lines.isEmpty()) {
+    if (!m_inlineContent || m_inlineContent->displayContent().lines.isEmpty()) {
         ASSERT_NOT_REACHED();
         return { };
     }
 
-    auto lastLine = m_inlineContent->lines.last();
+    auto lastLine = m_inlineContent->displayContent().lines.last();
     return physicalBaselineForLine(lastLine);
 }
 
-LayoutUnit LineLayout::physicalBaselineForLine(LayoutIntegration::Line& line) const
+LayoutUnit LineLayout::physicalBaselineForLine(const InlineDisplay::Line& line) const
 {
-    switch (rootLayoutBox().style().writingMode()) {
-    case WritingMode::TopToBottom:
+    switch (writingModeToBlockFlowDirection(rootLayoutBox().style().writingMode())) {
+    case BlockFlowDirection::TopToBottom:
+    case BlockFlowDirection::BottomToTop:
         return LayoutUnit { line.lineBoxTop() + line.baseline() };
-    case WritingMode::LeftToRight:
+    case BlockFlowDirection::LeftToRight:
         return LayoutUnit { line.lineBoxLeft() + (line.lineBoxWidth() - line.baseline()) };
-    case WritingMode::RightToLeft:
+    case BlockFlowDirection::RightToLeft:
         return LayoutUnit { line.lineBoxLeft() + line.baseline() };
     default:
         ASSERT_NOT_REACHED();
@@ -808,16 +936,17 @@ LayoutUnit LineLayout::physicalBaselineForLine(LayoutIntegration::Line& line) co
 
 LayoutUnit LineLayout::lastLineLogicalBaseline() const
 {
-    if (!m_inlineContent || m_inlineContent->lines.isEmpty()) {
+    if (!m_inlineContent || m_inlineContent->displayContent().lines.isEmpty()) {
         ASSERT_NOT_REACHED();
         return { };
     }
 
-    auto& lastLine = m_inlineContent->lines.last();
-    switch (rootLayoutBox().style().writingMode()) {
-    case WritingMode::TopToBottom:
+    auto& lastLine = m_inlineContent->displayContent().lines.last();
+    switch (writingModeToBlockFlowDirection(rootLayoutBox().style().writingMode())) {
+    case BlockFlowDirection::TopToBottom:
+    case BlockFlowDirection::BottomToTop:
         return LayoutUnit { lastLine.lineBoxTop() + lastLine.baseline() };
-    case WritingMode::LeftToRight: {
+    case BlockFlowDirection::LeftToRight: {
         // FIXME: We should set the computed height on the root's box geometry (in RenderBlockFlow) so that
         // we could call m_layoutState.geometryForRootBox().borderBoxHeight() instead.
 
@@ -825,7 +954,7 @@ LayoutUnit LineLayout::lastLineLogicalBaseline() const
         auto lineLogicalTop = flow().logicalHeight() - lastLine.lineBoxRight();
         return LayoutUnit { lineLogicalTop + lastLine.baseline() };
     }
-    case WritingMode::RightToLeft:
+    case BlockFlowDirection::RightToLeft:
         return LayoutUnit { lastLine.lineBoxLeft() + lastLine.baseline() };
     default:
         ASSERT_NOT_REACHED();
@@ -833,18 +962,19 @@ LayoutUnit LineLayout::lastLineLogicalBaseline() const
     }
 }
 
-void LineLayout::adjustForPagination()
+Vector<LineAdjustment> LineLayout::adjustContent()
 {
     if (!m_inlineContent)
-        return;
+        return { };
 
-    auto paginedInlineContent = adjustLinePositionsForPagination(*m_inlineContent, flow());
-    if (!paginedInlineContent) {
-        m_isPaginatedContent = false;
-        return;
-    }
-    m_isPaginatedContent = true;
-    m_inlineContent = WTFMove(paginedInlineContent);
+    auto& layoutState = *flow().view().frameView().layoutContext().layoutState();
+    if (!layoutState.isPaginated())
+        return { };
+
+    auto adjustments = computeAdjustmentsForPagination(*m_inlineContent, flow());
+    adjustLinePositionsForPagination(*m_inlineContent, adjustments);
+
+    return adjustments;
 }
 
 void LineLayout::collectOverflow()
@@ -852,7 +982,7 @@ void LineLayout::collectOverflow()
     if (!m_inlineContent)
         return;
 
-    for (auto& line : m_inlineContent->lines) {
+    for (auto& line : m_inlineContent->displayContent().lines) {
         flow().addLayoutOverflow(Layout::toLayoutRect(line.scrollableOverflow()));
         if (!flow().hasNonVisibleOverflow())
             flow().addVisualOverflow(Layout::toLayoutRect(line.inkOverflow()));
@@ -910,7 +1040,7 @@ InlineIterator::InlineBoxIterator LineLayout::firstRootInlineBox() const
     if (!m_inlineContent || !m_inlineContent->hasContent())
         return { };
 
-    return InlineIterator::inlineBoxFor(*m_inlineContent, m_inlineContent->boxes[0]);
+    return InlineIterator::inlineBoxFor(*m_inlineContent, m_inlineContent->displayContent().boxes[0]);
 }
 
 InlineIterator::LineBoxIterator LineLayout::firstLineBox() const
@@ -926,7 +1056,7 @@ InlineIterator::LineBoxIterator LineLayout::lastLineBox() const
     if (!m_inlineContent)
         return { };
 
-    return { InlineIterator::LineBoxIteratorModernPath(*m_inlineContent, m_inlineContent->lines.isEmpty() ? 0 : m_inlineContent->lines.size() - 1) };
+    return { InlineIterator::LineBoxIteratorModernPath(*m_inlineContent, m_inlineContent->displayContent().lines.isEmpty() ? 0 : m_inlineContent->displayContent().lines.size() - 1) };
 }
 
 LayoutRect LineLayout::firstInlineBoxRect(const RenderInline& renderInline) const
@@ -942,11 +1072,12 @@ LayoutRect LineLayout::firstInlineBoxRect(const RenderInline& renderInline) cons
     // FIXME: We should be able to flip the display boxes soon after the root block
     // is finished sizing in one go.
     auto firstBoxRect = Layout::toLayoutRect(firstBox->visualRectIgnoringBlockDirection());
-    switch (rootLayoutBox().style().writingMode()) {
-    case WritingMode::TopToBottom:
-    case WritingMode::LeftToRight:
+    switch (writingModeToBlockFlowDirection(rootLayoutBox().style().writingMode())) {
+    case BlockFlowDirection::TopToBottom:
+    case BlockFlowDirection::BottomToTop:
+    case BlockFlowDirection::LeftToRight:
         return firstBoxRect;
-    case WritingMode::RightToLeft:
+    case BlockFlowDirection::RightToLeft:
         firstBoxRect.setX(flow().width() - firstBoxRect.maxX());
         return firstBoxRect;
     default:
@@ -1033,6 +1164,7 @@ void LineLayout::paint(PaintInfo& paintInfo, const LayoutPoint& paintOffset, con
 
     auto shouldPaintForPhase = [&] {
         switch (paintInfo.phase) {
+        case PaintPhase::Accessibility:
         case PaintPhase::Foreground:
         case PaintPhase::EventRegion:
         case PaintPhase::TextClip:
@@ -1081,7 +1213,7 @@ bool LineLayout::hitTest(const HitTestRequest& request, HitTestResult& result, c
             continue;
         }
 
-        auto& currentLine = m_inlineContent->lines[box.lineIndex()];
+        auto& currentLine = m_inlineContent->displayContent().lines[box.lineIndex()];
         auto boxRect = flippedRectForWritingMode(flow(), InlineDisplay::Box::visibleRectIgnoringBlockDirection(box, currentLine.visibleRectIgnoringBlockDirection()));
         boxRect.moveBy(accumulatedOffset);
 
@@ -1098,6 +1230,63 @@ bool LineLayout::hitTest(const HitTestRequest& request, HitTestResult& result, c
     }
 
     return false;
+}
+
+void LineLayout::insertedIntoTree(const RenderElement& parent, RenderObject& child)
+{
+    if (!m_inlineContent) {
+        // This should only be called on partial layout.
+        ASSERT_NOT_REACHED();
+        return;
+    }
+
+    auto& childLayoutBox = m_boxTree.insert(parent, child, child.previousSibling());
+    if (is<Layout::InlineTextBox>(childLayoutBox)) {
+        auto invalidation = Layout::InlineInvalidation { ensureLineDamage(), m_inlineFormattingState.inlineItems(), m_inlineContent->displayContent() };
+        invalidation.textInserted(downcast<Layout::InlineTextBox>(childLayoutBox));
+        return;
+    }
+
+    if (childLayoutBox.isLineBreakBox()) {
+        auto invalidation = Layout::InlineInvalidation { ensureLineDamage(), m_inlineFormattingState.inlineItems(), m_inlineContent->displayContent() };
+        invalidation.inlineLevelBoxInserted(childLayoutBox);
+        return;
+    }
+
+    ASSERT_NOT_IMPLEMENTED_YET();
+}
+
+void LineLayout::removedFromTree(const RenderElement& parent, RenderObject& child)
+{
+    if (!m_inlineContent) {
+        // This should only be called on partial layout.
+        ASSERT_NOT_REACHED();
+        return;
+    }
+
+    auto& childLayoutBox = m_boxTree.layoutBoxForRenderer(child);
+    auto invalidation = Layout::InlineInvalidation { ensureLineDamage(), m_inlineFormattingState.inlineItems(), m_inlineContent->displayContent() };
+    auto boxIsInvalidated = is<Layout::InlineTextBox>(childLayoutBox) ? invalidation.textWillBeRemoved(downcast<Layout::InlineTextBox>(childLayoutBox)) : childLayoutBox.isLineBreakBox() ? invalidation.inlineLevelBoxWillBeRemoved(childLayoutBox) : false;
+    if (boxIsInvalidated)
+        m_lineDamage->addDetachedBox(m_boxTree.remove(parent, child));
+}
+
+void LineLayout::updateTextContent(const RenderText& textRenderer, size_t offset, int delta)
+{
+    if (!m_inlineContent) {
+        // This should only be called on partial layout.
+        ASSERT_NOT_REACHED();
+        return;
+    }
+
+    m_boxTree.updateContent(textRenderer);
+    auto invalidation = Layout::InlineInvalidation { ensureLineDamage(), m_inlineFormattingState.inlineItems(), m_inlineContent->displayContent() };
+    auto& inlineTextBox = downcast<Layout::InlineTextBox>(m_boxTree.layoutBoxForRenderer(textRenderer));
+    if (delta >= 0) {
+        invalidation.textInserted(inlineTextBox, offset);
+        return;
+    }
+    invalidation.textWillBeRemoved(inlineTextBox, offset);
 }
 
 void LineLayout::releaseCaches(RenderView& view)
@@ -1130,6 +1319,29 @@ Layout::InlineDamage& LineLayout::ensureLineDamage()
     if (!m_lineDamage)
         m_lineDamage = makeUnique<Layout::InlineDamage>();
     return *m_lineDamage;
+}
+
+bool LineLayout::hasOutOfFlowContent() const
+{
+    return !m_inlineFormattingState.outOfFlowBoxes().isEmpty();
+}
+
+bool LineLayout::contentNeedsVisualReordering() const
+{
+    // We don't tend to have too many renderers, should cache if this gets too hot.
+    for (auto renderer : m_boxTree.renderers()) {
+        if (!renderer)
+            continue;
+        if (is<RenderText>(*renderer) && downcast<RenderText>(*renderer).needsVisualReordering())
+            return true;
+        if (is<RenderInline>(*renderer)) {
+            auto& style = renderer->style();
+            auto contentNeedsBidiReordering = !style.isLeftToRightDirection() || (style.rtlOrdering() == Order::Logical && style.unicodeBidi() != UnicodeBidi::Normal);
+            if (contentNeedsBidiReordering)
+                return true;
+        }
+    }
+    return false;
 }
 
 #if ENABLE(TREE_DEBUGGING)

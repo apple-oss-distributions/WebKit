@@ -29,6 +29,12 @@ AcceleratedCompositedAnimationsEnabled:
     WebCore:
       default: true
 
+AllowAnimationControlsOverride:
+  type: bool
+  defaultValue:
+    WebCore:
+      default: false
+
 AnimatedImageDebugCanvasDrawingEnabled:
   type: bool
   defaultValue:
@@ -132,13 +138,6 @@ FontLoadTimingOverride:
     WebCore:
       default: FontLoadTimingOverride::None
 
-FontRenderingMode:
-  type: uint32_t
-  refinedType: FontRenderingMode
-  defaultValue:
-    WebCore:
-      default: FontRenderingMode::Normal
-
 ForceCompositingMode:
   type: bool
   defaultValue:
@@ -180,14 +179,6 @@ ForcedSupportsHighDynamicRangeValue:
   defaultValue:
     WebCore:
       default: ForcedAccessibilityValue::System
-
-FrameFlattening:
-  type: uint32_t
-  refinedType: FrameFlattening
-  webcoreOnChange: setNeedsRelayoutAllFrames
-  defaultValue:
-    WebCore:
-      default: FrameFlattening::Disabled
 
 GeolocationFloorLevelEnabled:
   type: bool
@@ -292,7 +283,7 @@ MaximumSourceBufferSize:
   condition: ENABLE(MEDIA_SOURCE)
   defaultValue:
     WebCore:
-      default: 318767104
+      default: SettingsBase::defaultMaximumSourceBufferSize()
 
 MediaKeysStorageDirectory:
   type: String
@@ -335,14 +326,6 @@ NeedsDeferKeyDownAndKeyPressTimersUntilNextEditingCommandQuirk:
     WebCore:
       default: false
 
-PDFImageCachingPolicy:
-  type: uint32_t
-  refinedType: PDFImageCachingPolicy
-  defaultValue:
-    WebCore:
-      PLATFORM(IOS_FAMILY): PDFImageCachingPolicy::BelowMemoryLimit
-      default: PDFImageCachingPolicy::Enabled
-
 PaymentRequestEnabled:
   type: bool
   condition: ENABLE(PAYMENT_REQUEST)
@@ -364,12 +347,6 @@ PreferMIMETypeForImages:
       default: false
 
 PreventKeyboardDOMEventDispatch:
-  type: bool
-  defaultValue:
-    WebCore:
-      default: false
-
-RepaintOutsideLayoutEnabled:
   type: bool
   defaultValue:
     WebCore:
@@ -525,7 +502,6 @@ WebGLErrorsToConsoleEnabled:
 
 WebRTCEncryptionEnabled:
   type: bool
-  inspectorOverride: true
   defaultValue:
     WebCore:
       default: true

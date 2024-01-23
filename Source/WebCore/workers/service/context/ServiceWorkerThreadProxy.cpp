@@ -28,14 +28,15 @@
 
 #if ENABLE(SERVICE_WORKER)
 
+#include "BadgeClient.h"
 #include "CacheStorageProvider.h"
 #include "DocumentLoader.h"
 #include "EventLoop.h"
 #include "EventNames.h"
 #include "FetchLoader.h"
-#include "Frame.h"
 #include "FrameLoader.h"
 #include "LoaderStrategy.h"
+#include "LocalFrame.h"
 #include "Logging.h"
 #include "MessageWithMessagePorts.h"
 #include "NotificationData.h"
@@ -65,11 +66,11 @@ static HashSet<ServiceWorkerThreadProxy*>& allServiceWorkerThreadProxies()
 
 ServiceWorkerThreadProxy::ServiceWorkerThreadProxy(UniqueRef<Page>&& page, ServiceWorkerContextData&& contextData, ServiceWorkerData&& workerData, String&& userAgent, WorkerThreadMode workerThreadMode, CacheStorageProvider& cacheStorageProvider, std::unique_ptr<NotificationClient>&& notificationClient)
     : m_page(WTFMove(page))
-    , m_document(*m_page->mainFrame().document())
+    , m_document(*dynamicDowncast<LocalFrame>(m_page->mainFrame())->document())
 #if ENABLE(REMOTE_INSPECTOR)
     , m_remoteDebuggable(makeUnique<ServiceWorkerDebuggable>(*this, contextData))
 #endif
-    , m_serviceWorkerThread(ServiceWorkerThread::create(WTFMove(contextData), WTFMove(workerData), WTFMove(userAgent), workerThreadMode, m_document->settingsValues(), *this, *this, *this, idbConnectionProxy(m_document), m_document->socketProvider(), WTFMove(notificationClient), m_page->sessionID()))
+    , m_serviceWorkerThread(ServiceWorkerThread::create(WTFMove(contextData), WTFMove(workerData), WTFMove(userAgent), workerThreadMode, m_document->settingsValues(), *this, *this, *this, idbConnectionProxy(m_document), m_document->socketProvider(), WTFMove(notificationClient), m_page->sessionID(), m_document->noiseInjectionHashSalt()))
     , m_cacheStorageProvider(cacheStorageProvider)
     , m_inspectorProxy(*this)
 {
@@ -83,7 +84,7 @@ ServiceWorkerThreadProxy::ServiceWorkerThreadProxy(UniqueRef<Page>&& page, Servi
     allServiceWorkerThreadProxies().add(this);
 
 #if ENABLE(REMOTE_INSPECTOR)
-    m_remoteDebuggable->setInspectable(true);
+    m_remoteDebuggable->setInspectable(m_page->inspectable());
     m_remoteDebuggable->init();
 #endif
 }
@@ -96,6 +97,8 @@ ServiceWorkerThreadProxy::~ServiceWorkerThreadProxy()
     auto functionalEventTasks = WTFMove(m_ongoingFunctionalEventTasks);
     for (auto& callback : functionalEventTasks.values())
         callback(false);
+
+    m_serviceWorkerThread->clearProxies();
 }
 
 void ServiceWorkerThreadProxy::setLastNavigationWasAppInitiated(bool wasAppInitiated)
@@ -334,8 +337,12 @@ void ServiceWorkerThreadProxy::fireMessageEvent(MessageWithMessagePorts&& messag
 
 void ServiceWorkerThreadProxy::fireInstallEvent()
 {
-    ASSERT(isMainThread());
-    thread().willPostTaskToFireInstallEvent();
+    ASSERT(!isMainThread());
+
+    callOnMainRunLoop([protectedThis = Ref { *this }] {
+        protectedThis->thread().willPostTaskToFireInstallEvent();
+    });
+
     thread().runLoop().postTask([this, protectedThis = Ref { *this }](auto&) mutable {
         thread().queueTaskToFireInstallEvent();
     });
@@ -343,9 +350,13 @@ void ServiceWorkerThreadProxy::fireInstallEvent()
 
 void ServiceWorkerThreadProxy::fireActivateEvent()
 {
-    ASSERT(isMainThread());
-    thread().willPostTaskToFireActivateEvent();
-    thread().runLoop().postTask([this, protectedThis = Ref { *this }](auto&) mutable {
+    ASSERT(!isMainThread());
+
+    callOnMainRunLoop([protectedThis = Ref { *this }] {
+        protectedThis->thread().willPostTaskToFireActivateEvent();
+    });
+
+    thread().runLoop().postTask([this, protectedThis = Ref { *this }](auto&) {
         thread().queueTaskToFireActivateEvent();
     });
 }
@@ -423,6 +434,50 @@ void ServiceWorkerThreadProxy::fireNotificationEvent(NotificationData&& data, No
 #endif
 }
 
+void ServiceWorkerThreadProxy::fireBackgroundFetchEvent(BackgroundFetchInformation&& info, CompletionHandler<void(bool)>&& callback)
+{
+    if (m_ongoingFunctionalEventTasks.isEmpty())
+        thread().startFunctionalEventMonitoring();
+
+    auto identifier = ++m_functionalEventTasksCounter;
+    ASSERT(!m_ongoingFunctionalEventTasks.contains(identifier));
+    m_ongoingFunctionalEventTasks.add(identifier, WTFMove(callback));
+    bool isPosted = postTaskForModeToWorkerOrWorkletGlobalScope([this, protectedThis = Ref { *this }, identifier, info = crossThreadCopy(WTFMove(info))](auto&) mutable {
+        thread().queueTaskToFireBackgroundFetchEvent(WTFMove(info), [this, protectedThis = WTFMove(protectedThis), identifier](bool result) mutable {
+            callOnMainThread([this, protectedThis = WTFMove(protectedThis), identifier, result]() mutable {
+                if (auto callback = m_ongoingFunctionalEventTasks.take(identifier))
+                    callback(result);
+                if (m_ongoingFunctionalEventTasks.isEmpty())
+                    thread().stopFunctionalEventMonitoring();
+            });
+        });
+    }, WorkerRunLoop::defaultMode());
+    if (!isPosted)
+        m_ongoingFunctionalEventTasks.take(identifier)(false);
+}
+
+void ServiceWorkerThreadProxy::fireBackgroundFetchClickEvent(BackgroundFetchInformation&& info, CompletionHandler<void(bool)>&& callback)
+{
+    if (m_ongoingFunctionalEventTasks.isEmpty())
+        thread().startFunctionalEventMonitoring();
+
+    auto identifier = ++m_functionalEventTasksCounter;
+    ASSERT(!m_ongoingFunctionalEventTasks.contains(identifier));
+    m_ongoingFunctionalEventTasks.add(identifier, WTFMove(callback));
+    bool isPosted = postTaskForModeToWorkerOrWorkletGlobalScope([this, protectedThis = Ref { *this }, identifier, info = crossThreadCopy(WTFMove(info))](auto&) mutable {
+        thread().queueTaskToFireBackgroundFetchClickEvent(WTFMove(info), [this, protectedThis = WTFMove(protectedThis), identifier](bool result) mutable {
+            callOnMainThread([this, protectedThis = WTFMove(protectedThis), identifier, result]() mutable {
+                if (auto callback = m_ongoingFunctionalEventTasks.take(identifier))
+                    callback(result);
+                if (m_ongoingFunctionalEventTasks.isEmpty())
+                    thread().stopFunctionalEventMonitoring();
+            });
+        });
+    }, WorkerRunLoop::defaultMode());
+    if (!isPosted)
+        m_ongoingFunctionalEventTasks.take(identifier)(false);
+}
+
 void ServiceWorkerThreadProxy::setAppBadge(std::optional<uint64_t> badge)
 {
     ASSERT(!isMainThread());
@@ -430,6 +485,13 @@ void ServiceWorkerThreadProxy::setAppBadge(std::optional<uint64_t> badge)
     callOnMainRunLoop([badge = WTFMove(badge), this, protectedThis = Ref { *this }] {
         m_page->badgeClient().setAppBadge(nullptr, SecurityOriginData::fromURL(scriptURL()), badge);
     });
+}
+
+void ServiceWorkerThreadProxy::setInspectable(bool inspectable)
+{
+    ASSERT(isMainThread());
+    m_page->setInspectable(inspectable);
+    m_remoteDebuggable->setInspectable(inspectable);
 }
 
 } // namespace WebCore

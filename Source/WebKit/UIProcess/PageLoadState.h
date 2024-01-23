@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013-2015 Apple Inc. All rights reserved.
+ * Copyright (C) 2013-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,66 +26,66 @@
 #pragma once
 
 #include <WebCore/CertificateInfo.h>
+#include <WebCore/SecurityOriginData.h>
 #include <wtf/URL.h>
+#include <wtf/WeakHashSet.h>
 #include <wtf/text/WTFString.h>
 
 namespace WebKit {
 
 class WebPageProxy;
 
+class PageLoadStateObserverBase : public CanMakeWeakPtr<PageLoadStateObserverBase> {
+public:
+    virtual ~PageLoadStateObserverBase() = default;
+
+    virtual void willChangeIsLoading() = 0;
+    virtual void didChangeIsLoading() = 0;
+
+    virtual void willChangeTitle() = 0;
+    virtual void didChangeTitle() = 0;
+
+    virtual void willChangeActiveURL() = 0;
+    virtual void didChangeActiveURL() = 0;
+
+    virtual void willChangeHasOnlySecureContent() = 0;
+    virtual void didChangeHasOnlySecureContent() = 0;
+
+    virtual void willChangeNegotiatedLegacyTLS() { }
+    virtual void didChangeNegotiatedLegacyTLS() { }
+
+    virtual void willChangeWasPrivateRelayed() { }
+    virtual void didChangeWasPrivateRelayed() { }
+
+    virtual void willChangeEstimatedProgress() = 0;
+    virtual void didChangeEstimatedProgress() = 0;
+
+    virtual void willChangeCanGoBack() = 0;
+    virtual void didChangeCanGoBack() = 0;
+
+    virtual void willChangeCanGoForward() = 0;
+    virtual void didChangeCanGoForward() = 0;
+
+    virtual void willChangeNetworkRequestsInProgress() = 0;
+    virtual void didChangeNetworkRequestsInProgress() = 0;
+
+    virtual void willChangeCertificateInfo() = 0;
+    virtual void didChangeCertificateInfo() = 0;
+
+    virtual void willChangeWebProcessIsResponsive() = 0;
+    virtual void didChangeWebProcessIsResponsive() = 0;
+
+    virtual void didSwapWebProcesses() = 0;
+};
+
 class PageLoadState {
 public:
     explicit PageLoadState(WebPageProxy&);
     ~PageLoadState();
 
-    enum class State {
-        Provisional,
-        Committed,
-        Finished
-    };
+    enum class State : uint8_t { Provisional, Committed, Finished };
 
-    class Observer {
-    public:
-        virtual ~Observer() { }
-
-        virtual void willChangeIsLoading() = 0;
-        virtual void didChangeIsLoading() = 0;
-
-        virtual void willChangeTitle() = 0;
-        virtual void didChangeTitle() = 0;
-
-        virtual void willChangeActiveURL() = 0;
-        virtual void didChangeActiveURL() = 0;
-
-        virtual void willChangeHasOnlySecureContent() = 0;
-        virtual void didChangeHasOnlySecureContent() = 0;
-
-        virtual void willChangeNegotiatedLegacyTLS() { };
-        virtual void didChangeNegotiatedLegacyTLS() { };
-
-        virtual void willChangeWasPrivateRelayed() { };
-        virtual void didChangeWasPrivateRelayed() { };
-
-        virtual void willChangeEstimatedProgress() = 0;
-        virtual void didChangeEstimatedProgress() = 0;
-
-        virtual void willChangeCanGoBack() = 0;
-        virtual void didChangeCanGoBack() = 0;
-
-        virtual void willChangeCanGoForward() = 0;
-        virtual void didChangeCanGoForward() = 0;
-
-        virtual void willChangeNetworkRequestsInProgress() = 0;
-        virtual void didChangeNetworkRequestsInProgress() = 0;
-
-        virtual void willChangeCertificateInfo() = 0;
-        virtual void didChangeCertificateInfo() = 0;
-
-        virtual void willChangeWebProcessIsResponsive() = 0;
-        virtual void didChangeWebProcessIsResponsive() = 0;
-        
-        virtual void didSwapWebProcesses() = 0;
-    };
+    using Observer = PageLoadStateObserverBase;
 
     class Transaction {
         WTF_MAKE_NONCOPYABLE(Transaction);
@@ -139,6 +139,7 @@ public:
 
     const String& provisionalURL() const { return m_committedState.provisionalURL; }
     const String& url() const { return m_committedState.url; }
+    const WebCore::SecurityOriginData& origin() const { return m_committedState.origin; }
     const String& unreachableURL() const { return m_committedState.unreachableURL; }
 
     String activeURL() const;
@@ -165,7 +166,7 @@ public:
     void didReceiveServerRedirectForProvisionalLoad(const Transaction::Token&, const String& url);
     void didFailProvisionalLoad(const Transaction::Token&);
 
-    void didCommitLoad(const Transaction::Token&, const WebCore::CertificateInfo&, bool hasInsecureContent, bool usedLegacyTLS, bool privateRelayed);
+    void didCommitLoad(const Transaction::Token&, const WebCore::CertificateInfo&, bool hasInsecureContent, bool usedLegacyTLS, bool privateRelayed, const WebCore::SecurityOriginData&);
     void didFinishLoad(const Transaction::Token&);
     void didFailLoad(const Transaction::Token&);
 
@@ -205,7 +206,7 @@ private:
 
     void callObserverCallback(void (Observer::*)());
 
-    Vector<Observer*> m_observers;
+    WeakHashSet<Observer> m_observers;
 
     struct Data {
         State state { State::Finished };
@@ -217,6 +218,7 @@ private:
 
         String provisionalURL;
         String url;
+        WebCore::SecurityOriginData origin;
 
         String unreachableURL;
 

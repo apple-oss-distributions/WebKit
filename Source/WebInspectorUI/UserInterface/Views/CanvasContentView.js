@@ -39,7 +39,6 @@ WI.CanvasContentView = class CanvasContentView extends WI.ContentView
         this._errorElement = null;
         this._memoryCostElement = null;
         this._pendingContent = null;
-        this._pixelSize = null;
         this._pixelSizeElement = null;
         this._canvasNode = null;
 
@@ -113,7 +112,7 @@ WI.CanvasContentView = class CanvasContentView extends WI.ContentView
 
             let navigationBar = new WI.NavigationBar;
 
-            if (this.representedObject.contextType === WI.Canvas.ContextType.Canvas2D || this.representedObject.contextType === WI.Canvas.ContextType.BitmapRenderer || this.representedObject.contextType === WI.Canvas.ContextType.WebGL || this.representedObject.contextType === WI.Canvas.ContextType.WebGL2) {
+            if (this.representedObject.contextType === WI.Canvas.ContextType.Canvas2D || this.representedObject.contextType === WI.Canvas.ContextType.OffscreenCanvas2D || this.representedObject.contextType === WI.Canvas.ContextType.BitmapRenderer || this.representedObject.contextType === WI.Canvas.ContextType.WebGL || this.representedObject.contextType === WI.Canvas.ContextType.WebGL2) {
                 const toolTip = WI.UIString("Start recording canvas actions.\nShift-click to record a single frame.");
                 const altToolTip = WI.UIString("Stop recording canvas actions");
                 this._recordButtonNavigationItem = new WI.ToggleButtonNavigationItem("record-start-stop", toolTip, altToolTip, "Images/Record.svg", "Images/Stop.svg", 13, 13);
@@ -170,7 +169,7 @@ WI.CanvasContentView = class CanvasContentView extends WI.ContentView
             this._showError();
 
         if (isCard)
-            this._refreshPixelSize();
+            this._updateSize();
     }
 
     layout()
@@ -206,6 +205,7 @@ WI.CanvasContentView = class CanvasContentView extends WI.ContentView
     {
         super.attached();
 
+        this.representedObject.addEventListener(WI.Canvas.Event.SizeChanged, this._updateSize, this);
         this.representedObject.addEventListener(WI.Canvas.Event.MemoryChanged, this._updateMemoryCost, this);
         this.representedObject.addEventListener(WI.Canvas.Event.RecordingStarted, this.needsLayout, this);
         this.representedObject.addEventListener(WI.Canvas.Event.RecordingProgress, this.needsLayout, this);
@@ -222,8 +222,6 @@ WI.CanvasContentView = class CanvasContentView extends WI.ContentView
                 return;
 
             this._canvasNode = node;
-            this._canvasNode.addEventListener(WI.DOMNode.Event.AttributeModified, this._refreshPixelSize, this);
-            this._canvasNode.addEventListener(WI.DOMNode.Event.AttributeRemoved, this._refreshPixelSize, this);
         });
 
         WI.settings.showImageGrid.addEventListener(WI.Setting.Event.Changed, this._updateImageGrid, this);
@@ -233,6 +231,7 @@ WI.CanvasContentView = class CanvasContentView extends WI.ContentView
 
     detached()
     {
+        this.representedObject.removeEventListener(WI.Canvas.Event.SizeChanged, this._updateSize, this);
         this.representedObject.removeEventListener(WI.Canvas.Event.MemoryChanged, this._updateMemoryCost, this);
         this.representedObject.removeEventListener(WI.Canvas.Event.RecordingStarted, this.needsLayout, this);
         this.representedObject.removeEventListener(WI.Canvas.Event.RecordingProgress, this.needsLayout, this);
@@ -240,11 +239,7 @@ WI.CanvasContentView = class CanvasContentView extends WI.ContentView
         this.representedObject.shaderProgramCollection.removeEventListener(WI.Collection.Event.ItemAdded, this.needsLayout, this);
         this.representedObject.shaderProgramCollection.removeEventListener(WI.Collection.Event.ItemRemoved, this.needsLayout, this);
 
-        if (this._canvasNode) {
-            this._canvasNode.removeEventListener(WI.DOMNode.Event.AttributeModified, this._refreshPixelSize, this);
-            this._canvasNode.removeEventListener(WI.DOMNode.Event.AttributeRemoved, this._refreshPixelSize, this);
-            this._canvasNode = null;
-        }
+        this._canvasNode = null;
 
         WI.settings.showImageGrid.removeEventListener(WI.Setting.Event.Changed, this._updateImageGrid, this);
 
@@ -277,38 +272,15 @@ WI.CanvasContentView = class CanvasContentView extends WI.ContentView
         }
     }
 
-    _refreshPixelSize()
-    {
-        let updatePixelSize = (size) => {
-            if (Object.shallowEqual(this._pixelSize, size))
-                return;
-
-            this._pixelSize = size;
-
-            if (this._pixelSizeElement) {
-                if (this._pixelSize)
-                    this._pixelSizeElement.textContent = `${this._pixelSize.width} ${multiplicationSign} ${this._pixelSize.height}`;
-                else
-                    this._pixelSizeElement.textContent = emDash;
-            }
-
-            this.refreshPreview();
-        };
-
-        this.representedObject.requestSize().then((size) => {
-            updatePixelSize(size);
-        });
-    }
-
     _populateCanvasElementButtonContextMenu(contextMenu)
     {
         contextMenu.appendItem(WI.UIString("Log Canvas Context"), () => {
-            WI.RemoteObject.resolveCanvasContext(this.representedObject, WI.RuntimeManager.ConsoleObjectGroup, (remoteObject) => {
+            WI.RemoteObject.resolveCanvasContext(this.representedObject, WI.RuntimeManager.ConsoleObjectGroup).then((remoteObject) => {
                 if (!remoteObject)
                     return;
 
                 const text = WI.UIString("Selected Canvas Context");
-                WI.consoleLogViewController.appendImmediateExecutionWithResult(text, remoteObject, {addSpecialUserLogClass: true});
+                WI.consoleLogViewController.appendImmediateExecutionWithResult(text, remoteObject, {addSpecialUserLogClass: true, shouldRevealConsole: true});
             });
         });
 
@@ -330,6 +302,19 @@ WI.CanvasContentView = class CanvasContentView extends WI.ContentView
 
         if (this._previewImageElement)
             this._previewImageElement.classList.toggle("show-grid", activated);
+    }
+
+    _updateSize()
+    {
+        if (this._pixelSizeElement) {
+            let size = this.representedObject.size;
+            if (size)
+                this._pixelSizeElement.textContent = `${size.width} ${multiplicationSign} ${size.height}`;
+            else
+                this._pixelSizeElement.textContent = emDash;
+        }
+
+        this.refreshPreview();
     }
 
     _updateMemoryCost()

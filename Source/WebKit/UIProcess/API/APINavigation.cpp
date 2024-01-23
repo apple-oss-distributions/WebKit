@@ -28,6 +28,7 @@
 
 #include "WebBackForwardListItem.h"
 #include "WebNavigationState.h"
+#include <WebCore/RegistrableDomain.h>
 #include <WebCore/ResourceRequest.h>
 #include <WebCore/ResourceResponse.h>
 #include <wtf/DebugUtilities.h>
@@ -45,21 +46,24 @@ SubstituteData::SubstituteData(Vector<uint8_t>&& content, const ResourceResponse
 }
 
 
-Navigation::Navigation(WebNavigationState& state)
+Navigation::Navigation(WebNavigationState& state, WebCore::ProcessIdentifier processID)
     : m_navigationID(state.generateNavigationID())
+    , m_processID(processID)
     , m_clientNavigationActivity(navigationActivityTimeout)
 {
 }
 
-Navigation::Navigation(WebNavigationState& state, WebBackForwardListItem* currentAndTargetItem)
+Navigation::Navigation(WebNavigationState& state, WebCore::ProcessIdentifier processID, WebBackForwardListItem* currentAndTargetItem)
     : m_navigationID(state.generateNavigationID())
+    , m_processID(processID)
     , m_reloadItem(currentAndTargetItem)
     , m_clientNavigationActivity(navigationActivityTimeout)
 {
 }
 
-Navigation::Navigation(WebNavigationState& state, WebCore::ResourceRequest&& request, WebBackForwardListItem* fromItem)
+Navigation::Navigation(WebNavigationState& state, WebCore::ProcessIdentifier processID, WebCore::ResourceRequest&& request, WebBackForwardListItem* fromItem)
     : m_navigationID(state.generateNavigationID())
+    , m_processID(processID)
     , m_originalRequest(WTFMove(request))
     , m_currentRequest(m_originalRequest)
     , m_redirectChain { m_originalRequest.url() }
@@ -68,8 +72,9 @@ Navigation::Navigation(WebNavigationState& state, WebCore::ResourceRequest&& req
 {
 }
 
-Navigation::Navigation(WebNavigationState& state, WebBackForwardListItem& targetItem, WebBackForwardListItem* fromItem, FrameLoadType backForwardFrameLoadType)
+Navigation::Navigation(WebNavigationState& state, WebCore::ProcessIdentifier processID, WebBackForwardListItem& targetItem, WebBackForwardListItem* fromItem, FrameLoadType backForwardFrameLoadType)
     : m_navigationID(state.generateNavigationID())
+    , m_processID(processID)
     , m_originalRequest(targetItem.url())
     , m_currentRequest(m_originalRequest)
     , m_targetItem(&targetItem)
@@ -79,15 +84,15 @@ Navigation::Navigation(WebNavigationState& state, WebBackForwardListItem& target
 {
 }
 
-Navigation::Navigation(WebKit::WebNavigationState& state, std::unique_ptr<SubstituteData>&& substituteData)
-    : Navigation(state)
+Navigation::Navigation(WebKit::WebNavigationState& state, WebCore::ProcessIdentifier processID, std::unique_ptr<SubstituteData>&& substituteData)
+    : Navigation(state, processID)
 {
     ASSERT(substituteData);
     m_substituteData = WTFMove(substituteData);
 }
 
-Navigation::Navigation(WebKit::WebNavigationState& state, WebCore::ResourceRequest&& simulatedRequest, std::unique_ptr<SubstituteData>&& substituteData, WebKit::WebBackForwardListItem* fromItem)
-    : Navigation(state, WTFMove(simulatedRequest), fromItem)
+Navigation::Navigation(WebKit::WebNavigationState& state, WebCore::ProcessIdentifier processID, WebCore::ResourceRequest&& simulatedRequest, std::unique_ptr<SubstituteData>&& substituteData, WebKit::WebBackForwardListItem* fromItem)
+    : Navigation(state, processID, WTFMove(simulatedRequest), fromItem)
 {
     ASSERT(substituteData);
     m_substituteData = WTFMove(substituteData);
@@ -107,6 +112,12 @@ void Navigation::appendRedirectionURL(const WTF::URL& url)
 {
     if (m_redirectChain.isEmpty() || m_redirectChain.last() != url)
         m_redirectChain.append(url);
+}
+
+bool Navigation::currentRequestIsCrossSiteRedirect() const
+{
+    return currentRequestIsRedirect()
+        && RegistrableDomain(m_lastNavigationAction.redirectResponse.url()) != RegistrableDomain(m_currentRequest.url());
 }
 
 #if !LOG_DISABLED

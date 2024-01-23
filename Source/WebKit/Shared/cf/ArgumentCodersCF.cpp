@@ -35,6 +35,8 @@
 #include "StreamConnectionEncoder.h"
 #include <CoreGraphics/CoreGraphics.h>
 #include <WebCore/Color.h>
+#include <WebCore/ColorSpace.h>
+#include <WebCore/ColorSpaceCG.h>
 #include <wtf/EnumTraits.h>
 #include <wtf/HashSet.h>
 #include <wtf/ProcessPrivilege.h>
@@ -48,12 +50,6 @@
 
 namespace IPC {
 using namespace WebCore;
-
-CFTypeRef tokenNullptrTypeRef()
-{
-    static CFStringRef tokenNullptrType = CFSTR("WKNull");
-    return tokenNullptrType;
-}
 
 enum class CFType : uint8_t {
     CFArray,
@@ -82,9 +78,7 @@ enum class CFType : uint8_t {
 
 static CFType typeFromCFTypeRef(CFTypeRef type)
 {
-    ASSERT(type);
-
-    if (type == tokenNullptrTypeRef())
+    if (!type)
         return CFType::Nullptr;
 
     CFTypeID typeID = CFGetTypeID(type);
@@ -324,7 +318,7 @@ std::optional<RetainPtr<CFTypeRef>> ArgumentCoder<RetainPtr<CFTypeRef>>::decode(
         return WTFMove(*trust);
     }
     case CFType::Nullptr:
-        return tokenNullptrTypeRef();
+        return nullptr;
     case CFType::Unknown:
         break;
     }
@@ -650,6 +644,12 @@ std::optional<RetainPtr<CFNumberRef>> ArgumentCoder<RetainPtr<CFNumberRef>>::dec
 template<typename Encoder>
 void ArgumentCoder<CFStringRef>::encode(Encoder& encoder, CFStringRef string)
 {
+    if (!string) {
+        encoder << true;
+        return;
+    }
+    encoder << false;
+
     CFIndex length = CFStringGetLength(string);
     CFStringEncoding encoding = CFStringGetFastestEncoding(string);
 
@@ -671,6 +671,14 @@ template void ArgumentCoder<CFStringRef>::encode<StreamConnectionEncoder>(Stream
 
 std::optional<RetainPtr<CFStringRef>> ArgumentCoder<RetainPtr<CFStringRef>>::decode(Decoder& decoder)
 {
+    std::optional<bool> isNull;
+    decoder >> isNull;
+    if (!isNull)
+        return std::nullopt;
+
+    if (*isNull)
+        return { { nullptr } };
+
     std::optional<uint32_t> encodingFromIPC;
     decoder >> encodingFromIPC;
     if (!encodingFromIPC)
@@ -742,17 +750,29 @@ std::optional<RetainPtr<CFURLRef>> ArgumentCoder<RetainPtr<CFURLRef>>::decode(De
     return WTFMove(result);
 }
 
-enum class CGColorSpaceEncodingScheme : bool { Name, PropertyList };
+namespace {
+using CGColorSpaceSerialization = std::variant<WebCore::ColorSpace, RetainPtr<CFStringRef>, RetainPtr<CFTypeRef>>;
+}
 
 template<typename Encoder>
-void ArgumentCoder<CGColorSpaceRef>::encode(Encoder& encoder, CGColorSpaceRef colorSpace)
+void ArgumentCoder<CGColorSpaceRef>::encode(Encoder& encoder, CGColorSpaceRef cgColorSpace)
 {
-    if (auto name = CGColorSpaceGetName(colorSpace)) {
-        encoder << CGColorSpaceEncodingScheme::Name << name;
+    if (auto colorSpace = colorSpaceForCGColorSpace(cgColorSpace)) {
+        encoder << CGColorSpaceSerialization { *colorSpace };
         return;
     }
-
-    encoder << CGColorSpaceEncodingScheme::PropertyList << adoptCF(CGColorSpaceCopyPropertyList(colorSpace));
+    if (RetainPtr<CFStringRef> name = CGColorSpaceGetName(cgColorSpace)) {
+        // This is a bit slow, hence we use the above if possible.
+        encoder << CGColorSpaceSerialization { WTFMove(name) };
+        return;
+    }
+    if (auto propertyList = adoptCF(CGColorSpaceCopyPropertyList(cgColorSpace))) {
+        encoder << CGColorSpaceSerialization { WTFMove(propertyList) };
+        return;
+    }
+    // FIXME: This should be removed once we can prove only non-null cgColorSpaces.
+    encoder << CGColorSpaceSerialization { WebCore::ColorSpace::SRGB };
+    ASSERT_NOT_REACHED(); // NOLINT
 }
 
 template void ArgumentCoder<CGColorSpaceRef>::encode<Encoder>(Encoder&, CGColorSpaceRef);
@@ -760,40 +780,23 @@ template void ArgumentCoder<CGColorSpaceRef>::encode<StreamConnectionEncoder>(St
 
 std::optional<RetainPtr<CGColorSpaceRef>> ArgumentCoder<RetainPtr<CGColorSpaceRef>>::decode(Decoder& decoder)
 {
-    std::optional<CGColorSpaceEncodingScheme> encodingScheme;
-    decoder >> encodingScheme;
-    if (!encodingScheme)
+    auto colorSpaceFormat = decoder.decode<CGColorSpaceSerialization>();
+    if (UNLIKELY(!decoder.isValid()))
         return std::nullopt;
-
-    switch (*encodingScheme) {
-    case CGColorSpaceEncodingScheme::Name: {
-        std::optional<RetainPtr<CFStringRef>> name;
-        decoder >> name;
-        if (!name)
-            return std::nullopt;
-
-        auto colorSpace = adoptCF(CGColorSpaceCreateWithName(name->get()));
-        if (!colorSpace)
-            return std::nullopt;
-
-        return WTFMove(colorSpace);
-    }
-    case CGColorSpaceEncodingScheme::PropertyList: {
-        std::optional<RetainPtr<CFTypeRef>> propertyList;
-        decoder >> propertyList;
-        if (!propertyList)
-            return std::nullopt;
-
-        auto colorSpace = adoptCF(CGColorSpaceCreateWithPropertyList(propertyList->get()));
-        if (!colorSpace)
-            return std::nullopt;
-
-        return WTFMove(colorSpace);
-    }
-    }
-
-    ASSERT_NOT_REACHED();
-    return std::nullopt;
+    auto colorSpace = WTF::switchOn(*colorSpaceFormat,
+        [](WebCore::ColorSpace colorSpace) -> RetainPtr<CGColorSpaceRef> {
+            return RetainPtr { cachedNullableCGColorSpace(colorSpace) };
+        },
+        [](RetainPtr<CFStringRef> name) -> RetainPtr<CGColorSpaceRef> {
+            return adoptCF(CGColorSpaceCreateWithName(name.get()));
+        },
+        [](RetainPtr<CFTypeRef> propertyList) -> RetainPtr<CGColorSpaceRef> {
+            return adoptCF(CGColorSpaceCreateWithPropertyList(propertyList.get()));
+        }
+    );
+    if (UNLIKELY(!colorSpace))
+        return std::nullopt;
+    return colorSpace;
 }
 
 template<typename Encoder>

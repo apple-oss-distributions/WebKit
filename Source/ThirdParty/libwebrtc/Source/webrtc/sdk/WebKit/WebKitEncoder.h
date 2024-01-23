@@ -59,6 +59,7 @@ struct WebKitEncodedFrameInfo {
     uint32_t width { 0 };
     uint32_t height { 0 };
     int64_t timeStamp { 0 };
+    std::optional<uint64_t> duration;
     int64_t ntpTimeMS { 0 };
     int64_t captureTimeMS { 0 };
     VideoFrameType frameType { VideoFrameType::kVideoFrameDelta };
@@ -66,19 +67,22 @@ struct WebKitEncodedFrameInfo {
     VideoContentType contentType { VideoContentType::UNSPECIFIED };
     bool completeFrame = false;
     int qp { -1 };
+    int temporalIndex { -1 };
     WebKitEncodedFrameTiming timing;
 
     template<class Encoder> void encode(Encoder&) const;
     template<class Decoder> static bool decode(Decoder&, WebKitEncodedFrameInfo&);
 };
 
+enum class LocalEncoderScalabilityMode : uint8_t { L1T1, L1T2 };
+
 using LocalEncoder = void*;
 using LocalEncoderCallback = void (^)(const uint8_t* buffer, size_t size, const webrtc::WebKitEncodedFrameInfo&);
 using LocalEncoderDescriptionCallback = void (^)(const uint8_t* buffer, size_t size);
-void* createLocalEncoder(const webrtc::SdpVideoFormat&, bool useAnnexB, LocalEncoderCallback, LocalEncoderDescriptionCallback);
+void* createLocalEncoder(const webrtc::SdpVideoFormat&, bool useAnnexB, LocalEncoderScalabilityMode, LocalEncoderCallback, LocalEncoderDescriptionCallback);
 void releaseLocalEncoder(LocalEncoder);
 void initializeLocalEncoder(LocalEncoder, uint16_t width, uint16_t height, unsigned int startBitrate, unsigned int maxBitrate, unsigned int minBitrate, uint32_t maxFramerate);
-void encodeLocalEncoderFrame(LocalEncoder, CVPixelBufferRef, int64_t timeStampNs, uint32_t timeStamp, webrtc::VideoRotation, bool isKeyframeRequired);
+void encodeLocalEncoderFrame(LocalEncoder, CVPixelBufferRef, int64_t timeStampNs, int64_t timeStamp, std::optional<uint64_t> duration, webrtc::VideoRotation, bool isKeyframeRequired);
 void setLocalEncoderRates(LocalEncoder, uint32_t bitRate, uint32_t frameRate);
 void setLocalEncoderLowLatency(LocalEncoder, bool isLowLatencyEnabled);
 void encoderVideoTaskComplete(void*, webrtc::VideoCodecType, const uint8_t* buffer, size_t length, const WebKitEncodedFrameInfo&);
@@ -93,6 +97,8 @@ bool WebKitEncodedFrameInfo::decode(Decoder& decoder, WebKitEncodedFrameInfo& in
         return false;
     if (!decoder.decode(info.timeStamp))
         return false;
+    if (!decoder.decode(info.duration))
+        return false;
     if (!decoder.decode(info.ntpTimeMS))
         return false;
     if (!decoder.decode(info.captureTimeMS))
@@ -106,6 +112,8 @@ bool WebKitEncodedFrameInfo::decode(Decoder& decoder, WebKitEncodedFrameInfo& in
     if (!decoder.decode(info.completeFrame))
         return false;
     if (!decoder.decode(info.qp))
+        return false;
+    if (!decoder.decode(info.temporalIndex))
         return false;
 
     if (!decoder.decode(info.timing.flags))
@@ -136,6 +144,7 @@ void WebKitEncodedFrameInfo::encode(Encoder& encoder) const
     encoder << width;
     encoder << height;
     encoder << timeStamp;
+    encoder << duration;
     encoder << ntpTimeMS;
     encoder << captureTimeMS;
     encoder << frameType;
@@ -143,6 +152,7 @@ void WebKitEncodedFrameInfo::encode(Encoder& encoder) const
     encoder << contentType;
     encoder << completeFrame;
     encoder << qp;
+    encoder << temporalIndex;
 
     encoder << timing.flags;
     encoder << timing.encode_start_ms;

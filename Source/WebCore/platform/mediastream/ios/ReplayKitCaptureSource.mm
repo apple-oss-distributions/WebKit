@@ -26,7 +26,7 @@
 #include "config.h"
 #include "ReplayKitCaptureSource.h"
 
-#if ENABLE(MEDIA_STREAM) && PLATFORM(IOS)
+#if ENABLE(MEDIA_STREAM) && (PLATFORM(IOS) || PLATFORM(VISION))
 
 #import "Logging.h"
 #import "RealtimeVideoUtilities.h"
@@ -101,10 +101,10 @@ bool ReplayKitCaptureSource::isAvailable()
     return [PAL::getRPScreenRecorderClass() sharedRecorder].isAvailable;
 }
 
-Expected<UniqueRef<DisplayCaptureSourceCocoa::Capturer>, String> ReplayKitCaptureSource::create(const String&)
+Expected<UniqueRef<DisplayCaptureSourceCocoa::Capturer>, CaptureSourceError> ReplayKitCaptureSource::create(const String&)
 {
     if (!isAvailable())
-        return makeUnexpected("Screen capture unavailable"_s);
+        return makeUnexpected(CaptureSourceError { "Screen capture unavailable"_s, MediaAccessDenialReason::NoCaptureDevices });
 
     return UniqueRef<DisplayCaptureSourceCocoa::Capturer>(makeUniqueRef<ReplayKitCaptureSource>());
 }
@@ -278,4 +278,4 @@ void ReplayKitCaptureSource::screenCaptureDevices(Vector<CaptureDevice>& display
 
 } // namespace WebCore
 
-#endif // ENABLE(MEDIA_STREAM) && PLATFORM(IOS)
+#endif // ENABLE(MEDIA_STREAM) && (PLATFORM(IOS) || PLATFORM(VISION))

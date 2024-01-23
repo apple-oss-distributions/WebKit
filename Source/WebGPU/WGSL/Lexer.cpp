@@ -26,6 +26,8 @@
 #include "config.h"
 #include "Lexer.h"
 
+#include <wtf/SortedArrayMap.h>
+#include <wtf/text/StringHash.h>
 #include <wtf/unicode/CharacterNames.h>
 
 namespace WGSL {
@@ -33,7 +35,8 @@ namespace WGSL {
 template <typename T>
 Token Lexer<T>::lex()
 {
-    skipWhitespace();
+    if (!skipWhitespaceAndComments())
+        return makeToken(TokenType::Invalid);
 
     m_tokenStartingPosition = m_currentPosition;
 
@@ -41,6 +44,34 @@ Token Lexer<T>::lex()
         return makeToken(TokenType::EndOfFile);
 
     switch (m_current) {
+    case '!':
+        shift();
+        if (m_current == '=') {
+            shift();
+            return makeToken(TokenType::BangEq);
+        }
+        return makeToken(TokenType::Bang);
+    case '%':
+        shift();
+        switch (m_current) {
+        case '=':
+            shift();
+            return makeToken(TokenType::ModuloEq);
+        default:
+            return makeToken(TokenType::Modulo);
+        }
+    case '&':
+        shift();
+        switch (m_current) {
+        case '&':
+            shift();
+            return makeToken(TokenType::AndAnd);
+        case '=':
+            shift();
+            return makeToken(TokenType::AndEq);
+        default:
+            return makeToken(TokenType::And);
+        }
     case '(':
         shift();
         return makeToken(TokenType::ParenLeft);
@@ -70,19 +101,69 @@ Token Lexer<T>::lex()
         return makeToken(TokenType::Semicolon);
     case '=':
         shift();
+        if (m_current == '=') {
+            shift();
+            return makeToken(TokenType::EqEq);
+        }
         return makeToken(TokenType::Equal);
     case '>':
         shift();
-        return makeToken(TokenType::GT);
+        switch (m_current) {
+        case '=':
+            shift();
+            return makeToken(TokenType::GtEq);
+        case '>':
+            shift();
+            switch (m_current) {
+            case '=':
+                shift();
+                return makeToken(TokenType::GtGtEq);
+            default:
+                return makeToken(TokenType::GtGt);
+            }
+        default:
+            return makeToken(TokenType::Gt);
+        }
     case '<':
         shift();
-        return makeToken(TokenType::LT);
+        switch (m_current) {
+        case '=':
+            shift();
+            return makeToken(TokenType::LtEq);
+        case '<':
+            shift();
+            switch (m_current) {
+            case '=':
+                shift();
+                return makeToken(TokenType::LtLtEq);
+            default:
+                return makeToken(TokenType::LtLt);
+            }
+        default:
+            return makeToken(TokenType::Lt);
+        }
     case '@':
         shift();
         return makeToken(TokenType::Attribute);
     case '*':
         shift();
-        return makeToken(TokenType::Star);
+        switch (m_current) {
+        case '=':
+            shift();
+            return makeToken(TokenType::StarEq);
+        default:
+            // FIXME: Report unbalanced block comments, such as "this is an unbalanced comment. */"
+            return makeToken(TokenType::Star);
+        }
+    case '/':
+        shift();
+        switch (m_current) {
+        case '=':
+            shift();
+            return makeToken(TokenType::SlashEq);
+        default:
+            return makeToken(TokenType::Slash);
+        }
     case '.': {
         shift();
         unsigned offset = currentOffset();
@@ -97,28 +178,60 @@ Token Lexer<T>::lex()
         std::optional<int64_t> exponent = parseDecimalFloatExponent();
         if (exponent)
             literalValue *= pow(10, exponent.value());
-        return makeLiteralToken(TokenType::DecimalFloatLiteral, literalValue);
+        if (m_current == 'f') {
+            shift();
+            return makeLiteralToken(TokenType::FloatLiteral, literalValue);
+        }
+        return makeLiteralToken(TokenType::AbstractFloatLiteral, literalValue);
     }
     case '-':
         shift();
-        if (m_current == '>') {
+        switch (m_current) {
+        case '>':
             shift();
             return makeToken(TokenType::Arrow);
-        }
-        if (m_current == '-') {
+        case '-':
             shift();
             return makeToken(TokenType::MinusMinus);
+        case '=':
+            shift();
+            return makeToken(TokenType::MinusEq);
+        default:
+            return makeToken(TokenType::Minus);
         }
-        return makeToken(TokenType::Minus);
-        break;
     case '+':
         shift();
-        if (m_current == '+') {
+        switch (m_current) {
+        case '+':
             shift();
             return makeToken(TokenType::PlusPlus);
+        case '=':
+            shift();
+            return makeToken(TokenType::PlusEq);
+        default:
+            return makeToken(TokenType::Plus);
         }
-        return makeToken(TokenType::Plus);
-        break;
+    case '^':
+        shift();
+        switch (m_current) {
+        case '=':
+            shift();
+            return makeToken(TokenType::XorEq);
+        default:
+            return makeToken(TokenType::Xor);
+        }
+    case '|':
+        shift();
+        switch (m_current) {
+        case '|':
+            shift();
+            return makeToken(TokenType::OrOr);
+        case '=':
+            shift();
+            return makeToken(TokenType::OrEq);
+        default:
+            return makeToken(TokenType::Or);
+        }
     case '0': {
         shift();
         double literalValue = 0;
@@ -155,12 +268,12 @@ Token Lexer<T>::lex()
                 }
                 if (m_current == 'f') {
                     shift();
-                    return makeLiteralToken(TokenType::DecimalFloatLiteral, literalValue);
+                    return makeLiteralToken(TokenType::FloatLiteral, literalValue);
                 }
             }
             if (std::optional<int64_t> exponent = parseDecimalFloatExponent()) {
+                isFloatingPoint = true;
                 literalValue *= pow(10, exponent.value());
-                return makeLiteralToken(TokenType::DecimalFloatLiteral, literalValue);
             }
             // Decimal integers are not allowed to start with 0.
             if (!isFloatingPoint)
@@ -168,12 +281,15 @@ Token Lexer<T>::lex()
         }
         if (m_current == 'f') {
             shift();
-            return makeLiteralToken(TokenType::DecimalFloatLiteral, literalValue);
+            return makeLiteralToken(TokenType::FloatLiteral, literalValue);
         }
         if (isFloatingPoint)
-            return makeLiteralToken(TokenType::DecimalFloatLiteral, literalValue);
+            return makeLiteralToken(TokenType::AbstractFloatLiteral, literalValue);
         return parseIntegerLiteralSuffix(literalValue);
     }
+    case '~':
+        shift();
+        return makeToken(TokenType::Tilde);
     default:
         if (isASCIIDigit(m_current)) {
             std::optional<uint64_t> value = parseDecimalInteger();
@@ -193,68 +309,192 @@ Token Lexer<T>::lex()
                 }
             }
             if (std::optional<int64_t> exponent = parseDecimalFloatExponent()) {
+                isFloatingPoint = true;
                 literalValue *= pow(10, exponent.value());
-                return makeLiteralToken(TokenType::DecimalFloatLiteral, literalValue);
             }
             if (m_current == 'f') {
                 shift();
-                return makeLiteralToken(TokenType::DecimalFloatLiteral, literalValue);
+                return makeLiteralToken(TokenType::FloatLiteral, literalValue);
             }
             if (!isFloatingPoint)
                 return parseIntegerLiteralSuffix(literalValue);
-            return makeLiteralToken(TokenType::DecimalFloatLiteral, literalValue);
+            return makeLiteralToken(TokenType::AbstractFloatLiteral, literalValue);
         } else if (isIdentifierStart(m_current)) {
             const T* startOfToken = m_code;
             shift();
-            while (isValidIdentifierCharacter(m_current))
+            while (isIdentifierContinue(m_current))
                 shift();
             // FIXME: a trie would be more efficient here, look at JavaScriptCore/KeywordLookupGenerator.py for an example of code autogeneration that produces such a trie.
             String view(StringImpl::createWithoutCopying(startOfToken, currentTokenLength()));
-            // FIXME: I don't think that true/false/f32/u32/i32/bool need to be their own tokens, they could just be regular identifiers.
-            if (view == "true"_s)
-                return makeToken(TokenType::LiteralTrue);
-            if (view == "false"_s)
-                return makeToken(TokenType::LiteralFalse);
-            if (view == "bool"_s)
-                return makeToken(TokenType::KeywordBool);
-            if (view == "i32"_s)
-                return makeToken(TokenType::KeywordI32);
-            if (view == "u32"_s)
-                return makeToken(TokenType::KeywordU32);
-            if (view == "f32"_s)
-                return makeToken(TokenType::KeywordF32);
-            if (view == "fn"_s)
-                return makeToken(TokenType::KeywordFn);
-            if (view == "function"_s)
-                return makeToken(TokenType::KeywordFunction);
-            if (view == "private"_s)
-                return makeToken(TokenType::KeywordPrivate);
-            if (view == "read"_s)
-                return makeToken(TokenType::KeywordRead);
-            if (view == "read_write"_s)
-                return makeToken(TokenType::KeywordReadWrite);
-            if (view == "return"_s)
-                return makeToken(TokenType::KeywordReturn);
-            if (view == "storage"_s)
-                return makeToken(TokenType::KeywordStorage);
-            if (view == "struct"_s)
-                return makeToken(TokenType::KeywordStruct);
-            if (view == "uniform"_s)
-                return makeToken(TokenType::KeywordUniform);
-            if (view == "var"_s)
-                return makeToken(TokenType::KeywordVar);
-            if (view == "workgroup"_s)
-                return makeToken(TokenType::KeywordWorkgroup);
-            if (view == "write"_s)
-                return makeToken(TokenType::KeywordWrite);
-            if (view == "array"_s)
-                return makeToken(TokenType::KeywordArray);
-            if (view == "asm"_s || view == "bf16"_s || view == "const"_s || view == "do"_s || view == "enum"_s
-                || view == "f16"_s || view == "f64"_s || view == "handle"_s || view == "i8"_s || view == "i16"_s
-                || view == "i64"_s || view == "mat"_s || view == "premerge"_s || view == "regardless"_s
-                || view == "typedef"_s || view == "u8"_s || view == "u16"_s || view == "u64"_s || view == "unless"_s
-                || view == "using"_s || view == "vec"_s || view == "void"_s || view == "while"_s)
+
+            static constexpr std::pair<ComparableASCIILiteral, TokenType> keywordMappings[] {
+                { "_", TokenType::Underbar },
+
+#define MAPPING_ENTRY(lexeme, name)\
+                { #lexeme, TokenType::Keyword##name },
+FOREACH_KEYWORD(MAPPING_ENTRY)
+#undef MAPPING_ENTRY
+
+            };
+            static constexpr SortedArrayMap keywords { keywordMappings };
+
+            // https://www.w3.org/TR/WGSL/#reserved-words
+            static constexpr ComparableASCIILiteral reservedWords[] {
+                "NULL",
+                "Self",
+                "abstract",
+                "active",
+                "alignas",
+                "alignof",
+                "as",
+                "asm",
+                "asm_fragment",
+                "async",
+                "attribute",
+                "auto",
+                "await",
+                "become",
+                "binding_array",
+                "cast",
+                "catch",
+                "class",
+                "co_await",
+                "co_return",
+                "co_yield",
+                "coherent",
+                "column_major",
+                "common",
+                "compile",
+                "compile_fragment",
+                "concept",
+                "const_cast",
+                "consteval",
+                "constexpr",
+                "constinit",
+                "crate",
+                "debugger",
+                "decltype",
+                "delete",
+                "demote",
+                "demote_to_helper",
+                "do",
+                "dynamic_cast",
+                "enum",
+                "explicit",
+                "export",
+                "extends",
+                "extern",
+                "external",
+                "fallthrough",
+                "filter",
+                "final",
+                "finally",
+                "friend",
+                "from",
+                "fxgroup",
+                "get",
+                "goto",
+                "groupshared",
+                "highp",
+                "impl",
+                "implements",
+                "import",
+                "inline",
+                "instanceof",
+                "interface",
+                "layout",
+                "lowp",
+                "macro",
+                "macro_rules",
+                "match",
+                "mediump",
+                "meta",
+                "mod",
+                "module",
+                "move",
+                "mut",
+                "mutable",
+                "namespace",
+                "new",
+                "nil",
+                "noexcept",
+                "noinline",
+                "nointerpolation",
+                "noperspective",
+                "null",
+                "nullptr",
+                "of",
+                "operator",
+                "package",
+                "packoffset",
+                "partition",
+                "pass",
+                "patch",
+                "pixelfragment",
+                "precise",
+                "precision",
+                "premerge",
+                "priv",
+                "protected",
+                "pub",
+                "public",
+                "readonly",
+                "ref",
+                "regardless",
+                "register",
+                "reinterpret_cast",
+                "require",
+                "resource",
+                "restrict",
+                "self",
+                "set",
+                "shared",
+                "sizeof",
+                "smooth",
+                "snorm",
+                "static",
+                "static_assert",
+                "static_cast",
+                "std",
+                "subroutine",
+                "super",
+                "target",
+                "template",
+                "this",
+                "thread_local",
+                "throw",
+                "trait",
+                "try",
+                "type",
+                "typedef",
+                "typeid",
+                "typename",
+                "typeof",
+                "union",
+                "unless",
+                "unorm",
+                "unsafe",
+                "unsized",
+                "use",
+                "using",
+                "varying",
+                "virtual",
+                "volatile",
+                "wgsl",
+                "where",
+                "with",
+                "writeonly",
+                "yield",
+            };
+            static constexpr SortedArraySet reservedWordSet { reservedWords };
+
+            auto tokenType = keywords.get(view);
+            if (tokenType != TokenType::Invalid)
+                return makeToken(tokenType);
+
+            if (UNLIKELY(reservedWordSet.contains(view)))
                 return makeToken(TokenType::ReservedWord);
+
             return makeIdentifierToken(WTFMove(view));
         }
         break;
@@ -263,15 +503,19 @@ Token Lexer<T>::lex()
 }
 
 template <typename T>
-void Lexer<T>::shift()
+T Lexer<T>::shift(unsigned i)
 {
+    ASSERT(m_code + i <= m_codeEnd);
+
+    T last = m_current;
     // At one point timing showed that setting m_current to 0 unconditionally was faster than an if-else sequence.
     m_current = 0;
-    ++m_code;
-    ++m_currentPosition.m_offset;
-    ++m_currentPosition.m_lineOffset;
+    m_code += i;
+    m_currentPosition.offset += i;
+    m_currentPosition.lineOffset += i;
     if (LIKELY(m_code < m_codeEnd))
         m_current = *m_code;
+    return last;
 }
 
 template <typename T>
@@ -283,16 +527,71 @@ T Lexer<T>::peek(unsigned i)
 }
 
 template <typename T>
-void Lexer<T>::skipWhitespace()
+void Lexer<T>::newLine()
 {
-    while (isASCIISpace(m_current)) {
-        if (m_current == '\n') {
+    m_currentPosition.line += 1;
+    m_currentPosition.lineOffset = 0;
+}
+
+template <typename T>
+bool Lexer<T>::skipBlockComments()
+{
+    ASSERT(peek(0) == '/' && peek(1) == '*');
+    shift(2);
+
+    T ch = 0;
+    unsigned depth = 1u;
+
+    while (!isAtEndOfFile() && (ch = shift())) {
+        if (ch == '/' && peek() == '*') {
             shift();
-            ++m_currentPosition.m_line;
-            m_currentPosition.m_lineOffset = 0;
-        } else
+            depth += 1;
+        } else if (ch == '*' && peek() == '/') {
             shift();
+            depth -= 1;
+            if (!depth) {
+                // This block comment is closed, so for a construction like "/* */ */"
+                // there will be a successfully parsed block comment "/* */"
+                // and " */" will be processed separately.
+                return true;
+            }
+        } else if (ch == '\n')
+            newLine();
     }
+
+    // FIXME: Report unbalanced block comments, such as "/* this is an unbalanced comment."
+    return false;
+}
+
+template <typename T>
+void Lexer<T>::skipLineComment()
+{
+    ASSERT(peek(0) == '/' && peek(1) == '/');
+    // Note that in the case of \r\n this makes the comment end on the \r. It is
+    // fine, as the \n after that is simple whitespace.
+    while (!isAtEndOfFile() && peek() != '\n')
+        shift();
+}
+
+template <typename T>
+bool Lexer<T>::skipWhitespaceAndComments()
+{
+    while (!isAtEndOfFile()) {
+        if (isUnicodeCompatibleASCIIWhitespace(m_current)) {
+            if (shift() == '\n')
+                newLine();
+        } else if (peek(0) == '/') {
+            if (peek(1) == '/')
+                skipLineComment();
+            else if (peek(1) == '*') {
+                if (!skipBlockComments())
+                    return false;
+            } else
+                break;
+        } else
+            break;
+    }
+    return true;
 }
 
 template <typename T>
@@ -375,4 +674,3 @@ template class Lexer<LChar>;
 template class Lexer<UChar>;
 
 }
-

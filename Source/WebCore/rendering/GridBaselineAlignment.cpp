@@ -31,9 +31,11 @@
 #include "config.h"
 #include "GridBaselineAlignment.h"
 
-#include "RenderBox.h"
-#include "RenderStyle.h"
-#include "rendering/style/RenderStyleConstants.h"
+#include "AncestorSubgridIterator.h"
+#include "BaselineAlignmentInlines.h"
+#include "RenderBoxInlines.h"
+#include "RenderGrid.h"
+#include "RenderStyleConstants.h"
 
 namespace WebCore {
 
@@ -59,31 +61,64 @@ LayoutUnit GridBaselineAlignment::marginUnderForChild(const RenderBox& child, Gr
 
 LayoutUnit GridBaselineAlignment::logicalAscentForChild(const RenderBox& child, GridAxis baselineAxis, ItemPosition position) const
 {
-    LayoutUnit ascent = ascentForChild(child, baselineAxis, position);
-    return (isDescentBaselineForChild(child, baselineAxis) || position == ItemPosition::LastBaseline) ? descentForChild(child, ascent, baselineAxis) : ascent;
+    auto hasOrthogonalAncestorSubgrids = [&] {
+        for (auto& currentAncestorSubgrid : ancestorSubgridsOfGridItem(child, GridTrackSizingDirection::ForRows)) {
+            if (currentAncestorSubgrid.isHorizontalWritingMode() != currentAncestorSubgrid.parent()->isHorizontalWritingMode())
+                return true;
+        }
+        return false;
+    };
+
+    ExtraMarginsFromSubgrids extraMarginsFromAncestorSubgrids;
+    if (baselineAxis == GridAxis::GridColumnAxis && !hasOrthogonalAncestorSubgrids())
+        extraMarginsFromAncestorSubgrids = GridLayoutFunctions::extraMarginForSubgridAncestors(GridTrackSizingDirection::ForRows, child);
+
+    LayoutUnit ascent = ascentForChild(child, baselineAxis, position) + extraMarginsFromAncestorSubgrids.extraTrackStartMargin();
+    return (isDescentBaselineForChild(child, baselineAxis) || position == ItemPosition::LastBaseline) ? descentForChild(child, ascent, baselineAxis, extraMarginsFromAncestorSubgrids) : ascent;
 }
 
 LayoutUnit GridBaselineAlignment::ascentForChild(const RenderBox& child, GridAxis baselineAxis, ItemPosition position) const
 {
+    static const LayoutUnit noValidBaseline = LayoutUnit(-1);
+
     ASSERT(position == ItemPosition::Baseline || position == ItemPosition::LastBaseline);
+    auto baseline = 0_lu;
     LayoutUnit margin = isDescentBaselineForChild(child, baselineAxis) ? marginUnderForChild(child, baselineAxis) : marginOverForChild(child, baselineAxis);
-    std::optional<LayoutUnit> computedBaselineValue = position == ItemPosition::Baseline ? child.firstLineBaseline() : child.lastLineBaseline();
-    LayoutUnit baseline(isParallelToBaselineAxisForChild(child, baselineAxis) ? computedBaselineValue.value_or(LayoutUnit(-1)) : LayoutUnit(-1));
-    // We take border-box's under edge if no valid baseline.
-    if (baseline == -1) {
-        ASSERT(!child.needsLayout());
-        if (isHorizontalBaselineAxis(baselineAxis))
-            return isFlippedWritingMode(m_blockFlow) ? child.size().width().toInt() + margin : margin;
-        return child.size().height() + margin;
+
+    if (baselineAxis == GridAxis::GridColumnAxis) {
+        ASSERT(child.parentStyle());
+        auto* parentStyle = child.parentStyle();
+
+        auto alignmentContextDirection = [&] {
+            return child.parentStyle()->isHorizontalWritingMode() ? LineDirectionMode::HorizontalLine : LineDirectionMode::VerticalLine;
+        };
+
+        if (!isParallelToBaselineAxisForChild(child, baselineAxis))
+            return (parentStyle ? synthesizedBaseline(child, *child.parentStyle(), alignmentContextDirection(), BaselineSynthesisEdge::BorderBox) : 0_lu) + margin;
+        auto ascent = position == ItemPosition::Baseline ? child.firstLineBaseline() : child.lastLineBaseline();
+        if (!ascent)
+            return (parentStyle ? synthesizedBaseline(child, *child.parentStyle(), alignmentContextDirection(), BaselineSynthesisEdge::BorderBox) : 0_lu) + margin;
+        baseline = ascent.value();
+    } else {
+        auto computedBaselineValue = position == ItemPosition::Baseline ? child.firstLineBaseline() : child.lastLineBaseline();
+        baseline = isParallelToBaselineAxisForChild(child, baselineAxis) ? computedBaselineValue.value_or(noValidBaseline) : noValidBaseline;
+        // We take border-box's under edge if no valid baseline.
+        if (baseline == noValidBaseline) {
+            ASSERT(!child.needsLayout());
+            if (isHorizontalBaselineAxis(baselineAxis))
+                return isFlippedWritingMode(m_blockFlow) ? child.size().width().toInt() + margin : margin;
+            return child.size().height() + margin;
+        }
     }
-    return baseline + margin;
+
+    return margin + baseline;
 }
 
-LayoutUnit GridBaselineAlignment::descentForChild(const RenderBox& child, LayoutUnit ascent, GridAxis baselineAxis) const
+LayoutUnit GridBaselineAlignment::descentForChild(const RenderBox& child, LayoutUnit ascent, GridAxis baselineAxis, ExtraMarginsFromSubgrids extraMarginsFromAncestorSubgrids) const
 {
     ASSERT(!child.needsLayout());
     if (isParallelToBaselineAxisForChild(child, baselineAxis))
-        return child.marginLogicalHeight() + child.logicalHeight() - ascent;
+        return extraMarginsFromAncestorSubgrids.extraTotalMargin() + child.marginLogicalHeight() + child.logicalHeight() - ascent;
     return child.marginLogicalWidth() + child.logicalWidth() - ascent;
 }
 
@@ -96,7 +131,7 @@ bool GridBaselineAlignment::isDescentBaselineForChild(const RenderBox& child, Gr
 
 bool GridBaselineAlignment::isHorizontalBaselineAxis(GridAxis axis) const
 {
-    return axis == GridRowAxis ? isHorizontalWritingMode(m_blockFlow) : !isHorizontalWritingMode(m_blockFlow);
+    return axis == GridAxis::GridRowAxis ? isHorizontalWritingMode(m_blockFlow) : !isHorizontalWritingMode(m_blockFlow);
 }
 
 bool GridBaselineAlignment::isOrthogonalChildForBaseline(const RenderBox& child) const
@@ -106,17 +141,17 @@ bool GridBaselineAlignment::isOrthogonalChildForBaseline(const RenderBox& child)
 
 bool GridBaselineAlignment::isParallelToBaselineAxisForChild(const RenderBox& child, GridAxis axis) const
 {
-    return axis == GridColumnAxis ? !isOrthogonalChildForBaseline(child) : isOrthogonalChildForBaseline(child);
+    return axis == GridAxis::GridColumnAxis ? !isOrthogonalChildForBaseline(child) : isOrthogonalChildForBaseline(child);
 }
 
 const BaselineGroup& GridBaselineAlignment::baselineGroupForChild(ItemPosition preference, unsigned sharedContext, const RenderBox& child, GridAxis baselineAxis) const
 {
     ASSERT(isBaselinePosition(preference));
-    bool isRowAxisContext = baselineAxis == GridColumnAxis;
-    auto& contextsMap = isRowAxisContext ? m_rowAxisAlignmentContext : m_colAxisAlignmentContext;
-    auto* context = contextsMap.get(sharedContext);
-    ASSERT(context);
-    return context->sharedGroup(child, preference);
+    bool isRowAxisContext = baselineAxis == GridAxis::GridColumnAxis;
+    auto& baselineAlignmentStateMap = isRowAxisContext ? m_rowAxisBaselineAlignmentStates : m_colAxisBaselineAlignmentStates;
+    auto* baselineAlignmentState = baselineAlignmentStateMap.get(sharedContext);
+    ASSERT(baselineAlignmentState);
+    return baselineAlignmentState->sharedGroup(child, preference);
 }
 
 void GridBaselineAlignment::updateBaselineAlignmentContext(ItemPosition preference, unsigned sharedContext, const RenderBox& child, GridAxis baselineAxis)
@@ -129,112 +164,30 @@ void GridBaselineAlignment::updateBaselineAlignmentContext(ItemPosition preferen
     LayoutUnit ascent = logicalAscentForChild(child, baselineAxis, preference);
     // Looking up for a shared alignment context perpendicular to the
     // baseline axis.
-    bool isRowAxisContext = baselineAxis == GridColumnAxis;
-    auto& contextsMap = isRowAxisContext ? m_rowAxisAlignmentContext : m_colAxisAlignmentContext;
+    bool isRowAxisContext = baselineAxis == GridAxis::GridColumnAxis;
+    auto& baselineAlignmentStateMap = isRowAxisContext ? m_rowAxisBaselineAlignmentStates : m_colAxisBaselineAlignmentStates;
     // Looking for a compatible baseline-sharing group.
-    if (auto* contextSearch = contextsMap.get(sharedContext))
-        contextSearch->updateSharedGroup(child, preference, ascent);
+    if (auto* baselineAlignmentStateSearch = baselineAlignmentStateMap.get(sharedContext))
+        baselineAlignmentStateSearch->updateSharedGroup(child, preference, ascent);
     else
-        contextsMap.add(sharedContext, makeUnique<BaselineContext>(child, preference, ascent));
+        baselineAlignmentStateMap.add(sharedContext, makeUnique<BaselineAlignmentState>(child, preference, ascent));
 }
 
 LayoutUnit GridBaselineAlignment::baselineOffsetForChild(ItemPosition preference, unsigned sharedContext, const RenderBox& child, GridAxis baselineAxis) const
 {
     ASSERT(isBaselinePosition(preference));
     auto& group = baselineGroupForChild(preference, sharedContext, child, baselineAxis);
-    if (group.size() > 1)
+    if (group.computeSize() > 1)
         return group.maxAscent() - logicalAscentForChild(child, baselineAxis, preference);
     return LayoutUnit();
 }
 
 void GridBaselineAlignment::clear(GridAxis baselineAxis)
 {
-    if (baselineAxis == GridColumnAxis)
-        m_rowAxisAlignmentContext.clear();
+    if (baselineAxis == GridAxis::GridColumnAxis)
+        m_rowAxisBaselineAlignmentStates.clear();
     else
-        m_colAxisAlignmentContext.clear();
-}
-
-BaselineGroup::BaselineGroup(WritingMode blockFlow, ItemPosition childPreference)
-    : m_maxAscent(0), m_items()
-{
-    m_blockFlow = blockFlow;
-    m_preference = childPreference;
-}
-
-void BaselineGroup::update(const RenderBox& child, LayoutUnit ascent)
-{
-    if (m_items.add(&child).isNewEntry) {
-        m_maxAscent = std::max(m_maxAscent, ascent);
-    }
-}
-
-bool BaselineGroup::isOppositeBlockFlow(WritingMode blockFlow) const
-{
-    switch (blockFlow) {
-    case WritingMode::TopToBottom:
-        return false;
-    case WritingMode::LeftToRight:
-        return m_blockFlow == WritingMode::RightToLeft;
-    case WritingMode::RightToLeft:
-        return m_blockFlow == WritingMode::LeftToRight;
-    default:
-        ASSERT_NOT_REACHED();
-        return false;
-    }
-}
-
-bool BaselineGroup::isOrthogonalBlockFlow(WritingMode blockFlow) const
-{
-    switch (blockFlow) {
-    case WritingMode::TopToBottom:
-        return m_blockFlow != WritingMode::TopToBottom;
-    case WritingMode::LeftToRight:
-    case WritingMode::RightToLeft:
-        return m_blockFlow == WritingMode::TopToBottom;
-    default:
-        ASSERT_NOT_REACHED();
-        return false;
-    }
-}
-
-bool BaselineGroup::isCompatible(WritingMode childBlockFlow, ItemPosition childPreference) const
-{
-    ASSERT(isBaselinePosition(childPreference));
-    ASSERT(size() > 0);
-    return ((m_blockFlow == childBlockFlow || isOrthogonalBlockFlow(childBlockFlow)) && m_preference == childPreference) || (isOppositeBlockFlow(childBlockFlow) && m_preference != childPreference);
-}
-
-BaselineContext::BaselineContext(const RenderBox& child, ItemPosition preference, LayoutUnit ascent)
-{
-    ASSERT(isBaselinePosition(preference));
-    updateSharedGroup(child, preference, ascent);
-}
-
-const BaselineGroup& BaselineContext::sharedGroup(const RenderBox& child, ItemPosition preference) const
-{
-    ASSERT(isBaselinePosition(preference));
-    return const_cast<BaselineContext*>(this)->findCompatibleSharedGroup(child, preference);
-}
-
-void BaselineContext::updateSharedGroup(const RenderBox& child, ItemPosition preference, LayoutUnit ascent)
-{
-    ASSERT(isBaselinePosition(preference));
-    BaselineGroup& group = findCompatibleSharedGroup(child, preference);
-    group.update(child, ascent);
-}
-
-// FIXME: Properly implement baseline-group compatibility.
-// See https://github.com/w3c/csswg-drafts/issues/721
-BaselineGroup& BaselineContext::findCompatibleSharedGroup(const RenderBox& child, ItemPosition preference)
-{
-    WritingMode blockDirection = child.style().writingMode();
-    for (auto& group : m_sharedGroups) {
-        if (group.isCompatible(blockDirection, preference))
-            return group;
-    }
-    m_sharedGroups.insert(0, BaselineGroup(blockDirection, preference));
-    return m_sharedGroups[0];
+        m_colAxisBaselineAlignmentStates.clear();
 }
 
 } // namespace WebCore

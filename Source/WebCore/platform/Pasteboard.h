@@ -29,6 +29,7 @@
 #include "PasteboardContext.h"
 #include "PasteboardCustomData.h"
 #include "PasteboardItemInfo.h"
+#include "SharedBuffer.h"
 #include <wtf/HashMap.h>
 #include <wtf/ListHashSet.h>
 #include <wtf/Noncopyable.h>
@@ -61,11 +62,10 @@ typedef struct HWND__* HWND;
 
 namespace WebCore {
 
-class SharedBuffer;
 class DocumentFragment;
 class DragData;
 class Element;
-class Frame;
+class LocalFrame;
 class PasteboardStrategy;
 class FragmentedSharedBuffer;
 
@@ -249,14 +249,15 @@ public:
 #endif
 
 #if PLATFORM(WIN)
-    RefPtr<DocumentFragment> documentFragment(Frame&, const SimpleRange&, bool allowPlainText, bool& chosePlainText); // FIXME: Layering violation.
+    RefPtr<DocumentFragment> documentFragment(LocalFrame&, const SimpleRange&, bool allowPlainText, bool& chosePlainText); // FIXME: Layering violation.
     void writeImage(Element&, const URL&, const String& title); // FIXME: Layering violation.
-    void writeSelection(const SimpleRange&, bool canSmartCopyOrDelete, Frame&, ShouldSerializeSelectedTextForDataTransfer = DefaultSelectedTextType); // FIXME: Layering violation.
+    void writeSelection(const SimpleRange&, bool canSmartCopyOrDelete, LocalFrame&, ShouldSerializeSelectedTextForDataTransfer = DefaultSelectedTextType); // FIXME: Layering violation.
 #endif
 
 #if PLATFORM(GTK)
     const SelectionData& selectionData() const;
     static std::unique_ptr<Pasteboard> createForGlobalSelection(std::unique_ptr<PasteboardContext>&&);
+    int64_t changeCount() const;
 #endif
 
 #if PLATFORM(IOS_FAMILY)
@@ -279,14 +280,22 @@ public:
     WEBCORE_EXPORT static NSArray *supportedFileUploadPasteboardTypes();
     int64_t changeCount() const;
     const PasteboardCustomData& readCustomData();
-#else
+#elif !PLATFORM(GTK)
     int64_t changeCount() const { return 0; }
 #endif
 
 #if PLATFORM(COCOA)
     const String& name() const { return m_pasteboardName; }
+#elif PLATFORM(GTK)
+    const String& name() const { return m_name; }
 #else
     const String& name() const { return emptyString(); }
+#endif
+
+#if PLATFORM(MAC)
+    WEBCORE_EXPORT static RefPtr<SharedBuffer> bufferConvertedToPasteboardType(const PasteboardBuffer&, const String& pasteboardType);
+#else
+    static RefPtr<SharedBuffer> bufferConvertedToPasteboardType(const PasteboardBuffer& pasteboardBuffer, const String&) { return pasteboardBuffer.data; };
 #endif
 
 #if PLATFORM(WIN)
@@ -322,7 +331,7 @@ private:
 
 #if PLATFORM(WIN)
     void finishCreatingPasteboard();
-    void writeRangeToDataObject(const SimpleRange&, Frame&); // FIXME: Layering violation.
+    void writeRangeToDataObject(const SimpleRange&, LocalFrame&); // FIXME: Layering violation.
     void writeURLToDataObject(const URL&, const String&);
     void writePlainTextToDataObject(const String&, SmartReplaceOption);
     std::optional<PasteboardCustomData> readPasteboardCustomData();
@@ -342,6 +351,7 @@ private:
 #if PLATFORM(GTK)
     std::optional<SelectionData> m_selectionData;
     String m_name;
+    int64_t m_changeCount { 0 };
 #endif
 
 #if PLATFORM(COCOA)
@@ -365,6 +375,7 @@ private:
 #if PLATFORM(IOS_FAMILY)
 extern NSString *WebArchivePboardType;
 extern NSString *UIColorPboardType;
+extern NSString *UIImagePboardType;
 #endif
 
 #if PLATFORM(MAC)

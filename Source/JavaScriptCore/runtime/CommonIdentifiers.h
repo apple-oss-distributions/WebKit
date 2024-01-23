@@ -86,6 +86,7 @@
     macro(calendar) \
     macro(callee) \
     macro(caller) \
+    macro(captureStackTrace) \
     macro(caseFirst) \
     macro(cause) \
     macro(clear) \
@@ -133,6 +134,7 @@
     macro(from) \
     macro(fromCharCode) \
     macro(get) \
+    macro(getOwnPropertyDescriptor) \
     macro(global) \
     macro(go) \
     macro(granularity) \
@@ -222,6 +224,7 @@
     macro(osrExitSites) \
     macro(osrExits) \
     macro(overflow) \
+    macro(ownKeys) \
     macro(parse) \
     macro(parseInt) \
     macro(parseFloat) \
@@ -278,6 +281,7 @@
     macro(type) \
     macro(uid) \
     macro(unicode) \
+    macro(unicodeSets) \
     macro(unit) \
     macro(usage) \
     macro(value) \

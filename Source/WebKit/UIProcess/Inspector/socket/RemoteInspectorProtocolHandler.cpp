@@ -31,11 +31,13 @@
 #include "APIContentWorld.h"
 #include "APILoaderClient.h"
 #include "APINavigation.h"
+#include "PageLoadState.h"
 #include "WebPageGroup.h"
 #include "WebPageProxy.h"
 #include "WebScriptMessageHandler.h"
 #include "WebUserContentControllerProxy.h"
 #include <WebCore/JSDOMExceptionHandling.h>
+#include <WebCore/RunJavaScriptParameters.h>
 #include <WebCore/SerializedScriptValue.h>
 #include <wtf/URL.h>
 #include <wtf/text/StringBuilder.h>
@@ -137,7 +139,7 @@ void RemoteInspectorProtocolHandler::inspect(const String& hostAndPort, Connecti
 
 void RemoteInspectorProtocolHandler::runScript(const String& script)
 {
-    m_page.runJavaScriptInMainFrame({ script, URL { }, false, std::nullopt, false }, 
+    m_page.runJavaScriptInMainFrame({ script, JSC::SourceTaintedOrigin::Untainted, URL { }, false, std::nullopt, false, RemoveTransientActivation::Yes },
         [] (auto&& result) {
         if (!result.has_value())
             LOG_ERROR("Exception running script \"%s\"", result.error().message.utf8().data());

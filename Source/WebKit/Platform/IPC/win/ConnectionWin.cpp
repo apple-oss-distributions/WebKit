@@ -142,7 +142,7 @@ void Connection::readEventHandler()
 
         if (!m_readBuffer.isEmpty()) {
             // We have a message, let's dispatch it.
-            auto decoder = Decoder::create(m_readBuffer.data(), m_readBuffer.size(), { });
+            auto decoder = Decoder::create(m_readBuffer.span(), { });
             ASSERT(decoder);
             if (!decoder)
                 return;
@@ -331,7 +331,7 @@ void Connection::EventListener::open(Function<void()>&& handler)
 
     BOOL result;
     result = ::RegisterWaitForSingleObject(&m_waitHandle, m_state.hEvent, callback, this, INFINITE, WT_EXECUTEDEFAULT);
-    ASSERT(result);
+    ASSERT_UNUSED(result, result);
 }
 
 void Connection::EventListener::callback(void* data, BOOLEAN timerOrWaitFired)
@@ -371,7 +371,7 @@ std::optional<Connection::ConnectionIdentifierPair> Connection::createConnection
         LOG_ERROR("Failed to create server and client identifiers");
         return std::nullopt;
     }
-    return ConnectionIdentifierPair { Identifier { Win32Handle { serverIdentifier } }, Win32Handle { clientIdentifier } };
+    return ConnectionIdentifierPair { Identifier { Win32Handle::adopt(serverIdentifier) }, Win32Handle::adopt(clientIdentifier) };
 }
 
 } // namespace IPC

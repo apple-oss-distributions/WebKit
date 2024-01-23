@@ -23,16 +23,24 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+#import <wtf/HashSet.h>
 #import <wtf/RetainPtr.h>
 #import <wtf/UUID.h>
 #import <wtf/WallTime.h>
+#import <wtf/text/StringHash.h>
 
 OBJC_CLASS NSArray;
 OBJC_CLASS NSDate;
 OBJC_CLASS NSDictionary;
+OBJC_CLASS NSError;
+OBJC_CLASS NSLocale;
 OBJC_CLASS NSSet;
 OBJC_CLASS NSString;
 OBJC_CLASS NSUUID;
+
+#define THROW_UNLESS(condition, message) \
+    if (UNLIKELY(!(condition))) \
+        [NSException raise:NSInternalInconsistencyException format:message]
 
 namespace WebKit {
 
@@ -73,9 +81,28 @@ T *objectForKey(const RetainPtr<NSDictionary>& dictionary, id key, bool returnin
     return objectForKey<T>(dictionary.get(), key, returningNilIfEmpty, containingObjectsOfClass);
 }
 
+// MARK: NSDictionary helper methods.
+
+NSDictionary *dictionaryWithLowercaseKeys(NSDictionary *);
+NSDictionary *mergeDictionaries(NSDictionary *, NSDictionary *);
+NSDictionary *mergeDictionariesAndSetValues(NSDictionary *, NSDictionary *);
+
+// MARK: NSLocale helper methods.
+
+NSString *localeStringInWebExtensionFormat(NSLocale *);
+
+// MARK: NSError helper methods.
+
+NSString *privacyPreservingDescription(NSError *);
+
 NSString *escapeCharactersInString(NSString *, NSString *charactersToEscape);
 
 NSDate *toAPI(const WallTime&);
 WallTime toImpl(NSDate *);
+
+NSSet *toAPI(HashSet<String>&);
+NSArray *toAPIArray(HashSet<String>&);
+Vector<String> toImpl(NSArray *);
+HashSet<String> toImplSet(NSArray *);
 
 } // namespace WebKit

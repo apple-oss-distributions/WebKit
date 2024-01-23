@@ -26,8 +26,9 @@
 
 #include "GraphicsContext.h"
 #include "ImageQualityController.h"
+#include "LayoutRect.h"
 #include "LengthFunctions.h"
-#include "RenderStyle.h"
+#include "RenderStyleInlines.h"
 #include <wtf/NeverDestroyed.h>
 #include <wtf/PointerComparison.h>
 #include <wtf/text/TextStream.h>
@@ -45,7 +46,7 @@ inline DataRef<NinePieceImage::Data>& NinePieceImage::defaultMaskData()
     static NeverDestroyed<DataRef<Data>> maskData { Data::create() };
     auto& data = maskData.get().access();
     data.imageSlices = LengthBox(0);
-    data.fill = true;
+    data.fill = false;
     data.borderSlices = LengthBox();
     return maskData.get();
 }
@@ -202,7 +203,7 @@ void NinePieceImage::paint(GraphicsContext& graphicsContext, const RenderElement
 {
     StyleImage* styleImage = image();
     ASSERT(styleImage);
-    ASSERT(styleImage->isLoaded());
+    ASSERT(styleImage->isLoaded(renderer));
 
     LayoutBoxExtent sourceSlices = computeSlices(source, imageSlices(), styleImage->imageScaleFactor());
     LayoutBoxExtent destinationSlices = computeSlices(destination.size(), borderSlices(), style.borderWidth(), sourceSlices);
@@ -223,13 +224,13 @@ void NinePieceImage::paint(GraphicsContext& graphicsContext, const RenderElement
             continue;
 
         if (isCornerPiece(piece)) {
-            graphicsContext.drawImage(*image, destinationRects[piece], sourceRects[piece], { op, ImageOrientation::FromImage });
+            graphicsContext.drawImage(*image, destinationRects[piece], sourceRects[piece], { op, ImageOrientation::Orientation::FromImage });
             continue;
         }
 
         Image::TileRule hRule = isHorizontalPiece(piece) ? static_cast<Image::TileRule>(horizontalRule()) : Image::StretchTile;
         Image::TileRule vRule = isVerticalPiece(piece) ? static_cast<Image::TileRule>(verticalRule()) : Image::StretchTile;
-        graphicsContext.drawTiledImage(*image, destinationRects[piece], sourceRects[piece], tileScales[piece], hRule, vRule, { op, ImageOrientation::FromImage });
+        graphicsContext.drawTiledImage(*image, destinationRects[piece], sourceRects[piece], tileScales[piece], hRule, vRule, { op, ImageOrientation::Orientation::FromImage });
     }
 }
 

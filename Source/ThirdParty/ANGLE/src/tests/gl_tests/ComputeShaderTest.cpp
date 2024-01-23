@@ -5124,6 +5124,12 @@ void main()
 // Test fragment shader read a image, followed by compute shader sample it.
 TEST_P(ComputeShaderTest, FSReadImageThenCSSample)
 {
+    GLint maxFragmentImageUniforms = 0;
+    glGetIntegerv(GL_MAX_FRAGMENT_IMAGE_UNIFORMS, &maxFragmentImageUniforms);
+
+    // MAX_FRAGMENT_IMAGE_UNIFORMS can be 0 according to OpenGL ES 3.1 SPEC.
+    ANGLE_SKIP_TEST_IF(maxFragmentImageUniforms == 0);
+
     constexpr char kVSSource[] = R"(#version 310 es
 in vec4 a_position;
 out vec2 v_texCoord;
@@ -5209,6 +5215,239 @@ void main()
     }
 }
 
+// Replicate the dEQP test dEQP-GLES31.functional.synchronization.in_invocation.ssbo_alias_overwrite
+TEST_P(ComputeShaderTest, SSBOAliasOverWrite)
+{
+    constexpr char kCSSource[] = R"(#version 310 es
+    layout (local_size_x=16, local_size_y=8) in;
+    layout(binding=0, std430) buffer Output {
+        highp int values[];
+    } sb_result;
+    layout(binding=1, std430) coherent buffer Storage0
+    {
+        highp int values[];
+    } sb_store0;
+    layout(binding=2, std430) coherent buffer Storage1
+    {
+        highp int values[];
+    } sb_store1;
+
+    highp int getIndex(in highp uvec2 localID, in highp int element)
+    {
+        highp uint groupNdx = gl_NumWorkGroups.x * gl_WorkGroupID.y + gl_WorkGroupID.x;
+        return int((localID.y * gl_NumWorkGroups.x * gl_NumWorkGroups.y * gl_WorkGroupSize.x) + (groupNdx * gl_WorkGroupSize.x) + localID.x) * 8 + element;
+    }
+
+    void main (void)
+    {
+        int resultNdx = int(gl_GlobalInvocationID.y * gl_NumWorkGroups.x * gl_WorkGroupSize.x + gl_GlobalInvocationID.x);
+        int groupNdx = int(gl_NumWorkGroups.x * gl_WorkGroupID.y + gl_WorkGroupID.x);
+        bool allOk = true;
+
+        sb_store0.values[getIndex(gl_LocalInvocationID.xy, 0)] = 456;
+        sb_store0.values[getIndex(gl_LocalInvocationID.xy, 1)] = 456;
+        sb_store0.values[getIndex(gl_LocalInvocationID.xy, 2)] = 456;
+        sb_store0.values[getIndex(gl_LocalInvocationID.xy, 3)] = 456;
+        sb_store0.values[getIndex(gl_LocalInvocationID.xy, 4)] = 456;
+        sb_store0.values[getIndex(gl_LocalInvocationID.xy, 5)] = 456;
+        sb_store0.values[getIndex(gl_LocalInvocationID.xy, 6)] = 456;
+        sb_store0.values[getIndex(gl_LocalInvocationID.xy, 7)] = 456;
+
+        sb_store1.values[getIndex(gl_LocalInvocationID.xy, 0)] = groupNdx;
+        sb_store1.values[getIndex(gl_LocalInvocationID.xy, 1)] = groupNdx;
+        sb_store1.values[getIndex(gl_LocalInvocationID.xy, 2)] = groupNdx;
+        sb_store1.values[getIndex(gl_LocalInvocationID.xy, 3)] = groupNdx;
+        sb_store1.values[getIndex(gl_LocalInvocationID.xy, 4)] = groupNdx;
+        sb_store1.values[getIndex(gl_LocalInvocationID.xy, 5)] = groupNdx;
+        sb_store1.values[getIndex(gl_LocalInvocationID.xy, 6)] = groupNdx;
+        sb_store1.values[getIndex(gl_LocalInvocationID.xy, 7)] = groupNdx;
+
+        allOk = allOk && (sb_store0.values[getIndex(gl_LocalInvocationID.xy, 0)] == groupNdx);
+        allOk = allOk && (sb_store0.values[getIndex(gl_LocalInvocationID.xy, 1)] == groupNdx);
+        allOk = allOk && (sb_store0.values[getIndex(gl_LocalInvocationID.xy, 2)] == groupNdx);
+        allOk = allOk && (sb_store0.values[getIndex(gl_LocalInvocationID.xy, 3)] == groupNdx);
+        allOk = allOk && (sb_store0.values[getIndex(gl_LocalInvocationID.xy, 4)] == groupNdx);
+        allOk = allOk && (sb_store0.values[getIndex(gl_LocalInvocationID.xy, 5)] == groupNdx);
+        allOk = allOk && (sb_store0.values[getIndex(gl_LocalInvocationID.xy, 6)] == groupNdx);
+        allOk = allOk && (sb_store0.values[getIndex(gl_LocalInvocationID.xy, 7)] == groupNdx);
+
+        sb_result.values[resultNdx] = allOk ? (1) : (2);
+
+    })";
+
+    const int totalWorkWidth        = 256;
+    const int totalWorkHeight       = 256;
+    const int elementsPerInvocation = 8;
+
+    // define compute shader input storage buffer
+    const int inputSSBOBufferSizeInBytes =
+        totalWorkWidth * totalWorkHeight * elementsPerInvocation * sizeof(uint32_t);
+    const int inputSSBOBufferElementsCount =
+        totalWorkWidth * totalWorkHeight * elementsPerInvocation;
+    std::vector<uint32_t> zeros(inputSSBOBufferElementsCount, 0);
+    GLBuffer ssbo;
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, ssbo);
+    glBufferData(GL_SHADER_STORAGE_BUFFER, inputSSBOBufferSizeInBytes, zeros.data(),
+                 GL_STATIC_DRAW);
+    ASSERT_GL_NO_ERROR();
+
+    // define compute shader output buffer
+    const int outputBufferSizeInBytes   = totalWorkWidth * totalWorkHeight * sizeof(int32_t);
+    const int outputBufferElementsCount = totalWorkWidth * totalWorkHeight;
+    std::vector<int32_t> minusOnes(outputBufferElementsCount, -1);
+    GLBuffer resultBuffer;
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, resultBuffer);
+    glBufferData(GL_SHADER_STORAGE_BUFFER, outputBufferSizeInBytes, &minusOnes[0], GL_STATIC_DRAW);
+    ASSERT_GL_NO_ERROR();
+
+    // dispatch compute shader
+    const int localWidth  = 16;
+    const int localHeight = 8;
+    ASSERT(totalWorkWidth % localWidth == 0);
+    ASSERT(totalWorkHeight % localHeight == 0);
+    const int numGroupDimX = totalWorkWidth / localWidth;
+    const int numGroupDimY = totalWorkHeight / localHeight;
+
+    ANGLE_GL_COMPUTE_PROGRAM(csProgram, kCSSource);
+    glUseProgram(csProgram);
+    ASSERT_GL_NO_ERROR();
+
+    // Bind storage buffer to compute shader binding locations
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, ssbo);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, ssbo);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, resultBuffer);
+
+    glDispatchCompute(numGroupDimX, numGroupDimY, 1);
+    ASSERT_GL_NO_ERROR();
+
+    // verify the result
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, resultBuffer);
+    glMemoryBarrier(GL_BUFFER_UPDATE_BARRIER_BIT);
+    void *mappedResults =
+        glMapBufferRange(GL_SHADER_STORAGE_BUFFER, 0, outputBufferSizeInBytes, GL_MAP_READ_BIT);
+    std::vector<int32_t> results(outputBufferElementsCount);
+    memcpy(results.data(), mappedResults, outputBufferSizeInBytes);
+    glUnmapBuffer(GL_SHADER_STORAGE_BUFFER);
+    ASSERT_GL_NO_ERROR();
+
+    bool error = false;
+    for (int index = 0; index < static_cast<int>(results.size()); ++index)
+    {
+        if (results[index] != 1)
+        {
+            error = true;
+        }
+    }
+    EXPECT_EQ(false, error);
+}
+
+// Performs an atomic operation and assigns the previous value to an SSBO.
+TEST_P(ComputeShaderTest, AtomicOpPreviousValueAssignedToSSBO)
+{
+
+    constexpr char kCSSource[] = R"(#version 310 es
+    shared int wg;
+    layout(binding = 0, std430) buffer Storage0 {
+      int inner[16];
+    } buf;
+
+    layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
+    void main() {
+      wg = 0;
+      atomicExchange(wg, 0);
+      barrier();
+      buf.inner[gl_WorkGroupID.x] = atomicOr(wg, 1);
+    })";
+
+    const int dispatchSize = 16;
+
+    // define compute shader output buffer
+    const int outputBufferSizeInBytes   = dispatchSize * sizeof(int32_t);
+    const int outputBufferElementsCount = dispatchSize;
+    std::vector<int32_t> minusOnes(outputBufferElementsCount, -1);
+    GLBuffer resultBuffer;
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, resultBuffer);
+    glBufferData(GL_SHADER_STORAGE_BUFFER, outputBufferSizeInBytes, &minusOnes[0], GL_STATIC_DRAW);
+    ASSERT_GL_NO_ERROR();
+
+    ANGLE_GL_COMPUTE_PROGRAM(csProgram, kCSSource);
+    glUseProgram(csProgram);
+    ASSERT_GL_NO_ERROR();
+
+    // Bind storage buffer to compute shader binding locations
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, resultBuffer);
+
+    glDispatchCompute(dispatchSize, 1, 1);
+    ASSERT_GL_NO_ERROR();
+
+    // verify the result
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, resultBuffer);
+    glMemoryBarrier(GL_BUFFER_UPDATE_BARRIER_BIT);
+    void *mappedResults =
+        glMapBufferRange(GL_SHADER_STORAGE_BUFFER, 0, outputBufferSizeInBytes, GL_MAP_READ_BIT);
+    std::vector<int32_t> results(outputBufferElementsCount);
+    memcpy(results.data(), mappedResults, outputBufferSizeInBytes);
+    glUnmapBuffer(GL_SHADER_STORAGE_BUFFER);
+    ASSERT_GL_NO_ERROR();
+
+    for (int index = 0; index < static_cast<int>(results.size()); ++index)
+    {
+        EXPECT_EQ(results[index], 0);
+    }
+}
+
+class StorageImageRenderProgramTest : public ANGLETest<>
+{};
+
+// Test creating a program with a vertex shader using storage image.
+TEST_P(StorageImageRenderProgramTest, StorageImageInVertexShader)
+{
+    GLint maxVertexShaderImage = 0;
+    glGetIntegerv(GL_MAX_VERTEX_IMAGE_UNIFORMS, &maxVertexShaderImage);
+
+    // MAX_VERTEX_IMAGE_UNIFORMS can be 0 according to OpenGL ES 3.1 SPEC.
+    ANGLE_SKIP_TEST_IF(maxVertexShaderImage == 0);
+
+    constexpr char kVSSource_readonly[] = R"(#version 310 es
+layout(rgba32f, binding = 0) readonly uniform highp image2D uIn;
+void main()
+{
+    gl_Position = imageLoad(uIn, ivec2(0, 0));
+})";
+
+    constexpr char kVSSource_writeonly[] = R"(#version 310 es
+layout(rgba32f, binding = 0) writeonly uniform highp image2D uOut;
+void main()
+{
+    gl_Position = vec4(0, 0, 0, 1);
+    imageStore(uOut, ivec2(0, 0), vec4(0, 0, 0, 1));
+})";
+
+    constexpr char kVSSource_readwrite[] = R"(#version 310 es
+layout(r32f, binding = 0) uniform highp image2D uImage;
+void main()
+{
+    gl_Position = imageLoad(uImage, ivec2(0, 0));
+    imageStore(uImage, ivec2(0, 0), vec4(0, 0, 0, 1));
+})";
+
+    constexpr char kFSSource[] = R"(#version 310 es
+precision mediump float;
+out vec4 out_FragColor;
+void main()
+{
+    out_FragColor = vec4(0, 1, 0, 1);
+})";
+    ANGLE_GL_PROGRAM(program1, kVSSource_readonly, kFSSource);
+    EXPECT_GL_NO_ERROR();
+
+    ANGLE_GL_PROGRAM(program2, kVSSource_writeonly, kFSSource);
+    EXPECT_GL_NO_ERROR();
+
+    ANGLE_GL_PROGRAM(program3, kVSSource_readwrite, kFSSource);
+    EXPECT_GL_NO_ERROR();
+}
+
 GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(ComputeShaderTest);
 ANGLE_INSTANTIATE_TEST_ES31(ComputeShaderTest);
 
@@ -5217,4 +5456,7 @@ ANGLE_INSTANTIATE_TEST_ES3(ComputeShaderTestES3);
 
 GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(WebGL2ComputeTest);
 ANGLE_INSTANTIATE_TEST_ES31(WebGL2ComputeTest);
+
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(StorageImageRenderProgramTest);
+ANGLE_INSTANTIATE_TEST_ES31(StorageImageRenderProgramTest);
 }  // namespace

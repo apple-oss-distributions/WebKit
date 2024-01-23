@@ -28,9 +28,13 @@
 
 #include "WebProcessCreationParameters.h"
 
+#if USE(WPE_RENDERER)
+#include <wpe/wpe.h>
+#endif
+
 namespace WebKit {
 
-void WebProcessPool::platformInitialize()
+void WebProcessPool::platformInitialize(NeedsGlobalStaticInitialization)
 {
     m_userId = m_configuration->userId();
 }
@@ -40,8 +44,17 @@ void WebProcessPool::platformInitializeNetworkProcess(NetworkProcessCreationPara
     notImplemented();
 }
 
-void WebProcessPool::platformInitializeWebProcess(const WebProcessProxy&, WebProcessCreationParameters&)
+void WebProcessPool::platformInitializeWebProcess(const WebProcessProxy& process, WebProcessCreationParameters& parameters)
 {
+#if USE(WPE_RENDERER)
+    parameters.isServiceWorkerProcess = process.isRunningServiceWorkers();
+
+    if (!parameters.isServiceWorkerProcess)
+        parameters.hostClientFileDescriptor = UnixFileDescriptor { wpe_renderer_host_create_client(), UnixFileDescriptor::Adopt };
+#else
+    UNUSED_PARAM(process);
+    UNUSED_PARAM(parameters);
+#endif
 }
 
 void WebProcessPool::platformInvalidateContext()

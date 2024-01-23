@@ -31,8 +31,11 @@
 #import "RemoteLayerTreeHost.h"
 #import "RemoteLayerTreeInteractionRegionLayers.h"
 #import <QuartzCore/QuartzCore.h>
+#import <WebCore/MediaPlayerEnumsCocoa.h>
 #import <WebCore/PlatformCAFilters.h>
 #import <WebCore/ScrollbarThemeMac.h>
+#import <WebCore/WebAVPlayerLayer.h>
+#import <WebCore/WebCoreCALayerExtras.h>
 #import <pal/spi/cocoa/QuartzCoreSPI.h>
 #import <wtf/BlockObjCExceptions.h>
 #import <wtf/cocoa/VectorCocoa.h>
@@ -131,11 +134,7 @@ static void updateCustomAppearance(CALayer *layer, GraphicsLayer::CustomAppearan
 #if HAVE(RUBBER_BANDING)
     switch (customAppearance) {
     case GraphicsLayer::CustomAppearance::None:
-        ScrollbarThemeMac::removeOverhangAreaBackground(layer);
         ScrollbarThemeMac::removeOverhangAreaShadow(layer);
-        break;
-    case GraphicsLayer::CustomAppearance::ScrollingOverhang:
-        ScrollbarThemeMac::setUpOverhangAreaBackground(layer);
         break;
     case GraphicsLayer::CustomAppearance::ScrollingShadow:
         ScrollbarThemeMac::setUpOverhangAreaShadow(layer);
@@ -146,7 +145,7 @@ static void updateCustomAppearance(CALayer *layer, GraphicsLayer::CustomAppearan
 #endif
 }
 
-static void applyGeometryPropertiesToLayer(CALayer *layer, const RemoteLayerTreeTransaction::LayerProperties& properties)
+void RemoteLayerTreePropertyApplier::applyPropertiesToLayer(CALayer *layer, RemoteLayerTreeNode* layerTreeNode, RemoteLayerTreeHost* layerTreeHost, const LayerProperties& properties, RemoteLayerBackingStoreProperties::LayerContentsType layerContentsType)
 {
     if (properties.changedProperties & LayerChange::PositionChanged) {
         layer.position = CGPointMake(properties.position.x(), properties.position.y());
@@ -177,11 +176,12 @@ static void applyGeometryPropertiesToLayer(CALayer *layer, const RemoteLayerTree
         layer.contentsScale = properties.contentsScale;
         layer.rasterizationScale = properties.contentsScale;
     }
-}
 
-void RemoteLayerTreePropertyApplier::applyPropertiesToLayer(CALayer *layer, RemoteLayerTreeHost* layerTreeHost, const RemoteLayerTreeTransaction::LayerProperties& properties, RemoteLayerBackingStore::LayerContentsType layerContentsType)
-{
-    applyGeometryPropertiesToLayer(layer, properties);
+    if (properties.changedProperties & LayerChange::OpacityChanged)
+        layer.opacity = properties.opacity;
+
+    if (properties.changedProperties & LayerChange::MasksToBoundsChanged)
+        layer.masksToBounds = properties.masksToBounds;
 
     if (properties.changedProperties & LayerChange::NameChanged)
         layer.name = properties.name;
@@ -195,14 +195,8 @@ void RemoteLayerTreePropertyApplier::applyPropertiesToLayer(CALayer *layer, Remo
     if (properties.changedProperties & LayerChange::BorderWidthChanged)
         layer.borderWidth = properties.borderWidth;
 
-    if (properties.changedProperties & LayerChange::OpacityChanged)
-        layer.opacity = properties.opacity;
-
     if (properties.changedProperties & LayerChange::DoubleSidedChanged)
         layer.doubleSided = properties.doubleSided;
-
-    if (properties.changedProperties & LayerChange::MasksToBoundsChanged)
-        layer.masksToBounds = properties.masksToBounds;
 
     if (properties.changedProperties & LayerChange::OpaqueChanged)
         layer.opaque = properties.opaque;
@@ -254,20 +248,24 @@ void RemoteLayerTreePropertyApplier::applyPropertiesToLayer(CALayer *layer, Remo
     if (properties.changedProperties & LayerChange::BackingStoreChanged
         || properties.changedProperties & LayerChange::BackingStoreAttachmentChanged)
     {
-        auto* backingStore = properties.backingStore.get();
-        if (backingStore && properties.backingStoreAttached)
-            backingStore->applyBackingStoreToLayer(layer, layerContentsType, layerTreeHost->replayCGDisplayListsIntoBackingStore());
-        else {
-            layer.contents = nil;
-            layer.contentsOpaque = NO;
-        }
+        auto* backingStore = properties.backingStoreOrProperties.properties.get();
+        if (backingStore && properties.backingStoreAttached) {
+            std::optional<WebCore::RenderingResourceIdentifier> asyncContentsIdentifier;
+            if (layerTreeNode) {
+                backingStore->updateCachedBuffers(*layerTreeNode, layerContentsType);
+                asyncContentsIdentifier = layerTreeNode->asyncContentsIdentifier();
+            }
+
+            backingStore->applyBackingStoreToLayer(layer, layerContentsType, asyncContentsIdentifier, layerTreeHost->replayCGDisplayListsIntoBackingStore());
+        } else
+            [layer _web_clearContents];
     }
 
     if (properties.changedProperties & LayerChange::FiltersChanged)
         PlatformCAFilters::setFiltersOnLayer(layer, properties.filters ? *properties.filters : FilterOperations());
 
     if (properties.changedProperties & LayerChange::AnimationsChanged)
-        PlatformCAAnimationRemote::updateLayerAnimations(layer, layerTreeHost, properties.addedAnimations, properties.keysOfAnimationsToRemove);
+        PlatformCAAnimationRemote::updateLayerAnimations(layer, layerTreeHost, properties.animationChanges.addedAnimations, properties.animationChanges.keysOfAnimationsToRemove);
 
     if (properties.changedProperties & LayerChange::AntialiasesEdgesChanged)
         layer.edgeAntialiasingMask = properties.antialiasesEdges ? (kCALayerLeftEdge | kCALayerRightEdge | kCALayerBottomEdge | kCALayerTopEdge) : 0;
@@ -292,22 +290,30 @@ void RemoteLayerTreePropertyApplier::applyPropertiesToLayer(CALayer *layer, Remo
     }
 #endif
 #endif
+
+#if HAVE(AVKIT)
+    if (properties.changedProperties & LayerChange::VideoGravityChanged) {
+        if ([layer respondsToSelector:@selector(setVideoGravity:)])
+            [(WebAVPlayerLayer*)layer setVideoGravity:convertMediaPlayerToAVLayerVideoGravity(properties.videoGravity)];
+    }
+#endif
 }
 
-void RemoteLayerTreePropertyApplier::applyProperties(RemoteLayerTreeNode& node, RemoteLayerTreeHost* layerTreeHost, const RemoteLayerTreeTransaction::LayerProperties& properties, const RelatedLayerMap& relatedLayers, RemoteLayerBackingStore::LayerContentsType layerContentsType)
+void RemoteLayerTreePropertyApplier::applyProperties(RemoteLayerTreeNode& node, RemoteLayerTreeHost* layerTreeHost, const LayerProperties& properties, const RelatedLayerMap& relatedLayers, RemoteLayerBackingStoreProperties::LayerContentsType layerContentsType)
 {
     BEGIN_BLOCK_OBJC_EXCEPTIONS
 
-    applyPropertiesToLayer(node.layer(), layerTreeHost, properties, layerContentsType);
-#if ENABLE(INTERACTION_REGIONS_IN_EVENT_REGION)
-    applyGeometryPropertiesToLayer(node.interactionRegionsLayer(), properties);
-    if (properties.changedProperties & LayerChange::EventRegionChanged)
-        updateLayersForInteractionRegions(node.interactionRegionsLayer(), *layerTreeHost, properties);
-#endif
-    updateMask(node, properties, relatedLayers);
-
+    applyPropertiesToLayer(node.layer(), &node, layerTreeHost, properties, layerContentsType);
     if (properties.changedProperties & LayerChange::EventRegionChanged)
         node.setEventRegion(properties.eventRegion);
+    updateMask(node, properties, relatedLayers);
+
+#if ENABLE(INTERACTION_REGIONS_IN_EVENT_REGION)
+    if (properties.changedProperties & LayerChange::VisibleRectChanged)
+        node.setVisibleRect(properties.visibleRect);
+    if (properties.changedProperties & LayerChange::EventRegionChanged || properties.changedProperties & LayerChange::VisibleRectChanged)
+        updateLayersForInteractionRegions(node);
+#endif
 
 #if ENABLE(SCROLLING_THREAD)
     if (properties.changedProperties & LayerChange::ScrollingNodeIDChanged)
@@ -321,23 +327,7 @@ void RemoteLayerTreePropertyApplier::applyProperties(RemoteLayerTreeNode& node, 
     END_BLOCK_OBJC_EXCEPTIONS
 }
 
-#if ENABLE(INTERACTION_REGIONS_IN_EVENT_REGION)
-static void applyInteractionRegionsHierarchyUpdate(RemoteLayerTreeNode& node, const RemoteLayerTreeTransaction::LayerProperties& properties, const RemoteLayerTreePropertyApplier::RelatedLayerMap& relatedLayers)
-{
-    auto sublayers = createNSArray(properties.children, [&] (auto& child) -> CALayer * {
-        auto* childNode = relatedLayers.get(child);
-        ASSERT(childNode);
-        if (!childNode)
-            return nil;
-        return childNode->interactionRegionsLayer();
-    });
-
-    insertInteractionRegionLayersForLayer(sublayers.get(), node.interactionRegionsLayer());
-    node.interactionRegionsLayer().sublayers = sublayers.get();
-}
-#endif
-
-void RemoteLayerTreePropertyApplier::applyHierarchyUpdates(RemoteLayerTreeNode& node, const RemoteLayerTreeTransaction::LayerProperties& properties, const RelatedLayerMap& relatedLayers)
+void RemoteLayerTreePropertyApplier::applyHierarchyUpdates(RemoteLayerTreeNode& node, const LayerProperties& properties, const RelatedLayerMap& relatedLayers)
 {
     BEGIN_BLOCK_OBJC_EXCEPTIONS
 
@@ -366,13 +356,13 @@ void RemoteLayerTreePropertyApplier::applyHierarchyUpdates(RemoteLayerTreeNode& 
             return childNode->uiView();
         }).get()];
 #if ENABLE(INTERACTION_REGIONS_IN_EVENT_REGION)
-        applyInteractionRegionsHierarchyUpdate(node, properties, relatedLayers);
+        node.updateInteractionRegionAfterHierarchyChange();
 #endif
         return;
     }
 #endif
 
-    auto sublayers = createNSArray(properties.children, [&] (auto& child) -> CALayer * {
+    node.layer().sublayers = createNSArray(properties.children, [&] (auto& child) -> CALayer * {
         auto* childNode = relatedLayers.get(child);
         ASSERT(childNode);
         if (!childNode)
@@ -381,18 +371,16 @@ void RemoteLayerTreePropertyApplier::applyHierarchyUpdates(RemoteLayerTreeNode& 
         ASSERT(!childNode->uiView());
 #endif
         return childNode->layer();
-    });
+    }).get();
 
 #if ENABLE(INTERACTION_REGIONS_IN_EVENT_REGION)
-    applyInteractionRegionsHierarchyUpdate(node, properties, relatedLayers);
+    node.updateInteractionRegionAfterHierarchyChange();
 #endif
-
-    node.layer().sublayers = sublayers.get();
 
     END_BLOCK_OBJC_EXCEPTIONS
 }
 
-void RemoteLayerTreePropertyApplier::updateMask(RemoteLayerTreeNode& node, const RemoteLayerTreeTransaction::LayerProperties& properties, const RelatedLayerMap& relatedLayers)
+void RemoteLayerTreePropertyApplier::updateMask(RemoteLayerTreeNode& node, const LayerProperties& properties, const RelatedLayerMap& relatedLayers)
 {
     if (!properties.changedProperties.contains(LayerChange::MaskLayerChanged))
         return;
@@ -416,7 +404,7 @@ void RemoteLayerTreePropertyApplier::updateMask(RemoteLayerTreeNode& node, const
 }
 
 #if PLATFORM(IOS_FAMILY)
-void RemoteLayerTreePropertyApplier::applyPropertiesToUIView(UIView *view, const RemoteLayerTreeTransaction::LayerProperties& properties, const RelatedLayerMap& relatedLayers)
+void RemoteLayerTreePropertyApplier::applyPropertiesToUIView(UIView *view, const LayerProperties& properties, const RelatedLayerMap& relatedLayers)
 {
     if (properties.changedProperties.containsAny({ LayerChange::ContentsHiddenChanged, LayerChange::UserInteractionEnabledChanged }))
         view.userInteractionEnabled = !properties.contentsHidden && properties.userInteractionEnabled;

@@ -61,6 +61,7 @@ enum TestConfidence { "high", "kinda-low" };
     static readonly attribute TestSubObjConstructor TestSubObj;
     [CallWith=CurrentDocument] static readonly attribute TestObj testStaticReadonlyObj;
     attribute TestEnumType enumAttr;
+    attribute TestEnumType? nullableEnumAttr;
     attribute byte byteAttr;
     attribute octet octetAttr;
     [Unscopable] attribute short shortAttr;
@@ -332,6 +333,9 @@ enum TestConfidence { "high", "kinda-low" };
     // Static method with conditional on overloaded methods
     [Conditional=Condition1] static undefined overloadedMethod1(long arg);
     [Conditional=Condition1] static undefined overloadedMethod1(DOMString type);
+
+    undefined instanceAndStaticMethodWithTheSameIdentifier();
+    [ImplementedAs=instanceAndStaticMethodWithTheSameIdentifier2] static undefined instanceAndStaticMethodWithTheSameIdentifier();
 
     undefined classMethodWithClamp([Clamp] unsigned short objArgsShort, [Clamp] unsigned long objArgsLong);
     undefined classMethodWithClampOnOptional(optional [Clamp] long objArgsLong = 0);

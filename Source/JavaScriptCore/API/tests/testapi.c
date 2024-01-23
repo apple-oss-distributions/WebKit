@@ -23,6 +23,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+#undef ASSERT_ENABLED
 #define ASSERT_ENABLED 1
 #include "config.h"
 
@@ -62,6 +63,7 @@
 #include "CustomGlobalObjectClassTest.h"
 #include "ExecutionTimeLimitTest.h"
 #include "FunctionOverridesTest.h"
+#include "FunctionToStringTests.h"
 #include "GlobalContextWithFinalizerTest.h"
 #include "JSONParseTest.h"
 #include "JSObjectGetProxyTargetTest.h"
@@ -552,11 +554,9 @@ static bool PropertyCatchalls_setProperty(JSContextRef context, JSObjectRef obje
 
     if (JSStringIsEqualToUTF8CString(propertyName, "x")) {
         static size_t count;
-        if (count++ < 5)
-            return false;
 
         // Swallow all .x sets after 4.
-        return true;
+        return count++ > 4;
     }
 
     if (JSStringIsEqualToUTF8CString(propertyName, "make_throw") || JSStringIsEqualToUTF8CString(propertyName, "0")) {
@@ -1294,7 +1294,7 @@ static void testCFStrings(void)
     JSStringRef jsCFIString = JSStringCreateWithCFString(cfString);
     JSValueRef jsCFString = JSValueMakeString(context, jsCFIString);
 
-    CFStringRef cfEmptyString = CFStringCreateWithCString(kCFAllocatorDefault, "", kCFStringEncodingUTF8);
+    CFStringRef cfEmptyString = CFSTR("");
 
     JSStringRef jsCFEmptyIString = JSStringCreateWithCFString(cfEmptyString);
     JSValueRef jsCFEmptyString = JSValueMakeString(context, jsCFEmptyIString);
@@ -1376,12 +1376,59 @@ static void testCFStrings(void)
     JSStringRelease(jsCFIStringWithCharacters);
     JSStringRelease(jsCFEmptyIStringWithCharacters);
     CFRelease(cfString);
-    CFRelease(cfEmptyString);
 
     JSGlobalContextRelease(context);
     context = oldContext;
 }
 #endif
+
+static bool samplingProfilerTest(void)
+{
+#if ENABLE(SAMPLING_PROFILER)
+    JSContextGroupRef contextGroup = JSContextGroupCreate();
+    JSGlobalContextRef context = JSGlobalContextCreateInGroup(contextGroup, NULL);
+    {
+        bool result = JSContextGroupEnableSamplingProfiler(contextGroup);
+        if (result)
+            printf("PASS: Enabled sampling profiler.\n");
+        else {
+            printf("FAIL: Failed to enable sampling profiler.\n");
+            return true;
+        }
+        JSStringRef script = JSStringCreateWithUTF8CString("var start = Date.now(); while ((start + 200) > Date.now()) { new Error().stack; }");
+        JSEvaluateScript(context, script, NULL, NULL, 1, NULL);
+        JSStringRelease(script);
+        JSContextGroupDisableSamplingProfiler(contextGroup);
+    }
+
+    {
+        JSStringRef json = JSContextGroupTakeSamplesFromSamplingProfiler(contextGroup);
+        if (json)
+            printf("PASS: Taking JSON from sampling profiler.\n");
+        else {
+            printf("FAIL: Failed to enable sampling profiler.\n");
+            return true;
+        }
+
+        size_t sizeUTF8 = JSStringGetMaximumUTF8CStringSize(json);
+        char* stringUTF8 = (char*)malloc(sizeUTF8);
+        JSStringGetUTF8CString(json, stringUTF8, sizeUTF8);
+        if (sizeUTF8)
+            printf("PASS: Some JSON data is generated.\n");
+        else {
+            printf("FAIL: Failed to take JSON data.\n");
+            return true;
+        }
+        free(stringUTF8);
+
+        JSStringRelease(json);
+    }
+
+    JSGlobalContextRelease(context);
+    JSContextGroupRelease(contextGroup);
+#endif
+    return false;
+}
 
 int main(int argc, char* argv[])
 {
@@ -2120,6 +2167,7 @@ int main(int argc, char* argv[])
     }
     failed |= testTypedArrayCAPI();
     failed |= testFunctionOverrides();
+    failed |= testFunctionToString();
     failed |= testGlobalContextWithFinalizer();
     failed |= testJSONParse();
     failed |= testJSObjectGetProxyTarget();
@@ -2170,6 +2218,7 @@ int main(int argc, char* argv[])
     customGlobalObjectClassTest();
     globalObjectSetPrototypeTest();
     globalObjectPrivatePropertyTest();
+    failed |= samplingProfilerTest();
 
     failed |= finalizeMultithreadedMultiVMExecutionTest();
 

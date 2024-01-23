@@ -33,6 +33,7 @@
 #include "FormListedElement.h"
 #include "HTMLElement.h"
 #include "ValidationMessage.h"
+#include <wtf/TriState.h>
 
 namespace WebCore {
 
@@ -111,6 +112,8 @@ protected:
 
     void willChangeForm() override;
     void didChangeForm() override;
+    void formWillBeDestroyed() final;
+    bool belongsToFormThatIsBeingDestroyed() const { return m_belongsToFormThatIsBeingDestroyed; }
 
     void setDataListAncestorState(TriState);
     void syncWithFieldsetAncestors(ContainerNode* insertionNode);
@@ -141,6 +144,7 @@ private:
 
     bool m_hasReadOnlyAttribute : 1 { false };
     bool m_wasInteractedWithSinceLastFormSubmitEvent : 1 { false };
+    bool m_belongsToFormThatIsBeingDestroyed : 1 { false };
     bool m_isFocusingWithValidationMessage { false };
 
     mutable TriState m_isInsideDataList : 2 { TriState::Indeterminate };

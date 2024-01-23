@@ -32,8 +32,8 @@
 namespace WebCore {
 
 class Element;
-class FrameView;
 class ImageBuffer;
+class LocalFrameView;
 class Page;
 class RenderBox;
 class SVGSVGElement;
@@ -45,10 +45,10 @@ public:
     static Ref<SVGImage> create(ImageObserver& observer) { return adoptRef(*new SVGImage(observer)); }
 
     RenderBox* embeddedContentBox() const;
-    FrameView* frameView() const;
+    LocalFrameView* frameView() const;
 
     bool isSVGImage() const final { return true; }
-    FloatSize size(ImageOrientation = ImageOrientation::FromImage) const final { return m_intrinsicSize; }
+    FloatSize size(ImageOrientation = ImageOrientation::Orientation::FromImage) const final { return m_intrinsicSize; }
 
     bool renderingTaintsOrigin() const final;
 
@@ -66,6 +66,7 @@ public:
     void scheduleStartAnimation();
 
     Page* internalPage() { return m_page.get(); }
+    WEBCORE_EXPORT RefPtr<SVGSVGElement> rootElement() const;
 
 private:
     friend class SVGImageChromeClient;
@@ -83,8 +84,7 @@ private:
     void reportApproximateMemoryCost() const;
     EncodedDataStatus dataChanged(bool allDataReceived) final;
 
-    // FIXME: SVGImages will be unable to prune because this function is not implemented yet.
-    void destroyDecodedData(bool) final { }
+    // FIXME: SVGImages will be unable to prune because destroyDecodedData() is not implemented yet.
 
     // FIXME: Implement this to be less conservative.
     bool currentFrameKnownToBeOpaque() const final { return false; }
@@ -98,9 +98,6 @@ private:
     ImageDrawResult drawForContainer(GraphicsContext&, const FloatSize containerSize, float containerZoom, const URL& initialFragmentURL, const FloatRect& dstRect, const FloatRect& srcRect, const ImagePaintingOptions& = { });
     void drawPatternForContainer(GraphicsContext&, const FloatSize& containerSize, float containerZoom, const URL& initialFragmentURL, const FloatRect& srcRect, const AffineTransform&, const FloatPoint& phase, const FloatSize& spacing, const FloatRect&, const ImagePaintingOptions& = { });
 
-    RefPtr<SVGSVGElement> rootElement() const;
-
-    std::unique_ptr<SVGImageChromeClient> m_chromeClient;
     std::unique_ptr<Page> m_page;
     FloatSize m_intrinsicSize;
 

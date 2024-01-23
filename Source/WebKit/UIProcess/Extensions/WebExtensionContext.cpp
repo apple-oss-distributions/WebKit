@@ -57,17 +57,29 @@ WebExtensionContext::WebExtensionContext()
 
 WebExtensionContextParameters WebExtensionContext::parameters() const
 {
-    WebExtensionContextParameters parameters;
+    return WebExtensionContextParameters {
+        identifier(),
+        baseURL(),
+        uniqueIdentifier(),
+        extension().serializeLocalization(),
+        extension().serializeManifest(),
+        extension().manifestVersion(),
+        inTestingMode()
+    };
+}
 
-    parameters.identifier = identifier();
-
-    parameters.baseURL = baseURL();
-    parameters.uniqueIdentifier = uniqueIdentifier();
-    parameters.manifest = extension().manifest();
-    parameters.manifestVersion = extension().manifestVersion();
-    parameters.testingMode = inTestingMode();
-
-    return parameters;
+WeakHashSet<WebProcessProxy> WebExtensionContext::processes(WebExtensionEventListenerType type) const
+{
+    WeakHashSet<WebProcessProxy> processes;
+    auto page = m_eventListenerPages.find(type);
+    if (page != m_eventListenerPages.end()) {
+        for (auto entry : page->value) {
+            Ref process = entry.key.process();
+            if (process->canSendMessage())
+                processes.add(process);
+        }
+    }
+    return processes;
 }
 
 } // namespace WebKit

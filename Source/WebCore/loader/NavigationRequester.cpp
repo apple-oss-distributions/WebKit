@@ -26,26 +26,9 @@
 #include "config.h"
 #include "NavigationRequester.h"
 
-#include "ContentSecurityPolicy.h"
 #include "Document.h"
-#include "Frame.h"
-#include "FrameDestructionObserverInlines.h"
-#include "FrameLoader.h"
 
 namespace WebCore {
-
-static std::optional<GlobalFrameIdentifier> createGlobalFrameIdentifier(const Document& document)
-{
-    auto* frame = document.frame();
-    if (!frame)
-        return std::nullopt;
-
-    auto pageID = frame->loader().pageID();
-    if (!pageID)
-        return std::nullopt;
-
-    return GlobalFrameIdentifier { *pageID, frame->frameID() };
-}
 
 NavigationRequester NavigationRequester::from(Document& document)
 {
@@ -54,7 +37,10 @@ NavigationRequester NavigationRequester::from(Document& document)
         document.securityOrigin(),
         document.topOrigin(),
         document.policyContainer(),
-        createGlobalFrameIdentifier(document)
+        document.frameID(),
+        document.pageID(),
+        document.identifier(),
+        document.sandboxFlags()
     };
 }
 

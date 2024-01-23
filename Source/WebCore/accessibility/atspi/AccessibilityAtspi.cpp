@@ -35,6 +35,7 @@
 #include <wtf/glib/RunLoopSourcePriority.h>
 
 namespace WebCore {
+DEFINE_ALLOCATOR_WITH_HEAP_IDENTIFIER(AccessibilityAtspi);
 
 AccessibilityAtspi& AccessibilityAtspi::singleton()
 {
@@ -608,7 +609,6 @@ static constexpr std::pair<AccessibilityRole, RoleNameEntry> roleNames[] = {
     { AccessibilityRole::DescriptionListDetail, { "description value", N_("description value") } },
     { AccessibilityRole::DescriptionListTerm, { "description term", N_("description term") } },
     { AccessibilityRole::Directory, { "directory pane", N_("directory pane") } },
-    { AccessibilityRole::Div, { "section", N_("section") } },
     { AccessibilityRole::Document, { "document frame", N_("document frame") } },
     { AccessibilityRole::DocumentArticle, { "article", N_("article") } },
     { AccessibilityRole::DocumentMath, { "math", N_("math") } },
@@ -618,6 +618,7 @@ static constexpr std::pair<AccessibilityRole, RoleNameEntry> roleNames[] = {
     { AccessibilityRole::Footer, { "footer", N_("footer") } },
     { AccessibilityRole::Footnote, { "footnote", N_("footnote") } },
     { AccessibilityRole::Form, { "form", N_("form") } },
+    { AccessibilityRole::Generic, { "section", N_("section") } },
     { AccessibilityRole::GraphicsDocument, { "document frame", N_("document frame") } },
     { AccessibilityRole::GraphicsObject, { "panel", N_("panel") } },
     { AccessibilityRole::GraphicsSymbol, { "image", N_("image") } },

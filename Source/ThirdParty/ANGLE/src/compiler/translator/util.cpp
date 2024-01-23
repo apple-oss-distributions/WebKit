@@ -74,6 +74,8 @@ bool IsInterpolationIn(TQualifier qualifier)
         case EvqNoPerspectiveIn:
         case EvqCentroidIn:
         case EvqSampleIn:
+        case EvqNoPerspectiveCentroidIn:
+        case EvqNoPerspectiveSampleIn:
             return true;
         default:
             return false;
@@ -89,6 +91,8 @@ bool IsInterpolationOut(TQualifier qualifier)
         case EvqNoPerspectiveOut:
         case EvqCentroidOut:
         case EvqSampleOut:
+        case EvqNoPerspectiveCentroidOut:
+        case EvqNoPerspectiveSampleOut:
             return true;
         default:
             return false;
@@ -277,6 +281,9 @@ GLenum GLVariableType(const TType &type)
             ASSERT(type.getSecondarySize() == 1);
 
             return kBoolGLType[type.getNominalSize() - 1];
+
+        case EbtYuvCscStandardEXT:
+            return GL_UNSIGNED_INT;
 
         case EbtSampler2D:
             return GL_SAMPLER_2D;
@@ -467,15 +474,10 @@ bool IsVaryingOut(TQualifier qualifier)
     switch (qualifier)
     {
         case EvqVaryingOut:
-        case EvqSmoothOut:
-        case EvqFlatOut:
-        case EvqNoPerspectiveOut:
-        case EvqCentroidOut:
         case EvqVertexOut:
         case EvqGeometryOut:
         case EvqTessControlOut:
         case EvqTessEvaluationOut:
-        case EvqSampleOut:
         case EvqPatchOut:
             return true;
 
@@ -483,7 +485,7 @@ bool IsVaryingOut(TQualifier qualifier)
             break;
     }
 
-    return false;
+    return IsInterpolationOut(qualifier);
 }
 
 bool IsVaryingIn(TQualifier qualifier)
@@ -491,15 +493,10 @@ bool IsVaryingIn(TQualifier qualifier)
     switch (qualifier)
     {
         case EvqVaryingIn:
-        case EvqSmoothIn:
-        case EvqFlatIn:
-        case EvqNoPerspectiveIn:
-        case EvqCentroidIn:
         case EvqFragmentIn:
         case EvqGeometryIn:
         case EvqTessControlIn:
         case EvqTessEvaluationIn:
-        case EvqSampleIn:
         case EvqPatchIn:
             return true;
 
@@ -507,7 +504,7 @@ bool IsVaryingIn(TQualifier qualifier)
             break;
     }
 
-    return false;
+    return IsInterpolationIn(qualifier);
 }
 
 bool IsVarying(TQualifier qualifier)
@@ -574,6 +571,14 @@ InterpolationType GetInterpolationType(TQualifier qualifier)
         case EvqNoPerspectiveOut:
             return INTERPOLATION_NOPERSPECTIVE;
 
+        case EvqNoPerspectiveCentroidIn:
+        case EvqNoPerspectiveCentroidOut:
+            return INTERPOLATION_NOPERSPECTIVE_CENTROID;
+
+        case EvqNoPerspectiveSampleIn:
+        case EvqNoPerspectiveSampleOut:
+            return INTERPOLATION_NOPERSPECTIVE_SAMPLE;
+
         case EvqSmoothIn:
         case EvqSmoothOut:
         case EvqVertexOut:
@@ -606,14 +611,20 @@ InterpolationType GetFieldInterpolationType(TQualifier qualifier)
 {
     switch (qualifier)
     {
+        case EvqSmooth:
+            return INTERPOLATION_SMOOTH;
         case EvqFlat:
             return INTERPOLATION_FLAT;
         case EvqNoPerspective:
             return INTERPOLATION_NOPERSPECTIVE;
-        case EvqSmooth:
-            return INTERPOLATION_SMOOTH;
         case EvqCentroid:
             return INTERPOLATION_CENTROID;
+        case EvqSample:
+            return INTERPOLATION_SAMPLE;
+        case EvqNoPerspectiveCentroid:
+            return INTERPOLATION_NOPERSPECTIVE_CENTROID;
+        case EvqNoPerspectiveSample:
+            return INTERPOLATION_NOPERSPECTIVE_SAMPLE;
         default:
             return GetInterpolationType(qualifier);
     }
@@ -800,11 +811,11 @@ bool IsOutputHLSL(ShShaderOutput output)
     }
     return false;
 }
-bool IsOutputVulkan(ShShaderOutput output)
+bool IsOutputSPIRV(ShShaderOutput output)
 {
     return output == SH_SPIRV_VULKAN_OUTPUT;
 }
-bool IsOutputMetalDirect(ShShaderOutput output)
+bool IsOutputMSL(ShShaderOutput output)
 {
     return output == SH_MSL_METAL_OUTPUT;
 }
@@ -1001,9 +1012,9 @@ bool IsPrecisionApplicableToType(TBasicType type)
 
 bool IsRedeclarableBuiltIn(const ImmutableString &name)
 {
-    return name == "gl_ClipDistance" || name == "gl_CullDistance" || name == "gl_LastFragData" ||
-           name == "gl_LastFragColorARM" || name == "gl_PerVertex" || name == "gl_Position" ||
-           name == "gl_PointSize";
+    return name == "gl_ClipDistance" || name == "gl_CullDistance" || name == "gl_FragDepth" ||
+           name == "gl_LastFragData" || name == "gl_LastFragColorARM" || name == "gl_PerVertex" ||
+           name == "gl_Position" || name == "gl_PointSize";
 }
 
 size_t FindFieldIndex(const TFieldList &fieldList, const char *fieldName)
@@ -1017,6 +1028,27 @@ size_t FindFieldIndex(const TFieldList &fieldList, const char *fieldName)
     }
     UNREACHABLE();
     return 0;
+}
+
+Declaration ViewDeclaration(TIntermDeclaration &declNode)
+{
+    ASSERT(declNode.getChildCount() == 1);
+    TIntermNode *childNode = declNode.getChildNode(0);
+    ASSERT(childNode);
+    TIntermSymbol *symbolNode;
+    if ((symbolNode = childNode->getAsSymbolNode()))
+    {
+        return {*symbolNode, nullptr};
+    }
+    else
+    {
+        TIntermBinary *initNode = childNode->getAsBinaryNode();
+        ASSERT(initNode);
+        ASSERT(initNode->getOp() == TOperator::EOpInitialize);
+        symbolNode = initNode->getLeft()->getAsSymbolNode();
+        ASSERT(symbolNode);
+        return {*symbolNode, initNode->getRight()};
+    }
 }
 
 }  // namespace sh

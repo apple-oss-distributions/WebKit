@@ -650,8 +650,7 @@ static bool DetermineDepthTextureANGLESupport(const TextureCapsMap &textureCaps)
 {
     constexpr GLenum requiredFormats[] = {
         GL_DEPTH_COMPONENT16,
-#if !defined(ANGLE_PLATFORM_IOS) && \
-    (!defined(ANGLE_PLATFORM_MACCATALYST) || !defined(ANGLE_CPU_ARM64))
+#if !ANGLE_PLATFORM_IOS_FAMILY
         // anglebug.com/6082
         // TODO(dino): Temporarily Removing the need for GL_DEPTH_COMPONENT32_OES
         // because it is not supported on iOS.
@@ -669,8 +668,7 @@ static bool DetermineDepthTextureOESSupport(const TextureCapsMap &textureCaps)
 {
     constexpr GLenum requiredFormats[] = {
         GL_DEPTH_COMPONENT16,
-#if !defined(ANGLE_PLATFORM_IOS) && \
-    (!defined(ANGLE_PLATFORM_MACCATALYST) || !defined(ANGLE_CPU_ARM64))
+#if !ANGLE_PLATFORM_IOS_FAMILY
         // anglebug.com/6082
         // TODO(dino): Temporarily Removing the need for GL_DEPTH_COMPONENT32_OES
         // because it is not supported on iOS.
@@ -838,6 +836,39 @@ static bool DetermineStencilIndex8Support(const TextureCapsMap &textureCaps)
     return GetFormatSupport(textureCaps, requiredFormats, true, false, true, false, false);
 }
 
+// Checks for GL_QCOM_render_shared_exponent support
+static bool DetermineRenderSharedExponentSupport(const TextureCapsMap &textureCaps)
+{
+    constexpr GLenum requiredFormats[] = {
+        GL_RGB9_E5,
+    };
+
+    return GetFormatSupport(textureCaps, requiredFormats, false, false, true, true, true);
+}
+
+static bool DetermineRenderSnormSupport(const TextureCapsMap &textureCaps, bool textureNorm16EXT)
+{
+    constexpr GLenum requiredSnorm8Formats[] = {
+        GL_R8_SNORM,
+        GL_RG8_SNORM,
+        GL_RGBA8_SNORM,
+    };
+
+    constexpr GLenum requiredSnorm16Formats[] = {
+        GL_R16_SNORM_EXT,
+        GL_RG16_SNORM_EXT,
+        GL_RGBA16_SNORM_EXT,
+    };
+
+    if (textureNorm16EXT &&
+        !GetFormatSupport(textureCaps, requiredSnorm16Formats, false, false, true, true, true))
+    {
+        return false;
+    }
+
+    return GetFormatSupport(textureCaps, requiredSnorm8Formats, false, false, true, true, true);
+}
+
 void Extensions::setTextureExtensionSupport(const TextureCapsMap &textureCaps)
 {
     // TODO(ynovikov): rgb8Rgba8OES, colorBufferHalfFloatEXT, textureHalfFloatOES,
@@ -896,6 +927,8 @@ void Extensions::setTextureExtensionSupport(const TextureCapsMap &textureCaps)
     textureCompressionPvrtcIMG          = DeterminePVRTCTextureSupport(textureCaps);
     pvrtcSRGBEXT                        = DeterminePVRTCsRGBTextureSupport(textureCaps);
     textureStencil8OES                  = DetermineStencilIndex8Support(textureCaps);
+    renderSharedExponentQCOM            = DetermineRenderSharedExponentSupport(textureCaps);
+    renderSnormEXT = DetermineRenderSnormSupport(textureCaps, textureNorm16EXT);
 }
 
 TypePrecision::TypePrecision() = default;
@@ -1135,6 +1168,11 @@ Caps GenerateMinimumCaps(const Version &clientVersion, const Extensions &extensi
         caps.shaderStorageBufferOffsetAlignment = 256;
     }
 
+    if (extensions.blendFuncExtendedEXT)
+    {
+        caps.maxDualSourceDrawBuffers = 1;
+    }
+
     if (extensions.textureRectangleANGLE)
     {
         caps.maxRectangleTextureSize = 64;
@@ -1246,6 +1284,9 @@ std::vector<std::string> DisplayExtensions::getStrings() const
     InsertExtensionString("EGL_EXT_gl_colorspace_display_p3_linear",             glColorspaceDisplayP3Linear,        &extensionStrings);
     InsertExtensionString("EGL_EXT_gl_colorspace_display_p3_passthrough",        glColorspaceDisplayP3Passthrough,   &extensionStrings);
     InsertExtensionString("EGL_ANGLE_colorspace_attribute_passthrough",          eglColorspaceAttributePassthroughANGLE,  &extensionStrings);
+    InsertExtensionString("EGL_EXT_gl_colorspace_bt2020_linear",                 glColorspaceBt2020Linear,           &extensionStrings);
+    InsertExtensionString("EGL_EXT_gl_colorspace_bt2020_pq",                     glColorspaceBt2020Pq,               &extensionStrings);
+    InsertExtensionString("EGL_EXT_gl_colorspace_bt2020_hlg",                    glColorspaceBt2020Hlg,              &extensionStrings);
     InsertExtensionString("EGL_KHR_gl_texture_2D_image",                         glTexture2DImage,                   &extensionStrings);
     InsertExtensionString("EGL_KHR_gl_texture_cubemap_image",                    glTextureCubemapImage,              &extensionStrings);
     InsertExtensionString("EGL_KHR_gl_texture_3D_image",                         glTexture3DImage,                   &extensionStrings);
@@ -1346,6 +1387,7 @@ std::vector<std::string> ClientExtensions::getStrings() const
     InsertExtensionString("EGL_EXT_platform_device",                          platformDevice,                     &extensionStrings);
     InsertExtensionString("EGL_KHR_platform_gbm",                             platformGbmKHR,                     &extensionStrings);
     InsertExtensionString("EGL_EXT_platform_wayland",                         platformWaylandEXT,                 &extensionStrings);
+    InsertExtensionString("EGL_MESA_platform_surfaceless",                    platformSurfacelessMESA,            &extensionStrings);
     InsertExtensionString("EGL_ANGLE_platform_angle",                         platformANGLE,                      &extensionStrings);
     InsertExtensionString("EGL_ANGLE_platform_angle_d3d",                     platformANGLED3D,                   &extensionStrings);
     InsertExtensionString("EGL_ANGLE_platform_angle_d3d11on12",               platformANGLED3D11ON12,             &extensionStrings);

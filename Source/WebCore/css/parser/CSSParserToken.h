@@ -88,8 +88,9 @@ enum HashTokenType {
     HashTokenUnrestricted,
 };
 
+DECLARE_ALLOCATOR_WITH_HEAP_IDENTIFIER(CSSParserToken);
 class CSSParserToken {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_FAST_ALLOCATED_WITH_HEAP_IDENTIFIER(CSSParserToken);
 public:
     enum BlockType {
         NotBlock,
@@ -108,7 +109,6 @@ public:
     static CSSUnitType stringToUnitType(StringView);
 
     bool operator==(const CSSParserToken& other) const;
-    bool operator!=(const CSSParserToken& other) const { return !(*this == other); }
 
     // Converts NumberToken to DimensionToken.
     void convertToDimensionWithUnit(StringView);
@@ -142,6 +142,9 @@ public:
 
     void serialize(StringBuilder&, const CSSParserToken* nextToken = nullptr) const;
 
+    template<typename CharacterType>
+    void updateCharacters(const CharacterType* characters, unsigned length);
+
     CSSParserToken copyWithUpdatedString(StringView) const;
 
 private:
@@ -171,5 +174,13 @@ private:
         mutable int m_id;
     };
 };
+
+template<typename CharacterType>
+inline void CSSParserToken::updateCharacters(const CharacterType* characters, unsigned length)
+{
+    m_valueLength = length;
+    m_valueIs8Bit = (sizeof(CharacterType) == 1);
+    m_valueDataCharRaw = characters;
+}
 
 } // namespace WebCore

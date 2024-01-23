@@ -27,6 +27,7 @@
 
 #if ENABLE(DATA_DETECTION) && PLATFORM(MAC)
 
+#import "GraphicsLayer.h"
 #import "GraphicsLayerClient.h"
 #import "SimpleRange.h"
 #import "Timer.h"
@@ -59,7 +60,7 @@ public:
     static Ref<DataDetectorHighlight> createForTelephoneNumber(Page&, DataDetectorHighlightClient&, RetainPtr<DDHighlightRef>&&, SimpleRange&&);
     static Ref<DataDetectorHighlight> createForImageOverlay(Page&, DataDetectorHighlightClient&, RetainPtr<DDHighlightRef>&&, SimpleRange&&);
 
-    ~DataDetectorHighlight() = default;
+    ~DataDetectorHighlight();
 
     void invalidate();
 
@@ -86,7 +87,7 @@ private:
 
     // GraphicsLayerClient
     void notifyFlushRequired(const GraphicsLayer*) override;
-    void paintContents(const GraphicsLayer*, GraphicsContext&, const FloatRect& inClip, GraphicsLayerPaintBehavior) override;
+    void paintContents(const GraphicsLayer*, GraphicsContext&, const FloatRect& inClip, OptionSet<GraphicsLayerPaintBehavior>) override;
     float deviceScaleFactor() const override;
 
     void fadeAnimationTimerFired();

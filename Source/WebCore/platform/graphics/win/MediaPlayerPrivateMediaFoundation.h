@@ -55,7 +55,7 @@ public:
     ~MediaPlayerPrivateMediaFoundation();
     static void registerMediaEngine(MediaEngineRegistrar);
 
-    static void getSupportedTypes(HashSet<String, ASCIICaseInsensitiveHash>& types);
+    static void getSupportedTypes(HashSet<String>& types);
     static MediaPlayer::SupportsType supportsType(const MediaEngineSupportParameters&);
     static bool isAvailable();
 
@@ -75,7 +75,7 @@ public:
     void setPageIsVisible(bool) final;
 
     bool seeking() const final;
-    void seek(float) final;
+    void seekToTarget(const SeekTarget&) final;
 
     void setRate(float) final;
 
@@ -94,7 +94,7 @@ public:
 
     float maxTimeSeekable() const final;
 
-    std::unique_ptr<PlatformTimeRanges> buffered() const final;
+    const PlatformTimeRanges& buffered() const final;
 
     bool didLoadingProgress() const final;
 
@@ -116,10 +116,9 @@ protected:
     friend HRESULT beginGetEvent(WeakPtr<MediaPlayerPrivateMediaFoundation>, COMPtr<IMFMediaSession>);
 
 private:
-    float maxTimeLoaded() const { return m_maxTimeLoaded; }
 
     WeakPtr<MediaPlayerPrivateMediaFoundation> m_weakThis;
-    MediaPlayer* m_player;
+    ThreadSafeWeakPtr<MediaPlayer> m_player;
     IntSize m_size;
     bool m_visible;
     bool m_loadingProgress;
@@ -129,7 +128,7 @@ private:
     bool m_hasAudio;
     bool m_hasVideo;
     float m_volume;
-    mutable float m_maxTimeLoaded { 0 };
+    mutable PlatformTimeRanges m_buffered;
     MediaPlayer::NetworkState m_networkState;
     MediaPlayer::ReadyState m_readyState;
 
@@ -294,7 +293,7 @@ private:
         D3DDISPLAYMODE m_displayMode;
 
         Lock m_lock;
-        
+
         COMPtr<IDirect3D9Ex> m_direct3D9;
         COMPtr<IDirect3DDevice9Ex> m_device;
         COMPtr<IDirect3DDeviceManager9> m_deviceManager;

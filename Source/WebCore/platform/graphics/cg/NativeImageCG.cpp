@@ -28,11 +28,37 @@
 
 #if USE(CG)
 
+#include "CGSubimageCacheWithTimer.h"
 #include "GeometryUtilities.h"
 #include "GraphicsContextCG.h"
-#include "SubimageCacheWithTimer.h"
+#include <limits>
+#include <pal/spi/cg/CoreGraphicsSPI.h>
 
 namespace WebCore {
+
+RefPtr<NativeImage> NativeImage::create(PlatformImagePtr&& image, RenderingResourceIdentifier renderingResourceIdentifier)
+{
+    if (!image)
+        return nullptr;
+    if (CGImageGetWidth(image.get()) > std::numeric_limits<int>::max() || CGImageGetHeight(image.get()) > std::numeric_limits<int>::max())
+        return nullptr;
+    return adoptRef(*new NativeImage(WTFMove(image), renderingResourceIdentifier));
+}
+
+RefPtr<NativeImage> NativeImage::createTransient(PlatformImagePtr&& image, RenderingResourceIdentifier identifier)
+{
+    if (!image)
+        return nullptr;
+    // FIXME: GraphicsContextCG caching should be made better and this should be the default mode
+    // for NativeImage, as we cannot guarantee all the places that draw images to not cache unwanted
+    // images.
+    RetainPtr<CGImage> transientImage = adoptCF(CGImageCreateCopy(image.get())); // Make a shallow copy so the metadata change doesn't affect the caller.
+    if (!transientImage)
+        return nullptr;
+    image = nullptr;
+    CGImageSetCachingFlags(transientImage.get(), kCGImageCachingTransient);
+    return create(WTFMove(transientImage), identifier);
+}
 
 IntSize NativeImage::size() const
 {
@@ -72,11 +98,18 @@ DestinationColorSpace NativeImage::colorSpace() const
 
 void NativeImage::draw(GraphicsContext& context, const FloatSize& imageSize, const FloatRect& destinationRect, const FloatRect& sourceRect, const ImagePaintingOptions& options)
 {
-    auto isHDRNativeImage = [](const NativeImage& image) -> bool {
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wdeprecated-declarations"
-        return CGColorSpaceIsHDR(CGImageGetColorSpace(image.platformImage().get()));
-#pragma clang diagnostic pop
+    auto isHDRColorSpace = [](CGColorSpaceRef colorSpace) -> bool {
+ALLOW_DEPRECATED_DECLARATIONS_BEGIN
+        return CGColorSpaceIsHDR(colorSpace);
+ALLOW_DEPRECATED_DECLARATIONS_END
+    };
+
+    auto isHDRNativeImage = [&](const NativeImage& image) -> bool {
+        return isHDRColorSpace(CGImageGetColorSpace(image.platformImage().get()));
+    };
+
+    auto isHDRContext = [&](GraphicsContext& context) -> bool {
+        return isHDRColorSpace(context.colorSpace().platformColorSpace());
     };
 
     auto colorSpaceForHDRImageBuffer = [](GraphicsContext& context) -> const DestinationColorSpace& {
@@ -93,6 +126,11 @@ void NativeImage::draw(GraphicsContext& context, const FloatSize& imageSize, con
 
     auto drawHDRNativeImage = [&](GraphicsContext& context, const FloatSize& imageSize, const FloatRect& destinationRect, const FloatRect& sourceRect, const ImagePaintingOptions& options) -> bool {
         if (sourceRect.isEmpty() || !isHDRNativeImage(*this))
+            return false;
+
+        // If context and the image have HDR colorSpaces, draw the image directly without
+        // going through the workaround.
+        if (isHDRContext(context))
             return false;
 
         // Create a temporary ImageBuffer for destinationRect with the current scaleFator.
@@ -122,7 +160,7 @@ void NativeImage::draw(GraphicsContext& context, const FloatSize& imageSize, con
 void NativeImage::clearSubimages()
 {
 #if CACHE_SUBIMAGES
-    SubimageCacheWithTimer::clearImage(m_platformImage.get());
+    CGSubimageCacheWithTimer::clearImage(m_platformImage.get());
 #endif
 }
 

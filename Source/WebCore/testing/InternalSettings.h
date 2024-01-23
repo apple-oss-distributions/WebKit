@@ -59,9 +59,6 @@ public:
     using EditingBehaviorType = WebCore::EditingBehaviorType;
     ExceptionOr<void> setEditingBehavior(EditingBehaviorType);
     
-    using PDFImageCachingPolicy = WebCore::PDFImageCachingPolicy;
-    ExceptionOr<void> setPDFImageCachingPolicy(PDFImageCachingPolicy);
-
     using StorageBlockingPolicy = WebCore::StorageBlockingPolicy;
     ExceptionOr<void> setStorageBlockingPolicy(StorageBlockingPolicy);
     
@@ -85,6 +82,8 @@ public:
     void setForcedPrefersReducedMotionAccessibilityValue(ForcedAccessibilityValue);
     ForcedAccessibilityValue forcedSupportsHighDynamicRangeValue() const;
     void setForcedSupportsHighDynamicRangeValue(ForcedAccessibilityValue);
+
+    ExceptionOr<void> setAllowAnimationControlsOverride(bool);
 
     // DeprecatedGlobalSettings.
     ExceptionOr<void> setFetchAPIKeepAliveEnabled(bool);
@@ -150,7 +149,6 @@ private:
         WebCore::StorageBlockingPolicy m_storageBlockingPolicy;
         WebCore::UserInterfaceDirectionPolicy m_userInterfaceDirectionPolicy;
         TextDirection m_systemLayoutDirection;
-        WebCore::PDFImageCachingPolicy m_pdfImageCachingPolicy;
         WebCore::ForcedAccessibilityValue m_forcedColorsAreInvertedAccessibilityValue;
         WebCore::ForcedAccessibilityValue m_forcedDisplayIsMonochromeAccessibilityValue;
         WebCore::ForcedAccessibilityValue m_forcedPrefersContrastAccessibilityValue;
@@ -169,7 +167,7 @@ private:
         bool m_shouldDeactivateAudioSession;
     };
 
-    Page* m_page;
+    WeakPtr<Page> m_page;
     Backup m_backup;
 };
 

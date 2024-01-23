@@ -32,7 +32,6 @@
 #include "ChildListMutationScope.h"
 #include "ElementInlines.h"
 #include "ElementTraversal.h"
-#include "HTMLParserIdioms.h"
 #include "HTMLSlotElement.h"
 #if ENABLE(PICTURE_IN_PICTURE_API)
 #include "NotImplemented.h"
@@ -118,7 +117,7 @@ Node::InsertedIntoAncestorResult ShadowRoot::insertedIntoAncestor(InsertionType 
     DocumentFragment::insertedIntoAncestor(insertionType, parentOfInsertedTree);
     if (insertionType.connectedToDocument)
         document().didInsertInDocumentShadowRoot(*this);
-    if (!adoptedStyleSheets().isEmpty() && document().frame())
+    if (!adoptedStyleSheets().empty() && document().frame())
         styleScope().didChangeActiveStyleSheetCandidates();
     return InsertedIntoAncestorResult::Done;
 }
@@ -219,12 +218,6 @@ bool ShadowRoot::childTypeAllowed(NodeType type) const
     }
 }
 
-void ShadowRoot::setResetStyleInheritance(bool value)
-{
-    // If this was ever changed after initialization, child styles would need to be invalidated here.
-    m_resetStyleInheritance = value;
-}
-
 Ref<Node> ShadowRoot::cloneNodeInternal(Document& targetDocument, CloningOperation type)
 {
     RELEASE_ASSERT(m_mode != ShadowRootMode::UserAgent);
@@ -312,13 +305,13 @@ static std::optional<std::pair<AtomString, AtomString>> parsePartMapping(StringV
     const auto end = mappingString.length();
 
     auto skipWhitespace = [&](auto position) {
-        while (position < end && isHTMLSpace(mappingString[position]))
+        while (position < end && isASCIIWhitespace(mappingString[position]))
             ++position;
         return position;
     };
 
     auto collectValue = [&](auto position) {
-        while (position < end && (!isHTMLSpace(mappingString[position]) && mappingString[position] != ':'))
+        while (position < end && (!isASCIIWhitespace(mappingString[position]) && mappingString[position] != ':'))
             ++position;
         return position;
     };

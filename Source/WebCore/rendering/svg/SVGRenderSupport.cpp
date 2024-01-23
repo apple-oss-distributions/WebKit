@@ -27,7 +27,7 @@
 #include "config.h"
 #include "SVGRenderSupport.h"
 
-#include "ElementAncestorIterator.h"
+#include "ElementAncestorIteratorInlines.h"
 #include "LegacyRenderSVGRoot.h"
 #include "LegacyRenderSVGShape.h"
 #include "LegacyRenderSVGTransformableContainer.h"
@@ -47,8 +47,10 @@
 #include "RenderSVGText.h"
 #include "SVGElementTypeHelpers.h"
 #include "SVGGeometryElement.h"
+#include "SVGRenderStyle.h"
 #include "SVGResources.h"
 #include "SVGResourcesCache.h"
+#include "TransformOperationData.h"
 #include "TransformState.h"
 
 namespace WebCore {
@@ -345,6 +347,7 @@ inline FloatRect clipPathReferenceBox(const RenderElement& renderer, CSSBoxType 
     case CSSBoxType::BorderBox:
     case CSSBoxType::MarginBox:
     case CSSBoxType::StrokeBox:
+    case CSSBoxType::BoxMissing:
         // FIXME: strokeBoundingBox() takes dasharray into account but shouldn't.
         referenceBox = renderer.strokeBoundingBox();
         break;
@@ -359,7 +362,6 @@ inline FloatRect clipPathReferenceBox(const RenderElement& renderer, CSSBoxType 
     case CSSBoxType::ContentBox:
     case CSSBoxType::FillBox:
     case CSSBoxType::PaddingBox:
-    case CSSBoxType::BoxMissing:
         referenceBox = renderer.objectBoundingBox();
         break;
     }
@@ -449,7 +451,7 @@ void SVGRenderSupport::applyStrokeStyleToContext(GraphicsContext& context, const
 
     const Vector<SVGLengthValue>& dashes = svgStyle.strokeDashArray();
     if (dashes.isEmpty())
-        context.setStrokeStyle(SolidStroke);
+        context.setStrokeStyle(StrokeStyle::SolidStroke);
     else {
         DashArray dashArray;
         dashArray.reserveInitialCapacity(dashes.size());
@@ -478,7 +480,7 @@ void SVGRenderSupport::applyStrokeStyleToContext(GraphicsContext& context, const
         if (canSetLineDash)
             context.setLineDash(dashArray, lengthContext.valueForLength(svgStyle.strokeDashOffset()) * scaleFactor);
         else
-            context.setStrokeStyle(SolidStroke);
+            context.setStrokeStyle(StrokeStyle::SolidStroke);
     }
 }
 

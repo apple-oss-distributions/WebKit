@@ -27,6 +27,7 @@
 
 #if ENABLE(SERVICE_WORKER)
 
+#include "CookieStore.h"
 #include "NotificationClient.h"
 #include "ScriptExecutionContextIdentifier.h"
 #include "ServiceWorkerContextData.h"
@@ -93,9 +94,18 @@ public:
     void recordUserGesture();
     void setIsProcessingUserGestureForTesting(bool value) { m_isProcessingUserGesture = value; }
 
+    bool didFirePushEventRecently() const;
+
+    WEBCORE_EXPORT void addConsoleMessage(MessageSource, MessageLevel, const String& message, unsigned long requestIdentifier) final;
+    void enableConsoleMessageReporting() { m_consoleMessageReportingEnabled = true; }
+
+    CookieStore& cookieStore();
+
 private:
     ServiceWorkerGlobalScope(ServiceWorkerContextData&&, ServiceWorkerData&&, const WorkerParameters&, Ref<SecurityOrigin>&&, ServiceWorkerThread&, Ref<SecurityOrigin>&& topOrigin, IDBClient::IDBConnectionProxy*, SocketProvider*, std::unique_ptr<NotificationClient>&&);
     void notifyServiceWorkerPageOfCreationIfNecessary();
+
+    void prepareForDestruction() final;
 
     Type type() const final { return Type::ServiceWorker; }
     bool hasPendingEvents() const { return !m_extendedEvents.isEmpty(); }
@@ -117,6 +127,9 @@ private:
     bool m_isProcessingUserGesture { false };
     Timer m_userGestureTimer;
     RefPtr<PushEvent> m_pushEvent;
+    MonotonicTime m_lastPushEventTime;
+    bool m_consoleMessageReportingEnabled { false };
+    RefPtr<CookieStore> m_cookieStore;
 };
 
 } // namespace WebCore

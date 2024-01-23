@@ -30,8 +30,13 @@
 
 #import "RemoteScrollingCoordinatorProxyIOS.h"
 #import "WebPageProxy.h"
+#import "WebPreferences.h"
 #import <QuartzCore/CADisplayLink.h>
+#import <WebCore/LocalFrameView.h>
+#import <WebCore/ScrollView.h>
 #import <pal/spi/cocoa/QuartzCoreSPI.h>
+
+constexpr WebCore::FramesPerSecond DisplayLinkFramesPerSecond = 60;
 
 @interface WKDisplayLinkHandler : NSObject {
     WebKit::RemoteLayerTreeDrawingAreaProxy* _drawingAreaProxy;
@@ -47,8 +52,11 @@
 - (void)displayLinkFired:(CADisplayLink *)sender;
 - (void)invalidate;
 - (void)schedule;
+- (WebCore::FramesPerSecond)nominalFramesPerSecond;
 
 @end
+
+static void* displayRefreshRateObservationContext = &displayRefreshRateObservationContext;
 
 @implementation WKDisplayLinkHandler
 
@@ -68,25 +76,13 @@
         if (createDisplayLink) {
             _displayLink = [CADisplayLink displayLinkWithTarget:self selector:@selector(displayLinkFired:)];
             [_displayLink addToRunLoop:[NSRunLoop mainRunLoop] forMode:NSRunLoopCommonModes];
+            [_displayLink.display addObserver:self forKeyPath:@"refreshRate" options:NSKeyValueObservingOptionNew context:displayRefreshRateObservationContext];
             _displayLink.paused = YES;
 
             if (drawingAreaProxy && !drawingAreaProxy->page().preferences().preferPageRenderingUpdatesNear60FPSEnabled())
                 _displayLink.preferredFramesPerSecond = (1.0 / _displayLink.maximumRefreshRate);
             else
-                _displayLink.preferredFramesPerSecond = 60;
-        }
-
-        if (drawingAreaProxy) {
-            auto& page = drawingAreaProxy->page();
-            if (page.preferences().webAnimationsCustomFrameRateEnabled() || !page.preferences().preferPageRenderingUpdatesNear60FPSEnabled()) {
-                auto minimumRefreshInterval = _displayLink.maximumRefreshRate;
-                if (minimumRefreshInterval > 0) {
-                    if (auto displayID = page.displayID()) {
-                        WebCore::FramesPerSecond frameRate = std::round(1.0 / minimumRefreshInterval);
-                        page.windowScreenDidChange(*displayID, frameRate);
-                    }
-                }
-            }
+                _displayLink.preferredFramesPerSecond = DisplayLinkFramesPerSecond;
         }
     }
     return self;
@@ -119,6 +115,7 @@
 
 - (void)invalidate
 {
+    [_displayLink.display removeObserver:self forKeyPath:@"refreshRate" context:displayRefreshRateObservationContext];
     [_displayLink invalidate];
     _displayLink = nullptr;
 
@@ -146,14 +143,40 @@
 #endif
 }
 
+- (void)observeValueForKeyPath:(NSString *)keyPath ofObject:(id)object change:(NSDictionary *)change context:(void *)context
+{
+    if (context != displayRefreshRateObservationContext)
+        return;
+    [self didChangeNominalFramesPerSecond];
+}
+
+- (WebCore::FramesPerSecond)nominalFramesPerSecond
+{
+    auto& page = _drawingAreaProxy->page();
+    if (page.preferences().webAnimationsCustomFrameRateEnabled() || !page.preferences().preferPageRenderingUpdatesNear60FPSEnabled()) {
+        auto minimumRefreshInterval = _displayLink.maximumRefreshRate;
+        if (minimumRefreshInterval > 0)
+            return std::round(1.0 / minimumRefreshInterval);
+    }
+
+    return DisplayLinkFramesPerSecond;
+}
+
+- (void)didChangeNominalFramesPerSecond
+{
+    Ref page = _drawingAreaProxy->page();
+    if (auto displayID = page->displayID())
+        page->windowScreenDidChange(*displayID);
+}
+
 @end
 
 namespace WebKit {
 using namespace IPC;
 using namespace WebCore;
 
-RemoteLayerTreeDrawingAreaProxyIOS::RemoteLayerTreeDrawingAreaProxyIOS(WebPageProxy& pageProxy, WebProcessProxy& processProxy)
-    : RemoteLayerTreeDrawingAreaProxy(pageProxy, processProxy)
+RemoteLayerTreeDrawingAreaProxyIOS::RemoteLayerTreeDrawingAreaProxyIOS(WebPageProxy& pageProxy)
+    : RemoteLayerTreeDrawingAreaProxy(pageProxy)
 {
 }
 
@@ -192,6 +215,11 @@ void RemoteLayerTreeDrawingAreaProxyIOS::scheduleDisplayRefreshCallbacks()
 void RemoteLayerTreeDrawingAreaProxyIOS::pauseDisplayRefreshCallbacks()
 {
     [displayLinkHandler() pause];
+}
+
+std::optional<WebCore::FramesPerSecond> RemoteLayerTreeDrawingAreaProxyIOS::displayNominalFramesPerSecond()
+{
+    return [displayLinkHandler() nominalFramesPerSecond];
 }
 
 } // namespace WebKit
