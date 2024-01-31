@@ -162,10 +162,6 @@ constexpr Seconds resetGPUProcessCrashCountDelay { 30_s };
 constexpr unsigned maximumGPUProcessRelaunchAttemptsBeforeKillingWebProcesses { 2 };
 #endif
 
-#if ENABLE(WEBCONTENT_CRASH_TESTING)
-bool WebProcessPool::s_shouldCrashWhenCreatingWebProcess = false;
-#endif
-
 static constexpr Seconds audibleActivityClearDelay = 5_s;
 
 Ref<WebProcessPool> WebProcessPool::create(API::ProcessPoolConfiguration& configuration)
@@ -668,14 +664,6 @@ Ref<WebProcessProxy> WebProcessPool::createNewWebProcess(WebsiteDataStore* websi
     auto processProxy = WebProcessProxy::create(*this, websiteDataStore, lockdownMode, isPrewarmed, crossOriginMode);
     initializeNewWebProcess(processProxy, websiteDataStore, isPrewarmed);
     m_processes.append(processProxy.copyRef());
-
-#if ENABLE(WEBCONTENT_CRASH_TESTING)
-    if (shouldCrashWhenCreatingWebProcess()) {
-        auto crashyProcessProxy = WebProcessProxy::createForWebContentCrashy(*this);
-        initializeNewWebProcess(crashyProcessProxy, nullptr);
-        m_processes.append(crashyProcessProxy.copyRef());
-    }
-#endif
 
     return processProxy;
 }
@@ -1943,7 +1931,13 @@ std::tuple<Ref<WebProcessProxy>, SuspendedPageProxy*, ASCIILiteral> WebProcessPo
     if (m_automationSession)
         return { WTFMove(sourceProcess), nullptr, "An automation session is active"_s };
 
-    // FIXME: We ought to be able to re-use processes that haven't committed anything with site isolation enabled, but cross-site redirects are tricky.
+    // Redirects to a different scheme for which the client has registered their own custom handler.
+    // We need to process swap so that we end up with a fresh navigation instead of a redirect, so
+    // that the app's scheme handler gets used (rdar://117891282).
+    if (navigation.currentRequestIsRedirect() && navigation.originalRequest().url().protocol() != targetURL.protocol() && page.urlSchemeHandlerForScheme(targetURL.protocol().toString()))
+        return { createNewProcess(), nullptr, "Redirect to a different scheme for which the app registered a custom handler"_s };
+
+    // FIXME: We ought to be able to re-use processes that haven't committed anything with site isolation enabled, but cross-site redirects are tricky. <rdar://116203552>
     if (!sourceProcess->hasCommittedAnyProvisionalLoads() && !page.preferences().siteIsolationEnabled()) {
         tryPrewarmWithDomainInformation(sourceProcess, targetRegistrableDomain);
         return { WTFMove(sourceProcess), nullptr, "Process has not yet committed any provisional loads"_s };
@@ -2228,10 +2222,6 @@ bool WebProcessPool::anyProcessPoolNeedsUIBackgroundAssertion()
 void WebProcessPool::forEachProcessForSession(PAL::SessionID sessionID, const Function<void(WebProcessProxy&)>& apply)
 {
     for (auto& process : m_processes) {
-#if ENABLE(WEBCONTENT_CRASH_TESTING)
-        if (process->isCrashyProcess())
-            continue;
-#endif
         if (process->isPrewarmed() || process->sessionID() != sessionID)
             continue;
         apply(process.get());
