@@ -94,9 +94,7 @@ CompactContextMenuPresenter::CompactContextMenuPresenter(UIView *rootView, id<UI
 
 CompactContextMenuPresenter::~CompactContextMenuPresenter()
 {
-    [UIView performWithoutAnimation:^{
-        dismiss();
-    }];
+    dismiss();
     [m_button removeFromSuperview];
 }
 

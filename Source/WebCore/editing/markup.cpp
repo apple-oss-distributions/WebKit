@@ -55,7 +55,6 @@
 #include "FrameLoader.h"
 #include "HTMLAttachmentElement.h"
 #include "HTMLBRElement.h"
-#include "HTMLBaseElement.h"
 #include "HTMLBodyElement.h"
 #include "HTMLDivElement.h"
 #include "HTMLHeadElement.h"
@@ -334,27 +333,10 @@ public:
         return node.parentOrShadowHostNode();
     }
 
-    void prependHeadIfNecessary(const HTMLBaseElement* baseElement)
+    void prependMetaCharsetUTF8TagIfNonASCIICharactersArePresent()
     {
-#if PLATFORM(COCOA)
-        // On Cocoa platforms, this markup is eventually persisted to the pasteboard and read back as UTF-8 data,
-        // so this meta tag is needed for clients that read this data in the future from the pasteboard and load it.
-        bool shouldAppendMetaCharset = !containsOnlyASCII();
-#else
-        bool shouldAppendMetaCharset = false;
-#endif
-        if (!shouldAppendMetaCharset && !baseElement)
-            return;
-
-        m_reversedPrecedingMarkup.append("</head>"_s);
-        if (baseElement) {
-            StringBuilder markupForBase;
-            appendStartTag(markupForBase, *baseElement, false, DoesNotFullySelectNode);
-            m_reversedPrecedingMarkup.append(markupForBase.toString());
-        }
-        if (shouldAppendMetaCharset)
+        if (!containsOnlyASCII())
             m_reversedPrecedingMarkup.append("<meta charset=\"UTF-8\">"_s);
-        m_reversedPrecedingMarkup.append("<head>"_s);
     }
 
 private:
@@ -993,7 +975,7 @@ static RefPtr<Node> highestAncestorToWrapMarkup(const Position& start, const Pos
 }
 
 static String serializePreservingVisualAppearanceInternal(const Position& start, const Position& end, Vector<Ref<Node>>* nodes, ResolveURLs resolveURLs, SerializeComposedTree serializeComposedTree, IgnoreUserSelectNone ignoreUserSelectNone,
-    AnnotateForInterchange annotate, ConvertBlocksToInlines convertBlocksToInlines, StandardFontFamilySerializationMode standardFontFamilySerializationMode, MSOListMode msoListMode, PreserveBaseElement preserveBaseElement)
+    AnnotateForInterchange annotate, ConvertBlocksToInlines convertBlocksToInlines, StandardFontFamilySerializationMode standardFontFamilySerializationMode, MSOListMode msoListMode)
 {
     static NeverDestroyed<const String> interchangeNewlineString(MAKE_STATIC_STRING_IMPL("<br class=\"" AppleInterchangeNewline "\">"));
 
@@ -1082,8 +1064,11 @@ static String serializePreservingVisualAppearanceInternal(const Position& start,
     if (annotate == AnnotateForInterchange::Yes && needInterchangeNewlineAfter(visibleEnd.previous()))
         accumulator.append(interchangeNewlineString.get());
 
-    RefPtr baseElement = preserveBaseElement == PreserveBaseElement::Yes ? document->firstBaseElement() : nullptr;
-    accumulator.prependHeadIfNecessary(baseElement.get());
+#if PLATFORM(COCOA)
+    // On Cocoa platforms, this markup is eventually persisted to the pasteboard and read back as UTF-8 data,
+    // so this meta tag is needed for clients that read this data in the future from the pasteboard and load it.
+    accumulator.prependMetaCharsetUTF8TagIfNonASCIICharactersArePresent();
+#endif
 
     return accumulator.takeResults();
 }
@@ -1092,13 +1077,13 @@ String serializePreservingVisualAppearance(const SimpleRange& range, Vector<Ref<
 {
     return serializePreservingVisualAppearanceInternal(makeDeprecatedLegacyPosition(range.start), makeDeprecatedLegacyPosition(range.end),
         nodes, resolveURLs, SerializeComposedTree::No, IgnoreUserSelectNone::No,
-        annotate, convertBlocksToInlines, StandardFontFamilySerializationMode::Keep, MSOListMode::DoNotPreserve, PreserveBaseElement::No);
+        annotate, convertBlocksToInlines, StandardFontFamilySerializationMode::Keep, MSOListMode::DoNotPreserve);
 }
 
-String serializePreservingVisualAppearance(const VisibleSelection& selection, ResolveURLs resolveURLs, SerializeComposedTree serializeComposedTree, IgnoreUserSelectNone ignoreUserSelectNone, PreserveBaseElement preserveBaseElement, Vector<Ref<Node>>* nodes)
+String serializePreservingVisualAppearance(const VisibleSelection& selection, ResolveURLs resolveURLs, SerializeComposedTree serializeComposedTree, IgnoreUserSelectNone ignoreUserSelectNone, Vector<Ref<Node>>* nodes)
 {
     return serializePreservingVisualAppearanceInternal(selection.start(), selection.end(), nodes, resolveURLs, serializeComposedTree, ignoreUserSelectNone,
-        AnnotateForInterchange::Yes, ConvertBlocksToInlines::No, StandardFontFamilySerializationMode::Keep, MSOListMode::DoNotPreserve, preserveBaseElement);
+        AnnotateForInterchange::Yes, ConvertBlocksToInlines::No, StandardFontFamilySerializationMode::Keep, MSOListMode::DoNotPreserve);
 }
 
 static bool shouldPreserveMSOLists(StringView markup)
@@ -1124,7 +1109,7 @@ String sanitizedMarkupForFragmentInDocument(Ref<DocumentFragment>&& fragment, Do
 
     // SerializeComposedTree::No because there can't be a shadow tree in the pasted fragment.
     auto result = serializePreservingVisualAppearanceInternal(firstPositionInNode(bodyElement.get()), lastPositionInNode(bodyElement.get()), nullptr,
-        ResolveURLs::YesExcludingURLsForPrivacy, SerializeComposedTree::No, IgnoreUserSelectNone::No, AnnotateForInterchange::Yes, ConvertBlocksToInlines::No, StandardFontFamilySerializationMode::Strip, msoListMode, PreserveBaseElement::No);
+        ResolveURLs::YesExcludingURLsForPrivacy, SerializeComposedTree::No, IgnoreUserSelectNone::No, AnnotateForInterchange::Yes, ConvertBlocksToInlines::No, StandardFontFamilySerializationMode::Strip, msoListMode);
 
     if (msoListMode != MSOListMode::Preserve)
         return result;

@@ -1019,6 +1019,11 @@ void WebPageProxy::setMediaCapability(std::optional<MediaCapability>&& capabilit
 
 void WebPageProxy::updateMediaCapability()
 {
+#if USE(EXTENSIONKIT)
+    if (!AuxiliaryProcessProxy::manageProcessesAsExtensions())
+        return;
+#endif
+
     if (!preferences().mediaCapabilityGrantsEnabled())
         return;
 

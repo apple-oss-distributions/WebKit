@@ -696,8 +696,23 @@ void WebGLRenderingContextBase::markContextChangedAndNotifyCanvasObserver(WebGLR
         return;
 
     m_compositingResultsNeedUpdating = true;
-    m_canvasBufferContents = std::nullopt;
-    markCanvasChanged();
+
+    if (auto* canvas = htmlCanvas()) {
+        if (isAccelerated()) {
+            canvas->notifyObserversCanvasChanged({ });
+            RenderBox* renderBox = canvas->renderBox();
+            if (renderBox && renderBox->hasAcceleratedCompositing()) {
+                m_canvasBufferContents = std::nullopt;
+                canvas->clearCopiedImage();
+                renderBox->contentChanged(CanvasPixelsChanged);
+            }
+        }
+    }
+
+    if (m_canvasBufferContents.has_value()) {
+        m_canvasBufferContents = std::nullopt;
+        canvasBase().didDraw(FloatRect(FloatPoint(0, 0), clampedCanvasSize()), ShouldApplyPostProcessingToDirtyRect::No);
+    }
 }
 
 bool WebGLRenderingContextBase::clearIfComposited(WebGLRenderingContextBase::CallerType caller, GCGLbitfield mask)
@@ -5359,11 +5374,7 @@ void WebGLRenderingContextBase::maybeRestoreContext()
             canvasBase().dispatchEvent(WebGLContextEvent::create(eventNames().webglcontextrestoredEvent, Event::CanBubble::No, Event::IsCancelable::Yes, emptyString()));
             // Notify the render layer to reconfigure the structure of the backing. This causes the backing to
             // start using the new layer contents display delegate from the new context.
-            if (auto* htmlCanvas = this->htmlCanvas()) {
-                RenderBox* renderBox = htmlCanvas->renderBox();
-                if (renderBox && renderBox->hasAcceleratedCompositing())
-                    renderBox->contentChanged(CanvasChanged);
-            }
+            notifyCanvasContentChanged();
             return;
         }
         // Remove the possible objects added during the initialization.

@@ -131,6 +131,8 @@ set(WTF_PUBLIC_HEADERS
     KeyValuePair.h
     LEBDecoder.h
     Language.h
+    LazyRef.h
+    LazyUniqueRef.h
     LikelyDenseUnsignedIntegerSet.h
     ListDump.h
     ListHashSet.h
@@ -390,6 +392,7 @@ set(WTF_PUBLIC_HEADERS
 
     text/ASCIIFastPath.h
     text/ASCIILiteral.h
+    text/AdaptiveStringSearcher.h
     text/AtomString.h
     text/AtomStringHash.h
     text/AtomStringImpl.h

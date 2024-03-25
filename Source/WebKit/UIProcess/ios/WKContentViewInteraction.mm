@@ -6559,9 +6559,6 @@ static WebKit::WritingDirection coreWritingDirection(NSWritingDirection directio
 
 - (BOOL)hasText
 {
-    if (_isFocusingElementWithKeyboard || _page->waitingForPostLayoutEditorStateUpdateAfterFocusingElement())
-        return _focusedElementInformation.hasPlainText;
-
     auto& editorState = _page->editorState();
     return editorState.hasPostLayoutData() && editorState.postLayoutData->hasPlainText;
 }
@@ -12397,20 +12394,29 @@ static BOOL shouldUseMachineReadableCodeMenuFromImageAnalysisResult(CocoaImageAn
     bool updated = false;
     [self.contextMenuInteraction updateVisibleMenuWithBlock:makeBlockPtr([&](UIMenu *menu) -> UIMenu * {
         updated = true;
-        __block BOOL foundRevealImageItem = NO;
-        __block BOOL foundShowTextItem = NO;
+        __block auto indexOfPlaceholder = NSNotFound;
+        __block BOOL foundCopyItem = NO;
         auto revealImageIdentifier = elementActionTypeToUIActionIdentifier(_WKElementActionTypeRevealImage);
-        auto showTextIdentifier = elementActionTypeToUIActionIdentifier(_WKElementActionTypeImageExtraction);
+        auto copyIdentifier = elementActionTypeToUIActionIdentifier(_WKElementActionTypeCopy);
         [menu.children enumerateObjectsUsingBlock:^(UIMenuElement *child, NSUInteger index, BOOL* stop) {
             auto *action = dynamic_objc_cast<UIAction>(child);
-            if ([action.identifier isEqualToString:revealImageIdentifier])
-                foundRevealImageItem = YES;
-            else if ([action.identifier isEqualToString:showTextIdentifier])
-                foundShowTextItem = YES;
+            if ([action.identifier isEqualToString:revealImageIdentifier] && (action.attributes & UIMenuElementAttributesHidden))
+                indexOfPlaceholder = index;
+            else if ([action.identifier isEqualToString:copyIdentifier])
+                foundCopyItem = YES;
         }];
 
+        if (indexOfPlaceholder == NSNotFound)
+            return menu;
+
         auto adjustedChildren = adoptNS(menu.children.mutableCopy);
-        auto newItems = adoptNS([NSMutableArray<UIMenuElement *> new]);
+        auto replacements = adoptNS([NSMutableArray<UIMenuElement *> new]);
+
+        auto *elementInfo = [_WKActivatedElementInfo activatedElementInfoWithInteractionInformationAtPosition:_positionInformation userInfo:nil];
+        auto addAction = [&](_WKElementActionType action) {
+            auto *elementAction = [_WKElementAction _elementActionWithType:action info:elementInfo assistant:_actionSheetAssistant.get()];
+            [replacements addObject:[elementAction uiActionForElementInfo:elementInfo]];
+        };
 
         for (UIMenuElement *child in adjustedChildren.get()) {
             UIAction *action = dynamic_objc_cast<UIAction>(child);
@@ -12418,7 +12424,7 @@ static BOOL shouldUseMachineReadableCodeMenuFromImageAnalysisResult(CocoaImageAn
                 continue;
 
             if ([action.identifier isEqual:elementActionTypeToUIActionIdentifier(_WKElementActionTypeCopyCroppedImage)]) {
-                if (self.copySubjectResultForImageContextMenu)
+                if (foundCopyItem && self.copySubjectResultForImageContextMenu)
                     action.attributes &= ~UIMenuElementAttributesDisabled;
 
                 continue;
@@ -12432,24 +12438,14 @@ static BOOL shouldUseMachineReadableCodeMenuFromImageAnalysisResult(CocoaImageAn
             }
         }
 
-        if (!foundShowTextItem && self.hasSelectableTextForImageContextMenu) {
-            // Dynamically insert the "Show Text" menu item, if it wasn't already inserted.
-            // FIXME: This should probably be inserted unconditionally, and enabled if needed
-            // like Look Up or Copy Subject.
-            auto *elementInfo = [_WKActivatedElementInfo activatedElementInfoWithInteractionInformationAtPosition:_positionInformation userInfo:nil];
-            auto *elementAction = [_WKElementAction _elementActionWithType:_WKElementActionTypeImageExtraction info:elementInfo assistant:_actionSheetAssistant.get()];
-            [newItems addObject:[elementAction uiActionForElementInfo:elementInfo]];
-        }
+        if (self.hasSelectableTextForImageContextMenu)
+            addAction(_WKElementActionTypeImageExtraction);
 
-        if (foundRevealImageItem) {
-            // Only dynamically insert machine-readable code items if the client didn't explicitly
-            // remove the Look Up ("reveal image") item.
-            if (UIMenu *subMenu = self.machineReadableCodeSubMenuForImageContextMenu)
-                [newItems addObject:subMenu];
-        }
+        if (UIMenu *subMenu = self.machineReadableCodeSubMenuForImageContextMenu)
+            [replacements addObject:subMenu];
 
-        RELEASE_LOG(ImageAnalysis, "Dynamically inserting %zu context menu action(s)", [newItems count]);
-        [adjustedChildren addObjectsFromArray:newItems.get()];
+        RELEASE_LOG(ImageAnalysis, "Dynamically inserting %zu context menu action(s)", [replacements count]);
+        [adjustedChildren replaceObjectsInRange:NSMakeRange(indexOfPlaceholder, 1) withObjectsFromArray:replacements.get()];
         return [menu menuByReplacingChildren:adjustedChildren.get()];
     }).get()];
 

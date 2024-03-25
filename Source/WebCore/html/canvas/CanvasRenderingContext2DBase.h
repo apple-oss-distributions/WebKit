@@ -438,9 +438,6 @@ private:
 
     bool isAccelerated() const override;
 
-    bool hasDeferredOperations() const final;
-    void flushDeferredOperations() final;
-
     bool hasInvertibleTransform() const final { return state().hasInvertibleTransform; }
 
     // The relationship between FontCascade and CanvasRenderingContext2D::FontProxy must hold certain invariants.
@@ -460,7 +457,6 @@ private:
     bool m_usesCSSCompatibilityParseMode;
     mutable std::variant<CachedContentsTransparent, CachedContentsUnknown, CachedContentsImageData> m_cachedContents;
     CanvasRenderingContext2DSettings m_settings;
-    bool m_hasDeferredOperations { false };
 };
 
 } // namespace WebCore

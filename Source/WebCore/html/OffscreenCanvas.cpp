@@ -140,7 +140,6 @@ OffscreenCanvas::OffscreenCanvas(ScriptExecutionContext& scriptExecutionContext,
 OffscreenCanvas::~OffscreenCanvas()
 {
     notifyObserversCanvasDestroyed();
-    removeCanvasNeedingPreparationForDisplayOrFlush();
 
     m_context = nullptr; // Ensure this goes away before the ImageBuffer.
     setImageBuffer(nullptr);
@@ -238,7 +237,6 @@ ExceptionOr<std::optional<OffscreenRenderingContext>> OffscreenCanvas::getContex
             auto settings = convert<IDLDictionary<ImageBitmapRenderingContextSettings>>(state, arguments.isEmpty() ? JSC::jsUndefined() : (arguments[0].isObject() ? arguments[0].get() : JSC::jsNull()));
             RETURN_IF_EXCEPTION(scope, Exception { ExceptionCode::ExistingExceptionError });
             m_context = ImageBitmapRenderingContext::create(*this, WTFMove(settings));
-            downcast<ImageBitmapRenderingContext>(m_context.get())->transferFromImageBitmap(nullptr);
         }
         if (RefPtr context = dynamicDowncast<ImageBitmapRenderingContext>(m_context.get()))
             return { { WTFMove(context) } };
@@ -397,9 +395,10 @@ void OffscreenCanvas::convertToBlob(ImageEncodeOptions&& options, Ref<DeferredPr
 
 void OffscreenCanvas::didDraw(const std::optional<FloatRect>& rect, ShouldApplyPostProcessingToDirtyRect shouldApplyPostProcessingToDirtyRect)
 {
+    CanvasBase::didDraw(rect, shouldApplyPostProcessingToDirtyRect);
     clearCopiedImage();
     scheduleCommitToPlaceholderCanvas();
-    CanvasBase::didDraw(rect, shouldApplyPostProcessingToDirtyRect);
+    notifyObserversCanvasChanged(rect);
 }
 
 Image* OffscreenCanvas::copiedImage() const
@@ -438,8 +437,6 @@ std::unique_ptr<DetachedOffscreenCanvas> OffscreenCanvas::detach()
 {
     if (!canDetach())
         return nullptr;
-
-    removeCanvasNeedingPreparationForDisplayOrFlush();
 
     m_detached = true;
 
@@ -553,6 +550,7 @@ void OffscreenCanvas::reset()
     notifyObserversCanvasResized();
     scheduleCommitToPlaceholderCanvas();
 }
+
 
 void OffscreenCanvas::queueTaskKeepingObjectAlive(TaskSource source, Function<void()>&& task)
 {

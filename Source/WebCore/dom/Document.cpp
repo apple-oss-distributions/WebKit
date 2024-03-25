@@ -1027,21 +1027,24 @@ ReportingScope& Document::ensureReportingScope()
 
 void Document::parseMarkupUnsafe(const String& markup, OptionSet<ParserContentPolicy> parserContentPolicy)
 {
+    ASSERT(!hasChildNodes());
     auto policy = OptionSet<ParserContentPolicy> { ParserContentPolicy::AllowScriptingContent } | parserContentPolicy;
     setParserContentPolicy(policy);
     bool usedFastPath = false;
     if (this->contentType() == textHTMLContentTypeAtom()) {
+        auto html = HTMLHtmlElement::create(*this);
+        appendChild(html);
         auto body = HTMLBodyElement::create(*this);
+        html->appendChild(body);
         body->beginParsingChildren();
         usedFastPath = tryFastParsingHTMLFragment(StringView { markup }.substring(markup.find(isNotASCIIWhitespace<UChar>)), *this, body, body, policy);
         if (LIKELY(usedFastPath)) {
             body->finishParsingChildren();
-            auto html = HTMLHtmlElement::create(*this);
             auto head = HTMLHeadElement::create(*this);
-            html->appendChild(head);
-            html->appendChild(body);
-            appendChild(html);
+            html->insertBefore(head, body.ptr());
+            return;
         }
+        html->remove();
     }
     if (!usedFastPath)
         setContent(markup);
@@ -9948,45 +9951,38 @@ const CrossOriginOpenerPolicy& Document::crossOriginOpenerPolicy() const
     return SecurityContext::crossOriginOpenerPolicy();
 }
 
-void Document::prepareCanvasesForDisplayOrFlushIfNeeded()
+void Document::prepareCanvasesForDisplayIfNeeded()
 {
-    auto contexts = copyToVectorOf<WeakPtr<CanvasRenderingContext>>(m_canvasContextsToPrepare);
-    m_canvasContextsToPrepare.clear();
-    for (auto& weakContext : contexts) {
-        auto* context = weakContext.get();
-        if (!context)
-            continue;
-        // Some canvas contexts hold memory that should be periodically freed.
-        if (context->hasDeferredOperations())
-            context->flushDeferredOperations();
+    // Some canvas contexts need to do work when rendering has finished but
+    // before their content is composited.
 
-        // Some canvases need to do work when rendering has finished but before their content is composited.
-        if (auto* htmlCanvas = dynamicDowncast<HTMLCanvasElement>(context->canvasBase())) {
-            if (htmlCanvas->needsPreparationForDisplay())
-                htmlCanvas->prepareForDisplay();
-        }
-    }
+    // FIXME: Calling prepareForDisplay should not call back into a method
+    // that would mutate our m_canvasesNeedingDisplayPreparation list. It
+    // would be nice if this could be enforced to remove the copyToVector.
+
+    auto canvases = copyToVectorOf<Ref<HTMLCanvasElement>>(m_canvasesNeedingDisplayPreparation);
+    m_canvasesNeedingDisplayPreparation.clear();
+    for (auto& canvas : canvases)
+        canvas->prepareForDisplay();
 }
 
-void Document::addCanvasNeedingPreparationForDisplayOrFlush(CanvasBase& canvas)
+void Document::clearCanvasPreparation(HTMLCanvasElement& canvas)
 {
-    auto* context = canvas.renderingContext();
-    if (!context)
-        return;
-    if (context->hasDeferredOperations() || context->needsPreparationForDisplay()) {
-        bool shouldSchedule = m_canvasContextsToPrepare.isEmptyIgnoringNullReferences();
-        m_canvasContextsToPrepare.add(*context);
-        if (shouldSchedule)
-            scheduleRenderingUpdate(RenderingUpdateStep::PrepareCanvasesForDisplayOrFlush);
-    }
+    m_canvasesNeedingDisplayPreparation.remove(canvas);
 }
 
-void Document::removeCanvasNeedingPreparationForDisplayOrFlush(CanvasBase& canvas)
+void Document::canvasChanged(CanvasBase& canvasBase, const std::optional<FloatRect>& changedRect)
 {
-    auto* context = canvas.renderingContext();
-    if (!context)
-        return;
-    m_canvasContextsToPrepare.remove(*context);
+    auto* canvas = dynamicDowncast<HTMLCanvasElement>(canvasBase);
+    if (canvas && canvas->needsPreparationForDisplay()) {
+        m_canvasesNeedingDisplayPreparation.add(*canvas);
+        // Schedule a rendering update to force handling of prepareForDisplay
+        // for any queued canvases. This is especially important for any canvas
+        // that is not in the DOM, as those don't have a rect to invalidate to
+        // trigger an update. <http://bugs.webkit.org/show_bug.cgi?id=240380>.
+        if (!changedRect)
+            scheduleRenderingUpdate(RenderingUpdateStep::PrepareCanvasesForDisplay);
+    }
 }
 
 void Document::updateSleepDisablerIfNeeded()
@@ -9997,6 +9993,12 @@ void Document::updateSleepDisablerIfNeeded()
         return;
     }
     m_sleepDisabler = nullptr;
+}
+
+void Document::canvasDestroyed(CanvasBase& canvasBase)
+{
+    if (auto* canvasElement = dynamicDowncast<HTMLCanvasElement>(canvasBase))
+        m_canvasesNeedingDisplayPreparation.remove(*canvasElement);
 }
 
 JSC::VM& Document::vm()

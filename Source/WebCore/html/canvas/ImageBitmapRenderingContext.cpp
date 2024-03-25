@@ -50,6 +50,7 @@ ImageBitmapRenderingContext::ImageBitmapRenderingContext(CanvasBase& canvas, Ima
     : CanvasRenderingContext(canvas)
     , m_settings(WTFMove(settings))
 {
+    setOutputBitmap(nullptr);
 }
 
 ImageBitmapRenderingContext::~ImageBitmapRenderingContext() = default;

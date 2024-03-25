@@ -97,12 +97,6 @@ public:
     bool hasActiveInspectorCanvasCallTracer() const { return m_hasActiveInspectorCanvasCallTracer; }
     void setHasActiveInspectorCanvasCallTracer(bool hasActiveInspectorCanvasCallTracer) { m_hasActiveInspectorCanvasCallTracer = hasActiveInspectorCanvasCallTracer; }
 
-    // Returns true if there are pending deferred operations that might consume memory.
-    virtual bool hasDeferredOperations() const { return false; }
-
-    // Called periodically if needsFlush() was true when canvas change happened.
-    virtual void flushDeferredOperations() { }
-
     virtual bool compositingResultsNeedUpdating() const { return false; }
     virtual bool needsPreparationForDisplay() const { return false; }
     // Swaps the current drawing buffer to display buffer.
