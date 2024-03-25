@@ -39,7 +39,7 @@ class Page;
 class RenderImageResource;
 
 template<typename T, typename Counter> class EventSender;
-using ImageEventSender = EventSender<ImageLoader, WTF::DefaultWeakPtrImpl>;
+using ImageEventSender = EventSender<ImageLoader, SingleThreadWeakPtrImpl>;
 
 enum class RelevantMutation : bool { No, Yes };
 enum class LazyImageLoadState : uint8_t { None, Deferred, LoadImmediately, FullImage };
@@ -53,9 +53,11 @@ public:
     // loading if a load hasn't already been started.
     void updateFromElement(RelevantMutation = RelevantMutation::No);
 
-    // This function should be called whenever the 'src' attribute is set, even if its value
-    // doesn't change; starts new load unconditionally (matches Firefox and Opera behavior).
+    // This function should be called whenever the 'src' attribute is set.
+    // Starts new load unconditionally (matches Firefox and Opera behavior).
     void updateFromElementIgnoringPreviousError(RelevantMutation = RelevantMutation::No);
+
+    void updateFromElementIgnoringPreviousErrorToSameValue();
 
     void elementDidMoveToNewDocument(Document&);
 
@@ -74,7 +76,7 @@ public:
 
     // FIXME: Delete this code. beforeload event no longer exists.
     bool hasPendingBeforeLoadEvent() const { return m_hasPendingBeforeLoadEvent; }
-    bool hasPendingActivity() const { return m_hasPendingLoadEvent || m_hasPendingErrorEvent; }
+    bool hasPendingActivity() const;
 
     void dispatchPendingEvent(ImageEventSender*, const AtomString& eventType);
 

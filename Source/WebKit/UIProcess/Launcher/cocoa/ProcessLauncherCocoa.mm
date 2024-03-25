@@ -56,13 +56,71 @@
 #import "CodeSigning.h"
 #endif
 
+#if USE(EXTENSIONKIT)
+#import "ExtensionKitSPI.h"
+
+SOFT_LINK_FRAMEWORK_OPTIONAL(ServiceExtensions);
+SOFT_LINK_CLASS_OPTIONAL(ServiceExtensions, _SEServiceConfiguration);
+SOFT_LINK_CLASS_OPTIONAL(ServiceExtensions, _SEServiceManager);
+SOFT_LINK_CLASS_OPTIONAL(ServiceExtensions, _SECapability);
+#endif
+
 namespace WebKit {
 
+#if USE(EXTENSIONKIT)
+static std::pair<ASCIILiteral, RetainPtr<NSString>> serviceNameAndIdentifier(ProcessLauncher::ProcessType processType, ProcessLauncher::Client* client, bool isRetryingLaunch)
+{
+    switch (processType) {
+    case ProcessLauncher::ProcessType::Web: {
+        if (client && client->shouldEnableLockdownMode())
+            return { "com.apple.WebKit.WebContent"_s, isRetryingLaunch ? @"com.apple.WebKit.WebContentExtension.CaptivePortal" : @"com.apple.WebKit.WebContent.CaptivePortal" };
+        return { "com.apple.WebKit.WebContent"_s, isRetryingLaunch ? @"com.apple.WebKit.WebContentExtension" : @"com.apple.WebKit.WebContent" };
+    }
+    case ProcessLauncher::ProcessType::Network:
+        return { "com.apple.WebKit.Networking"_s, isRetryingLaunch ? @"com.apple.WebKit.NetworkingExtension" : @"com.apple.WebKit.Networking" };
+#if ENABLE(GPU_PROCESS)
+    case ProcessLauncher::ProcessType::GPU:
+        return { "com.apple.WebKit.GPU"_s, isRetryingLaunch ? @"com.apple.WebKit.GPUExtension" : @"com.apple.WebKit.GPU" };
+#endif
+    }
+}
+
+static void launchWithExtensionKit(ProcessLauncher& processLauncher, ProcessLauncher::ProcessType processType, ProcessLauncher::Client* client, std::function<void(ThreadSafeWeakPtr<ProcessLauncher> weakProcessLauncher, _SEExtensionProcess* process, ASCIILiteral name, NSError* error)> handler)
+{
+    auto [name, identifier] = serviceNameAndIdentifier(processType, client, processLauncher.isRetryingLaunch());
+
+    auto configuration = adoptNS([alloc_SEServiceConfigurationInstance() initWithServiceIdentifier:identifier.get()]);
+    _SEServiceManager* manager = [get_SEServiceManagerClass() performSelector:@selector(sharedInstance)];
+
+    switch (processType) {
+    case ProcessLauncher::ProcessType::Web: {
+        auto block = [handler = handler, weakProcessLauncher = ThreadSafeWeakPtr { processLauncher }, name = name](_SEContentProcess* _Nullable process, NSError* _Nullable error) {
+            handler(weakProcessLauncher, process, name, error);
+        };
+        [manager performSelector:@selector(contentProcessWithConfiguration:completion:) withObject:configuration.get() withObject:block];
+        break;
+    }
+    case ProcessLauncher::ProcessType::Network: {
+        auto block = [handler = handler, weakProcessLauncher = ThreadSafeWeakPtr { processLauncher }, name = name](_SENetworkProcess* _Nullable process, NSError* _Nullable error) {
+            handler(weakProcessLauncher, process, name, error);
+        };
+        [manager performSelector:@selector(networkProcessWithConfiguration:completion:) withObject:configuration.get() withObject:block];
+        break;
+    }
+    case ProcessLauncher::ProcessType::GPU: {
+        auto block = [handler = handler, weakProcessLauncher = ThreadSafeWeakPtr { processLauncher }, name = name](_SEGPUProcess* _Nullable process, NSError* _Nullable error) {
+            handler(weakProcessLauncher, process, name, error);
+        };
+        [manager performSelector:@selector(gpuProcessWithConfiguration:completion:) withObject:configuration.get() withObject:block];
+        break;
+    }
+    }
+}
+#endif // USE(EXTENSIONKIT)
+
+#if !USE(EXTENSIONKIT) || !PLATFORM(IOS)
 static const char* webContentServiceName(const ProcessLauncher::LaunchOptions& launchOptions, ProcessLauncher::Client* client)
 {
-    if (launchOptions.extraInitializationData.get<HashTranslatorASCIILiteral>("is-webcontent-crashy"_s) == "1"_s)
-        return "com.apple.WebKit.WebContent.Crashy";
-
     if (client && client->shouldEnableLockdownMode())
         return "com.apple.WebKit.WebContent.CaptivePortal";
 
@@ -82,17 +140,107 @@ static const char* serviceName(const ProcessLauncher::LaunchOptions& launchOptio
 #endif
     }
 }
+#endif // !USE(EXTENSIONKIT) || !PLATFORM(IOS)
+
+#if USE(EXTENSIONKIT)
+Ref<LaunchGrant> LaunchGrant::create(_SEExtensionProcess *process)
+{
+    return adoptRef(*new LaunchGrant(process));
+}
+
+LaunchGrant::LaunchGrant(_SEExtensionProcess *process)
+{
+    _SECapability* capability = [get_SECapabilityClass() assertionWithDomain:@"com.apple.webkit" name:@"Foreground"];
+    m_grant = [process grantCapability:capability error:nil];
+}
+
+LaunchGrant::~LaunchGrant()
+{
+    [m_grant invalidateWithError:nil];
+}
+#endif
+
+ProcessLauncher::~ProcessLauncher()
+{
+#if USE(EXTENSIONKIT)
+    [m_process invalidate];
+#endif
+}
 
 void ProcessLauncher::launchProcess()
 {
     ASSERT(!m_xpcConnection);
 
+#if USE(EXTENSIONKIT)
+    auto handler = [](ThreadSafeWeakPtr<ProcessLauncher> weakProcessLauncher, _SEExtensionProcess* process, ASCIILiteral name, NSError* error)
+    {
+        if (error) {
+            NSLog(@"Error launching process %@ error %@", process, error);
+            RELEASE_LOG_FAULT(Process, "Error launching process, description '%s', reason '%s'", String([error localizedDescription]).utf8().data(), String([error localizedFailureReason]).utf8().data());
+#if PLATFORM(IOS)
+            // Fallback to legacy extension identifiers
+            // This fallback is temporary and should be removed when possible. See rdar://120793705.
+            callOnMainRunLoop([weakProcessLauncher = weakProcessLauncher] {
+                auto launcher = weakProcessLauncher.get();
+                if (!launcher || launcher->isRetryingLaunch())
+                    return;
+                launcher->setIsRetryingLaunch();
+                launcher->launchProcess();
+            });
+#else
+            // Fallback to XPC service launch
+            callOnMainRunLoop([weakProcessLauncher = weakProcessLauncher] {
+                auto launcher = weakProcessLauncher.get();
+                if (!launcher)
+                    return;
+                const char* name = serviceName(launcher->m_launchOptions, launcher->m_client);
+                launcher->m_xpcConnection = adoptOSObject(xpc_connection_create(name, nullptr));
+                launcher->finishLaunchingProcess(name);
+            });
+#endif
+            [process invalidate];
+            return;
+        }
+
+        Ref launchGrant = LaunchGrant::create(process);
+
+        callOnMainRunLoop([weakProcessLauncher, name, process = retainPtr(process), launchGrant = WTFMove(launchGrant)] () mutable {
+            RefPtr launcher = weakProcessLauncher.get();
+            // If m_client is null, the Process launcher has been invalidated, and we should not proceed with the launch.
+            if (!launcher || !launcher->m_client) {
+                [process invalidate];
+                return;
+            }
+
+            NSError *error = nil;
+            OSObjectPtr xpcConnection = [process makeLibXPCConnectionError:&error];
+            if (!xpcConnection) {
+                RELEASE_LOG_ERROR(Process, "Failed to make libxpc connection for process %{public}@ with error: %{public}@", process.get(), error);
+                [process invalidate];
+                launcher->didFinishLaunchingProcess(0, { });
+                return;
+            }
+
+            launcher->m_xpcConnection = WTFMove(xpcConnection);
+            launcher->m_process = WTFMove(process);
+            launcher->m_launchGrant = WTFMove(launchGrant);
+            launcher->finishLaunchingProcess(name.characters());
+        });
+    };
+
+    launchWithExtensionKit(*this, m_launchOptions.processType, m_client, handler);
+#else
     const char* name = serviceName(m_launchOptions, m_client);
-
     m_xpcConnection = adoptOSObject(xpc_connection_create(name, nullptr));
+    finishLaunchingProcess(name);
+#endif
+}
 
+void ProcessLauncher::finishLaunchingProcess(const char* name)
+{
     uuid_t uuid;
     uuid_generate(uuid);
+
     xpc_connection_set_oneshot_instance(m_xpcConnection.get(), uuid);
 
     // Inherit UI process localization. It can be different from child process default localization:
@@ -101,17 +249,6 @@ void ProcessLauncher::launchProcess()
     // 2. When AppleLanguages is passed as command line argument for UI process, or set in its preferences, we should respect it in child processes.
     auto initializationMessage = adoptOSObject(xpc_dictionary_create(nullptr, nullptr, 0));
     _CFBundleSetupXPCBootstrap(initializationMessage.get());
-#if PLATFORM(IOS_FAMILY)
-    // Clients that set these environment variables explicitly do not have the values automatically forwarded by libxpc.
-    auto containerEnvironmentVariables = adoptOSObject(xpc_dictionary_create(nullptr, nullptr, 0));
-    if (const char* environmentHOME = getenv("HOME"))
-        xpc_dictionary_set_string(containerEnvironmentVariables.get(), "HOME", environmentHOME);
-    if (const char* environmentCFFIXED_USER_HOME = getenv("CFFIXED_USER_HOME"))
-        xpc_dictionary_set_string(containerEnvironmentVariables.get(), "CFFIXED_USER_HOME", environmentCFFIXED_USER_HOME);
-    if (const char* environmentTMPDIR = getenv("TMPDIR"))
-        xpc_dictionary_set_string(containerEnvironmentVariables.get(), "TMPDIR", environmentTMPDIR);
-    xpc_dictionary_set_value(initializationMessage.get(), "ContainerEnvironmentVariables", containerEnvironmentVariables.get());
-#endif
 
     auto languagesIterator = m_launchOptions.extraInitializationData.find<HashTranslatorASCIILiteral>("OverrideLanguages"_s);
     if (languagesIterator != m_launchOptions.extraInitializationData.end()) {
@@ -122,9 +259,6 @@ void ProcessLauncher::launchProcess()
         xpc_dictionary_set_value(initializationMessage.get(), "OverrideLanguages", languages.get());
     }
 
-#if PLATFORM(MAC) || PLATFORM(MACCATALYST)
-    xpc_dictionary_set_string(initializationMessage.get(), "WebKitBundleVersion", [[NSBundle bundleForClass:NSClassFromString(@"WKWebView")].infoDictionary[(__bridge NSString *)kCFBundleVersionKey] UTF8String]);
-#endif
     xpc_connection_set_bootstrap(m_xpcConnection.get(), initializationMessage.get());
 
     // Create the listening port.
@@ -156,6 +290,22 @@ void ProcessLauncher::launchProcess()
 
     // FIXME: Switch to xpc_connection_set_bootstrap once it's available everywhere we need.
     auto bootstrapMessage = adoptOSObject(xpc_dictionary_create(nullptr, nullptr, 0));
+
+#if PLATFORM(MAC) || PLATFORM(MACCATALYST)
+    xpc_dictionary_set_string(bootstrapMessage.get(), "WebKitBundleVersion", [[NSBundle bundleForClass:NSClassFromString(@"WKWebView")].infoDictionary[(__bridge NSString *)kCFBundleVersionKey] UTF8String]);
+#endif
+
+#if PLATFORM(IOS_FAMILY)
+    // Clients that set these environment variables explicitly do not have the values automatically forwarded by libxpc.
+    auto containerEnvironmentVariables = adoptOSObject(xpc_dictionary_create(nullptr, nullptr, 0));
+    if (const char* environmentHOME = getenv("HOME"))
+        xpc_dictionary_set_string(containerEnvironmentVariables.get(), "HOME", environmentHOME);
+    if (const char* environmentCFFIXED_USER_HOME = getenv("CFFIXED_USER_HOME"))
+        xpc_dictionary_set_string(containerEnvironmentVariables.get(), "CFFIXED_USER_HOME", environmentCFFIXED_USER_HOME);
+    if (const char* environmentTMPDIR = getenv("TMPDIR"))
+        xpc_dictionary_set_string(containerEnvironmentVariables.get(), "TMPDIR", environmentTMPDIR);
+    xpc_dictionary_set_value(bootstrapMessage.get(), "ContainerEnvironmentVariables", containerEnvironmentVariables.get());
+#endif
 
     if (m_client) {
         if (m_client->shouldConfigureJSCForTesting())
@@ -323,6 +473,11 @@ void ProcessLauncher::terminateProcess()
 
 void ProcessLauncher::platformInvalidate()
 {
+#if USE(EXTENSIONKIT)
+    releaseLaunchGrant();
+    [m_process invalidate];
+#endif
+
     terminateXPCConnection();
 }
 

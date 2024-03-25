@@ -36,13 +36,12 @@
 #include <WebCore/InputMode.h>
 #include <WebCore/IntRect.h>
 #include <WebCore/ScrollTypes.h>
-#include <wtf/EnumTraits.h>
 #include <wtf/URL.h>
 #include <wtf/text/WTFString.h>
 
 namespace WebKit {
 
-enum class InputType {
+enum class InputType : uint8_t {
     None,
     ContentEditable,
     Text,
@@ -105,6 +104,7 @@ struct FocusedElementInformation {
     bool allowsUserScaling { false };
     bool allowsUserScalingIgnoringAlwaysScalable { false };
     bool insideFixedPosition { false };
+    bool hasPlainText { false };
     WebCore::AutocapitalizeType autocapitalizeType { WebCore::AutocapitalizeType::Default };
     InputType elementType { InputType::None };
     WebCore::InputMode inputMode { WebCore::InputMode::Unspecified };
@@ -148,34 +148,3 @@ struct FocusedElementInformation {
 #endif
 
 } // namespace WebKit
-
-namespace WTF {
-
-template<> struct EnumTraits<WebKit::InputType> {
-    using values = EnumValues<
-        WebKit::InputType,
-        WebKit::InputType::None,
-        WebKit::InputType::ContentEditable,
-        WebKit::InputType::Text,
-        WebKit::InputType::Password,
-        WebKit::InputType::TextArea,
-        WebKit::InputType::Search,
-        WebKit::InputType::Email,
-        WebKit::InputType::URL,
-        WebKit::InputType::Phone,
-        WebKit::InputType::Number,
-        WebKit::InputType::NumberPad,
-        WebKit::InputType::Date,
-        WebKit::InputType::DateTimeLocal,
-        WebKit::InputType::Month,
-        WebKit::InputType::Week,
-        WebKit::InputType::Time,
-        WebKit::InputType::Select,
-        WebKit::InputType::Drawing
-#if ENABLE(INPUT_TYPE_COLOR)
-        , WebKit::InputType::Color
-#endif
-    >;
-};
-
-} // namespace WTF

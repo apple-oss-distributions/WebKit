@@ -47,7 +47,10 @@ WTF_EXTERN_C_END
 #import <UIKit/UIViewController_Private.h>
 #import <UIKit/NSItemProvider+UIKitAdditions.h>
 #import <UIKit/NSItemProvider+UIKitAdditions_Private.h>
-#import <UIKit/NSURL+UIItemProvider.h>
+
+#if HAVE(UI_ASYNC_TEXT_INTERACTION)
+#import <UIKit/UIKeyEvent.h>
+#endif
 
 @interface UIApplication ()
 + (UIApplicationSceneClassicMode)_classicMode;
@@ -161,14 +164,6 @@ typedef NS_ENUM(NSInteger, _UIDataOwner) {
 
 @end
 
-@interface UIViewController ()
-+ (UIViewController *)viewControllerForView:(UIView *)view;
-@end
-
-@interface NSURL ()
-@property (nonatomic, copy, setter=_setTitle:) NSString *_title;
-@end
-
 @interface UIFocusRingStyle : NSObject
 + (CGFloat)borderThickness;
 + (CGFloat)maxAlpha;
@@ -244,6 +239,10 @@ typedef NS_ENUM(NSUInteger, NSTextTabType) {
 - (UIColor *)backgroundColor;
 - (void)setBorderColor:(UIColor *)color; // Convenience method sets all edges at once
 - (void)setVerticalAlignment:(NSTextBlockVerticalAlignment)alignment;
+@end
+
+@interface NSTextBlock (Internal)
+- (void)_takeValuesFromTextBlock:(NSTextBlock *)other;
 @end
 
 @interface NSTextTable : NSTextBlock

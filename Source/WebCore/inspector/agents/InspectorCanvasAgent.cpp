@@ -147,10 +147,17 @@ void InspectorCanvasAgent::internalEnable()
     {
         Locker locker { CanvasRenderingContext::instancesLock() };
         for (auto* context : CanvasRenderingContext::instances()) {
+            if (!is<CanvasRenderingContext2D>(context)
+                && !is<ImageBitmapRenderingContext>(context)
 #if ENABLE(OFFSCREEN_CANVAS)
-            if (is<PlaceholderRenderingContext>(context))
-                continue;
+                && !is<OffscreenCanvasRenderingContext2D>(context)
 #endif
+#if ENABLE(WEBGL)
+                && !is<WebGLRenderingContext>(context)
+                && !is<WebGL2RenderingContext>(context)
+#endif
+            )
+                continue;
 
             if (matchesCurrentContext(context->canvasBase().scriptExecutionContext()))
                 bindCanvas(*context, false);
@@ -370,7 +377,7 @@ void InspectorCanvasAgent::didChangeCanvasMemory(CanvasRenderingContext& context
     m_frontendDispatcher->canvasMemoryChanged(inspectorCanvas->identifier(), inspectorCanvas->canvasContext().canvasBase().memoryCost());
 }
 
-void InspectorCanvasAgent::canvasChanged(CanvasBase& canvasBase, const std::optional<FloatRect>&)
+void InspectorCanvasAgent::canvasChanged(CanvasBase& canvasBase, const FloatRect&)
 {
     auto* context = canvasBase.renderingContext();
     if (!context)
