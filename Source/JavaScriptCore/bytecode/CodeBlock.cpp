@@ -853,8 +853,12 @@ CodeBlock::~CodeBlock()
 
     if (LIKELY(!vm.heap.isShuttingDown())) {
         if (m_metadata) {
-            if (m_metadata->unlinkedMetadata().didOptimize() == TriState::Indeterminate)
-                m_metadata->unlinkedMetadata().setDidOptimize(TriState::False);
+            auto unlinkedMetadata = m_metadata->unlinkedMetadata();
+
+            // FIXME: This check should really not be necessary, see https://webkit.org/b/272787
+            ASSERT(unlinkedMetadata);
+            if (unlinkedMetadata && unlinkedMetadata->didOptimize() == TriState::Indeterminate)
+                unlinkedMetadata->setDidOptimize(TriState::False);
         }
     }
 
@@ -2274,7 +2278,7 @@ void CodeBlock::jettison(Profiler::JettisonReason reason, ReoptimizationMode mod
         return;
 
     // This accomplishes (2).
-    ownerExecutable()->installCode(vm, alternative(), codeType(), specializationKind());
+    ownerExecutable()->installCode(vm, alternative(), codeType(), specializationKind(), reason);
 
 #if ENABLE(DFG_JIT)
     if (DFG::shouldDumpDisassembly())
