@@ -853,12 +853,8 @@ CodeBlock::~CodeBlock()
 
     if (LIKELY(!vm.heap.isShuttingDown())) {
         if (m_metadata) {
-            auto unlinkedMetadata = m_metadata->unlinkedMetadata();
-
-            // FIXME: This check should really not be necessary, see https://webkit.org/b/272787
-            ASSERT(unlinkedMetadata);
-            if (unlinkedMetadata && unlinkedMetadata->didOptimize() == TriState::Indeterminate)
-                unlinkedMetadata->setDidOptimize(TriState::False);
+            if (m_metadata->unlinkedMetadata().didOptimize() == TriState::Indeterminate)
+                m_metadata->unlinkedMetadata().setDidOptimize(TriState::False);
         }
     }
 

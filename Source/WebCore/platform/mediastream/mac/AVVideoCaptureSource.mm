@@ -340,14 +340,7 @@ void AVVideoCaptureSource::stopProducingData()
 
 void AVVideoCaptureSource::stopSession()
 {
-    ASSERT(!m_beginConfigurationCount);
-
-    @try {
-        [m_session stopRunning];
-    } @catch(NSException *exception) {
-        ERROR_LOG_IF(loggerPtr(), LOGIDENTIFIER, "error calling -stopRunning ", [[exception name] UTF8String], ", reason : ", exception.reason);
-    }
-
+    [m_session stopRunning];
     rejectPendingPhotoRequest("Track stopped"_s);
 }
 
