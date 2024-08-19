@@ -42,6 +42,7 @@
 #include "MockRealtimeMediaSourceCenter.h"
 #include "NotImplemented.h"
 #include "PlatformLayer.h"
+#include "PlatformMediaSessionManager.h"
 #include "RealtimeMediaSourceSettings.h"
 #include "VideoFrame.h"
 #include <math.h>
@@ -423,7 +424,7 @@ void MockRealtimeVideoSource::startProducingData()
 {
     ASSERT(!m_beingConfigured);
 
-#if ENABLE(EXTENSION_CAPABILITIES)
+#if ENABLE(EXTENSION_CAPABILITIES) && !PLATFORM(IOS_FAMILY_SIMULATOR)
     ASSERT(!RealtimeMediaSourceCenter::singleton().currentMediaEnvironment().isEmpty() || !WTF::processHasEntitlement("com.apple.developer.web-browser-engine.rendering"_s));
 #endif
 
