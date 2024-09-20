@@ -27,6 +27,7 @@
 #import "PlatformCAAnimationRemote.h"
 
 #import "ArgumentCoders.h"
+#import "CAFrameRateRangeUtilities.h"
 #import "RemoteLayerTreeHost.h"
 #import "WKAnimationDelegate.h"
 #import "WebCoreArgumentCoders.h"
@@ -45,16 +46,6 @@ static MonotonicTime mediaTimeToCurrentTime(CFTimeInterval t)
 {
     return WTF::MonotonicTime::now() + Seconds(t - CACurrentMediaTime());
 }
-
-#if HAVE(CORE_ANIMATION_FRAME_RATE_RANGE)
-static CAFrameRateRange highFrameRateRange()
-{
-    static CAFrameRateRange highFrameRateRange = CAFrameRateRangeMake(80, 120, 120);
-    return highFrameRateRange;
-}
-
-static CAHighFrameRateReason highFrameRateReason = CAHighFrameRateReasonMake(44, 0);
-#endif // HAVE(CORE_ANIMATION_FRAME_RATE_RANGE)
 
 static NSString * const WKExplicitBeginTimeFlag = @"WKPlatformCAAnimationExplicitBeginTimeFlag";
 
@@ -321,13 +312,13 @@ void PlatformCAAnimationRemote::setFromValue(const Color& value)
     m_properties.keyValues[0] = KeyframeValue(value);
 }
 
-void PlatformCAAnimationRemote::setFromValue(const FilterOperation* operation)
+void PlatformCAAnimationRemote::setFromValue(const FilterOperation& operation)
 {
     if (animationType() != AnimationType::Basic)
         return;
 
     m_properties.keyValues.resize(2);
-    m_properties.keyValues[0] = KeyframeValue(operation->clone());
+    m_properties.keyValues[0] = KeyframeValue(operation.clone());
 }
 
 void PlatformCAAnimationRemote::copyFromValueFrom(const PlatformCAAnimation& value)
@@ -377,14 +368,13 @@ void PlatformCAAnimationRemote::setToValue(const Color& value)
     m_properties.keyValues[1] = KeyframeValue(value);
 }
 
-void PlatformCAAnimationRemote::setToValue(const FilterOperation* operation)
+void PlatformCAAnimationRemote::setToValue(const FilterOperation& operation)
 {
     if (animationType() != AnimationType::Basic)
         return;
     
-    ASSERT(operation);
     m_properties.keyValues.resize(2);
-    m_properties.keyValues[1] = KeyframeValue(operation->clone());
+    m_properties.keyValues[1] = KeyframeValue(operation.clone());
 }
 
 void PlatformCAAnimationRemote::copyToValueFrom(const PlatformCAAnimation& value)
@@ -430,7 +420,7 @@ void PlatformCAAnimationRemote::setValues(const Vector<Color>& values)
     m_properties.keyValues = toKeyframeValueVector(values);
 }
 
-void PlatformCAAnimationRemote::setValues(const Vector<RefPtr<FilterOperation>>& values)
+void PlatformCAAnimationRemote::setValues(const Vector<Ref<FilterOperation>>& values)
 {
     if (animationType() != AnimationType::Keyframe)
         return;
@@ -485,7 +475,9 @@ void PlatformCAAnimationRemote::copyAnimationsFrom(const PlatformCAAnimation& va
 static RetainPtr<NSObject> animationValueFromKeyframeValue(const PlatformCAAnimationRemote::KeyframeValue& keyframeValue)
 {
     return WTF::switchOn(keyframeValue,
-        [&](const float number) -> RetainPtr<NSObject> { return @(number); },
+        [&](const float number) -> RetainPtr<NSObject> {
+            return @(number);
+        },
         [&](const WebCore::Color color) -> RetainPtr<NSObject> {
             auto [r, g, b, a] =  color.toColorTypeLossy<SRGBA<uint8_t>>().resolved();
             return @[ @(r), @(g), @(b), @(a) ];
@@ -496,7 +488,7 @@ static RetainPtr<NSObject> animationValueFromKeyframeValue(const PlatformCAAnima
         [&](const WebCore::TransformationMatrix matrix) -> RetainPtr<NSObject> {
             return [NSValue valueWithCATransform3D:matrix];
         },
-        [&](const RefPtr<WebCore::FilterOperation> filter) -> RetainPtr<NSObject> {
+        [&](const Ref<WebCore::FilterOperation> filter) -> RetainPtr<NSObject> {
             return PlatformCAFilters::filterValueForOperation(filter.get());
         }
     );
@@ -524,8 +516,11 @@ static RetainPtr<CAAnimation> createAnimation(CALayer *layer, RemoteLayerTreeHos
         auto animationGroup = [CAAnimationGroup animation];
 
         if (properties.animations.size()) {
-            [animationGroup setAnimations:createNSArray(properties.animations, [&] (auto& animationProperties) {
-                return createAnimation(layer, layerTreeHost, animationProperties).get();
+            [animationGroup setAnimations:createNSArray(properties.animations, [&] (auto& animationProperties) -> CAAnimation * {
+                if (PlatformCAAnimation::isValidKeyPath(properties.keyPath, properties.animationType))
+                    return createAnimation(layer, layerTreeHost, animationProperties).get();
+                ASSERT_NOT_REACHED();
+                return nil;
             }).get()];
         }
 
@@ -614,8 +609,8 @@ static RetainPtr<CAAnimation> createAnimation(CALayer *layer, RemoteLayerTreeHos
 
 #if HAVE(CORE_ANIMATION_FRAME_RATE_RANGE)
     // Opt into a higher frame-rate for displays that support higher refresh rates.
-    [caAnimation setPreferredFrameRateRange:highFrameRateRange()];
-    [caAnimation setHighFrameRateReason:highFrameRateReason];
+    [caAnimation setPreferredFrameRateRange:WebKit::highFrameRateRange()];
+    [caAnimation setHighFrameRateReason:WebKit::webAnimationHighFrameRateReason];
 #endif // HAVE(CORE_ANIMATION_FRAME_RATE_RANGE)
 
     return caAnimation;
@@ -713,7 +708,7 @@ TextStream& operator<<(TextStream& ts, const PlatformCAAnimationRemote::Properti
                 [&](const WebCore::Color color) { ts << "color=" << color; },
                 [&](const WebCore::FloatPoint3D point) { ts << "point=" << point; },
                 [&](const WebCore::TransformationMatrix matrix) { ts << "transform=" << matrix; },
-                [&](const RefPtr<WebCore::FilterOperation> filter) { ts << "filter=" << ValueOrNull(filter.get()); }
+                [&](const Ref<WebCore::FilterOperation> filter) { ts << "filter=" << filter; }
             );
             ts.endGroup();
         }

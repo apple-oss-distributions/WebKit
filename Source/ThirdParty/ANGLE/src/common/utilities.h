@@ -205,7 +205,13 @@ inline constexpr UniformTypeInfo::UniformTypeInfo(GLenum type,
       isImageType(isImageType)
 {}
 
+struct UniformTypeIndex
+{
+    uint16_t value;
+};
 const UniformTypeInfo &GetUniformTypeInfo(GLenum uniformType);
+UniformTypeIndex GetUniformTypeIndex(GLenum uniformType);
+const UniformTypeInfo &GetUniformTypeInfoFromIndex(UniformTypeIndex index);
 
 const char *GetGenericErrorMessage(GLenum error);
 
@@ -304,6 +310,17 @@ EGLClientBuffer GLObjectHandleToEGLClientBuffer(GLuint handle);
 
 namespace angle
 {
+
+template <typename T>
+constexpr size_t ConstStrLen(T s)
+{
+    if (s == nullptr)
+    {
+        return 0;
+    }
+    return std::char_traits<char>::length(s);
+}
+
 bool IsDrawEntryPoint(EntryPoint entryPoint);
 bool IsDispatchEntryPoint(EntryPoint entryPoint);
 bool IsClearEntryPoint(EntryPoint entryPoint);

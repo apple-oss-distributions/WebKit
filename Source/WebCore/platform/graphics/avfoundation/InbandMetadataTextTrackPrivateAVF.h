@@ -41,7 +41,7 @@ struct IncompleteMetaDataCue {
 
 class InbandMetadataTextTrackPrivateAVF : public InbandTextTrackPrivate {
 public:
-    static Ref<InbandMetadataTextTrackPrivateAVF> create(Kind, CueFormat, TrackID = 0);
+    static Ref<InbandMetadataTextTrackPrivateAVF> create(Kind, TrackID, CueFormat);
 
     ~InbandMetadataTextTrackPrivateAVF();
 
@@ -58,10 +58,10 @@ public:
     void flushPartialCues();
 
 private:
-    InbandMetadataTextTrackPrivateAVF(Kind, CueFormat, TrackID);
+    InbandMetadataTextTrackPrivateAVF(Kind, TrackID, CueFormat);
 
 #if !RELEASE_LOG_DISABLED
-    const char* logClassName() const final { return "InbandMetadataTextTrackPrivateAVF"; }
+    ASCIILiteral logClassName() const final { return "InbandMetadataTextTrackPrivateAVF"_s; }
 #endif
 
     Kind m_kind;

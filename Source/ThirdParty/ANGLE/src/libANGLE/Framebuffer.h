@@ -82,6 +82,13 @@ class FramebufferState final : angle::NonCopyable
     const FramebufferAttachment *getDepthStencilAttachment() const;
     const FramebufferAttachment *getReadPixelsAttachment(GLenum readFormat) const;
 
+#if ANGLE_WEBKIT_EXPLICIT_RESOLVE_TARGET_ENABLED
+    // GL_WEBKIT_explicit_resolve_target
+    const FramebufferAttachment *getColorResolveAttachment(size_t colorAttachment) const;
+    const FramebufferAttachment *getDepthResolveAttachment() const;
+    const FramebufferAttachment *getStencilResolveAttachment() const;
+#endif
+
     const DrawBuffersVector<GLenum> &getDrawBufferStates() const { return mDrawBufferStates; }
     DrawBufferMask getEnabledDrawBuffers() const { return mEnabledDrawBuffers; }
     GLenum getReadBufferState() const { return mReadBufferState; }
@@ -141,6 +148,10 @@ class FramebufferState final : angle::NonCopyable
 
     bool isBoundAsDrawFramebuffer(const Context *context) const;
 
+    bool isFoveationEnabled() const { return mFoveationState.isFoveated(); }
+
+    const FoveationState &getFoveationState() const { return mFoveationState; }
+
   private:
     const FramebufferAttachment *getWebGLDepthStencilAttachment() const;
     const FramebufferAttachment *getWebGLDepthAttachment() const;
@@ -157,6 +168,13 @@ class FramebufferState final : angle::NonCopyable
     DrawBuffersVector<FramebufferAttachment> mColorAttachments;
     FramebufferAttachment mDepthAttachment;
     FramebufferAttachment mStencilAttachment;
+
+#if ANGLE_WEBKIT_EXPLICIT_RESOLVE_TARGET_ENABLED
+    // GL_WEBKIT_explicit_resolve_target;
+    DrawBuffersVector<FramebufferAttachment> mColorResolveAttachments;
+    FramebufferAttachment mDepthResolveAttachment;
+    FramebufferAttachment mStencilResolveAttachment;
+#endif
 
     // Tracks all the color buffers attached to this FramebufferDesc
     DrawBufferMask mColorAttachmentsMask;
@@ -190,6 +208,9 @@ class FramebufferState final : angle::NonCopyable
     SrgbWriteControlMode mSrgbWriteControlMode;
 
     Offset mSurfaceTextureOffset;
+
+    // GL_QCOM_framebuffer_foveated
+    FoveationState mFoveationState;
 };
 
 class Framebuffer final : public angle::ObserverInterface,
@@ -237,6 +258,16 @@ class Framebuffer final : public angle::ObserverInterface,
                                 GLint baseViewIndex);
     void resetAttachment(const Context *context, GLenum binding);
 
+#if ANGLE_WEBKIT_EXPLICIT_RESOLVE_TARGET_ENABLED
+    // GL_WEBKIT_explicit_resolve_target
+    void setAttachmentResolve(const Context *context,
+                              GLenum type,
+                              GLenum binding,
+                              const ImageIndex &textureIndex,
+                              FramebufferAttachmentObject *resource);
+    void resetAttachmentResolve(const Context *context, GLenum binding);
+#endif
+
     bool detachTexture(Context *context, TextureID texture);
     bool detachRenderbuffer(Context *context, RenderbufferID renderbuffer);
 
@@ -251,9 +282,16 @@ class Framebuffer final : public angle::ObserverInterface,
     const FramebufferAttachment *getFirstColorAttachment() const;
     const FramebufferAttachment *getFirstNonNullAttachment() const;
 
+#if ANGLE_WEBKIT_EXPLICIT_RESOLVE_TARGET_ENABLED
+    // GL_WEBKIT_explicit_resolve_target
+    const FramebufferAttachment *getColorResolveAttachment(size_t colorAttachment) const;
+    const FramebufferAttachment *getDepthResolveAttachment() const;
+    const FramebufferAttachment *getStencilResolveAttachment() const;
+#endif
+
     const DrawBuffersVector<FramebufferAttachment> &getColorAttachments() const
     {
-        return mState.mColorAttachments;
+        return mState.getColorAttachments();
     }
 
     const FramebufferState &getState() const { return mState; }
@@ -305,6 +343,22 @@ class Framebuffer final : public angle::ObserverInterface,
     void setDefaultFixedSampleLocations(const Context *context, bool defaultFixedSampleLocations);
     void setDefaultLayers(GLint defaultLayers);
     void setFlipY(bool flipY);
+
+    bool isFoveationEnabled() const;
+    void setFoveatedFeatureBits(const GLuint features);
+    GLuint getFoveatedFeatureBits() const;
+    bool isFoveationConfigured() const;
+    void configureFoveation();
+    void setFocalPoint(uint32_t layer,
+                       uint32_t focalPointIndex,
+                       float focalX,
+                       float focalY,
+                       float gainX,
+                       float gainY,
+                       float foveaArea);
+    const FocalPoint &getFocalPoint(uint32_t layer, uint32_t focalPoint) const;
+    GLuint getSupportedFoveationFeatures() const;
+    bool hasAnyAttachmentChanged() const { return mAttachmentChangedAfterEnablingFoveation; }
 
     void invalidateCompletenessCache();
     ANGLE_INLINE bool cachedStatusValid() { return mCachedStatus.valid(); }
@@ -400,6 +454,7 @@ class Framebuffer final : public angle::ObserverInterface,
         DIRTY_BIT_DEFAULT_LAYERS,
         DIRTY_BIT_FRAMEBUFFER_SRGB_WRITE_CONTROL_MODE,
         DIRTY_BIT_FLIP_Y,
+        DIRTY_BIT_FOVEATION,
         DIRTY_BIT_UNKNOWN,
         DIRTY_BIT_MAX = DIRTY_BIT_UNKNOWN
     };
@@ -497,11 +552,19 @@ class Framebuffer final : public angle::ObserverInterface,
                           bool isMultiview,
                           GLsizei samples);
 
-    void markDrawAttachmentsInitialized(bool color, bool depth, bool stencil);
-    void markBufferInitialized(GLenum bufferType, GLint bufferIndex);
-    angle::Result ensureBufferInitialized(const Context *context,
-                                          GLenum bufferType,
-                                          GLint bufferIndex);
+#if ANGLE_WEBKIT_EXPLICIT_RESOLVE_TARGET_ENABLED
+    // GL_WEBKIT_explicit_resolve_target
+    void updateAttachmentResolve(const Context *context,
+                                 FramebufferAttachment *attachment,
+                                 size_t dirtyBit,
+                                 angle::ObserverBinding *onDirtyBinding,
+                                 GLenum type,
+                                 GLenum binding,
+                                 const ImageIndex &textureIndex,
+                                 FramebufferAttachmentObject *resource);
+#endif
+
+    void markAttachmentsInitialized(const DrawBufferMask &color, bool depth, bool stencil);
 
     // Checks that we have a partially masked clear:
     // * some color channels are masked out
@@ -525,6 +588,8 @@ class Framebuffer final : public angle::ObserverInterface,
                                       Command command,
                                       const FramebufferAttachment *attachment) const;
 
+    void markDrawAttachmentsNeedInit(size_t count, const GLenum *attachments);
+
     FramebufferState mState;
     rx::FramebufferImpl *mImpl;
 
@@ -543,6 +608,9 @@ class Framebuffer final : public angle::ObserverInterface,
 
     // ANGLE_shader_pixel_local_storage
     std::unique_ptr<PixelLocalStorage> mPixelLocalStorage;
+
+    // QCOM_framebuffer_foveated
+    bool mAttachmentChangedAfterEnablingFoveation;
 };
 
 using UniqueFramebufferPointer = angle::UniqueObjectPointer<Framebuffer, Context>;

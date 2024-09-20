@@ -26,7 +26,7 @@
 #import "config.h"
 #import "AccessibilityObject.h"
 
-#if ENABLE(ACCESSIBILITY) && PLATFORM(IOS_FAMILY)
+#if PLATFORM(IOS_FAMILY)
 
 #import "AccessibilityRenderObject.h"
 #import "EventNames.h"
@@ -38,6 +38,7 @@
 #import "WebAccessibilityObjectWrapperIOS.h"
 #import <wtf/SoftLinking.h>
 #import <wtf/cocoa/TypeCastsCocoa.h>
+#import <wtf/text/MakeString.h>
 
 SOFT_LINK_CONSTANT(AXRuntime, UIAccessibilityTokenBlockquoteLevel, NSString *);
 #define AccessibilityTokenBlockquoteLevel getUIAccessibilityTokenBlockquoteLevel()
@@ -94,17 +95,15 @@ void AccessibilityObject::overrideAttachmentParent(AccessibilityObject*)
 }
     
 // In iPhone only code for now. It's debateable whether this is desired on all platforms.
-int AccessibilityObject::accessibilitySecureFieldLength()
+unsigned AccessibilityObject::accessibilitySecureFieldLength()
 {
-    if (!isSecureField())
+    CheckedPtr renderer = this->renderer();
+    // Only consider secure fields that are rendered (i.e. have a non-null renderer).
+    if (!renderer || !isSecureField())
         return 0;
-    RenderObject* renderObject = downcast<AccessibilityRenderObject>(*this).renderer();
-    
-    if (!renderObject || !is<HTMLInputElement>(renderObject->node()))
-        return false;
-    
-    HTMLInputElement& inputElement = downcast<HTMLInputElement>(*renderObject->node());
-    return inputElement.value().length();
+
+    auto* inputElement = dynamicDowncast<HTMLInputElement>(renderer->node());
+    return inputElement ? inputElement->value().length() : 0;
 }
 
 bool AccessibilityObject::accessibilityIgnoreAttachment() const
@@ -134,13 +133,6 @@ bool AccessibilityObject::hasTouchEventListener() const
     return false;
 }
 
-bool AccessibilityObject::isInputTypePopupButton() const
-{
-    if (is<HTMLInputElement>(node()))
-        return roleValue() == AccessibilityRole::PopUpButton;
-    return false;
-}
-
 void AccessibilityObject::setLastPresentedTextPrediction(Node& previousCompositionNode, CompositionState state, const String& text, size_t location, bool handlingAcceptedCandidate)
 {
 #if HAVE(INLINE_PREDICTIONS)
@@ -148,7 +140,8 @@ void AccessibilityObject::setLastPresentedTextPrediction(Node& previousCompositi
         m_lastPresentedTextPrediction = { text, location };
 
     if (state == CompositionState::Ended && !lastPresentedTextPrediction().text.isEmpty()) {
-        String previousCompositionNodeText = previousCompositionNode.isTextNode() ? dynamicDowncast<Text>(previousCompositionNode)->wholeText() : String();
+        auto* nodeText = dynamicDowncast<Text>(previousCompositionNode);
+        String previousCompositionNodeText = nodeText ? nodeText->wholeText() : String();
         size_t wordStart = 0;
 
         // Find the location of the complete word being predicted by iterating backwards through the text to find whitespace.
@@ -163,7 +156,7 @@ void AccessibilityObject::setLastPresentedTextPrediction(Node& previousCompositi
         if (wordStart)
             previousCompositionNodeText = previousCompositionNodeText.substring(wordStart);
 
-        m_lastPresentedTextPredictionComplete = { previousCompositionNodeText + m_lastPresentedTextPrediction.text, wordStart };
+        m_lastPresentedTextPredictionComplete = { makeString(previousCompositionNodeText, m_lastPresentedTextPrediction.text), wordStart };
 
         // Reset last presented prediction since a candidate was accepted.
         m_lastPresentedTextPrediction.reset();
@@ -185,7 +178,7 @@ static void attributeStringSetLanguage(NSMutableAttributedString *attrString, Re
     if (!renderer)
         return;
 
-    RefPtr object = renderer->document().axObjectCache()->getOrCreate(renderer);
+    RefPtr object = renderer->document().axObjectCache()->getOrCreate(*renderer);
     NSString *language = object->language();
     if (language.length)
         [attrString addAttribute:AccessibilityTokenLanguage value:language range:range];
@@ -232,7 +225,7 @@ static void attributeStringSetStyle(NSMutableAttributedString *attrString, Rende
         attributedStringSetNumber(attrString, AccessibilityTokenUnderline, @YES, range);
 
     // Add code context if this node is within a <code> block.
-    RefPtr object = renderer->document().axObjectCache()->getOrCreate(renderer);
+    RefPtr object = renderer->document().axObjectCache()->getOrCreate(*renderer);
     auto matchFunc = [] (const auto& axObject) {
         return axObject.isCode();
     };
@@ -247,7 +240,7 @@ static void attributedStringSetCompositionAttributes(NSMutableAttributedString *
     if (!renderer)
         return;
 
-    RefPtr object = renderer->document().axObjectCache()->getOrCreate(renderer);
+    RefPtr object = renderer->document().axObjectCache()->getOrCreate(*renderer);
 
     if (!object)
         return;
@@ -279,10 +272,10 @@ static void attributedStringSetCompositionAttributes(NSMutableAttributedString *
 #endif // HAVE(INLINE_PREDICTIONS)
 }
 
-RetainPtr<NSAttributedString> attributedStringCreate(Node* node, StringView text, const SimpleRange&, AXCoreObject::SpellCheck)
+RetainPtr<NSAttributedString> attributedStringCreate(Node& node, StringView text, const SimpleRange&, AXCoreObject::SpellCheck)
 {
     // Skip invisible text.
-    auto* renderer = node->renderer();
+    CheckedPtr renderer = node.renderer();
     if (!renderer)
         return nil;
 
@@ -290,14 +283,14 @@ RetainPtr<NSAttributedString> attributedStringCreate(Node* node, StringView text
     NSRange range = NSMakeRange(0, [result length]);
 
     // Set attributes.
-    attributeStringSetStyle(result.get(), renderer, range);
-    attributeStringSetBlockquoteLevel(result.get(), renderer, range);
-    attributeStringSetLanguage(result.get(), renderer, range);
-    attributedStringSetCompositionAttributes(result.get(), renderer);
+    attributeStringSetStyle(result.get(), renderer.get(), range);
+    attributeStringSetBlockquoteLevel(result.get(), renderer.get(), range);
+    attributeStringSetLanguage(result.get(), renderer.get(), range);
+    attributedStringSetCompositionAttributes(result.get(), renderer.get());
 
     return result;
 }
 
 } // WebCore
 
-#endif // ENABLE(ACCESSIBILITY) && PLATFORM(IOS_FAMILY)
+#endif // PLATFORM(IOS_FAMILY)

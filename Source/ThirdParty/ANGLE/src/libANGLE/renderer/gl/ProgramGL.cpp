@@ -107,10 +107,14 @@ class ProgramGL::LinkTaskGL final : public LinkTask
     {}
     ~LinkTaskGL() override = default;
 
-    std::vector<std::shared_ptr<LinkSubTask>> link(const gl::ProgramLinkedResources &resources,
-                                                   const gl::ProgramMergedVaryings &mergedVaryings,
-                                                   bool *areSubTasksOptionalOut) override
+    void link(const gl::ProgramLinkedResources &resources,
+              const gl::ProgramMergedVaryings &mergedVaryings,
+              std::vector<std::shared_ptr<LinkSubTask>> *linkSubTasksOut,
+              std::vector<std::shared_ptr<LinkSubTask>> *postLinkSubTasksOut) override
     {
+        ASSERT(linkSubTasksOut && linkSubTasksOut->empty());
+        ASSERT(postLinkSubTasksOut && postLinkSubTasksOut->empty());
+
         mProgram->linkJobImpl(mExtensions);
 
         // If there is no native parallel compile, do the post-link right away.
@@ -121,7 +125,7 @@ class ProgramGL::LinkTaskGL final : public LinkTask
 
         // See comment on mResources
         mResources = &resources;
-        return {};
+        return;
     }
 
     angle::Result getResult(const gl::Context *context, gl::InfoLog &infoLog) override
@@ -189,7 +193,7 @@ void ProgramGL::destroy(const gl::Context *context)
 angle::Result ProgramGL::load(const gl::Context *context,
                               gl::BinaryInputStream *stream,
                               std::shared_ptr<LinkTask> *loadTaskOut,
-                              bool *successOut)
+                              egl::CacheGetResult *resultOut)
 {
     ANGLE_TRACE_EVENT0("gpu.angle", "ProgramGL::load");
     ProgramExecutableGL *executableGL = getExecutable();
@@ -203,17 +207,19 @@ angle::Result ProgramGL::load(const gl::Context *context,
     // Load the binary
     mFunctions->programBinary(mProgramID, binaryFormat, binary, binaryLength);
 
-    // Verify that the program linked
-    if (!checkLinkStatus())
+    // Verify that the program linked.  Ensure failure if program binary is intentionally corrupted,
+    // even if the corruption didn't really cause a failure.
+    if (!checkLinkStatus() ||
+        GetImplAs<ContextGL>(context)->getFeaturesGL().corruptProgramBinaryForTesting.enabled)
     {
         return angle::Result::Continue;
     }
 
     executableGL->postLink(mFunctions, mStateManager, mFeatures, mProgramID);
-    reapplyUBOBindingsIfNeeded(context);
+    executableGL->reapplyUBOBindings();
 
     *loadTaskOut = {};
-    *successOut  = true;
+    *resultOut   = egl::CacheGetResult::Success;
 
     return angle::Result::Continue;
 }
@@ -230,22 +236,21 @@ void ProgramGL::save(const gl::Context *context, gl::BinaryOutputStream *stream)
 
     stream->writeInt(binaryFormat);
     stream->writeInt(binaryLength);
+
+    const angle::FeaturesGL &features = GetImplAs<ContextGL>(context)->getFeaturesGL();
+    if (features.corruptProgramBinaryForTesting.enabled)
+    {
+        // Random corruption of the binary data.  Corrupting the first byte has proven to be enough
+        // to later cause the binary load to fail on most platforms.
+        ++binary[0];
+    }
+
     stream->writeBytes(binary.data(), binaryLength);
 
-    reapplyUBOBindingsIfNeeded(context);
-}
-
-void ProgramGL::reapplyUBOBindingsIfNeeded(const gl::Context *context)
-{
     // Re-apply UBO bindings to work around driver bugs.
-    const angle::FeaturesGL &features = GetImplAs<ContextGL>(context)->getFeaturesGL();
     if (features.reapplyUBOBindingsAfterUsingBinaryProgram.enabled)
     {
-        const auto &blocks = mState.getExecutable().getUniformBlocks();
-        for (size_t blockIndex : mState.getExecutable().getActiveUniformBlockBindings())
-        {
-            setUniformBlockBinding(static_cast<GLuint>(blockIndex), blocks[blockIndex].pod.binding);
-        }
+        getExecutable()->reapplyUBOBindings();
     }
 }
 
@@ -372,10 +377,10 @@ void ProgramGL::linkJobImpl(const gl::Extensions &extensions)
                 const auto &shaderOutputs = fragmentShader->activeOutputVariables;
                 for (const auto &output : shaderOutputs)
                 {
-                    // TODO(http://anglebug.com/1085) This could be cleaner if the transformed names
-                    // would be set correctly in ShaderVariable::mappedName. This would require some
-                    // refactoring in the translator. Adding a mapped name dictionary for builtins
-                    // into the symbol table would be one fairly clean way to do it.
+                    // TODO(http://anglebug.com/40644593) This could be cleaner if the transformed
+                    // names would be set correctly in ShaderVariable::mappedName. This would
+                    // require some refactoring in the translator. Adding a mapped name dictionary
+                    // for builtins into the symbol table would be one fairly clean way to do it.
                     if (output.name == "gl_SecondaryFragColorEXT")
                     {
                         mFunctions->bindFragDataLocationIndexed(mProgramID, 0, 0,
@@ -508,31 +513,6 @@ GLboolean ProgramGL::validate(const gl::Caps & /*caps*/)
 {
     // TODO(jmadill): implement validate
     return true;
-}
-
-void ProgramGL::setUniformBlockBinding(GLuint uniformBlockIndex, GLuint uniformBlockBinding)
-{
-    const gl::ProgramExecutable &executable = mState.getExecutable();
-    ProgramExecutableGL *executableGL       = getExecutable();
-
-    // Lazy init
-    if (executableGL->mUniformBlockRealLocationMap.empty())
-    {
-        executableGL->mUniformBlockRealLocationMap.reserve(executable.getUniformBlocks().size());
-        for (const gl::InterfaceBlock &uniformBlock : executable.getUniformBlocks())
-        {
-            const std::string &mappedNameWithIndex = uniformBlock.mappedNameWithArrayIndex();
-            GLuint blockIndex =
-                mFunctions->getUniformBlockIndex(mProgramID, mappedNameWithIndex.c_str());
-            executableGL->mUniformBlockRealLocationMap.push_back(blockIndex);
-        }
-    }
-
-    GLuint realBlockIndex = executableGL->mUniformBlockRealLocationMap[uniformBlockIndex];
-    if (realBlockIndex != GL_INVALID_INDEX)
-    {
-        mFunctions->uniformBlockBinding(mProgramID, realBlockIndex, uniformBlockBinding);
-    }
 }
 
 bool ProgramGL::getUniformBlockSize(const std::string & /* blockName */,
@@ -781,17 +761,8 @@ void ProgramGL::linkResources(const gl::ProgramLinkedResources &resources)
     resources.atomicCounterBufferLinker.link(sizeMap);
 }
 
-angle::Result ProgramGL::syncState(const gl::Context *context)
+void ProgramGL::onUniformBlockBinding(gl::UniformBlockIndex uniformBlockIndex)
 {
-    const gl::ProgramExecutable &executable = mState.getExecutable();
-
-    gl::ProgramExecutable::DirtyBits dirtyBits = executable.getAndResetDirtyBits();
-    for (size_t dirtyBit : dirtyBits)
-    {
-        ASSERT(dirtyBit <= gl::ProgramExecutable::DIRTY_BIT_UNIFORM_BLOCK_BINDING_MAX);
-        GLuint binding = static_cast<GLuint>(dirtyBit);
-        setUniformBlockBinding(binding, executable.getUniformBlockBinding(binding));
-    }
-    return angle::Result::Continue;
+    getExecutable()->mDirtyUniformBlockBindings.set(uniformBlockIndex.value);
 }
 }  // namespace rx

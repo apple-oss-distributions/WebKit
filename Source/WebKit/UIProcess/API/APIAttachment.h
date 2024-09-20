@@ -29,6 +29,7 @@
 
 #include "APIObject.h"
 #include "WKBase.h"
+#include <WebCore/AttachmentAssociatedElement.h>
 #include <wtf/Function.h>
 #include <wtf/Lock.h>
 #include <wtf/RefPtr.h>
@@ -40,6 +41,8 @@ OBJC_CLASS NSFileWrapper;
 OBJC_CLASS NSString;
 
 namespace WebCore {
+enum class AttachmentAssociatedElementType : uint8_t;
+
 class SharedBuffer;
 class FragmentedSharedBuffer;
 }
@@ -64,6 +67,8 @@ public:
     bool isValid() const { return !!m_webPage; }
 
 #if PLATFORM(COCOA)
+    void cloneFileWrapperTo(Attachment&);
+    bool shouldUseFileWrapperIconForDirectory() const;
     void doWithFileWrapper(Function<void(NSFileWrapper *)>&&) const;
     void setFileWrapper(NSFileWrapper *);
     void setFileWrapperAndUpdateContentType(NSFileWrapper *, NSString *contentType);
@@ -83,14 +88,14 @@ public:
 
     bool isEmpty() const;
 
-    RefPtr<WebCore::FragmentedSharedBuffer> enclosingImageData() const;
+    RefPtr<WebCore::FragmentedSharedBuffer> associatedElementData() const;
 #if PLATFORM(COCOA)
-    NSData *enclosingImageNSData() const;
+    NSData *associatedElementNSData() const;
 #endif
     std::optional<uint64_t> fileSizeForDisplay() const;
 
-    void setHasEnclosingImage(bool hasEnclosingImage) { m_hasEnclosingImage = hasEnclosingImage; }
-    bool hasEnclosingImage() const { return m_hasEnclosingImage; }
+    void setAssociatedElementType(WebCore::AttachmentAssociatedElementType associatedElementType) { m_associatedElementType = associatedElementType; }
+    WebCore::AttachmentAssociatedElementType associatedElementType() const { return m_associatedElementType; }
 
     RefPtr<WebCore::SharedBuffer> createSerializedRepresentation() const;
     void updateFromSerializedRepresentation(Ref<WebCore::SharedBuffer>&&, const WTF::String& contentType);
@@ -107,7 +112,9 @@ private:
     WTF::String m_contentType;
     WeakPtr<WebKit::WebPageProxy> m_webPage;
     InsertionState m_insertionState { InsertionState::NotInserted };
+    WebCore::AttachmentAssociatedElementType m_associatedElementType { WebCore::AttachmentAssociatedElementType::None };
     bool m_hasEnclosingImage { false };
+    bool m_isCreatedFromSerializedRepresentation { false };
 };
 
 } // namespace API

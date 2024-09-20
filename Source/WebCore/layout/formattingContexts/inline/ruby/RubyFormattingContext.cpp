@@ -28,7 +28,6 @@
 
 #include "InlineContentAligner.h"
 #include "InlineFormattingContext.h"
-#include "InlineLevelBox.h"
 #include "InlineLine.h"
 #include "RenderStyleInlines.h"
 
@@ -113,13 +112,13 @@ static bool annotationOverlapCheck(const InlineDisplay::Box& adjacentDisplayBox,
     return false;
 }
 
-static bool canBreakAtCharacter(UChar character)
+static bool canBreakBefore(UChar character)
 {
     auto lineBreak = (ULineBreak)u_getIntPropertyValue(character, UCHAR_LINE_BREAK);
     // UNICODE LINE BREAKING ALGORITHM
     // http://www.unicode.org/reports/tr14/
     // And Requirements for Japanese Text Layout, 3.1.7 Characters Not Starting a Line
-    // http://www.w3.org/TR/2012/NOTE-jlreq-20120403/#characters_not_starting_a_line
+    // https://www.w3.org/TR/jlreq/#characters_not_starting_a_line
     switch (lineBreak) {
     case U_LB_NONSTARTER:
     case U_LB_CLOSE_PARENTHESIS:
@@ -148,6 +147,33 @@ static bool canBreakAtCharacter(UChar character)
     return true;
 }
 
+static bool canBreakAfter(UChar character)
+{
+    // https://www.w3.org/TR/jlreq/#characters_not_ending_a_line
+    switch (character) {
+    case 0x2018: // LEFT SINGLE QUOTATION MARK
+    case 0x201C: // LEFT DOUBLE QUOTATION MARK
+    case 0x0028: // LEFT PARENTHESIS
+    case 0x3014: // LEFT TORTOISE SHELL BRACKET
+    case 0x005B: // LEFT SQUARE BRACKET
+    case 0x007B: // LEFT CURLY BRACKET
+    case 0x3008: // LEFT ANGLE BRACKET
+    case 0x300A: // LEFT DOUBLE ANGLE BRACKET
+    case 0x300C: // LEFT CORNER BRACKET
+    case 0x300E: // LEFT WHITE CORNER BRACKET
+    case 0x3010: // LEFT BLACK LENTICULAR BRACKET
+    case 0x2985: // LEFT WHITE PARENTHESIS
+    case 0x3018: // LEFT WHITE TORTOISE SHELL BRACKET
+    case 0x3016: // LEFT WHITE LENTICULAR BRACKET
+    case 0x00AB: // LEFT-POINTING DOUBLE ANGLE QUOTATION MARK
+    case 0x301D: // REVERSED DOUBLE PRIME QUOTATION MARK
+        return false;
+    default:
+        break;
+    }
+    return true;
+}
+
 bool RubyFormattingContext::isAtSoftWrapOpportunity(const InlineItem& previous, const InlineItem& current)
 {
     auto& previousLayoutBox = previous.layoutBox();
@@ -159,15 +185,15 @@ bool RubyFormattingContext::isAtSoftWrapOpportunity(const InlineItem& previous, 
 
         if (current.isInlineBoxStart()) {
             // At the beginning of <ruby>.
-            if (!previous.isText())
+            auto* leadingTextItem = dynamicDowncast<InlineTextItem>(previous);
+            if (!leadingTextItem)
                 return true;
-            auto& leadingTextItem = downcast<InlineTextItem>(previous);
-            if (!leadingTextItem.length()) {
+            if (!leadingTextItem->length()) {
                 // FIXME: This needs to know prior context.
                 return true;
             }
-            auto lastCharacter = leadingTextItem.inlineTextBox().content()[leadingTextItem.end() - 1];
-            return canBreakAtCharacter(lastCharacter);
+            auto lastCharacter = leadingTextItem->inlineTextBox().content()[leadingTextItem->end() - 1];
+            return canBreakAfter(lastCharacter);
         }
         // Don't break between base end and <ruby> end.
         return false;
@@ -183,15 +209,15 @@ bool RubyFormattingContext::isAtSoftWrapOpportunity(const InlineItem& previous, 
 
         if (previous.isInlineBoxEnd()) {
             // At the end of <ruby>
-            if (!current.isText())
+            auto* trailingTextItem = dynamicDowncast<InlineTextItem>(current);
+            if (!trailingTextItem)
                 return true;
-            auto& trailingTextItem = downcast<InlineTextItem>(current);
-            if (!trailingTextItem.length()) {
+            if (!trailingTextItem->length()) {
                 // FIXME: This should be turned into one of those "can't decide it yet" cases.
                 return true;
             }
-            auto firstCharacter = trailingTextItem.inlineTextBox().content()[trailingTextItem.start()];
-            return canBreakAtCharacter(firstCharacter);
+            auto firstCharacter = trailingTextItem->inlineTextBox().content()[trailingTextItem->start()];
+            return canBreakBefore(firstCharacter);
         }
         // We should handled this case already when looking at current: base, previous: ruby.
         ASSERT_NOT_REACHED();
@@ -390,7 +416,8 @@ void RubyFormattingContext::adjustLayoutBoundsAndStretchAncestorRubyBase(LineBox
     auto over = InlineLayoutUnit { };
     auto under = InlineLayoutUnit { };
     auto annotationBoxLogicalHeight = InlineLayoutUnit { inlineFormattingContext.geometryForBox(*annotationBox).marginBoxHeight() };
-    if (rubyPosition(rubyBaseLayoutBox) == RubyPosition::Before)
+    auto isAnnotationBefore = rubyPosition(rubyBaseLayoutBox) == RubyPosition::Before;
+    if (isAnnotationBefore)
         over = annotationBoxLogicalHeight;
     else
         under = annotationBoxLogicalHeight;
@@ -406,7 +433,7 @@ void RubyFormattingContext::adjustLayoutBoundsAndStretchAncestorRubyBase(LineBox
         auto extraSpaceForAnnotation = InlineLayoutUnit { };
         if (!isFirstFormattedLine) {
             // Note that annotation may leak into the half leading space (gap between lines).
-            auto lineGap = rubyBaseLayoutBox.style().metricsOfPrimaryFont().lineSpacing();
+            auto lineGap = rubyBaseLayoutBox.style().metricsOfPrimaryFont().intLineSpacing();
             extraSpaceForAnnotation = std::max(0.f, (lineGap - (ascent + descent)) / 2);
         }
         auto ascentWithAnnotation = (ascent + over) - extraSpaceForAnnotation;
@@ -427,8 +454,13 @@ void RubyFormattingContext::adjustLayoutBoundsAndStretchAncestorRubyBase(LineBox
             layoutBounds.descent = std::max(descentWithAnnotation, layoutBounds.descent);
         } else if (layoutBounds.height() < ascentWithAnnotation + descentWithAnnotation) {
             // In case line-height does not produce enough space for annotation.
-            layoutBounds.ascent = std::max(ascentWithAnnotation, layoutBounds.ascent);
-            layoutBounds.descent = std::max(descentWithAnnotation, layoutBounds.descent);
+            auto extraSpaceNeededForAnnotation = (ascentWithAnnotation + descentWithAnnotation) - layoutBounds.height();
+            // Note that this makes annotation leak into previous/next line's (bottom/top) half leading. It ensures though that we don't
+            // overly stretch lines and break (logical) vertical rhythm too much.
+            if (isAnnotationBefore)
+                layoutBounds.ascent += extraSpaceNeededForAnnotation;
+            else
+                layoutBounds.descent += extraSpaceNeededForAnnotation;
         }
     }
 

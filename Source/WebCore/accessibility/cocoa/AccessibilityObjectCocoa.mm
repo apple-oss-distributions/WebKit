@@ -26,7 +26,7 @@
 #import "config.h"
 #import "AccessibilityObject.h"
 
-#if ENABLE(ACCESSIBILITY) && PLATFORM(COCOA)
+#if PLATFORM(COCOA)
 
 #import "AXObjectCache.h"
 #import "TextIterator.h"
@@ -203,14 +203,14 @@ RetainPtr<NSArray> AccessibilityObject::contentForRange(const SimpleRange& range
         if (it.text().length()) {
             auto listMarkerText = listMarkerTextForNodeAndPosition(&node, makeContainerOffsetPosition(it.range().start));
             if (!listMarkerText.isEmpty()) {
-                if (auto attrString = attributedStringCreate(&node, listMarkerText, it.range(), SpellCheck::No))
+                if (auto attrString = attributedStringCreate(node, listMarkerText, it.range(), SpellCheck::No))
                     [result addObject:attrString.get()];
             }
 
-            if (auto attrString = attributedStringCreate(&node, it.text(), it.range(), spellCheck))
+            if (auto attrString = attributedStringCreate(node, it.text(), it.range(), spellCheck))
                 [result addObject:attrString.get()];
         } else {
-            if (Node* replacedNode = it.node()) {
+            if (RefPtr replacedNode = it.node()) {
                 auto* cache = axObjectCache();
                 if (auto* object = cache ? cache->getOrCreate(replacedNode->renderer()) : nullptr)
                     addObjectWrapperToArray(*object, result.get());
@@ -254,4 +254,4 @@ RetainPtr<NSAttributedString> AccessibilityObject::attributedStringForRange(cons
 
 } // namespace WebCore
 
-#endif // ENABLE(ACCESSIBILITY) && PLATFORM(COCOA)
+#endif // PLATFORM(COCOA)

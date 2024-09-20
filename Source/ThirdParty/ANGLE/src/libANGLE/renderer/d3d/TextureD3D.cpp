@@ -295,7 +295,7 @@ angle::Result TextureD3D::subImage(const gl::Context *context,
         ImageD3D *image = getImage(index);
         ASSERT(image);
 
-        if (shouldUseSetData(image))
+        if (shouldUseSetData(image) && !mTexStorage->isMultiplanar(context))
         {
             return mTexStorage->setData(context, index, image, &area, type, unpack, pixelData);
         }
@@ -413,7 +413,7 @@ GLint TextureD3D::creationLevels(GLsizei width, GLsizei height, GLsizei depth) c
         mRenderer->getNativeExtensions().textureNpotOES)
     {
         // Maximum number of levels
-        return gl::log2(std::max(std::max(width, height), depth)) + 1;
+        return gl::log2(std::max({width, height, depth})) + 1;
     }
     else
     {

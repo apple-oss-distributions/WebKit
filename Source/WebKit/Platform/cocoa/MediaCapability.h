@@ -33,8 +33,15 @@
 #include <wtf/URL.h>
 #include <wtf/WeakPtr.h>
 
-namespace WebCore {
-class RegistrableDomain;
+OBJC_CLASS BEMediaEnvironment;
+
+namespace WebKit {
+class MediaCapability;
+}
+
+namespace WTF {
+template<typename T> struct IsDeprecatedWeakRefSmartPointerException;
+template<> struct IsDeprecatedWeakRefSmartPointerException<WebKit::MediaCapability> : std::true_type { };
 }
 
 namespace WebKit {
@@ -44,7 +51,7 @@ class ExtensionCapabilityGrant;
 class MediaCapability final : public ExtensionCapability, public CanMakeWeakPtr<MediaCapability> {
     WTF_MAKE_NONCOPYABLE(MediaCapability);
 public:
-    explicit MediaCapability(URL);
+    explicit MediaCapability(URL&&);
     MediaCapability(MediaCapability&&) = default;
     MediaCapability& operator=(MediaCapability&&) = default;
 
@@ -59,17 +66,17 @@ public:
     void setState(State state) { m_state = state; }
     bool isActivatingOrActive() const;
 
-    const URL& url() const { return m_url; }
-    WebCore::RegistrableDomain registrableDomain() const;
+    const URL& webPageURL() const { return m_webPageURL; }
 
     // ExtensionCapability
     String environmentIdentifier() const final;
-    RetainPtr<_SECapability> platformCapability() const final { return m_platformCapability.get(); }
+
+    BEMediaEnvironment *platformMediaEnvironment() const { return m_mediaEnvironment.get(); }
 
 private:
     State m_state { State::Inactive };
-    URL m_url;
-    RetainPtr<_SECapability> m_platformCapability;
+    URL m_webPageURL;
+    RetainPtr<BEMediaEnvironment> m_mediaEnvironment;
 };
 
 } // namespace WebKit

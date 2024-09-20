@@ -30,13 +30,22 @@
 #include <wtf/text/WTFString.h>
 
 namespace WebCore {
+class PageGroup;
+}
+
+namespace WTF {
+template<typename T> struct IsDeprecatedWeakRefSmartPointerException;
+template<> struct IsDeprecatedWeakRefSmartPointerException<WebCore::PageGroup> : std::true_type { };
+}
+
+namespace WebCore {
 
 class Page;
 #if ENABLE(VIDEO)
 class CaptionUserPreferences;
 #endif
 
-class PageGroup {
+class PageGroup : public CanMakeWeakPtr<PageGroup> {
     WTF_MAKE_NONCOPYABLE(PageGroup); WTF_MAKE_FAST_ALLOCATED;
 public:
     WEBCORE_EXPORT explicit PageGroup(const String& name);
@@ -45,7 +54,7 @@ public:
 
     WEBCORE_EXPORT static PageGroup* pageGroup(const String& groupName);
 
-    const SingleThreadWeakHashSet<Page>& pages() const { return m_pages; }
+    const WeakHashSet<Page>& pages() const { return m_pages; }
 
     void addPage(Page&);
     void removePage(Page&);
@@ -61,7 +70,7 @@ public:
 
 private:
     String m_name;
-    SingleThreadWeakHashSet<Page> m_pages;
+    WeakHashSet<Page> m_pages;
 
     unsigned m_identifier;
 

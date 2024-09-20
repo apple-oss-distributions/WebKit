@@ -517,13 +517,13 @@ class EGLSurfaceTest3 : public EGLSurfaceTest
 // at one time, blocking message loops. See http://crbug.com/475085
 TEST_P(EGLSurfaceTest, MessageLoopBug)
 {
-    // http://anglebug.com/3123
+    // http://anglebug.com/42261801
     ANGLE_SKIP_TEST_IF(IsAndroid());
 
-    // http://anglebug.com/3138
+    // http://anglebug.com/42261815
     ANGLE_SKIP_TEST_IF(IsOzone());
 
-    // http://anglebug.com/5485
+    // http://anglebug.com/42264022
     ANGLE_SKIP_TEST_IF(IsIOS());
 
     initializeDisplay();
@@ -537,13 +537,13 @@ TEST_P(EGLSurfaceTest, MessageLoopBug)
 // instead of null.
 TEST_P(EGLSurfaceTest, MessageLoopBugContext)
 {
-    // http://anglebug.com/3123
+    // http://anglebug.com/42261801
     ANGLE_SKIP_TEST_IF(IsAndroid());
 
-    // http://anglebug.com/3138
+    // http://anglebug.com/42261815
     ANGLE_SKIP_TEST_IF(IsOzone());
 
-    // http://anglebug.com/5485
+    // http://anglebug.com/42264022
     ANGLE_SKIP_TEST_IF(IsIOS());
 
     initializeDisplay();
@@ -726,11 +726,11 @@ TEST_P(EGLSurfaceTest, SurfaceUseAfterFreeBug)
 // Test that the window surface is correctly resized after calling swapBuffers
 TEST_P(EGLSurfaceTest, ResizeWindow)
 {
-    // http://anglebug.com/4453
+    // http://anglebug.com/42263074
     ANGLE_SKIP_TEST_IF(isVulkanRenderer() && IsLinux() && IsIntel());
-    // Flaky on Linux SwANGLE http://anglebug.com/4453
+    // Flaky on Linux SwANGLE http://anglebug.com/42263074
     ANGLE_SKIP_TEST_IF(IsLinux() && isSwiftshader());
-    // http://anglebug.com/5485
+    // http://anglebug.com/42264022
     ANGLE_SKIP_TEST_IF(IsIOS());
     ANGLE_SKIP_TEST_IF(IsLinux() && IsARM());
 
@@ -763,7 +763,7 @@ TEST_P(EGLSurfaceTest, ResizeWindow)
     ASSERT_EGL_SUCCESS();
 
     // TODO(syoussefi): the GLX implementation still reads the window size as 64x64 through
-    // XGetGeometry.  http://anglebug.com/3122
+    // XGetGeometry.  http://anglebug.com/42261800
     ANGLE_SKIP_TEST_IF(IsLinux() && IsOpenGL());
 
     eglQuerySurface(mDisplay, mWindowSurface, EGL_HEIGHT, &height);
@@ -784,9 +784,9 @@ TEST_P(EGLSurfaceTest, ResizeWindow)
 // Test that the backbuffer is correctly resized after calling swapBuffers
 TEST_P(EGLSurfaceTest, ResizeWindowWithDraw)
 {
-    // http://anglebug.com/4453
+    // http://anglebug.com/42263074
     ANGLE_SKIP_TEST_IF(IsLinux());
-    // http://anglebug.com/5485
+    // http://anglebug.com/42264022
     ANGLE_SKIP_TEST_IF(IsIOS());
 
     // Necessary for a window resizing test if there is no per-frame window size query
@@ -1106,8 +1106,7 @@ TEST_P(EGLSurfaceTest, CreateWithEGLConfig1010102Support)
     initializeDisplay();
     ASSERT_NE(mDisplay, EGL_NO_DISPLAY);
 
-    EGLConfig config;
-    if (EGLWindow::FindEGLConfig(mDisplay, configAttributes, &config) == EGL_FALSE)
+    if (EGLWindow::FindEGLConfig(mDisplay, configAttributes, &mConfig) == EGL_FALSE)
     {
         std::cout << "EGLConfig for a GL_RGB10_A2 surface is not supported, skipping test"
                   << std::endl;
@@ -1119,6 +1118,9 @@ TEST_P(EGLSurfaceTest, CreateWithEGLConfig1010102Support)
         !IsEGLDisplayExtensionEnabled(mDisplay, "EGL_EXT_gl_colorspace_bt2020_linear"));
     ANGLE_SKIP_TEST_IF(!IsEGLDisplayExtensionEnabled(mDisplay, "EGL_EXT_gl_colorspace_bt2020_pq"));
 
+    initializeMainContext();
+    ASSERT_NE(mContext, EGL_NO_CONTEXT);
+
     constexpr std::array<EGLint, 3u> kBt2020Colorspaces = {EGL_GL_COLORSPACE_BT2020_HLG_EXT,
                                                            EGL_GL_COLORSPACE_BT2020_LINEAR_EXT,
                                                            EGL_GL_COLORSPACE_BT2020_PQ_EXT};
@@ -1128,7 +1130,7 @@ TEST_P(EGLSurfaceTest, CreateWithEGLConfig1010102Support)
         winSurfaceAttribs.push_back(EGL_GL_COLORSPACE_KHR);
         winSurfaceAttribs.push_back(bt2020Colorspace);
 
-        initializeSurfaceWithAttribs(config, winSurfaceAttribs);
+        initializeWindowSurfaceWithAttribs(mConfig, winSurfaceAttribs, EGL_SUCCESS);
         ASSERT_EGL_SUCCESS();
         ASSERT_NE(mWindowSurface, EGL_NO_SURFACE);
 
@@ -1257,7 +1259,7 @@ TEST_P(EGLSurfaceTest3, MakeCurrentDifferentSurfaces)
     // Use the same surface for both draw and read
     EXPECT_EGL_TRUE(eglMakeCurrent(mDisplay, firstPbufferSurface, firstPbufferSurface, mContext));
 
-    // TODO(http://www.anglebug.com/6284): Failing with OpenGL ES backend on Android.
+    // TODO(http://www.anglebug.com/42264803): Failing with OpenGL ES backend on Android.
     // Must be after the eglMakeCurrent() so the renderer string is initialized.
     ANGLE_SKIP_TEST_IF(IsOpenGLES() && IsAndroid());
 
@@ -1481,16 +1483,12 @@ class EGLSurfaceTestD3D11 : public EGLSurfaceTest
         //    - 0.5 is subtracted because gl_FragCoord gives the pixel center
         //    - Divided by the size to give a max value of 1
         std::stringstream fs;
-        fs << "precision mediump float;"
-           << "void main()"
-           << "{"
-           << "    float dimension = float(" << textureDimension << ");"
-           << "    float offset = float(" << offset << ");"
+        fs << "precision mediump float;" << "void main()" << "{" << "    float dimension = float("
+           << textureDimension << ");" << "    float offset = float(" << offset << ");"
            << "    gl_FragColor = vec4((gl_FragCoord.x + offset - 0.5) / dimension,"
            << "                        (gl_FragCoord.y + offset - 0.5) / dimension,"
            << "                         gl_FragCoord.z,"
-           << "                         gl_FragCoord.w);"
-           << "}";
+           << "                         gl_FragCoord.w);" << "}";
 
         GLuint program = createProgram(fs.str().c_str());
         ASSERT_NE(0u, program);
@@ -1767,8 +1765,8 @@ TEST_P(EGLSurfaceTest3, BlitBetweenSurfaces)
     // Clear surface1.
     EXPECT_EGL_TRUE(eglMakeCurrent(mDisplay, surface1, surface1, mContext));
 
-    // TODO(http://www.anglebug.com/6284): Failing with OpenGL ES backend on Android and Windows.
-    // Must be after the eglMakeCurrent() so the renderer string is initialized.
+    // TODO(http://www.anglebug.com/42264803): Failing with OpenGL ES backend on Android and
+    // Windows. Must be after the eglMakeCurrent() so the renderer string is initialized.
     ANGLE_SKIP_TEST_IF(IsOpenGLES() && (IsAndroid() || IsWindows()));
 
     glClearColor(kFloatRed.R, kFloatRed.G, kFloatRed.B, kFloatRed.A);
@@ -1818,8 +1816,8 @@ TEST_P(EGLSurfaceTest3, BlitBetweenSurfacesWithDeferredClear)
     // Clear surface1.
     EXPECT_EGL_TRUE(eglMakeCurrent(mDisplay, surface1, surface1, mContext));
 
-    // TODO(http://www.anglebug.com/6284): Failing with OpenGL ES backend on Android and Windows.
-    // Must be after the eglMakeCurrent() so the renderer string is initialized.
+    // TODO(http://www.anglebug.com/42264803): Failing with OpenGL ES backend on Android and
+    // Windows. Must be after the eglMakeCurrent() so the renderer string is initialized.
     ANGLE_SKIP_TEST_IF(IsOpenGLES() && (IsAndroid() || IsWindows()));
 
     glClearColor(kFloatRed.R, kFloatRed.G, kFloatRed.B, kFloatRed.A);
@@ -1852,10 +1850,10 @@ TEST_P(EGLSurfaceTest3, BlitBetweenSurfacesWithDeferredClear)
 // Verify switching between a surface with robust resource init and one without still clears alpha.
 TEST_P(EGLSurfaceTest, RobustResourceInitAndEmulatedAlpha)
 {
-    // http://anglebug.com/5279
+    // http://anglebug.com/42263827
     ANGLE_SKIP_TEST_IF(IsNVIDIA() && isGLRenderer() && IsLinux());
 
-    // http://anglebug.com/5280
+    // http://anglebug.com/40644775
     ANGLE_SKIP_TEST_IF(IsAndroid() && IsNexus5X() && isGLESRenderer());
 
     initializeDisplay();

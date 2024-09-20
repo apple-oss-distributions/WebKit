@@ -8,10 +8,10 @@
 #include <unordered_map>
 #include <unordered_set>
 
+#include "compiler/translator/IntermRebuild.h"
 #include "compiler/translator/msl/AstHelpers.h"
 #include "compiler/translator/msl/DiscoverDependentFunctions.h"
 #include "compiler/translator/msl/IdGen.h"
-#include "compiler/translator/msl/IntermRebuild.h"
 #include "compiler/translator/msl/MapSymbols.h"
 #include "compiler/translator/msl/Pipeline.h"
 #include "compiler/translator/msl/RewritePipelines.h"
@@ -457,8 +457,18 @@ class PipelineFunctionEnv
                     mPipelineMainLocalVar.externalExtra = lastFragmentOut;
                 }
             }
-            else if (isMain && (mPipeline.type == Pipeline::Type::InvocationVertexGlobals ||
-                                mPipeline.type == Pipeline::Type::InvocationFragmentGlobals))
+            else if (isMain && (mPipeline.type == Pipeline::Type::InvocationVertexGlobals))
+            {
+                ASSERT(mPipelineStruct.external->fields().size() == 1);
+                ASSERT(mPipelineStruct.external->fields()[0]->type()->getQualifier() ==
+                       TQualifier::EvqVertexID);
+                auto *vertexIDMetalVar =
+                    new TVariable(&mSymbolTable, ImmutableString("vertexIDMetal"),
+                                  new TType(TBasicType::EbtUInt), SymbolType::AngleInternal);
+                newFunc                        = &func;
+                mPipelineMainLocalVar.external = vertexIDMetalVar;
+            }
+            else if (isMain && (mPipeline.type == Pipeline::Type::InvocationFragmentGlobals))
             {
                 std::vector<const TVariable *> variables;
                 for (const TField *field : mPipelineStruct.external->fields())
@@ -805,8 +815,22 @@ class UpdatePipelineFunctions : private TIntermRebuild
             auto *newBody = new TIntermBlock();
             newBody->appendStatement(new TIntermDeclaration{mPipelineMainLocalVar.internal});
 
-            if (mPipeline.type == Pipeline::Type::InvocationVertexGlobals ||
-                mPipeline.type == Pipeline::Type::InvocationFragmentGlobals)
+            if (mPipeline.type == Pipeline::Type::InvocationVertexGlobals)
+            {
+                ASSERT(mPipelineStruct.external->fields().size() == 1);
+                ASSERT(mPipelineStruct.external->fields()[0]->type()->getQualifier() ==
+                       TQualifier::EvqVertexID);
+                const TField *field = mPipelineStruct.external->fields()[0];
+                auto *var =
+                    new TVariable(&mSymbolTable, field->name(), field->type(), field->symbolType());
+                auto &accessNode   = AccessField(*mPipelineMainLocalVar.internal, Name(*var));
+                auto vertexIDMetal = new TIntermSymbol(&getExternalPipelineVariable(func));
+                auto *assignNode   = new TIntermBinary(
+                    TOperator::EOpAssign, &accessNode,
+                    &AsType(mSymbolEnv, *new TType(TBasicType::EbtInt), *vertexIDMetal));
+                newBody->appendStatement(assignNode);
+            }
+            else if (mPipeline.type == Pipeline::Type::InvocationFragmentGlobals)
             {
                 // Populate struct instance with references to global pipeline variables.
                 for (const TField *field : mPipelineStruct.external->fields())
@@ -814,7 +838,7 @@ class UpdatePipelineFunctions : private TIntermRebuild
                     auto *var        = new TVariable(&mSymbolTable, field->name(), field->type(),
                                                      field->symbolType());
                     auto *symbol     = new TIntermSymbol(var);
-                    auto &accessNode = AccessField(*mPipelineMainLocalVar.internal, var->name());
+                    auto &accessNode = AccessField(*mPipelineMainLocalVar.internal, Name(*var));
                     auto *assignNode = new TIntermBinary(TOperator::EOpAssign, &accessNode, symbol);
                     newBody->appendStatement(assignNode);
                 }
@@ -828,8 +852,8 @@ class UpdatePipelineFunctions : private TIntermRebuild
                 auto &lastFragmentOut = *mPipelineMainLocalVar.externalExtra;
                 for (const TField *field : lastFragmentOut.getType().getStruct()->fields())
                 {
-                    auto &accessNode = AccessField(*mPipelineMainLocalVar.internal, field->name());
-                    auto &sourceNode = AccessField(lastFragmentOut, field->name());
+                    auto &accessNode = AccessField(*mPipelineMainLocalVar.internal, Name(*field));
+                    auto &sourceNode = AccessField(lastFragmentOut, Name(*field));
                     auto *assignNode =
                         new TIntermBinary(TOperator::EOpAssign, &accessNode, &sourceNode);
                     newBody->appendStatement(assignNode);
@@ -848,10 +872,12 @@ class UpdatePipelineFunctions : private TIntermRebuild
                     const TVariable &samplerParam = *func.getParam(paramIndex++);
 
                     auto go = [&](TIntermTyped &env, const int *index) {
-                        TIntermTyped &textureField = AccessField(
-                            AccessIndex(*env.deepCopy(), index), ImmutableString("texture"));
-                        TIntermTyped &samplerField = AccessField(
-                            AccessIndex(*env.deepCopy(), index), ImmutableString("sampler"));
+                        TIntermTyped &textureField =
+                            AccessField(AccessIndex(*env.deepCopy(), index),
+                                        Name("texture", SymbolType::BuiltIn));
+                        TIntermTyped &samplerField =
+                            AccessField(AccessIndex(*env.deepCopy(), index),
+                                        Name("sampler", SymbolType::BuiltIn));
 
                         auto mkAssign = [&](TIntermTyped &field, const TVariable &param) {
                             return new TIntermBinary(TOperator::EOpAssign, &field,
@@ -865,7 +891,7 @@ class UpdatePipelineFunctions : private TIntermRebuild
                         newBody->appendStatement(mkAssign(samplerField, samplerParam));
                     };
 
-                    TIntermTyped &env = AccessField(*mPipelineMainLocalVar.internal, field->name());
+                    TIntermTyped &env = AccessField(*mPipelineMainLocalVar.internal, Name(*field));
                     const TType &envType = env.getType();
 
                     if (envType.isArray())
@@ -962,7 +988,7 @@ bool UpdatePipelineSymbols(Pipeline::Type pipelineType,
             structInstanceVar = owner->getParam(0);
         }
         ASSERT(structInstanceVar);
-        return AccessField(*structInstanceVar, var.name());
+        return AccessField(*structInstanceVar, Name(var));
     };
     return MapSymbols(compiler, root, map);
 }

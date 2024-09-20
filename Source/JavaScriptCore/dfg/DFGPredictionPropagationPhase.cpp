@@ -41,7 +41,7 @@ static constexpr bool verboseFixPointLoops = false;
 class PredictionPropagationPhase : public Phase {
 public:
     PredictionPropagationPhase(Graph& graph)
-        : Phase(graph, "prediction propagation")
+        : Phase(graph, "prediction propagation"_s)
         , m_tupleSpeculations(graph.m_tupleData.size())
     {
         m_tupleSpeculations.fill(SpecNone);
@@ -594,26 +594,44 @@ private:
                 break;
             case Array::Float32Array:
             case Array::Float64Array:
-                changed |= mergePrediction(SpecFullDouble);
-                break;
-            case Array::Uint32Array:
-                if (isInt32SpeculationForArithmetic(node->getHeapPrediction()) && node->op() == GetByVal)
-                    changed |= mergePrediction(SpecInt32Only);
-                else if (enableInt52())
-                    changed |= mergePrediction(SpecInt52Any);
+                if (node->op() == GetByVal && arrayMode.isOutOfBounds())
+                    changed |= mergePrediction(SpecBytecodeDouble | SpecOther);
                 else
-                    changed |= mergePrediction(SpecInt32Only | SpecAnyIntAsDouble);
+                    changed |= mergePrediction(SpecFullDouble);
                 break;
+            case Array::Uint32Array: {
+                if (isInt32SpeculationForArithmetic(node->getHeapPrediction()) && node->op() == GetByVal) {
+                    if (node->op() == GetByVal && arrayMode.isOutOfBounds())
+                        changed |= mergePrediction(SpecInt32Only | SpecOther);
+                    else
+                        changed |= mergePrediction(SpecInt32Only);
+                } else if (!(node->op() == GetByVal && arrayMode.isOutOfBounds()) && enableInt52())
+                    changed |= mergePrediction(SpecInt52Any);
+                else {
+                    if (node->op() == GetByVal && arrayMode.isOutOfBounds())
+                        changed |= mergePrediction(SpecInt32Only | SpecAnyIntAsDouble | SpecOther);
+                    else
+                        changed |= mergePrediction(SpecInt32Only | SpecAnyIntAsDouble);
+                }
+                break;
+            }
             case Array::Int8Array:
             case Array::Uint8Array:
+            case Array::Uint8ClampedArray:
             case Array::Int16Array:
             case Array::Uint16Array:
             case Array::Int32Array:
-                changed |= mergePrediction(SpecInt32Only);
+                if (node->op() == GetByVal && arrayMode.isOutOfBounds())
+                    changed |= mergePrediction(SpecInt32Only | SpecOther);
+                else
+                    changed |= mergePrediction(SpecInt32Only);
                 break;
             case Array::BigInt64Array:
             case Array::BigUint64Array:
-                changed |= mergePrediction(SpecBigInt);
+                if (node->op() == GetByVal && arrayMode.isOutOfBounds())
+                    changed |= mergePrediction(SpecBigInt | SpecOther);
+                else
+                    changed |= mergePrediction(SpecBigInt);
                 break;
             default:
                 changed |= mergePrediction(node->getHeapPrediction());
@@ -712,6 +730,13 @@ private:
             SpeculatedType child = node->child1()->prediction();
             if (child)
                 changed |= mergePrediction(resultOfToPropertyKey(child));
+            break;
+        }
+
+        case ToPropertyKeyOrNumber: {
+            SpeculatedType child = node->child1()->prediction();
+            if (child)
+                changed |= mergePrediction(resultOfToPropertyKeyOrNumber(child));
             break;
         }
 
@@ -1022,8 +1047,11 @@ private:
         case GetClosureVar:
         case GetInternalField:
         case GetFromArguments:
-        case LoadKeyFromMapBucket:
-        case LoadValueFromMapBucket:
+        case MapValue:
+        case MapIteratorKey:
+        case MapIteratorValue:
+        case MapIterationEntryKey:
+        case MapIterationEntryValue:
         case ToObject:
         case CallNumberConstructor:
         case CallObjectConstructor:
@@ -1089,14 +1117,17 @@ private:
             break;
 
         case MapHash:
+        case MapIterationEntry:
+        case MapKeyIndex:
             setPrediction(SpecInt32Only);
             break;
 
-        case GetMapBucket:
-        case GetMapBucketHead:
-        case GetMapBucketNext:
-        case SetAdd:
-        case MapSet:
+        case MapIteratorNext:
+            setPrediction(SpecBoolean);
+            break;
+
+        case MapStorage:
+        case MapIterationNext:
             setPrediction(SpecCellOther);
             break;
 
@@ -1108,6 +1139,7 @@ private:
 
         case GetTypedArrayByteOffset:
         case GetArrayLength:
+        case GetUndetachedTypeArrayLength:
         case GetVectorLength: {
             setPrediction(SpecInt32Only);
             break;
@@ -1383,7 +1415,9 @@ private:
         case EnumeratorInByVal:
         case EnumeratorHasOwnProperty:
         case InByVal:
+        case InByValMegamorphic:
         case InById:
+        case InByIdMegamorphic:
         case HasPrivateName:
         case HasPrivateBrand:
         case HasOwnProperty:
@@ -1410,6 +1444,16 @@ private:
             // We expect this node to almost always produce an int32. However,
             // it's possible it produces NaN or integers out of int32 range. We
             // rely on the heap prediction since the parseInt() call profiled
+            // its result.
+            setPrediction(m_currentNode->getHeapPrediction());
+            break;
+        }
+
+        case ToIntegerOrInfinity:
+        case ToLength: {
+            // We expect this node to almost always produce an int32. However,
+            // it's possible it produces Infinity or integers out of int32 range. We
+            // rely on the heap prediction since the @toIntegerOrInfinity() call profiled
             // its result.
             setPrediction(m_currentNode->getHeapPrediction());
             break;
@@ -1458,6 +1502,7 @@ private:
         case ToThis:
         case ToPrimitive: 
         case ToPropertyKey:
+        case ToPropertyKeyOrNumber:
         case NormalizeMapKey:
         case AtomicsAdd:
         case AtomicsAnd:
@@ -1626,6 +1671,8 @@ private:
         case PutDynamicVar:
         case NukeStructureAndSetButterfly:
         case InitializeEntrypointArguments:
+        case SetAdd:
+        case MapSet:
         case WeakSetAdd:
         case WeakMapSet:
         case FilterCallLinkStatus:
@@ -1691,6 +1738,18 @@ private:
             return mergeSpeculations(type & SpecSymbol, SpecString);
 
         return SpecString | SpecSymbol;
+    }
+
+    SpeculatedType resultOfToPropertyKeyOrNumber(SpeculatedType type)
+    {
+        // Propagate the prediction of the source directly if already proven to be a property key or number.
+        if (type && !(type & ~(SpecFullNumber | SpecString | SpecSymbol)))
+            return type;
+
+        if (type & SpecStringObject && m_graph.canOptimizeStringObjectAccess(m_currentNode->origin.semantic))
+            return mergeSpeculations(type & SpecSymbol, SpecString);
+
+        return SpecFullNumber | SpecString | SpecSymbol;
     }
 
     Vector<Node*> m_dependentNodes;

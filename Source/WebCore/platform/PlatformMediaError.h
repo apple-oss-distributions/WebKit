@@ -41,6 +41,8 @@ enum class PlatformMediaError : uint8_t {
     Cancelled,
     LogicError,
     DecoderCreationError,
+    NotSupportedError,
+    NetworkError,
 };
 
 using MediaPromise = NativePromise<void, PlatformMediaError>;
@@ -60,21 +62,6 @@ struct LogArgument<WebCore::PlatformMediaError> {
     {
         return convertEnumerationToString(error);
     }
-};
-
-template<> struct EnumTraits<WebCore::PlatformMediaError> {
-    using values = EnumValues<
-        WebCore::PlatformMediaError,
-        WebCore::PlatformMediaError::AppendError,
-        WebCore::PlatformMediaError::ClientDisconnected,
-        WebCore::PlatformMediaError::BufferRemoved,
-        WebCore::PlatformMediaError::SourceRemoved,
-        WebCore::PlatformMediaError::IPCError,
-        WebCore::PlatformMediaError::ParsingError,
-        WebCore::PlatformMediaError::MemoryError,
-        WebCore::PlatformMediaError::Cancelled,
-        WebCore::PlatformMediaError::LogicError
-    >;
 };
 
 } // namespace WTF

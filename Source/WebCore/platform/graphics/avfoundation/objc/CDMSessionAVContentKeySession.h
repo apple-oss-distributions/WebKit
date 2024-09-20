@@ -62,6 +62,8 @@ public:
     // CDMSessionMediaSourceAVFObjC
     void addParser(AVStreamDataParser *) override;
     void removeParser(AVStreamDataParser *) override;
+    bool isAnyKeyUsable(const Keys&) const override;
+    void attachContentKeyToSample(const MediaSampleAVFObjC&) override;
 
     void didProvideContentKeyRequest(AVContentKeyRequest *);
 
@@ -72,10 +74,10 @@ protected:
     AVContentKeySession* contentKeySession();
 
     bool hasContentKeyRequest() const;
-    RetainPtr<AVContentKeyRequest> contentKeyRequest();
+    RetainPtr<AVContentKeyRequest> contentKeyRequest() const;
 
 #if !RELEASE_LOG_DISABLED
-    const char* logClassName() const { return "CDMSessionAVContentKeySession"; }
+    ASCIILiteral logClassName() const { return "CDMSessionAVContentKeySession"_s; }
 #endif
 
     RetainPtr<AVContentKeySession> m_contentKeySession;

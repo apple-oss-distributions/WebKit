@@ -149,6 +149,7 @@ class TextureState final : private angle::NonCopyable
 
     bool hasBeenBoundAsImage() const { return mHasBeenBoundAsImage; }
     bool hasBeenBoundAsAttachment() const { return mHasBeenBoundAsAttachment; }
+    bool hasBeenBoundToMSRTTFramebuffer() const { return mHasBeenBoundToMSRTTFramebuffer; }
 
     gl::SrgbOverride getSRGBOverride() const { return mSrgbOverride; }
 
@@ -190,6 +191,8 @@ class TextureState final : private angle::NonCopyable
     gl::TilingMode getTilingMode() const { return mTilingMode; }
 
     bool isInternalIncompleteTexture() const { return mIsInternalIncompleteTexture; }
+
+    const FoveationState &getFoveationState() const { return mFoveationState; }
 
   private:
     // Texture needs access to the ImageDesc functions.
@@ -241,6 +244,7 @@ class TextureState final : private angle::NonCopyable
 
     bool mHasBeenBoundAsImage;
     bool mHasBeenBoundAsAttachment;
+    bool mHasBeenBoundToMSRTTFramebuffer;
 
     bool mImmutableFormat;
     GLuint mImmutableLevels;
@@ -274,6 +278,9 @@ class TextureState final : private angle::NonCopyable
     mutable GLenum mCachedSamplerCompareMode;
     mutable bool mCachedSamplerFormatValid;
     std::string mLabel;
+
+    // GL_QCOM_texture_foveated
+    FoveationState mFoveationState;
 };
 
 bool operator==(const TextureState &a, const TextureState &b);
@@ -375,6 +382,8 @@ class Texture final : public RefCountObject<TextureID>,
 
     void setProtectedContent(Context *context, bool hasProtectedContent);
     bool hasProtectedContent() const override;
+    bool hasFoveatedRendering() const override { return isFoveationEnabled(); }
+    const gl::FoveationState *getFoveationState() const override { return &mState.mFoveationState; }
 
     void setRenderabilityValidation(Context *context, bool renderabilityValidation);
 
@@ -410,6 +419,23 @@ class Texture final : public RefCountObject<TextureID>,
     GLuint getMipmapMaxLevel() const;
 
     bool isMipmapComplete() const;
+
+    void setFoveatedFeatureBits(const GLuint features);
+    GLuint getFoveatedFeatureBits() const;
+    bool isFoveationEnabled() const;
+    GLuint getSupportedFoveationFeatures() const;
+
+    GLuint getNumFocalPoints() const { return mState.mFoveationState.getMaxNumFocalPoints(); }
+    void setMinPixelDensity(const GLfloat density);
+    GLfloat getMinPixelDensity() const;
+    void setFocalPoint(uint32_t layer,
+                       uint32_t focalPointIndex,
+                       float focalX,
+                       float focalY,
+                       float gainX,
+                       float gainY,
+                       float foveaArea);
+    const FocalPoint &getFocalPoint(uint32_t layer, uint32_t focalPoint) const;
 
     angle::Result setImage(Context *context,
                            const PixelUnpackState &unpackState,
@@ -551,6 +577,18 @@ class Texture final : public RefCountObject<TextureID>,
 
     angle::Result generateMipmap(Context *context);
 
+    angle::Result clearImage(Context *context,
+                             GLint level,
+                             GLenum format,
+                             GLenum type,
+                             const uint8_t *data);
+    angle::Result clearSubImage(Context *context,
+                                GLint level,
+                                const Box &area,
+                                GLenum format,
+                                GLenum type,
+                                const uint8_t *data);
+
     void onBindAsImageTexture();
 
     egl::Surface *getBoundSurface() const;
@@ -665,6 +703,9 @@ class Texture final : public RefCountObject<TextureID>,
         DIRTY_BIT_BOUND_AS_IMAGE,
         DIRTY_BIT_BOUND_AS_ATTACHMENT,
 
+        // Bound to MSRTT Framebuffer
+        DIRTY_BIT_BOUND_TO_MSRTT_FRAMEBUFFER,
+
         // Misc
         DIRTY_BIT_USAGE,
         DIRTY_BIT_IMPLEMENTATION,
@@ -688,6 +729,9 @@ class Texture final : public RefCountObject<TextureID>,
     void onBufferContentsChange();
 
     void markInternalIncompleteTexture() { mState.mIsInternalIncompleteTexture = true; }
+
+    // Texture bound to MSRTT framebuffer.
+    void onBindToMSRTTFramebuffer();
 
   private:
     rx::FramebufferAttachmentObjectImpl *getAttachmentImpl() const override;

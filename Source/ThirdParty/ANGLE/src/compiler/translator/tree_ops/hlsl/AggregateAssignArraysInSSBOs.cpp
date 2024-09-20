@@ -29,9 +29,9 @@ class AggregateAssignArraysInSSBOsTraverser : public TIntermTraverser
     bool visitBinary(Visit visit, TIntermBinary *node) override
     {
         // Replace all aggregate assignments to arrays in SSBOs with element-by-element assignments.
-        // TODO(anglebug.com/7363): this implementation only works for the simple case (assignment
-        // statement), not more complex cases such as assignment-as-expression or functions with
-        // side effects in the RHS.
+        // TODO(anglebug.com/42265833): this implementation only works for the simple case
+        // (assignment statement), not more complex cases such as assignment-as-expression or
+        // functions with side effects in the RHS.
 
         if (node->getOp() != EOpAssign)
         {
@@ -61,8 +61,7 @@ class AggregateAssignArraysInSSBOsTraverser : public TIntermTraverser
             new TIntermBinary(EOpIndexDirect, node->getRight(), indexSymbolNode->deepCopy());
         auto *assign = new TIntermBinary(TOperator::EOpAssign, indexedLeft, indexedRight);
         forLoopBody->appendStatement(assign);
-        auto *forLoop =
-            new TIntermLoop(ELoopFor, indexInit, cond, indexIncrement, EnsureBlock(forLoopBody));
+        auto *forLoop = new TIntermLoop(ELoopFor, indexInit, cond, indexIncrement, forLoopBody);
         queueReplacement(forLoop, OriginalNode::IS_DROPPED);
         return false;
     }

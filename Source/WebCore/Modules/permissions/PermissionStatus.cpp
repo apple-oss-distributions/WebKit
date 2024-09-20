@@ -54,14 +54,14 @@ static HashMap<MainThreadPermissionObserverIdentifier, std::unique_ptr<MainThrea
     return map;
 }
 
-Ref<PermissionStatus> PermissionStatus::create(ScriptExecutionContext& context, PermissionState state, PermissionDescriptor descriptor, PermissionQuerySource source, SingleThreadWeakPtr<Page>&& page)
+Ref<PermissionStatus> PermissionStatus::create(ScriptExecutionContext& context, PermissionState state, PermissionDescriptor descriptor, PermissionQuerySource source, WeakPtr<Page>&& page)
 {
     auto status = adoptRef(*new PermissionStatus(context, state, descriptor, source, WTFMove(page)));
     status->suspendIfNeeded();
     return status;
 }
 
-PermissionStatus::PermissionStatus(ScriptExecutionContext& context, PermissionState state, PermissionDescriptor descriptor, PermissionQuerySource source, SingleThreadWeakPtr<Page>&& page)
+PermissionStatus::PermissionStatus(ScriptExecutionContext& context, PermissionState state, PermissionDescriptor descriptor, PermissionQuerySource source, WeakPtr<Page>&& page)
     : ActiveDOMObject(&context)
     , m_state(state)
     , m_descriptor(descriptor)
@@ -103,11 +103,6 @@ void PermissionStatus::stateChanged(PermissionState newState)
 
     m_state = newState;
     queueTaskToDispatchEvent(*this, TaskSource::Permission, Event::create(eventNames().changeEvent, Event::CanBubble::No, Event::IsCancelable::No));
-}
-
-const char* PermissionStatus::activeDOMObjectName() const
-{
-    return "PermissionStatus";
 }
 
 bool PermissionStatus::virtualHasPendingActivity() const

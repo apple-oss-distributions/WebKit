@@ -186,15 +186,24 @@ void findWordBoundary(StringView text, int position, int* start, int* end)
     *start = range.location;
     *end = range.location + range.length;
 #else
-    unsigned pos = position;
-    if (pos == text.length() && pos)
-        --pos;
+    if (text.isEmpty()) {
+        *start = 0;
+        *end = 0;
+        return;
+    }
+
+    if (static_cast<unsigned>(position) >= text.length()) {
+        ASSERT_WITH_MESSAGE(static_cast<unsigned>(position) < text.length(), "position exceeds text.length()");
+        *start = text.length() - 1;
+        *end = text.length() - 1;
+        return;
+    }
 
     // For complex text (Thai, Japanese, Chinese), visible_units will pass the text in as a 
     // single contiguous run of characters, providing as much context as is possible.
     // We only need one character to determine if the text is complex.
     char32_t ch;
-    unsigned i = pos;
+    unsigned i = position;
     U16_NEXT(text, i, text.length(), ch);
     bool isComplex = requiresContextForWordBoundary(ch);
 

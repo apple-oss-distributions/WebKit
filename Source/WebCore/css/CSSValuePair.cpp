@@ -25,7 +25,9 @@
 
 #include "config.h"
 #include "CSSValuePair.h"
+
 #include <wtf/Hasher.h>
+#include <wtf/text/MakeString.h>
 #include <wtf/text/WTFString.h>
 
 namespace WebCore {
@@ -52,6 +54,11 @@ Ref<CSSValuePair> CSSValuePair::createSlashSeparated(Ref<CSSValue> first, Ref<CS
 Ref<CSSValuePair> CSSValuePair::createNoncoalescing(Ref<CSSValue> first, Ref<CSSValue> second)
 {
     return adoptRef(*new CSSValuePair(SpaceSeparator, WTFMove(first), WTFMove(second), IdenticalValueSerialization::DoNotCoalesce));
+}
+
+bool CSSValuePair::canBeCoalesced() const
+{
+    return m_coalesceIdenticalValues && m_first->equals(m_second);
 }
 
 String CSSValuePair::customCSSText() const

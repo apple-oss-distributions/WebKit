@@ -27,7 +27,9 @@
 
 #include "FloatPoint.h"
 #include "FloatSize.h"
+#include "UserInterfaceLayoutDirection.h"
 #include <wtf/FastMalloc.h>
+#include <wtf/WeakHashSet.h>
 #include <wtf/text/WTFString.h>
 
 namespace WebCore {
@@ -50,6 +52,10 @@ public:
     bool scrollbarAnimationsUnsuspendedByUserInteraction() const { return m_scrollbarAnimationsUnsuspendedByUserInteraction; }
     void setScrollbarAnimationsUnsuspendedByUserInteraction(bool unsuspended) { m_scrollbarAnimationsUnsuspendedByUserInteraction = unsuspended; }
     
+    WEBCORE_EXPORT virtual bool isRemoteScrollbarsController() const { return false; }
+    WEBCORE_EXPORT virtual bool isScrollbarsControllerMac() const { return false; }
+    WEBCORE_EXPORT virtual bool isScrollbarsControllerMock() const { return false; }
+
     bool shouldSuspendScrollbarAnimations() const;
 
     virtual void notifyContentAreaScrolled(const FloatSize&) { }
@@ -90,7 +96,7 @@ public:
 
     WEBCORE_EXPORT virtual String horizontalScrollbarStateForTesting() const { return emptyString(); }
     WEBCORE_EXPORT virtual String verticalScrollbarStateForTesting() const { return emptyString(); }
-    
+
     WEBCORE_EXPORT virtual void setScrollbarVisibilityState(ScrollbarOrientation, bool) { }
 
     WEBCORE_EXPORT virtual bool shouldDrawIntoScrollbarLayer(Scrollbar&) const { return true; }
@@ -99,6 +105,13 @@ public:
 
     WEBCORE_EXPORT virtual void setScrollbarMinimumThumbLength(WebCore::ScrollbarOrientation, int) { }
     WEBCORE_EXPORT virtual int minimumThumbLength(WebCore::ScrollbarOrientation) { return 0; }
+    WEBCORE_EXPORT virtual void scrollbarLayoutDirectionChanged(UserInterfaceLayoutDirection) { }
+
+    WEBCORE_EXPORT virtual void updateScrollerStyle() { }
+
+    WEBCORE_EXPORT void updateScrollbarsThickness();
+
+    WEBCORE_EXPORT virtual void updateScrollbarStyle() { }
 
 private:
     ScrollableArea& m_scrollableArea;

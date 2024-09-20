@@ -58,6 +58,7 @@ function generate_Android_bp_file() {
             "angle_enable_d3d11 = false"
             "angle_enable_null = false"
             "angle_enable_metal = false"
+            "angle_enable_wgpu = false"
 
             # SwiftShader is loaded as the system Vulkan driver on Android, not compiled by ANGLE
             "angle_enable_swiftshader = false"
@@ -96,7 +97,7 @@ function generate_Android_bp_file() {
         --gn_json_arm64=${GN_OUTPUT_DIRECTORY}/desc.arm64.json \
         --gn_json_x86=${GN_OUTPUT_DIRECTORY}/desc.x86.json \
         --gn_json_x64=${GN_OUTPUT_DIRECTORY}/desc.x64.json \
-        > Android.bp
+        --output=Android.bp
 }
 
 
@@ -114,10 +115,10 @@ export PATH=`pwd`/${DEPOT_TOOLS_DIR}:$PATH
 third_party_deps=(
     "build"
     "third_party/abseil-cpp"
-    "third_party/vulkan-deps/glslang/src"
-    "third_party/vulkan-deps/spirv-headers/src"
-    "third_party/vulkan-deps/spirv-tools/src"
-    "third_party/vulkan-deps/vulkan-headers/src"
+    "third_party/glslang/src"
+    "third_party/spirv-headers/src"
+    "third_party/spirv-tools/src"
+    "third_party/vulkan-headers/src"
     "third_party/vulkan_memory_allocator"
 )
 
@@ -126,9 +127,7 @@ root_add_deps=(
   "third_party"
 )
 
-# Only add the parts of NDK and vulkan-deps that are required by ANGLE. The entire dep is too large.
 delete_only_deps=(
-    "third_party/vulkan-deps"
     "third_party/zlib"  # Replaced by Android's zlib; delete for gclient to work https://crbug.com/skia/14155#c3
 )
 
@@ -137,7 +136,7 @@ for dep in "${third_party_deps[@]}" "${delete_only_deps[@]}"; do
     rm -rf "$dep"
 done
 
-# Remove cruft from any previous bad rolls (https://anglebug.com/8352)
+# Remove cruft from any previous bad rolls (https://anglebug.com/42266781)
 extra_third_party_removal_patterns=(
    "*/_gclient_*"
 )
@@ -147,7 +146,7 @@ for removal_dir in "${extra_third_party_removal_patterns[@]}"; do
 done
 
 # Sync all of ANGLE's deps so that 'gn gen' works
-python scripts/bootstrap.py
+python3 scripts/bootstrap.py
 gclient sync --reset --force --delete_unversioned_trees
 
 # Delete outdir to ensure a clean gn run.
@@ -191,10 +190,10 @@ extra_removal_files=(
    # Remove Android.mk files to prevent automated CLs:
    #   "[LSC] Add LOCAL_LICENSE_KINDS to external/angle"
    "Android.mk"
-   "third_party/vulkan-deps/glslang/src/Android.mk"
-   "third_party/vulkan-deps/glslang/src/ndk_test/Android.mk"
-   "third_party/vulkan-deps/spirv-tools/src/Android.mk"
-   "third_party/vulkan-deps/spirv-tools/src/android_test/Android.mk"
+   "third_party/glslang/src/Android.mk"
+   "third_party/glslang/src/ndk_test/Android.mk"
+   "third_party/spirv-tools/src/Android.mk"
+   "third_party/spirv-tools/src/android_test/Android.mk"
    "third_party/siso" # Not needed
 )
 

@@ -2067,7 +2067,7 @@ static int decode_b(Dav1dTaskContext *const t,
             f->frame_hdr->loopfilter.level_y[1])
         {
             const int is_globalmv =
-                b->inter_mode == (is_comp ? GLOBALMV_GLOBALMV : GLOBALMV);
+                is_comp ? (b->inter_mode == GLOBALMV_GLOBALMV) : (b->inter_mode == GLOBALMV);
             const uint8_t (*const lf_lvls)[8][2] = (const uint8_t (*)[8][2])
                 &ts->lflvl[b->seg_id][0][b->ref[0] + 1][!is_globalmv];
             const uint16_t tx_split[2] = { b->tx_split0, b->tx_split1 };
@@ -2618,7 +2618,7 @@ static void setup_tile(Dav1dTileState *const ts,
                        const Dav1dFrameContext *const f,
                        const uint8_t *const data, const size_t sz,
                        const int tile_row, const int tile_col,
-                       const int tile_start_off)
+                       const unsigned tile_start_off)
 {
     const int col_sb_start = f->frame_hdr->tiling.col_start_sb[tile_col];
     const int col_sb128_start = col_sb_start >> !f->seq_hdr->sb128;
@@ -2969,15 +2969,16 @@ int dav1d_decode_frame_init(Dav1dFrameContext *const f) {
     const uint8_t *const size_mul = ss_size_mul[f->cur.p.layout];
     const int hbd = !!f->seq_hdr->hbd;
     if (c->n_fc > 1) {
+        const unsigned sb_step4 = f->sb_step * 4;
         int tile_idx = 0;
         for (int tile_row = 0; tile_row < f->frame_hdr->tiling.rows; tile_row++) {
-            int row_off = f->frame_hdr->tiling.row_start_sb[tile_row] *
-                          f->sb_step * 4 * f->sb128w * 128;
-            int b_diff = (f->frame_hdr->tiling.row_start_sb[tile_row + 1] -
-                          f->frame_hdr->tiling.row_start_sb[tile_row]) * f->sb_step * 4;
+            const unsigned row_off = f->frame_hdr->tiling.row_start_sb[tile_row] *
+                                     sb_step4 * f->sb128w * 128;
+            const unsigned b_diff = (f->frame_hdr->tiling.row_start_sb[tile_row + 1] -
+                                     f->frame_hdr->tiling.row_start_sb[tile_row]) * sb_step4;
             for (int tile_col = 0; tile_col < f->frame_hdr->tiling.cols; tile_col++) {
                 f->frame_thread.tile_start_off[tile_idx++] = row_off + b_diff *
-                    f->frame_hdr->tiling.col_start_sb[tile_col] * f->sb_step * 4;
+                    f->frame_hdr->tiling.col_start_sb[tile_col] * sb_step4;
             }
         }
 

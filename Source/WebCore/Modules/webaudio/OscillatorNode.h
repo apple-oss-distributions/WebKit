@@ -41,8 +41,6 @@ public:
 
     virtual ~OscillatorNode();
 
-    const char* activeDOMObjectName() const final { return "OscillatorNode"; }
-
     OscillatorType typeForBindings() const { ASSERT(isMainThread()); return m_type; }
     ExceptionOr<void> setTypeForBindings(OscillatorType);
 
@@ -66,6 +64,8 @@ private:
     double processKRate(int, float* destP, double virtualReadIndex) WTF_REQUIRES_LOCK(m_processLock);
 
     bool propagatesSilence() const final;
+
+    float noiseInjectionMultiplier() const final { return 0.01; }
 
     // One of the waveform types defined in the enum.
     OscillatorType m_type; // Only used on the main thread.

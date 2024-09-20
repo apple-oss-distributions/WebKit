@@ -35,6 +35,7 @@ class TextStream;
 
 namespace WebCore {
 
+class ControlFactory;
 class GraphicsContext;
 
 namespace DisplayList {
@@ -43,6 +44,7 @@ class ResourceHeap;
 
 class ApplyDeviceScaleFactor;
 class BeginTransparencyLayer;
+class BeginTransparencyLayerWithCompositeMode;
 class ClearRect;
 class ClearDropShadow;
 class Clip;
@@ -78,6 +80,7 @@ class FillPath;
 class FillRect;
 class FillRectWithColor;
 class FillRectWithGradient;
+class FillRectWithGradientAndSpaceTransform;
 class FillRectWithRoundedHole;
 class FillRoundedRect;
 class ResetClip;
@@ -121,6 +124,7 @@ class ApplyStrokePattern;
 using Item = std::variant
     < ApplyDeviceScaleFactor
     , BeginTransparencyLayer
+    , BeginTransparencyLayerWithCompositeMode
     , ClearRect
     , ClearDropShadow
     , Clip
@@ -156,6 +160,7 @@ using Item = std::variant
     , FillRect
     , FillRectWithColor
     , FillRectWithGradient
+    , FillRectWithGradientAndSpaceTransform
     , FillRectWithRoundedHole
     , FillRoundedRect
     , ResetClip
@@ -216,7 +221,7 @@ enum class AsTextFlag : uint8_t {
 
 bool isValid(const Item&);
 
-ApplyItemResult applyItem(GraphicsContext&, const ResourceHeap&, const Item&);
+ApplyItemResult applyItem(GraphicsContext&, const ResourceHeap&, ControlFactory&, const Item&);
 
 bool shouldDumpItem(const Item&, OptionSet<AsTextFlag>);
 

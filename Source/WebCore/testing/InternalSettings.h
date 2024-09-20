@@ -126,7 +126,7 @@ private:
     explicit InternalSettings(Page*);
 
     Settings& settings() const;
-    static const char* supplementName();
+    static ASCIILiteral supplementName();
 
     class Backup {
     public:
@@ -165,7 +165,7 @@ private:
         bool m_shouldDeactivateAudioSession;
     };
 
-    SingleThreadWeakPtr<Page> m_page;
+    WeakPtr<Page> m_page;
     Backup m_backup;
 };
 

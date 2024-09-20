@@ -434,6 +434,15 @@
     "glFlushMappedNamedBufferRange": {
         "buffer": "BufferID"
     },
+    "glFramebufferFoveationConfig": {
+        "framebuffer": "FramebufferID"
+    },
+    "glFramebufferFoveationParameters": {
+        "framebuffer": "FramebufferID"
+    },
+    "glFramebufferResolveRenderbufferWEBKIT": {
+        "renderbuffer": "RenderbufferID"
+    },
     "glFramebufferRenderbuffer": {
         "renderbuffer": "RenderbufferID"
     },
@@ -1680,6 +1689,9 @@
     },
     "glTextureBufferRange": {
         "buffer": "BufferID",
+        "texture": "TextureID"
+    },
+    "glTextureFoveationParameters": {
         "texture": "TextureID"
     },
     "glTextureParameterf": {

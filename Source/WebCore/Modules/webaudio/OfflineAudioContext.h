@@ -56,10 +56,12 @@ public:
 private:
     OfflineAudioContext(Document&, const OfflineAudioContextOptions&);
 
+    void lazyInitialize() final;
+    void increaseNoiseMultiplierIfNeeded();
+
     AudioBuffer* renderTarget() const { return destination().renderTarget(); }
 
     // ActiveDOMObject
-    const char* activeDOMObjectName() const final;
     bool virtualHasPendingActivity() const final;
 
     void settleRenderingPromise(ExceptionOr<Ref<AudioBuffer>>&&);

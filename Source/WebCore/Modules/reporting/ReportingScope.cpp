@@ -81,6 +81,13 @@ void ReportingScope::clearReports()
     m_queuedReportTypeCounts.clear();
 }
 
+bool ReportingScope::containsObserver(const ReportingObserver& observer) const
+{
+    return m_reportingObservers.containsIf([&observer](auto& item) {
+        return item.ptr() == &observer;
+    });
+}
+
 void ReportingScope::notifyReportObservers(Ref<Report>&& report)
 {
     // https://www.w3.org/TR/reporting-1/#notify-observers
@@ -160,7 +167,7 @@ void ReportingScope::generateTestReport(String&& message, String&& group)
     RefPtr document = dynamicDowncast<Document>(scriptExecutionContext());
     if (document) {
         testReportURL = document->url();
-        reportURL = testReportURL.strippedForUseAsReferrer();
+        reportURL = testReportURL.strippedForUseAsReferrer().string;
     }
 
     auto testReportBody = TestReportBody::create(WTFMove(message));

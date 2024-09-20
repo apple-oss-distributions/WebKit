@@ -65,15 +65,13 @@ public:
     NetworkRTCUDPSocketCocoa(WebCore::LibWebRTCSocketIdentifier, NetworkRTCProvider&, const rtc::SocketAddress&, Ref<IPC::Connection>&&, String&& attributedBundleIdentifier, bool isFirstParty, bool isRelayDisabled, const WebCore::RegistrableDomain&);
     ~NetworkRTCUDPSocketCocoa();
 
-    void setListeningPort(int);
-
 private:
     // NetworkRTCProvider::Socket.
     WebCore::LibWebRTCSocketIdentifier identifier() const final { return m_identifier; }
     Type type() const final { return Type::UDP; }
     void close() final;
     void setOption(int option, int value) final;
-    void sendTo(const uint8_t*, size_t, const rtc::SocketAddress&, const rtc::PacketOptions&) final;
+    void sendTo(std::span<const uint8_t>, const rtc::SocketAddress&, const rtc::PacketOptions&) final;
 
     NetworkRTCProvider& m_rtcProvider;
     WebCore::LibWebRTCSocketIdentifier m_identifier;

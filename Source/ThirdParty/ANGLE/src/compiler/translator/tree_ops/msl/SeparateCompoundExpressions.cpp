@@ -7,7 +7,7 @@
 #include <unordered_map>
 
 #include "common/system_utils.h"
-#include "compiler/translator/msl/IntermRebuild.h"
+#include "compiler/translator/IntermRebuild.h"
 #include "compiler/translator/tree_ops/SimplifyLoopConditions.h"
 #include "compiler/translator/tree_ops/msl/SeparateCompoundExpressions.h"
 #include "compiler/translator/util.h"
@@ -262,8 +262,10 @@ class Separator : public TIntermRebuild
         }
         auto &bindingMap = getCurrBindingMap();
         const Name name  = mIdGen.createNewName();
-        auto *var =
-            new TVariable(&mSymbolTable, name.rawName(), &newExpr.getType(), name.symbolType());
+        TType *newType   = new TType(newExpr.getType());
+        newType->setQualifier(EvqTemporary);
+        newType->setInterfaceBlock(nullptr);
+        auto *var  = new TVariable(&mSymbolTable, name.rawName(), newType, name.symbolType());
         auto *decl = new TIntermDeclaration(var, &newExpr);
         pushStmt(*decl);
         mExprMap[&oldExpr] = new TIntermSymbol(var);
@@ -635,7 +637,7 @@ class Separator : public TIntermRebuild
     PostResult visitConstantUnionPost(TIntermConstantUnion &node) override
     {
         const TType &type = node.getType();
-        if (!type.isScalar())
+        if (!type.isScalar() && !type.isVector() && !type.isMatrix())
         {
             pushBinding(node, node);
         }

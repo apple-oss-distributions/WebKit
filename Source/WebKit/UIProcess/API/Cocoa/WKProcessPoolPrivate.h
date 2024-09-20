@@ -37,6 +37,40 @@
 @protocol _WKDownloadDelegate;
 @protocol _WKGeolocationCoreLocationProvider;
 
+#define HAVE_WK_PROCESS_STATE 1
+
+typedef NS_ENUM(NSInteger, _WKProcessState) {
+    _WKProcessStateForeground,
+    _WKProcessStateBackground,
+    _WKProcessStateSuspended,
+} WK_API_AVAILABLE(macos(14.5), ios(17.5), visionos(1.2));
+
+typedef NS_ENUM(NSInteger, _WKWebContentProcessState) {
+    _WKWebContentProcessStatePrewarmed,
+    _WKWebContentProcessStateCached,
+    _WKWebContentProcessStateActive,
+} WK_API_AVAILABLE(macos(14.5), ios(17.5), visionos(1.2));
+
+WK_CLASS_AVAILABLE(macos(14.5), ios(17.5), visionos(1.2))
+@interface _WKProcessInfo : NSObject
+@property (nonatomic, readonly) pid_t pid;
+@property (nonatomic, readonly) _WKProcessState state;
+@property (nonatomic, readonly) NSTimeInterval totalUserCPUTime;
+@property (nonatomic, readonly) NSTimeInterval totalSystemCPUTime;
+@property (nonatomic, readonly) size_t physicalFootprint;
+@end
+
+WK_CLASS_AVAILABLE(macos(14.5), ios(17.5), visionos(1.2))
+@interface _WKWebContentProcessInfo : _WKProcessInfo
+@property (nonatomic, readonly) _WKWebContentProcessState webContentState;
+@property (nonatomic, readonly) NSArray<WKWebView *> *webViews;
+@property (nonatomic, readonly) BOOL runningServiceWorkers;
+@property (nonatomic, readonly) BOOL runningSharedWorkers;
+@property (nonatomic, readonly) NSTimeInterval totalForegroundTime;
+@property (nonatomic, readonly) NSTimeInterval totalBackgroundTime;
+@property (nonatomic, readonly) NSTimeInterval totalSuspendedTime;
+@end
+
 @interface WKProcessPool ()
 - (instancetype)_initWithConfiguration:(_WKProcessPoolConfiguration *)configuration __attribute__((objc_method_family(init))) NS_DESIGNATED_INITIALIZER;
 @end
@@ -148,4 +182,8 @@
 - (size_t)_numberOfConnectedHIDGamepadsForTesting WK_API_AVAILABLE(macos(11.0), ios(15.0));
 - (size_t)_numberOfConnectedGameControllerFrameworkGamepadsForTesting WK_API_AVAILABLE(macos(11.0), ios(14.0));
 - (void)_setUsesOnlyHIDGamepadProviderForTesting:(BOOL)usesHIDProvider WK_API_AVAILABLE(macos(11.0), ios(14.0));
+
++ (_WKProcessInfo *)_gpuProcessInfo WK_API_AVAILABLE(macos(14.5));
++ (NSArray<_WKProcessInfo *> *)_networkingProcessInfo WK_API_AVAILABLE(macos(14.5));
++ (NSArray<_WKProcessInfo *> *)_webContentProcessInfo WK_API_AVAILABLE(macos(14.5));
 @end

@@ -26,7 +26,6 @@
 #include "libANGLE/features.h"
 #include "libANGLE/formatutils.h"
 #include "libANGLE/renderer/d3d/CompilerD3D.h"
-#include "libANGLE/renderer/d3d/DeviceD3D.h"
 #include "libANGLE/renderer/d3d/DisplayD3D.h"
 #include "libANGLE/renderer/d3d/FramebufferD3D.h"
 #include "libANGLE/renderer/d3d/IndexDataManager.h"
@@ -39,6 +38,7 @@
 #include "libANGLE/renderer/d3d/d3d9/Blit9.h"
 #include "libANGLE/renderer/d3d/d3d9/Buffer9.h"
 #include "libANGLE/renderer/d3d/d3d9/Context9.h"
+#include "libANGLE/renderer/d3d/d3d9/Device9.h"
 #include "libANGLE/renderer/d3d/d3d9/Fence9.h"
 #include "libANGLE/renderer/d3d/d3d9/Framebuffer9.h"
 #include "libANGLE/renderer/d3d/d3d9/Image9.h"
@@ -2734,8 +2734,7 @@ angle::Result Renderer9::compileToExecutable(d3d::Context *context,
     }
 
     profileStream << "_" << ((getMajorShaderModel() >= 3) ? 3 : 2);
-    profileStream << "_"
-                  << "0";
+    profileStream << "_" << "0";
 
     std::string profile = profileStream.str();
 
@@ -3104,8 +3103,8 @@ void Renderer9::generateCaps(gl::Caps *outCaps,
 
 void Renderer9::initializeFeatures(angle::FeaturesD3D *features) const
 {
-    ApplyFeatureOverrides(features, mDisplay->getState());
-    if (!mDisplay->getState().featuresAllDisabled)
+    ApplyFeatureOverrides(features, mDisplay->getState().featureOverrides);
+    if (!mDisplay->getState().featureOverrides.allDisabled)
     {
         d3d9::InitializeFeatures(features, mAdapterIdentifier.VendorId);
     }
@@ -3113,8 +3112,8 @@ void Renderer9::initializeFeatures(angle::FeaturesD3D *features) const
 
 void Renderer9::initializeFrontendFeatures(angle::FrontendFeatures *features) const
 {
-    ApplyFeatureOverrides(features, mDisplay->getState());
-    if (!mDisplay->getState().featuresAllDisabled)
+    ApplyFeatureOverrides(features, mDisplay->getState().featureOverrides);
+    if (!mDisplay->getState().featureOverrides.allDisabled)
     {
         d3d9::InitializeFrontendFeatures(features, mAdapterIdentifier.VendorId);
     }
@@ -3122,7 +3121,7 @@ void Renderer9::initializeFrontendFeatures(angle::FrontendFeatures *features) co
 
 DeviceImpl *Renderer9::createEGLDevice()
 {
-    return new DeviceD3D(EGL_D3D9_DEVICE_ANGLE, mDevice);
+    return new Device9(mDevice);
 }
 
 Renderer9::CurSamplerState::CurSamplerState()

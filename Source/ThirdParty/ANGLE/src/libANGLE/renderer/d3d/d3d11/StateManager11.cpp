@@ -1508,7 +1508,7 @@ void StateManager11::syncViewport(const gl::Context *context)
     // The es 3.1 spec section 9.2 states that, "If there are no attachments, rendering
     // will be limited to a rectangle having a lower left of (0, 0) and an upper right of
     // (width, height), where width and height are the framebuffer object's default width
-    // and height." See http://anglebug.com/1594
+    // and height." See http://anglebug.com/42260558
     // If the Framebuffer has no color attachment and the default width or height is smaller
     // than the current viewport, use the smaller of the two sizes.
     // If framebuffer default width or height is 0, the params should not set.
@@ -1628,7 +1628,7 @@ void StateManager11::invalidateBoundViews()
 void StateManager11::invalidateVertexBuffer()
 {
     unsigned int limit      = std::min<unsigned int>(mRenderer->getNativeCaps().maxVertexAttributes,
-                                                gl::MAX_VERTEX_ATTRIBS);
+                                                     gl::MAX_VERTEX_ATTRIBS);
     mDirtyVertexBufferRange = gl::RangeUI(0, limit);
     invalidateInputLayout();
     invalidateShaders();
@@ -1691,6 +1691,7 @@ void StateManager11::invalidateImageBindings()
     mInternalDirtyBits.set(DIRTY_BIT_GRAPHICS_UAV_STATE);
     mInternalDirtyBits.set(DIRTY_BIT_COMPUTE_SRV_STATE);
     mInternalDirtyBits.set(DIRTY_BIT_COMPUTE_UAV_STATE);
+    mInternalDirtyBits.set(DIRTY_BIT_DRIVER_UNIFORMS);
 }
 
 void StateManager11::invalidateConstantBuffer(unsigned int slot)
@@ -1842,7 +1843,7 @@ void StateManager11::unsetConflictingSRVs(gl::PipelineType pipeline,
     auto *currentSRVs                 = getSRVCache(shaderType);
     gl::PipelineType conflictPipeline = gl::GetPipelineType(shaderType);
     bool foundOne                     = false;
-    size_t count                      = std::min(currentSRVs->size(), currentSRVs->highestUsed());
+    size_t count = std::min(currentSRVs->size(), currentSRVs->highestUsed() + 1);
     for (size_t resourceIndex = 0; resourceIndex < count; ++resourceIndex)
     {
         auto &record = (*currentSRVs)[resourceIndex];
@@ -1881,7 +1882,7 @@ void StateManager11::unsetConflictingUAVs(gl::PipelineType pipeline,
     bool foundOne = false;
 
     ID3D11DeviceContext *deviceContext = mRenderer->getDeviceContext();
-    size_t count = std::min(mCurComputeUAVs.size(), mCurComputeUAVs.highestUsed());
+    size_t count = std::min(mCurComputeUAVs.size(), mCurComputeUAVs.highestUsed() + 1);
     for (size_t resourceIndex = 0; resourceIndex < count; ++resourceIndex)
     {
         auto &record = mCurComputeUAVs[resourceIndex];
@@ -1907,7 +1908,7 @@ void StateManager11::unsetConflictingRTVs(uintptr_t resource, CacheType &viewCac
 {
     ID3D11DeviceContext *deviceContext = mRenderer->getDeviceContext();
 
-    size_t count = std::min(viewCache.size(), viewCache.highestUsed());
+    size_t count = std::min(viewCache.size(), viewCache.highestUsed() + 1);
     for (size_t resourceIndex = 0; resourceIndex < count; ++resourceIndex)
     {
         auto &record = viewCache[resourceIndex];
@@ -2819,7 +2820,7 @@ angle::Result StateManager11::setImageState(const gl::Context *context,
 
     if (mShaderConstants.onImageChange(type, index, imageUnit))
     {
-        invalidateProgramUniforms();
+        invalidateDriverUniforms();
     }
 
     return angle::Result::Continue;
@@ -3072,7 +3073,7 @@ angle::Result StateManager11::syncProgramForCompute(const gl::Context *context)
     Context11 *context11 = GetImplAs<Context11>(context);
     ANGLE_TRY(context11->triggerDispatchCallProgramRecompilation(context));
 
-    mExecutableD3D->updateCachedComputeImage2DBindLayout(context);
+    mExecutableD3D->updateCachedImage2DBindLayout(context, gl::ShaderType::Compute);
 
     // Binaries must be compiled before the sync.
     ASSERT(mExecutableD3D->hasComputeExecutableForCachedImage2DBindLayout());
@@ -3827,7 +3828,7 @@ angle::Result StateManager11::getUAVsForShaderStorageBuffers(const gl::Context *
             previouslyBound.end())
         {
             // D3D11 doesn't support binding a buffer multiple times
-            // http://anglebug.com/3032
+            // http://anglebug.com/42261718
             ERR() << "Writing to multiple blocks on the same buffer is not allowed.";
             return angle::Result::Stop;
         }
@@ -3881,10 +3882,12 @@ angle::Result StateManager11::getUAVsForAtomicCounterBuffers(const gl::Context *
 {
     const gl::State &glState                = context->getState();
     const gl::ProgramExecutable *executable = glState.getProgramExecutable();
-    for (const auto &atomicCounterBuffer : executable->getAtomicCounterBuffers())
+    const std::vector<gl::AtomicCounterBuffer> &atomicCounterBuffers =
+        executable->getAtomicCounterBuffers();
+    for (size_t index = 0; index < atomicCounterBuffers.size(); ++index)
     {
-        GLuint binding     = atomicCounterBuffer.pod.binding;
-        const auto &buffer = glState.getIndexedAtomicCounterBuffer(binding);
+        const GLuint binding = executable->getAtomicCounterBufferBinding(index);
+        const auto &buffer   = glState.getIndexedAtomicCounterBuffer(binding);
         const unsigned int registerIndex =
             mExecutableD3D->getAtomicCounterBufferRegisterIndex(binding, shaderType);
         ASSERT(registerIndex != GL_INVALID_INDEX);
@@ -3902,7 +3905,7 @@ angle::Result StateManager11::getUAVsForAtomicCounterBuffers(const gl::Context *
 
         Buffer11 *bufferStorage = GetImplAs<Buffer11>(buffer.get());
         // TODO(enrico.galli@intel.com): Check to make sure that we aren't binding the same buffer
-        // multiple times, as this is unsupported by D3D11. http://anglebug.com/3141
+        // multiple times, as this is unsupported by D3D11. http://anglebug.com/42261818
 
         // Bindings only have a valid size if bound using glBindBufferRange. Therefore, we use the
         // buffer size for glBindBufferBase

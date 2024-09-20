@@ -37,7 +37,8 @@ BufferState::BufferState()
       mTransformFeedbackGenericBindingCount(0),
       mImmutable(GL_FALSE),
       mStorageExtUsageFlags(0),
-      mExternal(GL_FALSE)
+      mExternal(GL_FALSE),
+      mWebGLType(WebGLBufferType::Undefined)
 {}
 
 BufferState::~BufferState() {}
@@ -62,6 +63,28 @@ void Buffer::onDestroy(const Context *context)
     // In tests, mImpl might be null.
     if (mImpl)
         mImpl->destroy(context);
+}
+
+void Buffer::onBind(const Context *context, BufferBinding target)
+{
+    // Note: this function is called from glBindBuffer, which does not hold the share group lock.
+    // However, it only affects webgl contexts, where browsers already guarantees thread safety.
+    if (!context->isWebGL())
+    {
+        return;
+    }
+
+    if (mState.mWebGLType == WebGLBufferType::Undefined)
+    {
+        if (target == BufferBinding::ElementArray)
+        {
+            mState.mWebGLType = WebGLBufferType::ElementArray;
+        }
+        else
+        {
+            mState.mWebGLType = WebGLBufferType::OtherData;
+        }
+    }
 }
 
 angle::Result Buffer::setLabel(const Context *context, const std::string &label)

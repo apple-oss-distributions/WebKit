@@ -27,7 +27,7 @@
 #    include <unordered_map>
 #    include <vector>
 
-// TODO(jmadill): Consolidate. http://anglebug.com/7753
+// TODO(jmadill): Consolidate. http://anglebug.com/42266223
 using BlockIndexesMap = std::unordered_map<GLuint, std::unordered_map<GLuint, GLuint>>;
 extern BlockIndexesMap gUniformBlockIndexes;
 using BufferHandleMap = std::unordered_map<GLuint, void *>;
@@ -99,7 +99,7 @@ extern GLuint *gTextureMap;
 extern GLuint *gTransformFeedbackMap;
 extern GLuint *gVertexArrayMap;
 
-// TODO(jmadill): Consolidate. http://anglebug.com/7753
+// TODO(jmadill): Consolidate. http://anglebug.com/42266223
 extern GLeglImageOES *gEGLImageMap2;
 extern EGLSurface *gSurfaceMap2;
 extern EGLContext *gContextMap2;
@@ -247,13 +247,19 @@ void CreateEGLImage(EGLDisplay dpy,
                     EGLenum target,
                     uintptr_t buffer,
                     const EGLAttrib *attrib_list,
+                    GLsizei width,
+                    GLsizei height,
                     GLuint imageID);
 void CreateEGLImageKHR(EGLDisplay dpy,
                        EGLContext ctx,
                        EGLenum target,
                        uintptr_t buffer,
                        const EGLint *attrib_list,
+                       GLsizei width,
+                       GLsizei height,
                        GLuint imageID);
+void DestroyEGLImage(EGLDisplay dpy, EGLImage image, GLuint imageID);
+void DestroyEGLImageKHR(EGLDisplay dpy, EGLImageKHR image, GLuint imageID);
 void CreateEGLSyncKHR(EGLDisplay dpy, EGLenum type, const EGLint *attrib_list, GLuint syncID);
 void CreateEGLSync(EGLDisplay dpy, EGLenum type, const EGLAttrib *attrib_list, GLuint syncID);
 void CreatePbufferSurface(EGLDisplay dpy,

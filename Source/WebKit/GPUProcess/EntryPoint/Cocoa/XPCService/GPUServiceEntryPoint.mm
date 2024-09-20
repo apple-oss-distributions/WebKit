@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019-2023 Apple Inc. All rights reserved.
+ * Copyright (C) 2019-2024 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -42,12 +42,6 @@ public:
     }
 };
 
-template<>
-void initializeAuxiliaryProcess<GPUProcess>(AuxiliaryProcessInitializationParameters&& parameters)
-{
-    static NeverDestroyed<GPUProcess> gpuProcess(WTFMove(parameters));
-}
-
 } // namespace WebKit
 
 #endif // ENABLE(GPU_PROCESS)
@@ -56,6 +50,7 @@ extern "C" WK_EXPORT void GPU_SERVICE_INITIALIZER(xpc_connection_t connection, x
 
 void GPU_SERVICE_INITIALIZER(xpc_connection_t connection, xpc_object_t initializerMessage)
 {
+    g_jscConfig.vmCreationDisallowed = true;
     g_jscConfig.vmEntryDisallowed = true;
     g_wtfConfig.useSpecialAbortForExtraSecurityImplications = true;
 
@@ -72,5 +67,5 @@ void GPU_SERVICE_INITIALIZER(xpc_connection_t connection, xpc_object_t initializ
     WebKit::XPCServiceInitializer<WebKit::GPUProcess, WebKit::GPUServiceInitializerDelegate>(connection, initializerMessage);
 #endif // ENABLE(GPU_PROCESS)
 
-    JSC::Config::permanentlyFreeze();
+    JSC::Config::finalize();
 }

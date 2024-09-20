@@ -60,7 +60,7 @@ void SetMaxShaderCompilerThreads(const rx::FunctionsGL *functions, GLuint count)
 
 #if defined(ANGLE_PLATFORM_ANDROID)
 const char *kIgnoredErrors[] = {
-    // Wrong error message on Android Q Pixel 2. http://anglebug.com/3491
+    // Wrong error message on Android Q Pixel 2. http://anglebug.com/42262155
     "FreeAllocationOnTimestamp - Reference to buffer created from "
     "different context without a share list. Application failed to pass "
     "share_context to eglCreateContext. Results are undefined.",
@@ -159,8 +159,8 @@ RendererGL::RendererGL(std::unique_ptr<FunctionsGL> functions,
       mNeedsFlushBeforeDeleteTextures(false)
 {
     ASSERT(mFunctions);
-    ApplyFeatureOverrides(&mFeatures, display->getState());
-    if (!display->getState().featuresAllDisabled)
+    ApplyFeatureOverrides(&mFeatures, display->getState().featureOverrides);
+    if (!display->getState().featureOverrides.allDisabled)
     {
         nativegl_gl::InitializeFeatures(mFunctions.get(), &mFeatures);
     }

@@ -45,8 +45,10 @@
 #endif
 
 #if USE(EXTENSIONKIT)
-OBJC_CLASS _SEExtensionProcess;
-OBJC_PROTOCOL(_SEGrant);
+#include "ExtensionProcess.h"
+OBJC_CLASS BEWebContentProcess;
+OBJC_CLASS BENetworkingProcess;
+OBJC_CLASS BERenderingProcess;
 #endif
 
 namespace WebKit {
@@ -61,13 +63,13 @@ enum class SandboxPermission {
 #if USE(EXTENSIONKIT)
 class LaunchGrant : public ThreadSafeRefCounted<LaunchGrant> {
 public:
-    static Ref<LaunchGrant> create(_SEExtensionProcess *);
+    static Ref<LaunchGrant> create(ExtensionProcess&);
     ~LaunchGrant();
 
 private:
-    explicit LaunchGrant(_SEExtensionProcess *);
+    explicit LaunchGrant(ExtensionProcess&);
 
-    RetainPtr<_SEGrant> m_grant;
+    ExtensionCapabilityGrant m_grant;
 };
 #endif
 
@@ -82,6 +84,7 @@ public:
         virtual bool isJITEnabled() const { return true; }
         virtual bool shouldEnableSharedArrayBuffer() const { return false; }
         virtual bool shouldEnableLockdownMode() const { return false; }
+        virtual bool shouldDisableJITCage() const { return false; }
 #if PLATFORM(COCOA)
         virtual RefPtr<XPCEventHandler> xpcEventHandler() const { return nullptr; }
 #endif
@@ -95,6 +98,9 @@ public:
 #endif
 #if ENABLE(BUBBLEWRAP_SANDBOX)
         DBusProxy,
+#endif
+#if ENABLE(MODEL_PROCESS)
+        Model,
 #endif
     };
 
@@ -132,20 +138,22 @@ public:
     void invalidate();
 
 #if USE(EXTENSIONKIT)
-    RetainPtr<_SEExtensionProcess> extensionProcess() const { return m_process; }
+    const std::optional<ExtensionProcess>& extensionProcess() const { return m_process; }
     void setIsRetryingLaunch() { m_isRetryingLaunch = true; }
     bool isRetryingLaunch() const { return m_isRetryingLaunch; }
     void releaseLaunchGrant() { m_launchGrant = nullptr; }
+    static bool hasExtensionsInAppBundle();
 #endif
 
 private:
     ProcessLauncher(Client*, LaunchOptions&&);
 
     void launchProcess();
-    void finishLaunchingProcess(const char* name);
+    void finishLaunchingProcess(ASCIILiteral name);
     void didFinishLaunchingProcess(ProcessID, IPC::Connection::Identifier);
 
     void platformInvalidate();
+    void platformDestroy();
 
 #if PLATFORM(COCOA)
     void terminateXPCConnection();
@@ -158,8 +166,8 @@ private:
 #endif
 
 #if USE(EXTENSIONKIT)
-    RetainPtr<_SEExtensionProcess> m_process;
     RefPtr<LaunchGrant> m_launchGrant;
+    std::optional<ExtensionProcess> m_process;
     bool m_isRetryingLaunch { false };
 #endif
 

@@ -481,6 +481,8 @@ EXPORTS
     glMultiDrawArraysInstancedBaseInstanceANGLE
     glMultiDrawElementsInstancedBaseVertexBaseInstanceANGLE
 
+    ; GL_ANGLE_client_arrays
+
     ; GL_ANGLE_clip_cull_distance
 
     ; GL_ANGLE_copy_texture_3d
@@ -500,6 +502,8 @@ EXPORTS
     glGetRenderbufferImageANGLE
     glGetTexImageANGLE
 
+    ; GL_ANGLE_get_serialized_context_string
+
     ; GL_ANGLE_get_tex_level_parameter
     glGetTexLevelParameterfvANGLE
     glGetTexLevelParameterivANGLE
@@ -512,6 +516,8 @@ EXPORTS
     ; GL_ANGLE_logic_op
     glLogicOpANGLE
 
+    ; GL_ANGLE_lossy_etc_decode
+
     ; GL_ANGLE_memory_object_flags
     glTexStorageMemFlags2DANGLE
     glTexStorageMemFlags2DMultisampleANGLE
@@ -520,6 +526,8 @@ EXPORTS
 
     ; GL_ANGLE_memory_object_fuchsia
     glImportMemoryZirconHandleANGLE
+
+    ; GL_ANGLE_memory_size
 
     ; GL_ANGLE_multi_draw
     glMultiDrawArraysANGLE
@@ -534,6 +542,10 @@ EXPORTS
 
     ; GL_ANGLE_program_binary
 
+    ; GL_ANGLE_program_binary_readiness_query
+
+    ; GL_ANGLE_program_cache_control
+
     ; GL_ANGLE_provoking_vertex
     glProvokingVertexANGLE
 
@@ -542,6 +554,8 @@ EXPORTS
     ; GL_ANGLE_request_extension
     glDisableExtensionANGLE
     glRequestExtensionANGLE
+
+    ; GL_ANGLE_rgbx_internal_format
 
     ; GL_ANGLE_robust_client_memory
     glCompressedTexImage2DRobustANGLE
@@ -609,10 +623,14 @@ EXPORTS
     glTexSubImage2DRobustANGLE
     glTexSubImage3DRobustANGLE
 
+    ; GL_ANGLE_robust_fragment_shader_output
+
     ; GL_ANGLE_robust_resource_initialization
 
     ; GL_ANGLE_semaphore_fuchsia
     glImportSemaphoreZirconHandleANGLE
+
+    ; GL_ANGLE_shader_binary
 
     ; GL_ANGLE_shader_pixel_local_storage
     glBeginPixelLocalStorageANGLE
@@ -650,9 +668,14 @@ EXPORTS
     ; GL_ANGLE_translated_shader_source
     glGetTranslatedShaderSourceANGLE
 
+    ; GL_ANGLE_variable_rasterization_rate_metal
+    glBindMetalRasterizationRateMapANGLE
+
     ; GL_ANGLE_vulkan_image
     glAcquireTexturesANGLE
     glReleaseTexturesANGLE
+
+    ; GL_ANGLE_yuv_internal_format
 
     ; GL_APPLE_clip_distance
 
@@ -699,6 +722,10 @@ EXPORTS
 
     ; GL_EXT_buffer_storage
     glBufferStorageEXT
+
+    ; GL_EXT_clear_texture
+    glClearTexImageEXT
+    glClearTexSubImageEXT
 
     ; GL_EXT_clip_control
     glClipControlEXT
@@ -972,6 +999,8 @@ EXPORTS
     ; GL_KHR_blend_equation_advanced
     glBlendBarrierKHR
 
+    ; GL_KHR_blend_equation_advanced_coherent
+
     ; GL_KHR_debug
     glDebugMessageCallbackKHR
     glDebugMessageControlKHR
@@ -991,6 +1020,13 @@ EXPORTS
     glMaxShaderCompilerThreadsKHR
 
     ; GL_KHR_robust_buffer_access_behavior
+
+    ; GL_KHR_robustness
+    glGetGraphicsResetStatusKHR
+    glGetnUniformfvKHR
+    glGetnUniformivKHR
+    glGetnUniformuivKHR
+    glReadnPixelsKHR
 
     ; GL_KHR_texture_compression_astc_hdr
 
@@ -1103,6 +1139,8 @@ EXPORTS
     glGetProgramBinaryOES
     glProgramBinaryOES
 
+    ; GL_OES_gpu_shader5
+
     ; GL_OES_mapbuffer
     glGetBufferPointervOES
     glMapBufferOES
@@ -1143,6 +1181,9 @@ EXPORTS
     ; GL_OES_standard_derivatives
 
     ; GL_OES_surfaceless_context
+
+    ; GL_OES_tessellation_shader
+    glPatchParameteriOES
 
     ; GL_OES_texture_3D
     glCompressedTexImage3DOES
@@ -1211,10 +1252,24 @@ EXPORTS
 
     ; GL_OVR_multiview2
 
+    ; GL_QCOM_framebuffer_foveated
+    glFramebufferFoveationConfigQCOM
+    glFramebufferFoveationParametersQCOM
+
     ; GL_QCOM_render_shared_exponent
 
     ; GL_QCOM_shading_rate
     glShadingRateQCOM
+
+    ; GL_QCOM_texture_foveated
+    glTextureFoveationParametersQCOM
+
+    ; GL_QCOM_tiled_rendering
+    glEndTilingQCOM
+    glStartTilingQCOM
+
+    ; GL_WEBKIT_explicit_resolve_target
+    glFramebufferResolveRenderbufferWEBKIT
 
     ; GL 1.0
     glAccum

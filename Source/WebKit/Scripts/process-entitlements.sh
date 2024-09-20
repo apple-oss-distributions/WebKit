@@ -13,6 +13,8 @@ function plistbuddy()
 function mac_process_webcontent_entitlements()
 {
     plistbuddy Add :com.apple.security.cs.allow-jit bool YES
+    plistbuddy Add :com.apple.security.fatal-exceptions array
+    plistbuddy Add :com.apple.security.fatal-exceptions:0 string jit
 
     if [[ "${WK_USE_RESTRICTED_ENTITLEMENTS}" == YES ]]
     then
@@ -40,6 +42,8 @@ function mac_process_webcontent_entitlements()
 
 function mac_process_webcontent_captiveportal_entitlements()
 {
+    plistbuddy Add :com.apple.security.fatal-exceptions array
+    plistbuddy Add :com.apple.security.fatal-exceptions:0 string jit
     if [[ "${WK_USE_RESTRICTED_ENTITLEMENTS}" == YES ]]
     then
         plistbuddy Add :com.apple.private.webkit.use-xpc-endpoint bool YES
@@ -73,6 +77,8 @@ function mac_process_webcontent_captiveportal_entitlements()
 
 function mac_process_gpu_entitlements()
 {
+    plistbuddy Add :com.apple.security.fatal-exceptions array
+    plistbuddy Add :com.apple.security.fatal-exceptions:0 string jit
     if [[ "${WK_USE_RESTRICTED_ENTITLEMENTS}" == YES ]]
     then
         if (( "${TARGET_MAC_OS_X_VERSION_MAJOR}" >= 101400 ))
@@ -127,6 +133,8 @@ function mac_process_gpu_entitlements()
 
 function mac_process_network_entitlements()
 {
+    plistbuddy Add :com.apple.security.fatal-exceptions array
+    plistbuddy Add :com.apple.security.fatal-exceptions:0 string jit
     if [[ "${WK_USE_RESTRICTED_ENTITLEMENTS}" == YES ]]
     then
         if (( "${TARGET_MAC_OS_X_VERSION_MAJOR}" >= 101500 ))
@@ -175,15 +183,54 @@ function mac_process_network_entitlements()
 function webcontent_sandbox_entitlements()
 {
     plistbuddy Add :com.apple.private.security.mutable-state-flags array
-    plistbuddy Add :com.apple.private.security.mutable-state-flags:0 string AppCacheDisabled
-    plistbuddy Add :com.apple.private.security.mutable-state-flags:1 string EnableExperimentalSandbox
-    plistbuddy Add :com.apple.private.security.mutable-state-flags:2 string BlockIOKitInWebContentSandbox
-    plistbuddy Add :com.apple.private.security.mutable-state-flags:3 string local:WebContentProcessLaunched
+    plistbuddy Add :com.apple.private.security.mutable-state-flags:0 string EnableExperimentalSandbox
+    plistbuddy Add :com.apple.private.security.mutable-state-flags:1 string BlockIOKitInWebContentSandbox
+    plistbuddy Add :com.apple.private.security.mutable-state-flags:2 string local:WebContentProcessLaunched
+    plistbuddy Add :com.apple.private.security.mutable-state-flags:3 string EnableQuickLookSandboxResources
+    plistbuddy Add :com.apple.private.security.mutable-state-flags:4 string ParentProcessCanEnableQuickLookStateFlag
     plistbuddy Add :com.apple.private.security.enable-state-flags array
-    plistbuddy Add :com.apple.private.security.enable-state-flags:0 string AppCacheDisabled
-    plistbuddy Add :com.apple.private.security.enable-state-flags:1 string EnableExperimentalSandbox
-    plistbuddy Add :com.apple.private.security.enable-state-flags:2 string BlockIOKitInWebContentSandbox
-    plistbuddy Add :com.apple.private.security.enable-state-flags:3 string local:WebContentProcessLaunched
+    plistbuddy Add :com.apple.private.security.enable-state-flags:0 string EnableExperimentalSandbox
+    plistbuddy Add :com.apple.private.security.enable-state-flags:1 string BlockIOKitInWebContentSandbox
+    plistbuddy Add :com.apple.private.security.enable-state-flags:2 string local:WebContentProcessLaunched
+    plistbuddy Add :com.apple.private.security.enable-state-flags:3 string ParentProcessCanEnableQuickLookStateFlag
+}
+
+function extract_notification_names() {
+    perl -nle 'print "$1" if /WK_NOTIFICATION\("([^"]+)"\)/' < "$1"
+}
+
+function notify_entitlements()
+{
+    if [[ "${WK_USE_RESTRICTED_ENTITLEMENTS}" == YES ]]
+    then
+        plistbuddy Add :com.apple.developer.web-browser-engine.restrict.notifyd bool YES
+        plistbuddy Add :com.apple.private.darwin-notification.introspect array
+
+        NOTIFICATION_INDEX=0
+
+        extract_notification_names Resources/cocoa/NotificationAllowList/ForwardedNotifications.def | while read NOTIFICATION; do
+            plistbuddy Add :com.apple.private.darwin-notification.introspect:$NOTIFICATION_INDEX string "$NOTIFICATION"
+            NOTIFICATION_INDEX=$((NOTIFICATION_INDEX + 1))
+        done
+
+        if [[ "${WK_PLATFORM_NAME}" == macosx ]]
+        then
+            extract_notification_names Resources/cocoa/NotificationAllowList/MacForwardedNotifications.def | while read NOTIFICATION; do
+                plistbuddy Add :com.apple.private.darwin-notification.introspect:$NOTIFICATION_INDEX string "$NOTIFICATION"
+                NOTIFICATION_INDEX=$((NOTIFICATION_INDEX + 1))
+            done
+        else
+            extract_notification_names Resources/cocoa/NotificationAllowList/EmbeddedForwardedNotifications.def | while read NOTIFICATION; do
+                plistbuddy Add :com.apple.private.darwin-notification.introspect:$NOTIFICATION_INDEX string "$NOTIFICATION"
+                NOTIFICATION_INDEX=$((NOTIFICATION_INDEX + 1))
+            done
+        fi
+
+        extract_notification_names Resources/cocoa/NotificationAllowList/NonForwardedNotifications.def | while read NOTIFICATION; do
+            plistbuddy Add :com.apple.private.darwin-notification.introspect:$NOTIFICATION_INDEX string "$NOTIFICATION"
+            NOTIFICATION_INDEX=$((NOTIFICATION_INDEX + 1))
+        done
+    fi
 }
 
 function mac_process_webcontent_shared_entitlements()
@@ -218,6 +265,11 @@ function mac_process_webcontent_shared_entitlements()
     then
         plistbuddy Add :com.apple.security.cs.disable-library-validation bool YES
     fi
+
+    if (( "${TARGET_MAC_OS_X_VERSION_MAJOR}" > 140000 ))
+    then
+        notify_entitlements
+    fi
 }
 
 function mac_process_webpushd_entitlements()
@@ -236,6 +288,8 @@ function maccatalyst_process_webcontent_entitlements()
     plistbuddy Add :com.apple.runningboard.assertions.webkit bool YES
     plistbuddy Add :com.apple.private.webkit.use-xpc-endpoint bool YES
     plistbuddy Add :com.apple.QuartzCore.webkit-end-points bool YES
+    plistbuddy Add :com.apple.security.fatal-exceptions array
+    plistbuddy Add :com.apple.security.fatal-exceptions:0 string jit
 
     if (( "${TARGET_MAC_OS_X_VERSION_MAJOR}" >= 110000 ))
     then
@@ -274,6 +328,9 @@ function maccatalyst_process_webcontent_captiveportal_entitlements()
     plistbuddy Add :com.apple.imageio.allowabletypes:2 string public.png
     plistbuddy Add :com.apple.imageio.allowabletypes:3 string com.compuserve.gif
 
+    plistbuddy Add :com.apple.security.fatal-exceptions array
+    plistbuddy Add :com.apple.security.fatal-exceptions:0 string jit
+
     if (( "${TARGET_MAC_OS_X_VERSION_MAJOR}" >= 110000 ))
     then
         plistbuddy Add :com.apple.developer.kernel.extended-virtual-addressing bool YES
@@ -301,6 +358,8 @@ function maccatalyst_process_webcontent_captiveportal_entitlements()
 
 function maccatalyst_process_gpu_entitlements()
 {
+    plistbuddy Add :com.apple.security.fatal-exceptions array
+    plistbuddy Add :com.apple.security.fatal-exceptions:0 string jit
     plistbuddy Add :com.apple.security.network.client bool YES
     plistbuddy Add :com.apple.runningboard.assertions.webkit bool YES
     plistbuddy Add :com.apple.QuartzCore.webkit-end-points bool YES
@@ -321,6 +380,8 @@ function maccatalyst_process_gpu_entitlements()
 
 function maccatalyst_process_network_entitlements()
 {
+    plistbuddy Add :com.apple.security.fatal-exceptions array
+    plistbuddy Add :com.apple.security.fatal-exceptions:0 string jit
     plistbuddy Add :com.apple.private.network.socket-delegate bool YES
     plistbuddy Add :com.apple.security.network.client bool YES
     plistbuddy Add :com.apple.runningboard.assertions.webkit bool YES
@@ -361,12 +422,19 @@ function ios_family_process_webcontent_shared_entitlements()
     plistbuddy Add :com.apple.private.webinspector.proxy-application bool YES
     plistbuddy Add :com.apple.private.webkit.use-xpc-endpoint bool YES
     plistbuddy Add :com.apple.runningboard.assertions.webkit bool YES
+
+    plistbuddy Add :com.apple.security.fatal-exceptions array
+    plistbuddy Add :com.apple.security.fatal-exceptions:0 string jit
+
 if [[ "${PRODUCT_NAME}" != WebContentExtension && "${PRODUCT_NAME}" != WebContentCaptivePortalExtension ]]; then
     plistbuddy Add :com.apple.private.gpu-restricted bool YES
     plistbuddy Add :com.apple.private.pac.exception bool YES
     plistbuddy Add :com.apple.private.sandbox.profile string com.apple.WebKit.WebContent
 fi
+    plistbuddy add :com.apple.coreaudio.LoadDecodersInProcess bool YES
     plistbuddy add :com.apple.coreaudio.allow-vorbis-decode bool YES
+
+    notify_entitlements
     webcontent_sandbox_entitlements
 }
 
@@ -406,6 +474,9 @@ function ios_family_process_webcontent_captiveportal_entitlements()
 
 function ios_family_process_gpu_entitlements()
 {
+    plistbuddy Add :com.apple.security.fatal-exceptions array
+    plistbuddy Add :com.apple.security.fatal-exceptions:0 string jit
+
     plistbuddy Add :com.apple.QuartzCore.secure-mode bool YES
     plistbuddy Add :com.apple.QuartzCore.webkit-end-points bool YES
     plistbuddy add :com.apple.QuartzCore.webkit-limited-types bool YES
@@ -449,6 +520,19 @@ fi
     plistbuddy add :com.apple.coreaudio.allow-vorbis-decode bool YES
 }
 
+function ios_family_process_model_entitlements()
+{
+    plistbuddy Add :com.apple.QuartzCore.secure-mode bool YES
+    plistbuddy Add :com.apple.QuartzCore.webkit-end-points bool YES
+    plistbuddy add :com.apple.QuartzCore.webkit-limited-types bool YES
+    plistbuddy Add :com.apple.private.memorystatus bool YES
+    plistbuddy Add :com.apple.runningboard.assertions.webkit bool YES
+    plistbuddy Add :com.apple.private.pac.exception bool YES
+    plistbuddy Add :com.apple.private.sandbox.profile string com.apple.WebKit.Model
+    plistbuddy Add :com.apple.surfboard.application-service-client bool YES
+    plistbuddy Add :com.apple.surfboard.shared-simulation-connection-request bool YES
+}
+
 function ios_family_process_adattributiond_entitlements()
 {
     plistbuddy Add :com.apple.private.sandbox.profile string com.apple.WebKit.adattributiond
@@ -482,6 +566,9 @@ function ios_family_process_network_entitlements()
     plistbuddy Add :com.apple.private.tcc.manager.check-by-audit-token:0 string kTCCServiceWebKitIntelligentTrackingPrevention
     plistbuddy Add :com.apple.private.tcc.manager.check-by-audit-token:1 string kTCCServiceUserTracking
 
+    plistbuddy Add :com.apple.security.fatal-exceptions array
+    plistbuddy Add :com.apple.security.fatal-exceptions:0 string jit
+
     plistbuddy Add :com.apple.private.appstored array
     plistbuddy Add :com.apple.private.appstored:0 string InstallWebAttribution
 
@@ -499,7 +586,12 @@ fi
 rm -f "${WK_PROCESSED_XCENT_FILE}"
 plistbuddy Clear dict
 
-# Simulator entitlements should be added to Resources/ios/XPCService-ios-simulator.entitlements
+# Simulator entitlements should be added to one or more of:
+#
+#  - Resources/ios/XPCService-embedded-simulator.entitlements
+#  - Shared/AuxiliaryProcessExtensions/GPUProcessExtension.entitlements
+#  - Shared/AuxiliaryProcessExtensions/NetworkingProcessExtension.entitlements
+#  - Shared/AuxiliaryProcessExtensions/WebContentProcessExtension.entitlements
 if [[ "${WK_PLATFORM_NAME}" =~ .*simulator ]]
 then
     exit 0
@@ -528,7 +620,8 @@ then
     fi
 elif [[ "${WK_PLATFORM_NAME}" == iphoneos ||
         "${WK_PLATFORM_NAME}" == appletvos ||
-        "${WK_PLATFORM_NAME}" == watchos ]]
+        "${WK_PLATFORM_NAME}" == watchos ||
+        "${WK_PLATFORM_NAME}" == xros ]]
 then
     if [[ "${PRODUCT_NAME}" == com.apple.WebKit.WebContent.Development ]]; then true
     elif [[ "${PRODUCT_NAME}" == com.apple.WebKit.WebContent ]]; then ios_family_process_webcontent_entitlements
@@ -538,6 +631,7 @@ then
     elif [[ "${PRODUCT_NAME}" == com.apple.WebKit.Networking ]]; then ios_family_process_network_entitlements
     elif [[ "${PRODUCT_NAME}" == NetworkingExtension ]]; then ios_family_process_network_entitlements
     elif [[ "${PRODUCT_NAME}" == com.apple.WebKit.GPU ]]; then ios_family_process_gpu_entitlements
+    elif [[ "${PRODUCT_NAME}" == com.apple.WebKit.Model ]]; then ios_family_process_model_entitlements
     elif [[ "${PRODUCT_NAME}" == GPUExtension ]]; then ios_family_process_gpu_entitlements
     elif [[ "${PRODUCT_NAME}" == adattributiond ]]; then
         ios_family_process_adattributiond_entitlements

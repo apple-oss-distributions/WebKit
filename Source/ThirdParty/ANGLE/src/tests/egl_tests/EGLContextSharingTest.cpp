@@ -1000,7 +1000,7 @@ TEST_P(EGLContextSharingTestNoFixture, InactiveThreadDoesntPreventCleanup)
 // Test that eglTerminate() with a thread doesn't cause other threads to crash.
 TEST_P(EGLContextSharingTestNoFixture, EglTerminateMultiThreaded)
 {
-    // http://anglebug.com/6208
+    // http://anglebug.com/42264731
     // The following EGL calls led to a crash in eglMakeCurrent():
     //
     // Thread A: eglMakeCurrent(context A)
@@ -1026,7 +1026,7 @@ TEST_P(EGLContextSharingTestNoFixture, EglTerminateMultiThreaded)
 
     // Must be after the eglMakeCurrent() so renderer string is initialized.
     ANGLE_SKIP_TEST_IF(!platformSupportsMultithreading());
-    // TODO(http://www.anglebug.com/6304): Fails with OpenGL ES backend.
+    // TODO(http://www.anglebug.com/42264822): Fails with OpenGL ES backend.
     ANGLE_SKIP_TEST_IF(IsOpenGLES());
 
     EXPECT_TRUE(eglMakeCurrent(mDisplay, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT));
@@ -1144,7 +1144,7 @@ TEST_P(EGLContextSharingTestNoFixture, EglDestoryContextManyTimesSameContext)
 
     // Must be after the eglMakeCurrent() so renderer string is initialized.
     ANGLE_SKIP_TEST_IF(!platformSupportsMultithreading());
-    // TODO(http://www.anglebug.com/6304): Fails with OpenGL ES backend.
+    // TODO(http://www.anglebug.com/42264822): Fails with OpenGL ES backend.
     ANGLE_SKIP_TEST_IF(IsOpenGLES());
 
     EXPECT_TRUE(eglMakeCurrent(mDisplay, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT));
@@ -1282,7 +1282,7 @@ TEST_P(EGLContextSharingTestNoFixture, EglTerminateMultipleTimes)
     EXPECT_EGL_TRUE(eglMakeCurrent(mDisplay, mSurface, mSurface, mContexts[1]));
 
     // Must be after the eglMakeCurrent() so renderer string is initialized.
-    // TODO(http://www.anglebug.com/6304): Fails with Mac + OpenGL backend.
+    // TODO(http://www.anglebug.com/42264822): Fails with Mac + OpenGL backend.
     ANGLE_SKIP_TEST_IF(IsMac() && IsOpenGL());
 
     EXPECT_TRUE(eglMakeCurrent(mDisplay, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT));
@@ -1571,6 +1571,27 @@ TEST_P(EGLContextSharingTestNoSyncTextureUploads, NoSync)
     }
 }
 
+// Tests that creating a context and immediately destroying it works when no surface has been
+// created.
+TEST_P(EGLContextSharingTestNoFixture, ImmediateContextDestroyAfterCreation)
+{
+    EGLAttrib dispattrs[3] = {EGL_PLATFORM_ANGLE_TYPE_ANGLE, GetParam().getRenderer(), EGL_NONE};
+    mDisplay               = eglGetPlatformDisplay(EGL_PLATFORM_ANGLE_ANGLE,
+                                                   reinterpret_cast<void *>(EGL_DEFAULT_DISPLAY), dispattrs);
+    EXPECT_TRUE(mDisplay != EGL_NO_DISPLAY);
+    EXPECT_EGL_TRUE(eglInitialize(mDisplay, nullptr, nullptr));
+
+    EGLConfig config = EGL_NO_CONFIG_KHR;
+    EXPECT_TRUE(chooseConfig(&config));
+
+    // Create a context and immediately destroy it.  Note that no window surface should be created
+    // for this test.  Regression test for platforms that expose multiple queue families in Vulkan,
+    // and ANGLE defers creation of the device until a surface is created.  In this case, the
+    // context is being destroyed before a queue is ever created.
+    EXPECT_TRUE(createContext(config, &mContexts[0]));
+    EXPECT_TRUE(SafeDestroyContext(mDisplay, mContexts[0]));
+    ASSERT_EGL_SUCCESS();
+}
 }  // anonymous namespace
 
 GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(EGLContextSharingTest);

@@ -30,6 +30,7 @@
 
 #import "UIKitUtilities.h"
 #import <WebCore/LocalizedStrings.h>
+#import <pal/system/ios/UserInterfaceIdiom.h>
 #import <wtf/BlockPtr.h>
 #import <wtf/RetainPtr.h>
 #import <wtf/text/WTFString.h>
@@ -86,6 +87,8 @@
     _contentSize.width = 2 * marginSize + std::max<CGFloat>(datePickerSize.width, accessoryViewSize.width);
     _contentSize.height = toolbarBottomMargin + 2 * marginSize + datePickerSize.height + accessoryViewSize.height;
 
+    auto accessoryViewHorizontalMargin = PAL::currentUserInterfaceIdiomIsVision() ? marginSize : 0;
+
     [NSLayoutConstraint activateConstraints:@[
         [self.widthAnchor constraintEqualToConstant:_contentSize.width],
         [self.heightAnchor constraintEqualToConstant:_contentSize.height],
@@ -98,8 +101,8 @@
         [[_datePicker trailingAnchor] constraintEqualToAnchor:self.trailingAnchor],
         [[_datePicker topAnchor] constraintEqualToAnchor:self.topAnchor],
         [[_datePicker bottomAnchor] constraintEqualToSystemSpacingBelowAnchor:[_accessoryView topAnchor] multiplier:1],
-        [[_accessoryView leadingAnchor] constraintEqualToAnchor:self.leadingAnchor],
-        [[_accessoryView trailingAnchor] constraintEqualToAnchor:self.trailingAnchor],
+        [[_accessoryView leadingAnchor] constraintEqualToAnchor:self.leadingAnchor constant:accessoryViewHorizontalMargin],
+        [[_accessoryView trailingAnchor] constraintEqualToAnchor:self.trailingAnchor constant:-accessoryViewHorizontalMargin],
         [[_accessoryView heightAnchor] constraintEqualToConstant:accessoryViewSize.height],
         [[_accessoryView bottomAnchor] constraintEqualToAnchor:[_backgroundView bottomAnchor]],
     ]];
@@ -228,6 +231,10 @@
     [self _scaleDownToFitHeightIfNeeded];
 }
 
+#if !PLATFORM(MACCATALYST)
+// FIXME: This platform conditional works around the fact that -isBeingPresented is sometimes NO in Catalyst, when presenting
+// a popover. This may cause a crash in the case where this size transition occurs while the popover is appearing.
+
 - (void)viewWillTransitionToSize:(CGSize)size withTransitionCoordinator:(id<UIViewControllerTransitionCoordinator>)coordinator
 {
     [super viewWillTransitionToSize:size withTransitionCoordinator:coordinator];
@@ -235,6 +242,8 @@
     if (!self.isBeingPresented && !self.isBeingDismissed)
         [self dismissDatePickerAnimated:NO];
 }
+
+#endif // !PLATFORM(MACCATALYST)
 
 - (void)_scaleDownToFitHeightIfNeeded
 {

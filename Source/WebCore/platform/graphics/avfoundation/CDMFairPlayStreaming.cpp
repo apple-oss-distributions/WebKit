@@ -92,7 +92,7 @@ static Vector<Ref<SharedBuffer>> extractSinfData(const SharedBuffer& buffer)
     // JSON of the format: "{ sinf: [ <base64-encoded-string> ] }"
     if (buffer.size() > std::numeric_limits<unsigned>::max())
         return { };
-    String json { buffer.makeContiguous()->data(), static_cast<unsigned>(buffer.size()) };
+    String json { buffer.makeContiguous()->span() };
 
     auto value = JSON::Value::parseJSON(json);
     if (!value)
@@ -111,7 +111,7 @@ static Vector<Ref<SharedBuffer>> extractSinfData(const SharedBuffer& buffer)
         if (!keyID)
             return nullptr;
 
-        auto sinfData = base64Decode(keyID, Base64DecodeMode::DefaultValidatePaddingAndIgnoreWhitespace);
+        auto sinfData = base64Decode(keyID, { Base64DecodeOption::ValidatePadding, Base64DecodeOption::IgnoreWhitespace });
         if (!sinfData)
             return nullptr;
 
@@ -214,7 +214,7 @@ std::optional<Vector<Ref<SharedBuffer>>> CDMPrivateFairPlayStreaming::extractKey
     // JSON of the format: "{ "codc" : [integer],  "mtyp" : [integer],  "cont" : "mpts"} }"
     if (buffer.size() > std::numeric_limits<unsigned>::max())
         return { };
-    String json { buffer.makeContiguous()->data(), static_cast<unsigned>(buffer.size()) };
+    String json { buffer.makeContiguous()->span() };
 
     auto value = JSON::Value::parseJSON(json);
     if (!value)
@@ -248,9 +248,7 @@ RefPtr<SharedBuffer> CDMPrivateFairPlayStreaming::sanitizeMpts(const SharedBuffe
 
 const Vector<Ref<SharedBuffer>>& CDMPrivateFairPlayStreaming::mptsKeyIDs() {
     static NeverDestroyed<Vector<Ref<SharedBuffer>>> mptsKeyID = [] {
-        Vector<uint8_t> keyData { std::initializer_list<uint8_t> { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1  } };
-        Ref<SharedBuffer> keyBuffer = SharedBuffer::create(WTFMove(keyData));
-        return Vector { 1, WTFMove(keyBuffer) };
+        return Vector { 1, SharedBuffer::create("TransportStreamIdentifier"_span) };
     }();
     return mptsKeyID;
 }

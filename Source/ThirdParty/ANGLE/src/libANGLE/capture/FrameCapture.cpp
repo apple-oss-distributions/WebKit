@@ -12,6 +12,7 @@
 #include <cerrno>
 #include <cstring>
 #include <fstream>
+#include <queue>
 #include <string>
 
 #include "sys/stat.h"
@@ -50,6 +51,7 @@
 #include "libANGLE/entry_points_utils.h"
 #include "libANGLE/queryconversions.h"
 #include "libANGLE/queryutils.h"
+#include "libANGLE/renderer/driver_utils.h"
 #include "libANGLE/validationEGL.h"
 #include "third_party/ceval/ceval.h"
 
@@ -65,7 +67,7 @@ namespace angle
 namespace
 {
 
-// TODO: Consolidate to C output and remove option. http://anglebug.com/7753
+// TODO: Consolidate to C output and remove option. http://anglebug.com/42266223
 
 constexpr char kEnabledVarName[]        = "ANGLE_CAPTURE_ENABLED";
 constexpr char kOutDirectoryVarName[]   = "ANGLE_CAPTURE_OUT_DIR";
@@ -810,6 +812,19 @@ void WriteBinaryParamReplay(ReplayWriter &replayWriter,
     }
 }
 
+void WriteComment(std::ostream &out, const CallCapture &call)
+{
+    // Read the string parameter
+    const ParamCapture &stringParam =
+        call.params.getParam("comment", ParamType::TGLcharConstPointer, 0);
+    const std::vector<uint8_t> &data = stringParam.data[0];
+    ASSERT(data.size() > 0 && data.back() == '\0');
+    std::string str(data.begin(), data.end() - 1);
+
+    // Write the string prefixed with single line comment
+    out << "// " << str;
+}
+
 void WriteCppReplayForCall(const CallCapture &call,
                            ReplayWriter &replayWriter,
                            std::ostream &out,
@@ -817,6 +832,13 @@ void WriteCppReplayForCall(const CallCapture &call,
                            std::vector<uint8_t> *binaryData,
                            size_t *maxResourceIDBufferSize)
 {
+    if (call.customFunctionName == "Comment")
+    {
+        // Just write it directly to the file and move on
+        WriteComment(out, call);
+        return;
+    }
+
     std::ostringstream callOut;
 
     callOut << call.name() << "(";
@@ -943,6 +965,16 @@ void WriteCppReplayForCall(const CallCapture &call,
     out << callOut.str();
 }
 
+void AddComment(std::vector<CallCapture> *outCalls, const std::string &comment)
+{
+
+    ParamBuffer commentParamBuffer;
+    ParamCapture commentParam("comment", ParamType::TGLcharConstPointer);
+    CaptureString(comment.c_str(), &commentParam);
+    commentParamBuffer.addParam(std::move(commentParam));
+    outCalls->emplace_back("Comment", std::move(commentParamBuffer));
+}
+
 size_t MaxClientArraySize(const gl::AttribArray<size_t> &clientArraySizes)
 {
     size_t found = 0;
@@ -1067,7 +1099,7 @@ void DeleteResourcesInReset(std::stringstream &out,
     }
 }
 
-// TODO (http://anglebug.com/4599): Reset more state on frame loop
+// TODO (http://anglebug.com/42263204): Reset more state on frame loop
 void MaybeResetResources(gl::ContextID contextID,
                          ResourceIDType resourceIDType,
                          ReplayWriter &replayWriter,
@@ -1463,8 +1495,45 @@ void MaybeResetResources(gl::ContextID contextID,
             }
             break;
         }
+        case ResourceIDType::Image:
+        {
+            TrackedResource &trackedEGLImages =
+                resourceTracker->getTrackedResource(contextID, ResourceIDType::Image);
+            ResourceSet &newEGLImages         = trackedEGLImages.getNewResources();
+            ResourceSet &eglImagesToDelete    = trackedEGLImages.getResourcesToDelete();
+            ResourceSet &eglImagesToRegen     = trackedEGLImages.getResourcesToRegen();
+            ResourceCalls &eglImageRegenCalls = trackedEGLImages.getResourceRegenCalls();
+
+            if (!newEGLImages.empty() || !eglImagesToDelete.empty())
+            {
+                for (GLuint oldResource : eglImagesToDelete)
+                {
+                    out << "    DestroyEGLImageKHR(gEGLDisplay, gEGLImageMap2[" << oldResource
+                        << "], " << oldResource << ");\n";
+                }
+
+                for (GLuint newResource : newEGLImages)
+                {
+                    out << "    DestroyEGLImageKHR(gEGLDisplay, gEGLImageMap2[" << newResource
+                        << "], " << newResource << ");\n";
+                }
+            }
+            // If any of our starting EGLImages were deleted during the run, recreate them
+            for (GLuint id : eglImagesToRegen)
+            {
+                // Emit their regen calls
+                for (CallCapture &call : eglImageRegenCalls[id])
+                {
+                    out << "    ";
+                    WriteCppReplayForCall(call, replayWriter, out, header, binaryData,
+                                          maxResourceIDBufferSize);
+                    out << ";\n";
+                }
+            }
+            break;
+        }
         default:
-            // TODO (http://anglebug.com/4599): Reset more resource types
+            // TODO (http://anglebug.com/42263204): Reset more resource types
             break;
     }
 
@@ -1515,13 +1584,13 @@ void CaptureUpdateCurrentProgram(const CallCapture &call,
     callsOut->emplace_back("UpdateCurrentProgram", std::move(paramBuffer));
 }
 
-bool ProgramNeedsReset(const gl::ContextID contextID,
+bool ProgramNeedsReset(const gl::Context *context,
                        ResourceTracker *resourceTracker,
                        gl::ShaderProgramID programID)
 {
     // Check whether the program is listed in programs to regen or restore
     TrackedResource &trackedShaderPrograms =
-        resourceTracker->getTrackedResource(contextID, ResourceIDType::ShaderProgram);
+        resourceTracker->getTrackedResource(context->id(), ResourceIDType::ShaderProgram);
 
     ResourceSet &shaderProgramsToRegen = trackedShaderPrograms.getResourcesToRegen();
     if (shaderProgramsToRegen.count(programID.value) != 0)
@@ -1531,6 +1600,13 @@ bool ProgramNeedsReset(const gl::ContextID contextID,
 
     ResourceSet &shaderProgramsToRestore = trackedShaderPrograms.getResourcesToRestore();
     if (shaderProgramsToRestore.count(programID.value) != 0)
+    {
+        return true;
+    }
+
+    // Deferred linked programs will also update their own uniforms
+    FrameCaptureShared *frameCaptureShared = context->getShareGroup()->getFrameCaptureShared();
+    if (frameCaptureShared->isDeferredLinkProgram(programID))
     {
         return true;
     }
@@ -1554,7 +1630,7 @@ void MaybeResetDefaultUniforms(std::stringstream &out,
         gl::ShaderProgramID programID               = uniformIter.first;
         const DefaultUniformLocationsSet &locations = uniformIter.second;
 
-        if (ProgramNeedsReset(context->id(), resourceTracker, programID))
+        if (ProgramNeedsReset(context, resourceTracker, programID))
         {
             // Skip programs marked for reset as they will update their own uniforms
             return;
@@ -1769,6 +1845,155 @@ void WriteCppReplayFunctionWithParts(const gl::ContextID contextID,
                                    ++partCount)
                     << "\n";
                 out << "{\n";
+            }
+        }
+    }
+    out << "}\n";
+
+    if (partCount > 0)
+    {
+        out << "\n";
+        out << "void "
+            << FmtFunction(replayFunc, contextID, FuncUsage::Definition, frameIndex, kNoPartId)
+            << "\n";
+        out << "{\n";
+
+        // Write out the main call which calls all the parts.
+        for (int i = 1; i <= partCount; i++)
+        {
+            out << "    " << FmtFunction(replayFunc, contextID, FuncUsage::Call, frameIndex, i)
+                << ";\n";
+        }
+
+        out << "}\n";
+    }
+}
+
+// Performance can be gained by reordering traced calls and grouping them by context.
+// Side context calls (as opposed to main context) can be grouped together paying attention
+// to synchronization points in the original call stream.
+void WriteCppReplayFunctionWithPartsMultiContext(const gl::ContextID contextID,
+                                                 ReplayFunc replayFunc,
+                                                 ReplayWriter &replayWriter,
+                                                 uint32_t frameIndex,
+                                                 std::vector<uint8_t> *binaryData,
+                                                 std::vector<CallCapture> &calls,
+                                                 std::stringstream &header,
+                                                 std::stringstream &out,
+                                                 size_t *maxResourceIDBufferSize)
+{
+    int callCount = 0;
+    int partCount = 0;
+
+    if (calls.size() > kFunctionSizeLimit)
+    {
+        out << "void "
+            << FmtFunction(replayFunc, contextID, FuncUsage::Definition, frameIndex, ++partCount)
+            << "\n";
+    }
+    else
+    {
+        out << "void "
+            << FmtFunction(replayFunc, contextID, FuncUsage::Definition, frameIndex, kNoPartId)
+            << "\n";
+    }
+
+    out << "{\n";
+
+    std::map<gl::ContextID, std::queue<int>> sideContextCallIndices;
+
+    // Helper lambda to write a context change command to the call stream
+    auto writeMakeCurrentCall = [&](gl::ContextID cID) {
+        CallCapture makeCurrentCall =
+            egl::CaptureMakeCurrent(nullptr, true, nullptr, {0}, {0}, cID, EGL_TRUE);
+        out << "    ";
+        WriteCppReplayForCall(makeCurrentCall, replayWriter, out, header, binaryData,
+                              maxResourceIDBufferSize);
+        out << ";\n";
+        callCount++;
+    };
+
+    // Helper lambda to write a call to the call stream
+    auto writeCall = [&](CallCapture &outCall, gl::ContextID cID) {
+        out << "    ";
+        WriteCppReplayForCall(outCall, replayWriter, out, header, binaryData,
+                              maxResourceIDBufferSize);
+        out << ";\n";
+        if (cID != contextID)
+        {
+            sideContextCallIndices[cID].pop();
+        }
+        callCount++;
+    };
+
+    int callIndex = 0;
+    // Iterate through calls saving side context call indices in a per-side-context queue
+    for (CallCapture &call : calls)
+    {
+        if (call.contextID != contextID)
+        {
+            sideContextCallIndices[call.contextID].push(callIndex);
+        }
+        callIndex++;
+    }
+
+    // At the beginning of the frame, output all side context calls occuring before a sync point.
+    // If no sync points are present, all calls in that side context are written at this time
+    for (auto const &sideContext : sideContextCallIndices)
+    {
+        gl::ContextID sideContextID = sideContext.first;
+
+        // Make sidecontext current if there are commands before the first syncpoint
+        if (!calls[sideContextCallIndices[sideContextID].front()].isSyncPoint)
+        {
+            writeMakeCurrentCall(sideContextID);
+        }
+        // Output all commands in sidecontext until a syncpoint is reached
+        while (!sideContextCallIndices[sideContextID].empty() &&
+               !calls[sideContextCallIndices[sideContextID].front()].isSyncPoint)
+        {
+            writeCall(calls[sideContextCallIndices[sideContextID].front()], sideContextID);
+        }
+    }
+
+    // Make mainContext current
+    writeMakeCurrentCall(contextID);
+
+    // Iterate through calls writing out main context calls. When a sync point is reached, write the
+    // next queued sequence of side context calls until another sync point is reached.
+    for (CallCapture &call : calls)
+    {
+        if (call.contextID == contextID)
+        {
+            writeCall(call, call.contextID);
+        }
+        else
+        {
+            if (call.isSyncPoint)
+            {
+                // Make sideContext current
+                writeMakeCurrentCall(call.contextID);
+
+                do
+                {
+                    writeCall(calls[sideContextCallIndices[call.contextID].front()],
+                              call.contextID);
+                } while (!sideContextCallIndices[call.contextID].empty() &&
+                         !calls[sideContextCallIndices[call.contextID].front()].isSyncPoint);
+
+                // Make mainContext current
+                writeMakeCurrentCall(contextID);
+
+                if (partCount > 0 && ++callCount % kFunctionSizeLimit == 0)
+                {
+                    out << "}\n";
+                    out << "\n";
+                    out << "void "
+                        << FmtFunction(replayFunc, contextID, FuncUsage::Definition, frameIndex,
+                                       ++partCount)
+                        << "\n";
+                    out << "{\n";
+                }
             }
         }
     }
@@ -2277,6 +2502,18 @@ bool IsTextureUpdate(CallCapture &call)
         case EntryPoint::GLCopyImageSubData:
         case EntryPoint::GLCopyImageSubDataEXT:
         case EntryPoint::GLCopyImageSubDataOES:
+            return true;
+        default:
+            return false;
+    }
+}
+
+bool IsImageUpdate(CallCapture &call)
+{
+    switch (call.entryPoint)
+    {
+        case EntryPoint::GLDispatchCompute:
+        case EntryPoint::GLDispatchComputeIndirect:
             return true;
         default:
             return false;
@@ -3269,18 +3506,6 @@ void CaptureTextureContents(std::vector<CallCapture> *setupCalls,
         return;
     }
 
-    if (index.getType() == gl::TextureType::External)
-    {
-        // The generated glTexImage2D call is for creating the staging texture
-        Capture(setupCalls,
-                CaptureTexImage2D(*replayState, true, gl::TextureTarget::_2D, index.getLevelIndex(),
-                                  format.internalFormat, desc.size.width, desc.size.height, 0,
-                                  format.format, format.type, data));
-
-        // For external textures, we're done
-        return;
-    }
-
     bool is3D =
         (index.getType() == gl::TextureType::_3D || index.getType() == gl::TextureType::_2DArray ||
          index.getType() == gl::TextureType::CubeMapArray);
@@ -3410,18 +3635,58 @@ void CaptureCustomFenceSync(CallCapture &call, std::vector<CallCapture> &callsOu
     params.addValueParam("fenceSync", ParamType::TGLuint64,
                          params.getReturnValue().value.GLuint64Val);
     call.customFunctionName = "FenceSync2";
+    call.isSyncPoint        = true;
     callsOut.emplace_back(std::move(call));
 }
 
-void CaptureCustomCreateEGLImage(const char *name,
+const egl::Image *GetImageFromParam(const gl::Context *context, const ParamCapture &param)
+{
+    const egl::ImageID eglImageID = egl::PackParam<egl::ImageID>(param.value.EGLImageVal);
+    const egl::Image *eglImage    = context->getDisplay()->getImage(eglImageID);
+    ASSERT(eglImage != nullptr);
+    return eglImage;
+}
+
+void CaptureCustomCreateEGLImage(const gl::Context *context,
+                                 const char *name,
+                                 size_t width,
+                                 size_t height,
                                  CallCapture &call,
                                  std::vector<CallCapture> &callsOut)
 {
-    ParamBuffer &&params = std::move(call.params);
-    EGLImage returnVal   = params.getReturnValue().value.EGLImageVal;
-    egl::ImageID imageID = egl::PackParam<egl::ImageID>(returnVal);
-    params.addValueParam("image", ParamType::TGLuint, imageID.value);
+    ParamBuffer &&params    = std::move(call.params);
+    EGLImage returnVal      = params.getReturnValue().value.EGLImageVal;
+    egl::ImageID imageID    = egl::PackParam<egl::ImageID>(returnVal);
     call.customFunctionName = name;
+
+    // Clear client buffer value if it is a pointer to a hardware buffer. It is
+    // not used by replay and will not be portable to 32-bit builds
+    if (params.getParam("target", ParamType::TEGLenum, 2).value.EGLenumVal ==
+        EGL_NATIVE_BUFFER_ANDROID)
+    {
+        params.setValueParamAtIndex("buffer", ParamType::TEGLClientBuffer,
+                                    reinterpret_cast<EGLClientBuffer>(static_cast<uintptr_t>(0)),
+                                    3);
+    }
+
+    // Record image dimensions in case a backing resource needs to be created during replay
+    params.addValueParam("width", ParamType::TGLsizei, static_cast<GLsizei>(width));
+    params.addValueParam("height", ParamType::TGLsizei, static_cast<GLsizei>(height));
+
+    params.addValueParam("image", ParamType::TGLuint, imageID.value);
+    callsOut.emplace_back(std::move(call));
+}
+
+void CaptureCustomDestroyEGLImage(const char *name,
+                                  CallCapture &call,
+                                  std::vector<CallCapture> &callsOut)
+{
+    call.customFunctionName = name;
+    ParamBuffer &&params    = std::move(call.params);
+
+    const ParamCapture &imageID = params.getParam("imagePacked", ParamType::TImageID, 1);
+    params.addValueParam("imageID", ParamType::TGLuint, imageID.value.ImageIDVal.value);
+
     callsOut.emplace_back(std::move(call));
 }
 
@@ -3571,7 +3836,7 @@ void GenerateLinkedProgram(const gl::Context *context,
          uniformBlockIndex < static_cast<uint32_t>(executable.getUniformBlocks().size());
          uniformBlockIndex++)
     {
-        GLuint blockBinding = executable.getUniformBlockBinding(uniformBlockIndex);
+        GLuint blockBinding = executable.getUniformBlocks()[uniformBlockIndex].pod.inShaderBinding;
         CallCapture updateCallCapture =
             CaptureUniformBlockBinding(replayState, true, id, {uniformBlockIndex}, blockBinding);
         CaptureCustomUniformBlockBinding(updateCallCapture, *setupCalls);
@@ -3594,7 +3859,7 @@ void GenerateLinkedProgram(const gl::Context *context,
     }
 }
 
-// TODO(http://anglebug.com/4599): Improve reset/restore call generation
+// TODO(http://anglebug.com/42263204): Improve reset/restore call generation
 // There are multiple ways to track reset calls for individual resources. For now, we are tracking
 // separate lists of instructions that mirror the calls created during mid-execution setup. Other
 // methods could involve passing the original CallCaptures to this function, or tracking the
@@ -3890,7 +4155,7 @@ void CaptureShareGroupMidExecutionSetup(
 
     // Capture Buffer data.
     const gl::BufferManager &buffers = apiState.getBufferManagerForCapture();
-    for (const auto &bufferIter : buffers)
+    for (const auto &bufferIter : gl::UnsafeResourceMapIter(buffers.getResourcesForCapture()))
     {
         gl::BufferID id    = {bufferIter.first};
         gl::Buffer *buffer = bufferIter.second;
@@ -3999,10 +4264,40 @@ void CaptureShareGroupMidExecutionSetup(
         replayState.getMutablePrivateStateForCapture()->setUnpackAlignment(1);
     }
 
+    const egl::ImageMap eglImageMap = context->getDisplay()->getImagesForCapture();
+    for (const auto &[eglImageID, eglImage] : eglImageMap)
+    {
+        // Track this as a starting resource that may need to be restored.
+        TrackedResource &trackedImages =
+            resourceTracker->getTrackedResource(context->id(), ResourceIDType::Image);
+        trackedImages.getStartingResources().insert(eglImageID);
+
+        ResourceCalls &imageRegenCalls = trackedImages.getResourceRegenCalls();
+        CallVector imageGenCalls({setupCalls, &imageRegenCalls[eglImageID]});
+
+        auto eglImageAttribIter = resourceTracker->getImageToAttribTable().find(
+            reinterpret_cast<EGLImage>(static_cast<uintptr_t>(eglImageID)));
+        ASSERT(eglImageAttribIter != resourceTracker->getImageToAttribTable().end());
+        const egl::AttributeMap &attribs = eglImageAttribIter->second;
+
+        for (std::vector<CallCapture> *calls : imageGenCalls)
+        {
+            // Create the image on demand with the same attrib retrieved above
+            CallCapture eglCreateImageKHRCall = egl::CaptureCreateImageKHR(
+                nullptr, true, nullptr, context->id(), EGL_GL_TEXTURE_2D,
+                reinterpret_cast<EGLClientBuffer>(static_cast<uintptr_t>(0)), attribs,
+                reinterpret_cast<EGLImage>(static_cast<uintptr_t>(eglImageID)));
+
+            // Convert the CaptureCreateImageKHR CallCapture to the customized CallCapture
+            CaptureCustomCreateEGLImage(context, "CreateEGLImageKHR", eglImage->getWidth(),
+                                        eglImage->getHeight(), eglCreateImageKHRCall, *calls);
+        }
+    }
+
     // Capture Texture setup and data.
     const gl::TextureManager &textures = apiState.getTextureManagerForCapture();
 
-    for (const auto &textureIter : textures)
+    for (const auto &textureIter : gl::UnsafeResourceMapIter(textures.getResourcesForCapture()))
     {
         gl::TextureID id     = {textureIter.first};
         gl::Texture *texture = textureIter.second;
@@ -4042,7 +4337,7 @@ void CaptureShareGroupMidExecutionSetup(
         replayState.setSamplerTexture(context, texture->getType(), texture);
 
         // Capture sampler parameter states.
-        // TODO(jmadill): More sampler / texture states. http://anglebug.com/3662
+        // TODO(jmadill): More sampler / texture states. http://anglebug.com/42262323
         gl::SamplerState defaultSamplerState =
             gl::SamplerState::CreateDefaultForTarget(texture->getType());
         const gl::SamplerState &textureSamplerState = texture->getSamplerState();
@@ -4207,21 +4502,40 @@ void CaptureShareGroupMidExecutionSetup(
                 continue;
             }
 
-            // create a staging GL_TEXTURE_2D texture to create the eglImage with
-            gl::TextureID stagingTexId = {maxAccessedResourceIDs[ResourceIDType::Texture] + 1};
             if (index.getType() == gl::TextureType::External)
             {
-                Capture(setupCalls, CaptureGenTextures(replayState, true, 1, &stagingTexId));
-                MaybeCaptureUpdateResourceIDs(context, resourceTracker, setupCalls);
-                Capture(setupCalls,
-                        CaptureBindTexture(replayState, true, gl::TextureType::_2D, stagingTexId));
-                Capture(setupCalls, CaptureTexParameteri(replayState, true, gl::TextureType::_2D,
-                                                         GL_TEXTURE_MIN_FILTER, GL_NEAREST));
-                Capture(setupCalls, CaptureTexParameteri(replayState, true, gl::TextureType::_2D,
-                                                         GL_TEXTURE_MAG_FILTER, GL_NEAREST));
+                // Lookup the eglImage ID associated with this texture when the app issued
+                // glEGLImageTargetTexture2DOES()
+                auto eglImageIter = resourceTracker->getTextureIDToImageTable().find(id.value);
+                egl::ImageID eglImageID;
+                if (eglImageIter != resourceTracker->getTextureIDToImageTable().end())
+                {
+                    eglImageID = eglImageIter->second;
+                }
+                else
+                {
+                    // Original image was deleted and needs to be recreated first
+                    eglImageID = {maxAccessedResourceIDs[ResourceIDType::Image] + 1};
+                    for (std::vector<CallCapture> *calls : texSetupCalls)
+                    {
+                        egl::AttributeMap attribs = egl::AttributeMap::CreateFromIntArray(nullptr);
+                        CallCapture eglCreateImageKHRCall = egl::CaptureCreateImageKHR(
+                            nullptr, true, nullptr, context->id(), EGL_GL_TEXTURE_2D,
+                            reinterpret_cast<EGLClientBuffer>(static_cast<uintptr_t>(0)), attribs,
+                            reinterpret_cast<EGLImage>(static_cast<uintptr_t>(eglImageID.value)));
+                        CaptureCustomCreateEGLImage(context, "CreateEGLImageKHR", desc.size.width,
+                                                    desc.size.height, eglCreateImageKHRCall,
+                                                    *calls);
+                    }
+                }
+                // Pass the eglImage to the texture that is bound to GL_TEXTURE_EXTERNAL_OES target
+                for (std::vector<CallCapture> *calls : texSetupCalls)
+                {
+                    Capture(calls, CaptureEGLImageTargetTexture2DOES(
+                                       replayState, true, gl::TextureType::External, eglImageID));
+                }
             }
-
-            if (context->getExtensions().getImageANGLE)
+            else if (context->getExtensions().getImageANGLE)
             {
                 // Use ANGLE_get_image to read back pixel data.
                 angle::MemoryBuffer data;
@@ -4287,54 +4601,6 @@ void CaptureShareGroupMidExecutionSetup(
                     CaptureTextureContents(calls, &replayState, texture, index, desc,
                                            static_cast<GLuint>(data.size()), data.data());
                 }
-
-                if (index.getType() == gl::TextureType::External)
-                {
-                    // Look up the attribs used when the image was created
-                    // Firstly, lookup the eglImage ID associated with this texture when the app
-                    // issued glEGLImageTargetTexture2DOES()
-                    auto eglImageIter = resourceTracker->getTextureIDToImageTable().find(id.value);
-                    ASSERT(eglImageIter != resourceTracker->getTextureIDToImageTable().end());
-
-                    const egl::ImageID eglImageID = eglImageIter->second;
-                    const EGLImage eglImage =
-                        reinterpret_cast<EGLImage>(static_cast<uintptr_t>(eglImageID.value));
-
-                    // Secondly, lookup the attrib we used to create the eglImage
-                    auto eglImageAttribIter =
-                        resourceTracker->getImageToAttribTable().find(eglImage);
-                    ASSERT(eglImageAttribIter != resourceTracker->getImageToAttribTable().end());
-
-                    const egl::AttributeMap &retrievedAttribs = eglImageAttribIter->second;
-
-                    // Create the image on demand with the same attrib retrieved above
-                    CallCapture eglCreateImageKHRCall = egl::CaptureCreateImageKHR(
-                        nullptr, true, nullptr, context->id(), EGL_GL_TEXTURE_2D_KHR,
-                        reinterpret_cast<EGLClientBuffer>(
-                            static_cast<GLuint64>(stagingTexId.value)),
-                        retrievedAttribs, eglImage);
-
-                    // Convert the CaptureCreateImageKHR CallCapture to the customized CallCapture
-                    std::vector<CallCapture> eglCustomCreateImageKHRCall;
-                    CaptureCustomCreateEGLImage("CreateEGLImageKHR", eglCreateImageKHRCall,
-                                                eglCustomCreateImageKHRCall);
-                    ASSERT(eglCustomCreateImageKHRCall.size() > 0);
-
-                    // Append the customized CallCapture to the setupCalls list
-                    Capture(setupCalls, std::move(eglCustomCreateImageKHRCall[0]));
-
-                    // Pass the eglImage to the texture that is bound to GL_TEXTURE_EXTERNAL_OES
-                    // target
-                    for (std::vector<CallCapture> *calls : texSetupCalls)
-                    {
-                        Capture(calls,
-                                CaptureEGLImageTargetTexture2DOES(
-                                    replayState, true, gl::TextureType::External, eglImageID));
-                    }
-
-                    // Delete the staging texture
-                    Capture(setupCalls, CaptureDeleteTextures(replayState, true, 1, &stagingTexId));
-                }
             }
             else
             {
@@ -4357,7 +4623,8 @@ void CaptureShareGroupMidExecutionSetup(
     const gl::RenderbufferManager &renderbuffers = apiState.getRenderbufferManagerForCapture();
     FramebufferCaptureFuncs framebufferFuncs(context->isGLES1());
 
-    for (const auto &renderbufIter : renderbuffers)
+    for (const auto &renderbufIter :
+         gl::UnsafeResourceMapIter(renderbuffers.getResourcesForCapture()))
     {
         gl::RenderbufferID id                = {renderbufIter.first};
         const gl::Renderbuffer *renderbuffer = renderbufIter.second;
@@ -4404,7 +4671,7 @@ void CaptureShareGroupMidExecutionSetup(
             }
         }
 
-        // TODO: Capture renderbuffer contents. http://anglebug.com/3662
+        // TODO: Capture renderbuffer contents. http://anglebug.com/42262323
     }
 
     // Capture Shaders and Programs.
@@ -4420,23 +4687,33 @@ void CaptureShareGroupMidExecutionSetup(
 
     // Capture Program binary state.
     gl::ShaderProgramID tempShaderStartID = {resourceTracker->getMaxShaderPrograms()};
-    for (const auto &programIter : programs)
+    std::map<gl::ShaderProgramID, std::vector<gl::ShaderProgramID>> deferredAttachCalls;
+    for (const auto &programIter : gl::UnsafeResourceMapIter(programs))
     {
         gl::ShaderProgramID id = {programIter.first};
         gl::Program *program   = programIter.second;
 
-        // Unlinked programs don't have an executable. Thus they don't need to be captured.
+        // Unlinked programs don't have an executable so track in case linking is deferred
         // Programs are shared by contexts in the share group and only need to be captured once.
         if (!program->isLinked())
         {
-            continue;
+            frameCaptureShared->setDeferredLinkProgram(id);
+
+            // Deferred attachment of shaders is not yet supported
+            ASSERT(program->getAttachedShadersCount());
+
+            // AttachShader calls will be generated at shader-handling time
+            for (gl::ShaderType shaderType : gl::AllShaderTypes())
+            {
+                gl::Shader *shader = program->getAttachedShader(shaderType);
+                if (shader != nullptr)
+                {
+                    deferredAttachCalls[shader->getHandle()].push_back(id);
+                }
+            }
         }
 
         size_t programSetupStart = setupCalls->size();
-
-        // Get last linked shader source.
-        const ProgramSources &linkedSources =
-            context->getShareGroup()->getFrameCaptureShared()->getProgramSources(id);
 
         // Create two lists for program regen calls
         ResourceCalls &shaderProgramRegenCalls = trackedShaderPrograms.getResourceRegenCalls();
@@ -4448,21 +4725,29 @@ void CaptureShareGroupMidExecutionSetup(
             CaptureCustomShaderProgram("CreateProgram", createProgram, *calls);
         }
 
-        // Create two lists for program restore calls
-        ResourceCalls &shaderProgramRestoreCalls = trackedShaderPrograms.getResourceRestoreCalls();
-        CallVector programRestoreCalls({setupCalls, &shaderProgramRestoreCalls[id.value]});
-
-        for (std::vector<CallCapture> *calls : programRestoreCalls)
+        if (program->isLinked())
         {
-            GenerateLinkedProgram(context, replayState, resourceTracker, calls, program, id,
-                                  tempShaderStartID, linkedSources);
-        }
+            // Get last linked shader source.
+            const ProgramSources &linkedSources =
+                context->getShareGroup()->getFrameCaptureShared()->getProgramSources(id);
 
-        // Update the program in replayState
-        if (!replayState.getProgram() || replayState.getProgram()->id() != program->id())
-        {
-            // Note: We don't do this in GenerateLinkedProgram because it can't modify state
-            (void)replayState.setProgram(context, program);
+            // Create two lists for program restore calls
+            ResourceCalls &shaderProgramRestoreCalls =
+                trackedShaderPrograms.getResourceRestoreCalls();
+            CallVector programRestoreCalls({setupCalls, &shaderProgramRestoreCalls[id.value]});
+
+            for (std::vector<CallCapture> *calls : programRestoreCalls)
+            {
+                GenerateLinkedProgram(context, replayState, resourceTracker, calls, program, id,
+                                      tempShaderStartID, linkedSources);
+            }
+
+            // Update the program in replayState
+            if (!replayState.getProgram() || replayState.getProgram()->id() != program->id())
+            {
+                // Note: We don't do this in GenerateLinkedProgram because it can't modify state
+                (void)replayState.setProgram(context, program);
+            }
         }
 
         resourceTracker->getTrackedResource(context->id(), ResourceIDType::ShaderProgram)
@@ -4470,16 +4755,21 @@ void CaptureShareGroupMidExecutionSetup(
             .insert(id.value);
         resourceTracker->setShaderProgramType(id, ShaderProgramType::ProgramType);
 
-        size_t programSetupEnd = setupCalls->size();
+        // Mark linked programs/shaders as inactive, leaving deferred-linked programs/shaders marked
+        // as active
+        if (!frameCaptureShared->isDeferredLinkProgram(id))
+        {
+            size_t programSetupEnd = setupCalls->size();
 
-        // Mark the range of calls used to setup this program
-        frameCaptureShared->markResourceSetupCallsInactive(
-            setupCalls, ResourceIDType::ShaderProgram, id.value,
-            gl::Range<size_t>(programSetupStart, programSetupEnd));
+            // Mark the range of calls used to setup this program
+            frameCaptureShared->markResourceSetupCallsInactive(
+                setupCalls, ResourceIDType::ShaderProgram, id.value,
+                gl::Range<size_t>(programSetupStart, programSetupEnd));
+        }
     }
 
     // Handle shaders.
-    for (const auto &shaderIter : shaders)
+    for (const auto &shaderIter : gl::UnsafeResourceMapIter(shaders))
     {
         gl::ShaderProgramID id = {shaderIter.first};
         gl::Shader *shader     = shaderIter.second;
@@ -4502,6 +4792,15 @@ void CaptureShareGroupMidExecutionSetup(
             CallCapture createShader =
                 CaptureCreateShader(replayState, true, shader->getType(), id.value);
             CaptureCustomShaderProgram("CreateShader", createShader, *calls);
+
+            // If unlinked programs have been created which reference this shader emit corresponding
+            // attach calls
+            for (const auto deferredAttachedProgramID : deferredAttachCalls[id])
+            {
+                CallCapture attachShader =
+                    CaptureAttachShader(replayState, true, deferredAttachedProgramID, id);
+                calls->emplace_back(std::move(attachShader));
+            }
         }
 
         std::string shaderSource  = shader->getSourceString();
@@ -4511,9 +4810,9 @@ void CaptureShareGroupMidExecutionSetup(
         ResourceCalls &shaderProgramRestoreCalls = trackedShaderPrograms.getResourceRestoreCalls();
         CallVector shaderRestoreCalls({setupCalls, &shaderProgramRestoreCalls[id.value]});
 
-        // This does not handle some more tricky situations like attaching shaders to a non-linked
-        // program. Or attaching uncompiled shaders. Or attaching and then deleting a shader.
-        // TODO(jmadill): Handle trickier program uses. http://anglebug.com/3662
+        // This does not handle some more tricky situations like attaching and then deleting a
+        // shader.
+        // TODO(jmadill): Handle trickier program uses. http://anglebug.com/42262323
         if (shader->isCompiled(context))
         {
             const std::string &capturedSource =
@@ -4542,10 +4841,14 @@ void CaptureShareGroupMidExecutionSetup(
             }
         }
 
-        // Mark the range of calls used to setup this shader
-        frameCaptureShared->markResourceSetupCallsInactive(
-            setupCalls, ResourceIDType::ShaderProgram, id.value,
-            gl::Range<size_t>(shaderSetupStart, setupCalls->size()));
+        // Deferred-linked programs/shaders must be left marked as active
+        if (deferredAttachCalls[id].empty())
+        {
+            // Mark the range of calls used to setup this shader
+            frameCaptureShared->markResourceSetupCallsInactive(
+                setupCalls, ResourceIDType::ShaderProgram, id.value,
+                gl::Range<size_t>(shaderSetupStart, setupCalls->size()));
+        }
 
         resourceTracker->getTrackedResource(context->id(), ResourceIDType::ShaderProgram)
             .getStartingResources()
@@ -4555,7 +4858,7 @@ void CaptureShareGroupMidExecutionSetup(
 
     // Capture Sampler Objects
     const gl::SamplerManager &samplers = apiState.getSamplerManagerForCapture();
-    for (const auto &samplerIter : samplers)
+    for (const auto &samplerIter : gl::UnsafeResourceMapIter(samplers.getResourcesForCapture()))
     {
         gl::SamplerID samplerID = {samplerIter.first};
 
@@ -4620,7 +4923,7 @@ void CaptureShareGroupMidExecutionSetup(
 
     // Capture Sync Objects
     const gl::SyncManager &syncs = apiState.getSyncManagerForCapture();
-    for (const auto &syncIter : syncs)
+    for (const auto &syncIter : gl::UnsafeResourceMapIter(syncs.getResourcesForCapture()))
     {
         gl::SyncID syncID    = {syncIter.first};
         const gl::Sync *sync = syncIter.second;
@@ -4695,7 +4998,7 @@ void CaptureMidExecutionSetup(const gl::Context *context,
 
     const gl::VertexArrayMap &vertexArrayMap = context->getVertexArraysForCapture();
     gl::VertexArrayID boundVertexArrayID     = {0};
-    for (const auto &vertexArrayIter : vertexArrayMap)
+    for (const auto &vertexArrayIter : gl::UnsafeResourceMapIter(vertexArrayMap))
     {
         TrackedResource &trackedVertexArrays =
             resourceTracker->getTrackedResource(context->id(), ResourceIDType::VertexArray);
@@ -4873,7 +5176,8 @@ void CaptureMidExecutionSetup(const gl::Context *context,
 
     const gl::RenderbufferManager &renderbuffers = apiState.getRenderbufferManagerForCapture();
     gl::RenderbufferID currentRenderbuffer       = {0};
-    for (const auto &renderbufIter : renderbuffers)
+    for (const auto &renderbufIter :
+         gl::UnsafeResourceMapIter(renderbuffers.getResourcesForCapture()))
     {
         currentRenderbuffer = renderbufIter.second->id();
     }
@@ -4890,7 +5194,8 @@ void CaptureMidExecutionSetup(const gl::Context *context,
     gl::FramebufferID currentDrawFramebuffer = {0};
     gl::FramebufferID currentReadFramebuffer = {0};
 
-    for (const auto &framebufferIter : framebuffers)
+    for (const auto &framebufferIter :
+         gl::UnsafeResourceMapIter(framebuffers.getResourcesForCapture()))
     {
         gl::FramebufferID id               = {framebufferIter.first};
         const gl::Framebuffer *framebuffer = framebufferIter.second;
@@ -5025,7 +5330,8 @@ void CaptureMidExecutionSetup(const gl::Context *context,
     const gl::ProgramPipelineManager *programPipelineManager =
         apiState.getProgramPipelineManagerForCapture();
 
-    for (const auto &ppoIterator : *programPipelineManager)
+    for (const auto &ppoIterator :
+         gl::UnsafeResourceMapIter(programPipelineManager->getResourcesForCapture()))
     {
         gl::ProgramPipeline *pipeline = ppoIterator.second;
         gl::ProgramPipelineID id      = {ppoIterator.first};
@@ -5062,7 +5368,7 @@ void CaptureMidExecutionSetup(const gl::Context *context,
     }
 
     // For now we assume the installed program executable is the same as the current program.
-    // TODO(jmadill): Handle installed program executable. http://anglebug.com/3662
+    // TODO(jmadill): Handle installed program executable. http://anglebug.com/42262323
     if (!context->isGLES1())
     {
         // If we have a program bound in the API, or if there is no program bound to the API at
@@ -5108,8 +5414,9 @@ void CaptureMidExecutionSetup(const gl::Context *context,
     // Create existing queries. Note that queries may be genned and not yet started. In that
     // case the queries will exist in the query map as nullptr entries.
     const gl::QueryMap &queryMap = context->getQueriesForCapture();
-    for (gl::QueryMap::Iterator queryIter = queryMap.beginWithNull();
-         queryIter != queryMap.endWithNull(); ++queryIter)
+    for (gl::QueryMap::Iterator queryIter = gl::UnsafeResourceMapIter(queryMap).beginWithNull(),
+                                endIter   = gl::UnsafeResourceMapIter(queryMap).endWithNull();
+         queryIter != endIter; ++queryIter)
     {
         ASSERT(queryIter->first);
         gl::QueryID queryID = {queryIter->first};
@@ -5135,7 +5442,7 @@ void CaptureMidExecutionSetup(const gl::Context *context,
 
     // Transform Feedback
     const gl::TransformFeedbackMap &xfbMap = context->getTransformFeedbacksForCapture();
-    for (const auto &xfbIter : xfbMap)
+    for (const auto &xfbIter : gl::UnsafeResourceMapIter(xfbMap))
     {
         gl::TransformFeedbackID xfbID = {xfbIter.first};
 
@@ -5620,7 +5927,7 @@ void CaptureMidExecutionSetup(const gl::Context *context,
     }
 
     // Clear state. Missing ES 3.x features.
-    // TODO(http://anglebug.com/3662): Complete state capture.
+    // TODO(http://anglebug.com/42262323): Complete state capture.
     const gl::ColorF &currentClearColor = apiState.getColorClearValue();
     if (currentClearColor != gl::ColorF())
     {
@@ -5792,8 +6099,7 @@ void FrameCapture::reset()
 }
 
 FrameCaptureShared::FrameCaptureShared()
-    : mLastContextId{0},
-      mEnabled(true),
+    : mEnabled(true),
       mSerializeStateEnabled(false),
       mCompression(true),
       mClientVertexArrayMap{},
@@ -5890,7 +6196,7 @@ FrameCaptureShared::FrameCaptureShared()
         INFO() << "Validation expression is " << kValidationExprVarName;
     }
 
-    // TODO: Remove. http://anglebug.com/7753
+    // TODO: Remove. http://anglebug.com/42266223
     std::string sourceExtFromEnv =
         GetEnvironmentVarOrUnCachedAndroidProperty(kSourceExtVarName, kAndroidSourceExt);
     if (!sourceExtFromEnv.empty())
@@ -6309,7 +6615,7 @@ CoherentBufferTracker::~CoherentBufferTracker()
 
 PageFaultHandlerRangeType CoherentBufferTracker::handleWrite(uintptr_t address)
 {
-    std::lock_guard<std::mutex> lock(mMutex);
+    std::lock_guard<angle::SimpleMutex> lock(mMutex);
     auto pagesInBuffers = getBufferPagesForAddress(address);
 
     if (pagesInBuffers.empty())
@@ -6341,7 +6647,7 @@ HashMap<std::shared_ptr<CoherentBuffer>, size_t> CoherentBufferTracker::getBuffe
         // callback. We need to add this tag manually to the untagged pointer in order to determine
         // the corresponding page.
         // See: https://source.android.com/docs/security/test/tagged-pointers
-        // TODO(http://anglebug.com/7402): Determine when heap pointer tagging is not enabled.
+        // TODO(http://anglebug.com/42265874): Determine when heap pointer tagging is not enabled.
         constexpr unsigned long long POINTER_TAG = 0xb400000000000000;
         unsigned long long taggedAddress         = address | POINTER_TAG;
         page                                     = static_cast<size_t>(taggedAddress / mPageSize);
@@ -6406,7 +6712,7 @@ bool CoherentBufferTracker::haveBuffer(gl::BufferID id)
 
 void CoherentBufferTracker::onEndFrame()
 {
-    std::lock_guard<std::mutex> lock(mMutex);
+    std::lock_guard<angle::SimpleMutex> lock(mMutex);
 
     if (!mEnabled)
     {
@@ -6448,7 +6754,7 @@ void CoherentBufferTracker::disable()
 
 uintptr_t CoherentBufferTracker::addBuffer(gl::BufferID id, uintptr_t start, size_t size)
 {
-    std::lock_guard<std::mutex> lock(mMutex);
+    std::lock_guard<angle::SimpleMutex> lock(mMutex);
 
     if (haveBuffer(id))
     {
@@ -6537,7 +6843,7 @@ PageSharingType CoherentBufferTracker::doesBufferSharePage(gl::BufferID id)
 
 void CoherentBufferTracker::removeBuffer(gl::BufferID id)
 {
-    std::lock_guard<std::mutex> lock(mMutex);
+    std::lock_guard<angle::SimpleMutex> lock(mMutex);
 
     if (!haveBuffer(id))
     {
@@ -6589,11 +6895,17 @@ void FrameCaptureShared::determineMemoryProtectionSupport(gl::Context *context)
     angle::GetSystemInfo(&info);
     bool isDeviceDenyListed = false;
 
-    if (denyList.find(info.machineManufacturer) != denyList.end())
+    if (rx::GetAndroidSDKVersion() < 34)
     {
-        const std::vector<std::string> &models = denyList[info.machineManufacturer];
-        isDeviceDenyListed =
-            std::find(models.begin(), models.end(), info.machineModelName) != models.end();
+        // Before Android 14, there was a bug in Mali based Pixel preventing mprotect
+        // on Vulkan surfaces. (https://b.corp.google.com/issues/269535398)
+        // Check the denylist in this case.
+        if (denyList.find(info.machineManufacturer) != denyList.end())
+        {
+            const std::vector<std::string> &models = denyList[info.machineManufacturer];
+            isDeviceDenyListed =
+                std::find(models.begin(), models.end(), info.machineModelName) != models.end();
+        }
     }
 
     if (isDeviceDenyListed)
@@ -6731,6 +7043,26 @@ void FrameCaptureShared::trackTextureUpdate(const gl::Context *context, const Ca
     // Mark it as modified
     mResourceTracker.getTrackedResource(context->id(), ResourceIDType::Texture)
         .setModifiedResource(id);
+}
+
+// Identify and mark writeable shader image textures as modified
+void FrameCaptureShared::trackImageUpdate(const gl::Context *context, const CallCapture &call)
+{
+    const gl::ProgramExecutable *executable = context->getState().getProgramExecutable();
+    for (const gl::ImageBinding &imageBinding : executable->getImageBindings())
+    {
+        for (GLuint binding : imageBinding.boundImageUnits)
+        {
+            const gl::ImageUnit &imageUnit = context->getState().getImageUnit(binding);
+            if (imageUnit.access != GL_READ_ONLY)
+            {
+                // Get image binding texture id and mark it as modified
+                GLuint id = imageUnit.texture.id().value;
+                mResourceTracker.getTrackedResource(context->id(), ResourceIDType::Texture)
+                    .setModifiedResource(id);
+            }
+        }
+    }
 }
 
 void FrameCaptureShared::trackDefaultUniformUpdate(const gl::Context *context,
@@ -7011,12 +7343,26 @@ void FrameCaptureShared::maybeOverrideEntryPoint(const gl::Context *context,
         }
         case EntryPoint::EGLCreateImage:
         {
-            CaptureCustomCreateEGLImage("CreateEGLImage", inCall, outCalls);
+            const egl::Image *eglImage = GetImageFromParam(context, inCall.params.getReturnValue());
+            CaptureCustomCreateEGLImage(context, "CreateEGLImage", eglImage->getWidth(),
+                                        eglImage->getHeight(), inCall, outCalls);
             break;
         }
         case EntryPoint::EGLCreateImageKHR:
         {
-            CaptureCustomCreateEGLImage("CreateEGLImageKHR", inCall, outCalls);
+            const egl::Image *eglImage = GetImageFromParam(context, inCall.params.getReturnValue());
+            CaptureCustomCreateEGLImage(context, "CreateEGLImageKHR", eglImage->getWidth(),
+                                        eglImage->getHeight(), inCall, outCalls);
+            break;
+        }
+        case EntryPoint::EGLDestroyImage:
+        {
+            CaptureCustomDestroyEGLImage("DestroyEGLImage", inCall, outCalls);
+            break;
+        }
+        case EntryPoint::EGLDestroyImageKHR:
+        {
+            CaptureCustomDestroyEGLImage("DestroyEGLImageKHR", inCall, outCalls);
             break;
         }
         case EntryPoint::EGLCreateSync:
@@ -7056,7 +7402,7 @@ void FrameCaptureShared::maybeCaptureCoherentBuffers(const gl::Context *context)
         return;
     }
 
-    std::lock_guard<std::mutex> lock(mCoherentBufferTracker.mMutex);
+    std::lock_guard<angle::SimpleMutex> lock(mCoherentBufferTracker.mMutex);
 
     for (const auto &pair : mCoherentBufferTracker.mBuffers)
     {
@@ -7766,12 +8112,52 @@ void FrameCaptureShared::maybeCapturePreCallUpdates(
             CreateEGLImagePreCallUpdate<EGLAttrib>(call, mResourceTracker,
                                                    ParamType::TEGLAttribPointer,
                                                    egl::AttributeMap::CreateFromAttribArray);
+            if (isCaptureActive())
+            {
+                EGLImage eglImage    = call.params.getReturnValue().value.EGLImageVal;
+                egl::ImageID imageID = egl::PackParam<egl::ImageID>(eglImage);
+                handleGennedResource(context, imageID);
+            }
             break;
         }
         case EntryPoint::EGLCreateImageKHR:
         {
             CreateEGLImagePreCallUpdate<EGLint>(call, mResourceTracker, ParamType::TEGLintPointer,
                                                 egl::AttributeMap::CreateFromIntArray);
+            if (isCaptureActive())
+            {
+                EGLImageKHR eglImage = call.params.getReturnValue().value.EGLImageKHRVal;
+                egl::ImageID imageID = egl::PackParam<egl::ImageID>(eglImage);
+                handleGennedResource(context, imageID);
+            }
+            break;
+        }
+        case EntryPoint::EGLDestroyImage:
+        case EntryPoint::EGLDestroyImageKHR:
+        {
+            egl::ImageID eglImageID =
+                call.params.getParam("imagePacked", ParamType::TImageID, 1).value.ImageIDVal;
+
+            // Clear any texture->image mappings that involve this image
+            for (auto texImageIter = mResourceTracker.getTextureIDToImageTable().begin();
+                 texImageIter != mResourceTracker.getTextureIDToImageTable().end();)
+            {
+                if (texImageIter->second == eglImageID)
+                {
+                    texImageIter = mResourceTracker.getTextureIDToImageTable().erase(texImageIter);
+                }
+                else
+                {
+                    ++texImageIter;
+                }
+            }
+
+            FrameCaptureShared *frameCaptureShared =
+                context->getShareGroup()->getFrameCaptureShared();
+            if (frameCaptureShared->isCaptureActive())
+            {
+                handleDeletedResource(context, eglImageID);
+            }
             break;
         }
         case EntryPoint::EGLCreateSync:
@@ -7818,6 +8204,12 @@ void FrameCaptureShared::maybeCapturePreCallUpdates(
     {
         // If this call modified texture contents, track it for possible reset
         trackTextureUpdate(context, call);
+    }
+
+    if (IsImageUpdate(call))
+    {
+        // If this call modified shader image contents, track it for possible reset
+        trackImageUpdate(context, call);
     }
 
     if (isCaptureActive() && GetDefaultUniformType(call) != DefaultUniformType::None)
@@ -7967,21 +8359,13 @@ void FrameCaptureShared::captureCall(gl::Context *context, CallCapture &&inCall,
 
     if (isCallValid)
     {
-        // If the context ID has changed, then we need to inject an eglMakeCurrent() call. Only do
-        // this if there is more than 1 context in the share group to avoid unnecessary
-        // eglMakeCurrent() calls.
-        size_t contextCount = context->getShareGroup()->getContexts().size();
-        if (contextCount > 1 && mLastContextId != context->id())
-        {
-            // Inject the eglMakeCurrent() call. Ignore the display and surface.
-            CallCapture makeCurrentCall =
-                egl::CaptureMakeCurrent(nullptr, true, nullptr, {0}, {0}, context->id(), EGL_TRUE);
-            mFrameCalls.emplace_back(std::move(makeCurrentCall));
-            mLastContextId = context->id();
-        }
+        // Save the call's contextID
+        inCall.contextID = context->id();
 
         // Update resource counts before we override entry points with custom calls.
         updateResourceCountsFromCallCapture(inCall);
+
+        size_t j = mFrameCalls.size();
 
         std::vector<CallCapture> outCalls;
         maybeOverrideEntryPoint(context, inCall, outCalls);
@@ -7999,6 +8383,12 @@ void FrameCaptureShared::captureCall(gl::Context *context, CallCapture &&inCall,
                                        &mResourceIDToSetupCalls);
             mFrameCalls.emplace_back(std::move(call));
             maybeCapturePostCallUpdates(context);
+        }
+
+        // Tag all 'added' commands with this context
+        for (size_t k = j; k < mFrameCalls.size(); k++)
+        {
+            mFrameCalls[k].contextID = context->id();
         }
 
         // Evaluate the validation expression to determine if we insert a validation checkpoint.
@@ -8038,6 +8428,12 @@ void FrameCaptureShared::captureCall(gl::Context *context, CallCapture &&inCall,
             }
             INFO() << msg.str();
         }
+
+        std::stringstream skipCall;
+        skipCall << "Skipping invalid call to " << GetEntryPointName(inCall.entryPoint)
+                 << " with error: "
+                 << gl::GLenumToString(gl::GLESEnum::ErrorCode, context->getErrorForCapture());
+        AddComment(&mFrameCalls, skipCall.str());
     }
 }
 
@@ -8160,6 +8556,12 @@ void FrameCaptureShared::captureClientArraySnapshot(const gl::Context *context,
                                                     size_t vertexCount,
                                                     size_t instanceCount)
 {
+    if (vertexCount == 0)
+    {
+        // Nothing to capture
+        return;
+    }
+
     const gl::VertexArray *vao = context->getState().getVertexArray();
 
     // Capture client array data.
@@ -8358,7 +8760,7 @@ void FrameCaptureShared::checkForCaptureTrigger()
     }
 
     // If the value has changed, use the original value as the frame count
-    // TODO (anglebug.com/4949): Improve capture at unknown frame time. It is good to
+    // TODO (anglebug.com/42263521): Improve capture at unknown frame time. It is good to
     // avoid polling if the feature is not enabled, but not entirely intuitive to set
     // a value to zero when you want to trigger it.
     uint32_t captureTrigger = atoi(captureTriggerStr.c_str());
@@ -8560,6 +8962,7 @@ void FrameCaptureShared::onEndFrame(gl::Context *context)
         SaveBinaryData(mCompression, mOutDirectory, kSharedContextId, mCaptureLabel, mBinaryData);
         mBinaryData.clear();
         mWroteIndexFile = true;
+        INFO() << "Finished recording graphics API capture";
     }
 
     reset();
@@ -9178,7 +9581,7 @@ void FrameCaptureShared::writeMainContextCppReplay(const gl::Context *context,
                     // MEC started
                     if (mActiveContexts.find(shareContext.first) != mActiveContexts.end())
                     {
-                        // TODO(http://anglebug.com/5878): Support capture/replay of
+                        // TODO(http://anglebug.com/42264418): Support capture/replay of
                         // eglCreateContext() so this block can be moved into SetupReplayContextXX()
                         // by injecting them into the beginning of the setup call stream.
                         out << "    CreateContext(" << shareContext.first << ");\n";
@@ -9222,10 +9625,10 @@ void FrameCaptureShared::writeMainContextCppReplay(const gl::Context *context,
         std::set<gl::ContextID> contextIDs;
         mResourceTracker.getContextIDs(contextIDs);
 
-        // TODO(http://anglebug.com/5878): Look at moving this into the shared context file since
-        // it's resetting shared objects.
+        // TODO(http://anglebug.com/42264418): Look at moving this into the shared context file
+        // since it's resetting shared objects.
 
-        // TODO(http://anglebug.com/4599): Support function parts when writing Reset functions
+        // TODO(http://anglebug.com/42263204): Support function parts when writing Reset functions
 
         // Track whether anything was written during Reset
         bool anyResourceReset = false;
@@ -9344,14 +9747,23 @@ void FrameCaptureShared::writeMainContextCppReplay(const gl::Context *context,
         protoStream << "void "
                     << FmtReplayFunction(context->id(), FuncUsage::Prototype, frameIndex);
         std::string proto = protoStream.str();
-
         std::stringstream headerStream;
         std::stringstream bodyStream;
 
-        WriteCppReplayFunctionWithParts(context->id(), ReplayFunc::Replay, mReplayWriter,
-                                        frameIndex, &mBinaryData, mFrameCalls, headerStream,
-                                        bodyStream, &mResourceIDBufferSize);
-
+        if (context->getShareGroup()->getContexts().size() > 1)
+        {
+            // Only ReplayFunc::Replay trace file output functions are affected by multi-context
+            // call grouping so they can safely be special-cased here.
+            WriteCppReplayFunctionWithPartsMultiContext(
+                context->id(), ReplayFunc::Replay, mReplayWriter, frameIndex, &mBinaryData,
+                mFrameCalls, headerStream, bodyStream, &mResourceIDBufferSize);
+        }
+        else
+        {
+            WriteCppReplayFunctionWithParts(context->id(), ReplayFunc::Replay, mReplayWriter,
+                                            frameIndex, &mBinaryData, mFrameCalls, headerStream,
+                                            bodyStream, &mResourceIDBufferSize);
+        }
         mReplayWriter.addPrivateFunction(proto, headerStream, bodyStream);
     }
 

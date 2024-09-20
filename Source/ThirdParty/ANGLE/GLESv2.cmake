@@ -21,7 +21,7 @@ set(libangle_common_headers
     "src/common/PackedGLEnums_autogen.h"
     "src/common/PoolAlloc.h"
     "src/common/RingBufferAllocator.h"
-    "src/common/Spinlock.h"
+    "src/common/SimpleMutex.h"
     "src/common/SynchronizedValue.h"
     "src/common/WorkerThread.h"
     "src/common/aligned_memory.h"
@@ -54,6 +54,7 @@ set(libangle_common_headers
     "src/common/entry_points_enum_autogen.h"
     "src/common/event_tracer.h"
     "src/common/hash_utils.h"
+    "src/common/log_utils.h"
     "src/common/mathutil.h"
     "src/common/matrix_utils.h"
     "src/common/platform.h"
@@ -61,6 +62,7 @@ set(libangle_common_headers
     "src/common/string_utils.h"
     "src/common/system_utils.h"
     "src/common/tls.h"
+    "src/common/uniform_type_info_autogen.h"
     "src/common/utilities.h"
     "src/common/vector_utils.h"
 )
@@ -74,6 +76,7 @@ set(libangle_common_sources
     "src/common/PackedGLEnums_autogen.cpp"
     "src/common/PoolAlloc.cpp"
     "src/common/RingBufferAllocator.cpp"
+    "src/common/SimpleMutex.cpp"
     "src/common/WorkerThread.cpp"
     "src/common/aligned_memory.cpp"
     "src/common/android_util.cpp"
@@ -145,7 +148,7 @@ endif()
 if(is_win)
     list(APPEND libangle_common_sources "src/common/system_utils_win.cpp")
 
-    if(target_os STREQUAL "winuwp")
+    if(angle_is_winuwp)
         list(APPEND libangle_common_sources "src/common/system_utils_winuwp.cpp")
     else()
         list(APPEND libangle_common_sources "src/common/system_utils_win32.cpp")
@@ -540,7 +543,7 @@ set(libangle_cl_headers
     "src/libANGLE/CLProgram.h"
     "src/libANGLE/CLRefPointer.h"
     "src/libANGLE/CLSampler.h"
-    "src/libANGLE/CLtypes.h"
+    "src/libANGLE/cl_types.h"
     "src/libANGLE/cl_utils.h"
     "src/libANGLE/renderer/CLCommandQueueImpl.h"
     "src/libANGLE/renderer/CLContextImpl.h"
@@ -552,7 +555,7 @@ set(libangle_cl_headers
     "src/libANGLE/renderer/CLPlatformImpl.h"
     "src/libANGLE/renderer/CLProgramImpl.h"
     "src/libANGLE/renderer/CLSamplerImpl.h"
-    "src/libANGLE/renderer/CLtypes.h"
+    "src/libANGLE/renderer/cl_types.h"
     "src/libANGLE/validationCL.h"
     "src/libANGLE/validationCL_autogen.h"
 )

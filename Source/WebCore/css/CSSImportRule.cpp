@@ -61,24 +61,33 @@ MediaList& CSSImportRule::media() const
 
 String CSSImportRule::layerName() const
 {
-    auto name = m_importRule.get().cascadeLayerName();
+    auto name = m_importRule->cascadeLayerName();
     if (!name)
         return { };
 
     return stringFromCascadeLayerName(*name);
 }
 
+String CSSImportRule::supportsText() const
+{
+    return m_importRule->supportsText();
+}
+
 String CSSImportRule::cssTextInternal(const String& urlString) const
 {
     StringBuilder builder;
-    builder.append("@import ", serializeURL(urlString));
+    builder.append("@import "_s, serializeURL(urlString));
 
     if (auto layerName = this->layerName(); !layerName.isNull()) {
         if (layerName.isEmpty())
-            builder.append(" layer");
+            builder.append(" layer"_s);
         else
-            builder.append(" layer(", layerName, ')');
+            builder.append(" layer("_s, layerName, ')');
     }
+
+    auto supports = supportsText();
+    if (!supports.isNull())
+        builder.append(" supports("_s, WTFMove(supports), ')');
 
     if (!mediaQueries().isEmpty()) {
         builder.append(' ');
@@ -114,6 +123,11 @@ CSSStyleSheet* CSSImportRule::styleSheet() const
     if (!m_styleSheetCSSOMWrapper)
         m_styleSheetCSSOMWrapper = CSSStyleSheet::create(*m_importRule.get().styleSheet(), const_cast<CSSImportRule*>(this));
     return m_styleSheetCSSOMWrapper.get(); 
+}
+
+RefPtr<CSSStyleSheet> CSSImportRule::protectedStyleSheet() const
+{
+    return styleSheet();
 }
 
 void CSSImportRule::reattach(StyleRuleBase&)

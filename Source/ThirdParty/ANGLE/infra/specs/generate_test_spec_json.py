@@ -43,10 +43,27 @@ ADDITIONAL_MIXINS = {
             '--use-permissive-pixel-comparison=${use_permissive_angle_pixel_comparison}',
         ],
     },
+    'samsung_s22': {
+        'swarming': {
+            'dimensions': {
+                'device_os': 'UP1A.231005.007',
+                'device_os_type': 'user',
+                'device_type': 's5e9925',
+                'os': 'Android'
+            }
+        }
+    },
     'timeout_120m': {
         'swarming': {
             'hard_timeout': 7200,
             'io_timeout': 300
+        }
+    },
+    'temp_band_below_30C': {
+        'swarming': {
+            'dimensions': {
+                'temp_band': '<30'
+            }
         }
     },
 }

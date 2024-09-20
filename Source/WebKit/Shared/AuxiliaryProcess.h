@@ -48,10 +48,6 @@ namespace IPC {
 class SharedBufferReference;
 }
 
-namespace WebCore {
-class RegistrableDomain;
-}
-
 namespace WebKit {
 
 class SandboxInitializationParameters;
@@ -75,12 +71,14 @@ public:
     void removeMessageReceiver(IPC::ReceiverName);
     void removeMessageReceiver(IPC::MessageReceiver&);
     
-    void addMessageReceiver(IPC::ReceiverName messageReceiverName, const ObjectIdentifierGenericBase& destinationID, IPC::MessageReceiver& receiver)
+    template<typename RawValue>
+    void addMessageReceiver(IPC::ReceiverName messageReceiverName, const ObjectIdentifierGenericBase<RawValue>& destinationID, IPC::MessageReceiver& receiver)
     {
         addMessageReceiver(messageReceiverName, destinationID.toUInt64(), receiver);
     }
     
-    void removeMessageReceiver(IPC::ReceiverName messageReceiverName, const ObjectIdentifierGenericBase& destinationID)
+    template<typename RawValue>
+    void removeMessageReceiver(IPC::ReceiverName messageReceiverName, const ObjectIdentifierGenericBase<RawValue>& destinationID)
     {
         removeMessageReceiver(messageReceiverName, destinationID.toUInt64());
     }
@@ -97,16 +95,23 @@ public:
     static void applySandboxProfileForDaemon(const String& profilePath, const String& userDirectorySuffix);
 
     IPC::Connection* parentProcessConnection() const { return m_connection.get(); }
+    RefPtr<IPC::Connection> protectedParentProcessConnection() const { return parentProcessConnection(); }
 
     IPC::MessageReceiverMap& messageReceiverMap() { return m_messageReceiverMap; }
 
-#if PLATFORM(MAC)
+#if PLATFORM(COCOA)
     static bool isSystemWebKit();
 #endif
     
 #if PLATFORM(COCOA)
     bool parentProcessHasEntitlement(ASCIILiteral entitlement);
 #endif
+
+#if ENABLE(CFPREFS_DIRECT_MODE)
+    virtual void preferenceDidUpdate(const String& domain, const String& key, const std::optional<String>& encodedValue);
+    void preferencesDidUpdate(HashMap<String, std::optional<String>> domainlessPreferences, HashMap<std::pair<String, String>, std::optional<String>> preferences);
+#endif
+    static void setNotifyOptions();
 
 protected:
     explicit AuxiliaryProcess();
@@ -141,21 +146,18 @@ protected:
     void didReceiveMemoryPressureEvent(bool isCritical);
 #endif
 
-protected:
 #if ENABLE(CFPREFS_DIRECT_MODE)
     static id decodePreferenceValue(const std::optional<String>& encodedValue);
     static void setPreferenceValue(const String& domain, const String& key, id value);
-    
-    virtual void preferenceDidUpdate(const String& domain, const String& key, const std::optional<String>& encodedValue);
     virtual void handlePreferenceChange(const String& domain, const String& key, id value);
     virtual void dispatchSimulatedNotificationsForPreferenceChange(const String& key) { }
-
     virtual void accessibilitySettingsDidChange() { }
 #endif
+
     void applyProcessCreationParameters(const AuxiliaryProcessCreationParameters&);
 
 #if PLATFORM(MAC)
-    void openDirectoryCacheInvalidated(SandboxExtension::Handle&&);
+    static void openDirectoryCacheInvalidated(SandboxExtension::Handle&&);
 #endif
 
     void populateMobileGestaltCache(std::optional<SandboxExtension::Handle>&& mobileGestaltExtensionHandle);
@@ -166,9 +168,6 @@ protected:
 
     // IPC::Connection::Client.
     void didClose(IPC::Connection&) override;
-
-    bool allowsFirstPartyForCookies(const URL&, Function<bool()>&&);
-    bool allowsFirstPartyForCookies(const WebCore::RegistrableDomain&, HashSet<WebCore::RegistrableDomain>&);
 
 private:
 #if ENABLE(CFPREFS_DIRECT_MODE)

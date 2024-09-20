@@ -129,6 +129,7 @@ typedef struct _CARenderContext CARenderContext;
 @interface CAPresentationModifierGroup : NSObject
 + (instancetype)groupWithCapacity:(NSUInteger)capacity;
 - (void)flush;
+- (void)flushWithTransaction;
 @end
 
 @interface CAPresentationModifier : NSObject
@@ -158,6 +159,14 @@ typedef struct _CARenderContext CARenderContext;
 @property (getter=isSeparated) BOOL separated;
 #endif
 @property BOOL toneMapToStandardDynamicRange;
+#if HAVE(SPATIAL_TRACKING_LABEL)
+typedef NS_ENUM(unsigned, CASeparatedState) {
+    kCALayerSeparatedStateNone = 0,
+    kCALayerSeparatedStateTracked,
+    kCALayerSeparatedStateSeparated,
+};
+@property CASeparatedState separatedState;
+#endif
 @end
 
 @interface CABackdropLayer : CALayer
@@ -219,6 +228,21 @@ typedef enum {
 @property BOOL matchesTransform;
 @end
 
+@interface CARemoteEffect: NSObject <NSCopying, NSSecureCoding>
+@end
+
+@interface CARemoteEffectGroup : CARemoteEffect
++ (instancetype)groupWithEffects:(NSArray<CARemoteEffect *> *)effects;
+@property (copy) NSString *groupName;
+@property (getter=isMatched) BOOL matched;
+@property (getter=isSource) BOOL source;
+@property (copy, nonatomic) NSDictionary *userInfo;
+@end
+
+@interface CALayer (RemoteEffects)
+@property (copy) NSArray<CARemoteEffect *> *remoteEffects;
+@end
+
 #if HAVE(CORE_ANIMATION_FRAME_RATE_RANGE)
 typedef uint32_t CAHighFrameRateReason;
 
@@ -226,6 +250,10 @@ typedef uint32_t CAHighFrameRateReason;
     (((uint32_t)((component) & 0xffff) << 16) | ((code) & 0xffff))
 
 @interface CAAnimation ()
+@property CAHighFrameRateReason highFrameRateReason;
+@end
+
+@interface CADisplayLink ()
 @property CAHighFrameRateReason highFrameRateReason;
 @end
 #endif // HAVE(CORE_ANIMATION_FRAME_RATE_RANGE)

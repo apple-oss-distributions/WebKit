@@ -25,10 +25,11 @@
 
 #import "config.h"
 
-#import "HandleXPCEndpointMessages.h"
 #import "Logging.h"
 #import "WKCrashReporter.h"
+#import "XPCEndpointMessages.h"
 #import "XPCServiceEntryPoint.h"
+#import "XPCUtilities.h"
 #import <CoreFoundation/CoreFoundation.h>
 #import <mach/mach.h>
 #import <pal/spi/cf/CFUtilitiesSPI.h>
@@ -42,28 +43,32 @@
 #import <wtf/spi/cocoa/OSLogSPI.h>
 #import <wtf/spi/darwin/SandboxSPI.h>
 #import <wtf/spi/darwin/XPCSPI.h>
+#import <wtf/text/MakeString.h>
+
+#if __has_include(<WebKitAdditions/DyldCallbackAdditions.h>)
+#import <WebKitAdditions/DyldCallbackAdditions.h>
+#endif
 
 namespace WebKit {
 
+static Vector<String>& overrideLanguagesFromBootstrap()
+{
+    static NeverDestroyed<Vector<String>> languages;
+    return languages;
+}
+
+static void stageOverrideLanguagesForMainThread(Vector<String>&& languages)
+{
+    RELEASE_ASSERT(overrideLanguagesFromBootstrap().isEmpty());
+    overrideLanguagesFromBootstrap().swap(languages);
+}
+
 static void setAppleLanguagesPreference()
 {
-    auto bootstrap = adoptOSObject(xpc_copy_bootstrap());
-    if (!bootstrap)
+    if (overrideLanguagesFromBootstrap().isEmpty())
         return;
-
-    if (xpc_object_t languages = xpc_dictionary_get_value(bootstrap.get(), "OverrideLanguages")) {
-        @autoreleasepool {
-            Vector<String> newLanguages;
-            xpc_array_apply(languages, makeBlockPtr([&newLanguages](size_t index, xpc_object_t value) {
-                newLanguages.append(String::fromUTF8(xpc_string_get_string_ptr(value)));
-                return true;
-            }).get());
-
-            LOG_WITH_STREAM(Language, stream << "Bootstrap message contains OverrideLanguages: " << newLanguages);
-            overrideUserPreferredLanguages(newLanguages);
-        }
-    } else
-        LOG(Language, "Bootstrap message does not contain OverrideLanguages");
+    LOG_WITH_STREAM(Language, stream << "Overriding user prefered language: " << overrideLanguagesFromBootstrap());
+    overrideUserPreferredLanguages(overrideLanguagesFromBootstrap());
 }
 
 static void initializeCFPrefs()
@@ -107,10 +112,10 @@ NEVER_INLINE NO_RETURN_DUE_TO_CRASH static void crashDueWebKitFrameworkVersionMi
 }
 static void checkFrameworkVersion(xpc_object_t message)
 {
-    auto webKitBundleVersion = String::fromLatin1(xpc_dictionary_get_string(message, "WebKitBundleVersion"));
-    String expectedBundleVersion = [NSBundle bundleForClass:NSClassFromString(@"WKWebView")].infoDictionary[(__bridge NSString *)kCFBundleVersionKey];
-    if (!webKitBundleVersion.isNull() && !expectedBundleVersion.isNull() && webKitBundleVersion != expectedBundleVersion) {
-        auto errorMessage = makeString("WebKit framework version mismatch: ", webKitBundleVersion, " != ", expectedBundleVersion);
+    auto uiProcessWebKitBundleVersion = String::fromLatin1(xpc_dictionary_get_string(message, "WebKitBundleVersion"));
+    auto webkitBundleVersion = ASCIILiteral::fromLiteralUnsafe(WEBKIT_BUNDLE_VERSION);
+    if (!uiProcessWebKitBundleVersion.isNull() && uiProcessWebKitBundleVersion != webkitBundleVersion) {
+        auto errorMessage = makeString("WebKit framework version mismatch: "_s, uiProcessWebKitBundleVersion, " != "_s, webkitBundleVersion);
         logAndSetCrashLogMessage(errorMessage.utf8().data());
         crashDueWebKitFrameworkVersionMismatch();
     }
@@ -138,6 +143,8 @@ void XPCServiceEventHandler(xpc_connection_t peer)
             return;
         }
 
+        handleXPCExitMessage(event);
+
         auto* messageName = xpc_dictionary_get_string(event, "message-name");
         if (!messageName) {
             RELEASE_LOG_ERROR(IPC, "XPCServiceEventHandler: 'message-name' is not present in the XPC dictionary");
@@ -146,6 +153,23 @@ void XPCServiceEventHandler(xpc_connection_t peer)
         if (!strcmp(messageName, "bootstrap")) {
             bool disableLogging = xpc_dictionary_get_bool(event, "disable-logging");
             initializeLogd(disableLogging);
+
+            if (xpc_object_t languages = xpc_dictionary_get_value(event, "OverrideLanguages")) {
+                Vector<String> newLanguages;
+                @autoreleasepool {
+                    xpc_array_apply(languages, makeBlockPtr([&newLanguages](size_t index, xpc_object_t value) {
+                        newLanguages.append(String::fromUTF8(xpc_string_get_string_ptr(value)));
+                        return true;
+                    }).get());
+                }
+                LOG_WITH_STREAM(Language, stream << "Bootstrap message contains OverrideLanguages: " << newLanguages);
+                stageOverrideLanguagesForMainThread(WTFMove(newLanguages));
+            } else
+                LOG(Language, "Bootstrap message does not contain OverrideLanguages");
+
+#if __has_include(<WebKitAdditions/DyldCallbackAdditions.h>) && PLATFORM(IOS)
+            register_for_dlsym_callbacks();
+#endif
 
 #if PLATFORM(IOS_FAMILY)
             auto containerEnvironmentVariables = xpc_dictionary_get_value(event, "ContainerEnvironmentVariables");
@@ -167,6 +191,8 @@ void XPCServiceEventHandler(xpc_connection_t peer)
                 entryPointFunctionName = CFSTR(STRINGIZE_VALUE_OF(NETWORK_SERVICE_INITIALIZER));
             else if (!strcmp(serviceName, "com.apple.WebKit.GPU"))
                 entryPointFunctionName = CFSTR(STRINGIZE_VALUE_OF(GPU_SERVICE_INITIALIZER));
+            else if (!strcmp(serviceName, "com.apple.WebKit.Model"))
+                entryPointFunctionName = CFSTR(STRINGIZE_VALUE_OF(MODEL_SERVICE_INITIALIZER));
             else {
                 RELEASE_LOG_ERROR(IPC, "XPCServiceEventHandler: Unexpected 'service-name': %{public}s", serviceName);
                 return;
@@ -210,7 +236,7 @@ void XPCServiceEventHandler(xpc_connection_t peer)
             return;
         }
 
-        handleXPCEndpointMessages(event, messageName);
+        handleXPCEndpointMessage(event, messageName);
     });
 
     xpc_connection_resume(peer);

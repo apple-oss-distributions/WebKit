@@ -39,6 +39,7 @@
 #include "MediaMetadata.h"
 #include "MediaSessionCoordinator.h"
 #include "Navigator.h"
+#include "NowPlayingInfo.h"
 #include "Page.h"
 #include "PlatformMediaSessionManager.h"
 #include <wtf/CryptographicallyRandomNumber.h>
@@ -59,9 +60,9 @@ static WTFLogChannel& logChannel()
     return LogMedia;
 }
 
-static const char* logClassName()
+static ASCIILiteral logClassName()
 {
-    return "MediaSession";
+    return "MediaSession"_s;
 }
 #endif
 
@@ -206,7 +207,7 @@ void MediaSession::setReadyState(MediaSessionReadyState state)
 #endif
 
 #if ENABLE(MEDIA_SESSION_PLAYLIST)
-ExceptionOr<void> MediaSession::setPlaylist(ScriptExecutionContext& context, Vector<RefPtr<MediaMetadata>>&& playlist)
+ExceptionOr<void> MediaSession::setPlaylist(ScriptExecutionContext& context, Vector<Ref<MediaMetadata>>&& playlist)
 {
     ALWAYS_LOG(LOGIDENTIFIER);
 
@@ -355,19 +356,19 @@ void MediaSession::metadataUpdated()
     notifyMetadataObservers();
 }
 
-void MediaSession::addObserver(Observer& observer)
+void MediaSession::addObserver(MediaSessionObserver& observer)
 {
     ASSERT(isMainThread());
     m_observers.add(observer);
 }
 
-void MediaSession::removeObserver(Observer& observer)
+void MediaSession::removeObserver(MediaSessionObserver& observer)
 {
     ASSERT(isMainThread());
     m_observers.remove(observer);
 }
 
-void MediaSession::forEachObserver(const Function<void(Observer&)>& apply)
+void MediaSession::forEachObserver(const Function<void(MediaSessionObserver&)>& apply)
 {
     ASSERT(isMainThread());
     Ref protectedThis { *this };
@@ -432,6 +433,24 @@ void MediaSession::willPausePlayback()
     updateReportedPosition();
     m_playbackState = MediaSessionPlaybackState::Paused;
     notifyPositionStateObservers();
+}
+
+void MediaSession::updateNowPlayingInfo(NowPlayingInfo& info)
+{
+    if (auto positionState = this->positionState()) {
+        info.duration = positionState->duration;
+        info.rate = positionState->playbackRate;
+    }
+    if (auto currentPosition = this->currentPosition())
+        info.currentTime = *currentPosition;
+
+    if (m_metadata && m_metadata->artworkImage()) {
+        ASSERT(m_metadata->artworkImage()->data(), "An image must always have associated data");
+        info.metadata.artwork = { { m_metadata->artworkSrc(), m_metadata->artworkImage()->mimeType(), m_metadata->artworkImage() } };
+        info.metadata.title = m_metadata->title();
+        info.metadata.artist = m_metadata->artist();
+        info.metadata.album = m_metadata->album();
+    }
 }
 
 #if ENABLE(MEDIA_SESSION_COORDINATOR)

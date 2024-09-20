@@ -144,14 +144,17 @@ Context11::Context11(const gl::State &state, gl::ErrorSet *errorSet, Renderer11 
 
 Context11::~Context11() {}
 
-angle::Result Context11::initialize()
+angle::Result Context11::initialize(const angle::ImageLoadContext &imageLoadContext)
 {
+    mImageLoadContext = imageLoadContext;
     return angle::Result::Continue;
 }
 
 void Context11::onDestroy(const gl::Context *context)
 {
     mIncompleteTextures.onDestroy(context);
+
+    mImageLoadContext = {};
 }
 
 CompilerImpl *Context11::createCompiler()
@@ -451,6 +454,11 @@ angle::Result Context11::drawArraysIndirect(const gl::Context *context,
         const gl::DrawArraysIndirectCommand *cmd = nullptr;
         ANGLE_TRY(ReadbackIndirectBuffer(context, indirect, &cmd));
 
+        if (cmd->count == 0)
+        {
+            return angle::Result::Continue;
+        }
+
         ANGLE_TRY(mRenderer->getStateManager()->updateState(
             context, mode, cmd->first, cmd->count, gl::DrawElementsType::InvalidEnum, nullptr,
             cmd->instanceCount, 0, 0, true));
@@ -475,6 +483,11 @@ angle::Result Context11::drawElementsIndirect(const gl::Context *context,
     {
         const gl::DrawElementsIndirectCommand *cmd = nullptr;
         ANGLE_TRY(ReadbackIndirectBuffer(context, indirect, &cmd));
+
+        if (cmd->count == 0)
+        {
+            return angle::Result::Continue;
+        }
 
         const GLuint typeBytes = gl::GetDrawElementsTypeSize(type);
         const void *indices =
@@ -986,6 +999,7 @@ angle::Result Context11::triggerDrawCallProgramRecompilation(const gl::Context *
 
     executableD3D->updateCachedInputLayout(mRenderer, va11->getCurrentStateSerial(), glState);
     executableD3D->updateCachedOutputLayout(context, drawFBO);
+    executableD3D->updateCachedImage2DBindLayout(context, gl::ShaderType::Fragment);
 
     bool recompileVS = !executableD3D->hasVertexExecutableForCachedInputLayout();
     bool recompileGS =
@@ -1058,7 +1072,7 @@ angle::Result Context11::triggerDispatchCallProgramRecompilation(const gl::Conte
     gl::ProgramExecutable *executable   = glState.getProgramExecutable();
     ProgramExecutableD3D *executableD3D = GetImplAs<ProgramExecutableD3D>(executable);
 
-    executableD3D->updateCachedComputeImage2DBindLayout(context);
+    executableD3D->updateCachedImage2DBindLayout(context, gl::ShaderType::Compute);
 
     bool recompileCS = !executableD3D->hasComputeExecutableForCachedImage2DBindLayout();
 
@@ -1146,10 +1160,5 @@ void Context11::handleResult(HRESULT hr,
     errorStream << ": " << message;
 
     mErrors->handleError(glErrorCode, errorStream.str().c_str(), file, function, line);
-}
-
-angle::ImageLoadContext Context11::getImageLoadContext() const
-{
-    return getRenderer()->getDisplay()->getImageLoadContext();
 }
 }  // namespace rx

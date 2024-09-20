@@ -46,7 +46,7 @@ class ContextGL : public ContextImpl
               RobustnessVideoMemoryPurgeStatus robustnessVideoMemoryPurgeStatus);
     ~ContextGL() override;
 
-    angle::Result initialize() override;
+    angle::Result initialize(const angle::ImageLoadContext &imageLoadContext) override;
 
     // Shader creation
     CompilerImpl *createCompiler() override;
@@ -278,6 +278,11 @@ class ContextGL : public ContextImpl
     angle::Result memoryBarrierByRegion(const gl::Context *context, GLbitfield barriers) override;
 
     void framebufferFetchBarrier() override;
+
+    angle::Result startTiling(const gl::Context *context,
+                              const gl::Rectangle &area,
+                              GLbitfield preserveMask) override;
+    angle::Result endTiling(const gl::Context *context, GLbitfield preserveMask) override;
 
     void setMaxShaderCompilerThreads(GLuint count) override;
 

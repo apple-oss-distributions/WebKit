@@ -111,8 +111,10 @@ void MemoryProgramCache::ComputeHash(const Context *context,
 angle::Result MemoryProgramCache::getProgram(const Context *context,
                                              Program *program,
                                              egl::BlobCache::Key *hashOut,
-                                             bool *successOut)
+                                             egl::CacheGetResult *resultOut)
 {
+    *resultOut = egl::CacheGetResult::NotFound;
+
     // If caching is effectively disabled, don't bother calculating the hash.
     if (!mBlobCache.isCachingEnabled())
     {
@@ -131,14 +133,20 @@ angle::Result MemoryProgramCache::getProgram(const Context *context,
         case egl::BlobCache::GetAndDecompressResult::DecompressFailure:
             ANGLE_PERF_WARNING(context->getState().getDebug(), GL_DEBUG_SEVERITY_LOW,
                                "Error decompressing program binary data fetched from cache.");
+            remove(*hashOut);
+            // Consider this blob "not found".  As far as the rest of the code is considered,
+            // corrupted cache might as well not have existed.
             return angle::Result::Continue;
 
-        case egl::BlobCache::GetAndDecompressResult::GetSuccess:
+        case egl::BlobCache::GetAndDecompressResult::Success:
             ANGLE_TRY(program->loadBinary(context, uncompressedData.data(),
-                                          static_cast<int>(uncompressedData.size()), successOut));
+                                          static_cast<int>(uncompressedData.size()), resultOut));
+
+            // Result is either Success or Rejected
+            ASSERT(*resultOut != egl::CacheGetResult::NotFound);
 
             // If cache load failed, evict the entry
-            if (!*successOut)
+            if (*resultOut == egl::CacheGetResult::Rejected)
             {
                 ANGLE_PERF_WARNING(context->getState().getDebug(), GL_DEBUG_SEVERITY_LOW,
                                    "Failed to load program binary from cache.");
@@ -174,12 +182,11 @@ angle::Result MemoryProgramCache::putProgram(const egl::BlobCache::Key &programH
         return angle::Result::Continue;
     }
 
-    angle::MemoryBuffer serializedProgram;
-    ANGLE_TRY(program->serialize(context, &serializedProgram));
+    ANGLE_TRY(program->serialize(context));
+    const angle::MemoryBuffer &serializedProgram = program->getSerializedBinary();
 
     angle::MemoryBuffer compressedData;
-    if (!egl::CompressBlobCacheData(serializedProgram.size(), serializedProgram.data(),
-                                    &compressedData))
+    if (!angle::CompressBlob(serializedProgram.size(), serializedProgram.data(), &compressedData))
     {
         ANGLE_PERF_WARNING(context->getState().getDebug(), GL_DEBUG_SEVERITY_LOW,
                            "Error compressing binary data.");
@@ -187,11 +194,11 @@ angle::Result MemoryProgramCache::putProgram(const egl::BlobCache::Key &programH
     }
 
     {
-        std::scoped_lock<std::mutex> lock(mBlobCache.getMutex());
-        // TODO: http://anglebug.com/7568
+        std::scoped_lock<angle::SimpleMutex> lock(mBlobCache.getMutex());
+        // TODO: http://anglebug.com/42266037
         // This was a workaround for Chrome until it added support for EGL_ANDROID_blob_cache,
-        // tracked by http://anglebug.com/2516. This issue has since been closed, but removing this
-        // still causes a test failure.
+        // tracked by http://anglebug.com/42261225. This issue has since been closed, but removing
+        // this still causes a test failure.
         auto *platform = ANGLEPlatformCurrent();
         platform->cacheProgram(platform, programHash, compressedData.size(), compressedData.data());
     }

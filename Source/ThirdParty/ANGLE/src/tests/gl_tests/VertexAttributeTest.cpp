@@ -984,6 +984,77 @@ void main() {
     }
 }
 
+// Test that interleaved layout works for drawing one vertex
+TEST_P(VertexAttributeTest, InterleavedOneVertex)
+{
+    float pointSizeRange[2] = {};
+    glGetFloatv(GL_ALIASED_POINT_SIZE_RANGE, pointSizeRange);
+    ANGLE_SKIP_TEST_IF(pointSizeRange[1] < 8);
+
+    constexpr char kVS[] = R"(
+attribute vec4 a_pos;
+attribute vec4 a_col;
+varying mediump vec4 v_col;
+void main() {
+    gl_PointSize = 8.0;
+    gl_Position = a_pos;
+    v_col = a_col;
+})";
+    constexpr char kFS[] = R"(
+varying mediump vec4 v_col;
+void main() {
+    gl_FragColor = v_col;
+})";
+    ANGLE_GL_PROGRAM(program, kVS, kFS);
+    glBindAttribLocation(program, 0, "a_pos");
+    glBindAttribLocation(program, 1, "a_col");
+    glUseProgram(program);
+
+    GLBuffer buf;
+    glBindBuffer(GL_ARRAY_BUFFER, buf);
+
+    // One vertex, magenta
+    const GLfloat data1[8] = {
+        0.0f, 0.0f, 0.0f, 1.0f, 1.0f, 0.0f, 1.0f, 1.0f,
+    };
+
+    // Two vertices, red and blue
+    const GLfloat data2[16] = {
+        -0.5f, 0.0f, 0.0f, 1.0f, 1.0f, 0.0f, 0.0f, 1.0f,
+        +0.5f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 1.0f, 1.0f,
+    };
+
+    // One vertex, green
+    const GLfloat data3[8] = {
+        0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 1.0f, 0.0f, 1.0f,
+    };
+
+    glEnableVertexAttribArray(0);
+    glEnableVertexAttribArray(1);
+    glVertexAttribPointer(0, 4, GL_FLOAT, GL_FALSE, 32, reinterpret_cast<void *>(0));
+    glVertexAttribPointer(1, 4, GL_FLOAT, GL_FALSE, 32, reinterpret_cast<void *>(16));
+
+    // The second attribute stride is reaching beyond the buffer's length.
+    // It must not cause any errors as there only one vertex to draw.
+    glBufferData(GL_ARRAY_BUFFER, 32, data1, GL_STATIC_DRAW);
+    glDrawArrays(GL_POINTS, 0, 1);
+    ASSERT_GL_NO_ERROR();
+    EXPECT_PIXEL_COLOR_EQ(64, 64, GLColor::magenta);
+
+    // Replace data and draw two vertices to ensure that stride has been applied correctly.
+    glBufferData(GL_ARRAY_BUFFER, 64, data2, GL_STATIC_DRAW);
+    glDrawArrays(GL_POINTS, 0, 2);
+    ASSERT_GL_NO_ERROR();
+    EXPECT_PIXEL_COLOR_EQ(32, 64, GLColor::red);
+    EXPECT_PIXEL_COLOR_EQ(96, 64, GLColor::blue);
+
+    // Replace data reducing the buffer size back to one vertex
+    glBufferData(GL_ARRAY_BUFFER, 32, data3, GL_STATIC_DRAW);
+    glDrawArrays(GL_POINTS, 0, 1);
+    ASSERT_GL_NO_ERROR();
+    EXPECT_PIXEL_COLOR_EQ(64, 64, GLColor::green);
+}
+
 class VertexAttributeTestES3 : public VertexAttributeTest
 {
   protected:
@@ -1256,6 +1327,19 @@ class VertexAttributeOORTest : public VertexAttributeTest
     }
 };
 
+class RobustVertexAttributeTest : public VertexAttributeTest
+{
+  public:
+    RobustVertexAttributeTest()
+    {
+        // mac GL and metal do not support robustness.
+        if (!IsMac() && !IsIOS())
+        {
+            setRobustAccess(true);
+        }
+    }
+};
+
 // Verify that drawing with a large out-of-range offset generates INVALID_OPERATION.
 // Requires WebGL compatibility with robust access behaviour disabled.
 TEST_P(VertexAttributeOORTest, ANGLEDrawArraysBufferTooSmall)
@@ -1314,6 +1398,48 @@ TEST_P(VertexAttributeOORTest, ANGLEDrawArraysOutOfBoundsCases)
 
     drawIndexedQuad(mProgram, "position", 0.5f, 1.0f, true);
     EXPECT_GL_ERROR(GL_INVALID_OPERATION);
+}
+
+// Test that enabling a buffer in an unused attribute doesn't crash.  There should be an active
+// attribute after that.
+TEST_P(RobustVertexAttributeTest, BoundButUnusedBuffer)
+{
+    constexpr char kVS[] = R"(attribute vec2 offset;
+void main()
+{
+    gl_Position = vec4(offset.xy, 0, 1);
+    gl_PointSize = 1.0;
+})";
+
+    constexpr char kFS[] = R"(precision mediump float;
+void main()
+{
+    gl_FragColor = vec4(1.0, 0, 0, 1.0);
+})";
+
+    const GLuint vs = CompileShader(GL_VERTEX_SHADER, kVS);
+    const GLuint fs = CompileShader(GL_FRAGMENT_SHADER, kFS);
+
+    GLuint program = glCreateProgram();
+    glBindAttribLocation(program, 1, "offset");
+    glAttachShader(program, vs);
+    glAttachShader(program, fs);
+    glLinkProgram(program);
+
+    GLBuffer buffer;
+    glBindBuffer(GL_ARRAY_BUFFER, buffer);
+    glBufferData(GL_ARRAY_BUFFER, 100, nullptr, GL_STATIC_DRAW);
+
+    // Enable an unused attribute that is within the range of active attributes (not beyond it)
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 4, GL_FLOAT, false, 0, 0);
+
+    glUseProgram(program);
+    glDrawArrays(GL_TRIANGLES, 0, 6);
+
+    // Destroy the buffer.  Regression test for a tracking bug where the buffer was used by
+    // SwiftShader (even though location 1 is inactive), but not marked as used by ANGLE.
+    buffer.reset();
 }
 
 // Verify that using a different start vertex doesn't mess up the draw.
@@ -1559,7 +1685,7 @@ TEST_P(VertexAttributeTest, DrawArraysWithByteAtOffset1)
 // draw.
 TEST_P(VertexAttributeTest, DrawArraysWithShortBufferOffsetNotMultipleOf4)
 {
-    // http://anglebug.com/5399
+    // http://anglebug.com/42263937
     ANGLE_SKIP_TEST_IF(IsWindows() && IsAMD() && IsVulkan());
 
     initBasicProgram();
@@ -1724,7 +1850,7 @@ TEST_P(VertexAttributeTest, DrawArraysWithDisabledAttribute)
         "}\n";
 
     ANGLE_GL_PROGRAM(program, testVertexShaderSource2, testFragmentShaderSource);
-    GLuint mProgram2 = program.get();
+    GLuint mProgram2 = program;
 
     ASSERT_EQ(positionLocation, glGetAttribLocation(mProgram2, "position"));
     ASSERT_EQ(mTestAttrib, glGetAttribLocation(mProgram2, "test"));
@@ -2459,7 +2585,7 @@ void main() {
 
     for (int i = 0; i < 3; i++)
     {
-        glUseProgram(renderProgram.get());
+        glUseProgram(renderProgram);
         glBindVertexArray(vao[0]);
         glDrawArraysInstanced(GL_TRIANGLES, 0, 6, kInstanceCount);
 
@@ -2470,10 +2596,10 @@ void main() {
         EXPECT_PIXEL_COLOR_EQ(getWindowWidth() / 2, 0, GLColor::yellow) << i;
 
         glBindVertexArray(vao[1]);
-        glUseProgram(computeProgram.get());
+        glUseProgram(computeProgram);
         glDispatchCompute(1, 1, 1);
 
-        glUseProgram(renderProgram1.get());
+        glUseProgram(renderProgram1);
         glBindVertexArray(vao[1]);
         glDrawArraysInstanced(GL_TRIANGLES, 0, 6, kInstanceCount);
 
@@ -3830,16 +3956,16 @@ TEST_P(VertexAttributeTestES31, MismatchingSignsChangingProgramType)
 // don't allow vertex attribute aliasing.  This test excludes matrix types.
 TEST_P(VertexAttributeTest, AliasingVectorAttribLocations)
 {
-    // http://anglebug.com/5180
+    // http://anglebug.com/42263740
     ANGLE_SKIP_TEST_IF(IsAndroid() && IsOpenGL());
 
-    // http://anglebug.com/3466
+    // http://anglebug.com/42262130
     ANGLE_SKIP_TEST_IF(IsMac() && IsOpenGL());
 
-    // http://anglebug.com/3467
+    // http://anglebug.com/42262131
     ANGLE_SKIP_TEST_IF(IsD3D());
 
-    // TODO(anglebug.com/5491): iOS GLSL compiler rejects attribute aliasing.
+    // TODO(anglebug.com/42264029): iOS GLSL compiler rejects attribute aliasing.
     ANGLE_SKIP_TEST_IF(IsIOS() && IsOpenGLES());
 
     // This test needs 10 total attributes. All backends support this except some old Android
@@ -3996,16 +4122,16 @@ void main()
 // don't allow vertex attribute aliasing.  This test includes matrix types.
 TEST_P(VertexAttributeTest, AliasingMatrixAttribLocations)
 {
-    // http://anglebug.com/5180
+    // http://anglebug.com/42263740
     ANGLE_SKIP_TEST_IF(IsAndroid() && IsOpenGL());
 
-    // http://anglebug.com/3466
+    // http://anglebug.com/42262130
     ANGLE_SKIP_TEST_IF(IsMac() && IsOpenGL());
 
-    // http://anglebug.com/3467
+    // http://anglebug.com/42262131
     ANGLE_SKIP_TEST_IF(IsD3D());
 
-    // TODO(anglebug.com/5491): iOS GLSL compiler rejects attribute aliasing.
+    // TODO(anglebug.com/42264029): iOS GLSL compiler rejects attribute aliasing.
     ANGLE_SKIP_TEST_IF(IsIOS() && IsOpenGLES());
 
     // This test needs 16 total attributes. All backends support this except some old Android
@@ -4236,16 +4362,16 @@ void main()
 // Test that aliasing attribute locations work with differing precisions.
 TEST_P(VertexAttributeTest, AliasingVectorAttribLocationsDifferingPrecisions)
 {
-    // http://anglebug.com/5180
+    // http://anglebug.com/42263740
     ANGLE_SKIP_TEST_IF(IsAndroid() && IsOpenGL());
 
-    // http://anglebug.com/3466
+    // http://anglebug.com/42262130
     ANGLE_SKIP_TEST_IF(IsMac() && IsOpenGL());
 
-    // http://anglebug.com/3467
+    // http://anglebug.com/42262131
     ANGLE_SKIP_TEST_IF(IsD3D());
 
-    // TODO(anglebug.com/5491): iOS GLSL compiler rejects attribute aliasing.
+    // TODO(anglebug.com/42264029): iOS GLSL compiler rejects attribute aliasing.
     ANGLE_SKIP_TEST_IF(IsIOS() && IsOpenGLES());
 
     constexpr char kVS[] = R"(attribute vec4 position;
@@ -4450,43 +4576,6 @@ void main()
     ASSERT_GL_NO_ERROR();
 
     EXPECT_PIXEL_RECT_EQ(0, 0, getWindowWidth(), getWindowHeight(), GLColor::green);
-}
-
-// Test that vertex conversion correctly no-ops when the vertex format requires conversion but there
-// are no vertices to convert.
-TEST_P(VertexAttributeTest, ConversionWithNoVertices)
-{
-    constexpr char kVS[] = R"(precision highp float;
-attribute vec3 attr1;
-void main(void) {
-   gl_Position = vec4(attr1, 1.0);
-})";
-
-    constexpr char kFS[] = R"(precision highp float;
-void main(void) {
-   gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0);
-})";
-
-    GLBuffer buffer;
-    glBindBuffer(GL_ARRAY_BUFFER, buffer);
-    std::array<int8_t, 12> data = {
-        1,
-    };
-    glBufferData(GL_ARRAY_BUFFER, data.size() * sizeof(data[0]), data.data(), GL_STATIC_DRAW);
-
-    ANGLE_GL_PROGRAM(program, kVS, kFS);
-    glBindAttribLocation(program, 0, "attr1");
-    glLinkProgram(program);
-    ASSERT_TRUE(CheckLinkStatusAndReturnProgram(program, true));
-    glUseProgram(program);
-
-    // Set the offset the athe attribute past the end of the buffer but use a format that requires
-    // conversion in Vulkan
-    glEnableVertexAttribArray(0);
-    glVertexAttribPointer(0, 3, GL_BYTE, true, 128, reinterpret_cast<void *>(256));
-
-    glDrawArrays(GL_TRIANGLES, 0, 3);
-    EXPECT_GL_NO_ERROR();
 }
 
 // Test that pipeline is recreated properly when switching from ARRAY buffer to client buffer,
@@ -4881,7 +4970,249 @@ TEST_P(VertexAttributeTestES3, UnusedAttribsMEC)
     }
 }
 
-// VAO emulation fails on Mac but is not used on Mac in the wild. http://anglebug.com/5577
+// Test that a particular vertex attribute naming does not affect the functionality.
+// Tests the vertex attrib aliasing part. Note that aliasing works with es 100 shaders.
+TEST_P(VertexAttributeTest, AliasingAttribNaming)
+{
+    // http://anglebug.com/42263740
+    ANGLE_SKIP_TEST_IF(IsAndroid() && IsOpenGL());
+
+    // http://anglebug.com/42262130
+    ANGLE_SKIP_TEST_IF(IsMac() && IsOpenGL());
+
+    // http://anglebug.com/42262131
+    ANGLE_SKIP_TEST_IF(IsD3D());
+
+    // TODO(anglebug.com/42264029): iOS GLSL compiler rejects attribute aliasing.
+    ANGLE_SKIP_TEST_IF(IsIOS() && IsOpenGLES());
+
+    // This test needs 16 total attributes. All backends support this except some old Android
+    // devices.
+    GLint maxVertexAttribs = 0;
+    glGetIntegerv(GL_MAX_VERTEX_ATTRIBS, &maxVertexAttribs);
+    ANGLE_SKIP_TEST_IF(maxVertexAttribs < 16);
+
+    constexpr char kVS[] = R"(attribute vec4 position;
+// attributes aliasing location 0 and above
+attribute mat3 a;
+attribute mat2 a_;
+
+// attributes aliasing location 1 and above
+attribute vec4 a_1;
+
+// attributes aliasing location 2 and above
+attribute mat4 a_0;
+
+// In summary:
+//
+// location 0: a[0] a_[0]
+// location 1: a[1] a_[1] a_1
+// location 2: a[2]          a_0[0]
+// location 3:               a_0[1] (untested)
+// location 4:               a_0[2] (untested)
+// location 5:               a_0[3] (untested)
+
+const vec3 loc0Expected = vec3(0.05, 0.1, 0.15);
+const vec4 loc1Expected = vec4(0.2, 0.25, 0.3, 0.35);
+const vec4 loc2Expected = vec4(0.4, 0.45, 0.5, 0.55);
+
+uniform float loc0Select;
+uniform float loc1Select;
+uniform float loc2Select;
+
+// Each channel controlled by success from each set of aliasing locations.  If a channel is 0,
+// the attribute test has failed.  Otherwise it will be 1/N, 2/N, ..., 1, depending on how many
+// possible values there are for the controlling uniforms.
+varying mediump vec4 color;
+void main()
+{
+    gl_Position = position;
+
+    vec4 result = vec4(0);
+
+    if (loc0Select < 0.5)
+        result.r = all(lessThan(abs(a[0] - loc0Expected.xyz), vec3(0.01))) ? 0.5 : 0.0;
+    else
+        result.r = all(lessThan(abs(a_[0] - loc0Expected.xy), vec2(0.01))) ? 1.0 : 0.0;
+
+    if (loc1Select < 0.5)
+        result.g = all(lessThan(abs(a[1] - loc1Expected.xyz), vec3(0.01))) ? 0.333333 : 0.0;
+    else if (loc1Select < 1.5)
+        result.g = all(lessThan(abs(a_[1] - loc1Expected.xy), vec2(0.01))) ? 0.666667 : 0.0;
+    else
+        result.g = all(lessThan(abs(a_1 - loc1Expected), vec4(0.01))) ? 1.0 : 0.0;
+
+    if (loc2Select < 0.5)
+        result.b = all(lessThan(abs(a[2] - loc2Expected.xyz), vec3(0.01))) ? 0.5 : 0.0;
+    else
+        result.b = all(lessThan(abs(a_0[0] - loc2Expected), vec4(0.01))) ? 1.0 : 0.0;
+    result.a = 1.0;
+    color = result;
+})";
+
+    constexpr char kFS[] = R"(varying mediump vec4 color;
+    void main(void)
+    {
+        gl_FragColor = color;
+    })";
+
+    // Compile shaders.
+    GLuint program = CompileProgram(kVS, kFS);
+    ASSERT_NE(program, 0u);
+
+    // Setup bindings.
+    glBindAttribLocation(program, 0, "a");
+    glBindAttribLocation(program, 0, "a_");
+    glBindAttribLocation(program, 1, "a_1");
+    glBindAttribLocation(program, 2, "a_0");
+    EXPECT_GL_NO_ERROR();
+
+    // Link program and get uniform locations.
+    glLinkProgram(program);
+    glUseProgram(program);
+    EXPECT_GL_NO_ERROR();
+
+    GLint loc0SelectLoc = glGetUniformLocation(program, "loc0Select");
+    GLint loc1SelectLoc = glGetUniformLocation(program, "loc1Select");
+    GLint loc2SelectLoc = glGetUniformLocation(program, "loc2Select");
+    ASSERT_NE(-1, loc0SelectLoc);
+    ASSERT_NE(-1, loc1SelectLoc);
+    ASSERT_NE(-1, loc2SelectLoc);
+    EXPECT_GL_NO_ERROR();
+
+    // Set values for attributes.
+    glVertexAttrib3f(0, 0.05, 0.1, 0.15);
+    glVertexAttrib4f(1, 0.2, 0.25, 0.3, 0.35);
+    glVertexAttrib4f(2, 0.4, 0.45, 0.5, 0.55);
+    glDisableVertexAttribArray(0);
+    glDisableVertexAttribArray(1);
+    glDisableVertexAttribArray(2);
+    EXPECT_GL_NO_ERROR();
+
+    // Go through different combination of attributes and make sure reading through every alias is
+    // correctly handled.
+    GLColor expected;
+    expected.A = 255;
+    for (uint32_t loc0Select = 0; loc0Select < 2; ++loc0Select)
+    {
+        glUniform1f(loc0SelectLoc, loc0Select);
+        expected.R = loc0Select * 127 + 127;
+
+        for (uint32_t loc1Select = 0; loc1Select < 3; ++loc1Select)
+        {
+            glUniform1f(loc1SelectLoc, loc1Select);
+            expected.G = loc1Select * 85 + 85;
+
+            for (uint32_t loc2Select = 0; loc2Select < 2; ++loc2Select)
+            {
+                glUniform1f(loc2SelectLoc, loc2Select);
+                expected.B = loc2Select * 127 + 127;
+                drawQuad(program, "position", 0.5f);
+                EXPECT_GL_NO_ERROR();
+                EXPECT_PIXEL_COLOR_NEAR(0, 0, expected, 1);
+            }
+        }
+    }
+}
+
+// Test that a particular vertex attribute naming does not affect the functionality.
+TEST_P(VertexAttributeTestES3, AttribNaming)
+{
+    // http://anglebug.com/42263740
+    ANGLE_SKIP_TEST_IF(IsAndroid() && IsOpenGL());
+
+    // http://anglebug.com/42262130
+    ANGLE_SKIP_TEST_IF(IsMac() && IsOpenGL());
+
+    // http://anglebug.com/42262131
+    ANGLE_SKIP_TEST_IF(IsD3D());
+
+    // TODO(anglebug.com/42264029): iOS GLSL compiler rejects attribute aliasing.
+    ANGLE_SKIP_TEST_IF(IsIOS() && IsOpenGLES());
+
+    // This test needs roughly 16 total attributes. All backends support this except some old
+    // Android devices.
+    GLint maxVertexAttribs = 0;
+    glGetIntegerv(GL_MAX_VERTEX_ATTRIBS, &maxVertexAttribs);
+    ANGLE_SKIP_TEST_IF(maxVertexAttribs < 16);
+
+    constexpr char kVS[] = R"(#version 300 es
+precision mediump float;
+in vec4 position;
+in mat3 a;
+in mat2 a_;
+in vec4 a_1;
+in vec4 a_0;
+const mat3 aExpected = mat3(0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8);
+const mat2 a_Expected = mat2(1.0, 1.1, 1.2, 1.3);
+const vec4 a_1Expected = vec4(2.0, 2.1, 2.2, 2.3);
+const vec4 a_0Expected = vec4(3.0, 3.1, 3.2, 3.3);
+out mediump vec4 color;
+void main()
+{
+    gl_Position = position;
+
+    vec4 result = vec4(0);
+    mat3 diff3 = a - aExpected;
+    result.r = all(lessThan(abs(diff3[0]) + abs(diff3[1]) + abs(diff3[2]), vec3(0.01))) ? 1.0 : 0.0;
+    mat2 diff2 = a_ - a_Expected;
+    result.g = all(lessThan(abs(diff2[0]) + abs(diff2[1]), vec2(0.01))) ? 1.0 : 0.0;
+    result.b = all(lessThan(abs(a_1 - a_1Expected), vec4(0.01))) ? 1.0 : 0.0;
+    result.a = all(lessThan(abs(a_0 - a_0Expected), vec4(0.01))) ? 1.0 : 0.0;
+    color = result;
+})";
+
+    constexpr char kFS[] = R"(#version 300 es
+in mediump vec4 color;
+out mediump vec4 fragColor;
+void main(void)
+{
+    fragColor = color;
+})";
+
+    GLuint program = CompileProgram(kVS, kFS);
+    ASSERT_NE(program, 0u);
+
+    glBindAttribLocation(program, 0, "a");
+    glBindAttribLocation(program, 4, "a_");
+    glBindAttribLocation(program, 6, "a_1");
+    glBindAttribLocation(program, 7, "a_0");
+    EXPECT_GL_NO_ERROR();
+
+    glLinkProgram(program);
+    glUseProgram(program);
+    EXPECT_GL_NO_ERROR();
+
+    // Set values for attributes.
+    glVertexAttrib3f(0, 0.0, 0.1, 0.2);
+    glVertexAttrib3f(1, 0.3, 0.4, 0.5);
+    glVertexAttrib3f(2, 0.6, 0.7, 0.8);
+    glVertexAttrib2f(4, 1.0, 1.1);
+    glVertexAttrib2f(5, 1.2, 1.3);
+    glVertexAttrib4f(6, 2.0, 2.1, 2.2, 2.3);
+    glVertexAttrib4f(7, 3.0, 3.1, 3.2, 3.3);
+
+    glDisableVertexAttribArray(0);
+    glDisableVertexAttribArray(1);
+    glDisableVertexAttribArray(2);
+    glDisableVertexAttribArray(3);
+    glDisableVertexAttribArray(4);
+    glDisableVertexAttribArray(5);
+    glDisableVertexAttribArray(6);
+    glDisableVertexAttribArray(7);
+    glDisableVertexAttribArray(8);
+    glDisableVertexAttribArray(9);
+    EXPECT_GL_NO_ERROR();
+
+    // Go through different combination of attributes and make sure reading through every alias is
+    // correctly handled.
+    GLColor expected{255, 255, 255, 255};
+    drawQuad(program, "position", 0.5f);
+    EXPECT_GL_NO_ERROR();
+    EXPECT_PIXEL_COLOR_NEAR(0, 0, expected, 1);
+}
+
+// VAO emulation fails on Mac but is not used on Mac in the wild. http://anglebug.com/40096758
 #if !defined(__APPLE__)
 #    define EMULATED_VAO_CONFIGS                                       \
         ES2_OPENGL().enable(Feature::SyncVertexArraysToDefault),       \
@@ -4912,6 +5243,8 @@ ANGLE_INSTANTIATE_TEST_ES2_AND_ES3_AND(
     ES3_VULKAN_SWIFTSHADER().enable(Feature::ForceFallbackFormat),
     ES3_METAL().disable(Feature::HasExplicitMemBarrier).disable(Feature::HasCheapRenderPass),
     ES3_METAL().disable(Feature::HasExplicitMemBarrier).enable(Feature::HasCheapRenderPass));
+
+ANGLE_INSTANTIATE_TEST_ES2_AND_ES3(RobustVertexAttributeTest);
 
 GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(VertexAttributeTestES3);
 ANGLE_INSTANTIATE_TEST_ES3_AND(

@@ -8,20 +8,29 @@
 #ifndef LIBANGLE_RENDERER_VULKAN_CLCONTEXTVK_H_
 #define LIBANGLE_RENDERER_VULKAN_CLCONTEXTVK_H_
 
+#include "libANGLE/renderer/vulkan/CLPlatformVk.h"
 #include "libANGLE/renderer/vulkan/cl_types.h"
+#include "libANGLE/renderer/vulkan/vk_utils.h"
 
 #include "libANGLE/renderer/CLContextImpl.h"
 
+#include <libANGLE/CLContext.h>
 #include "libANGLE/CLDevice.h"
 
 namespace rx
 {
 
-class CLContextVk : public CLContextImpl
+class CLContextVk : public CLContextImpl, public vk::Context
 {
   public:
-    CLContextVk(const cl::Context &context);
+    CLContextVk(const cl::Context &context, const cl::DevicePtrs devicePtrs);
+
     ~CLContextVk() override;
+
+    void handleError(VkResult errorCode,
+                     const char *file,
+                     const char *function,
+                     unsigned int line) override;
 
     bool hasMemory(cl_mem memory) const;
 
@@ -31,7 +40,6 @@ class CLContextVk : public CLContextImpl
                                      CLCommandQueueImpl::Ptr *commandQueueOut) override;
 
     angle::Result createBuffer(const cl::Buffer &buffer,
-                               size_t size,
                                void *hostPtr,
                                CLMemoryImpl::Ptr *bufferOut) override;
 
@@ -80,7 +88,32 @@ class CLContextVk : public CLContextImpl
     angle::Result createUserEvent(const cl::Event &event, CLEventImpl::Ptr *eventOut) override;
 
     angle::Result waitForEvents(const cl::EventPtrs &events) override;
+
+    CLPlatformVk *getPlatform() { return &mContext.getPlatform().getImpl<CLPlatformVk>(); }
+
+    cl::Context &getFrontendObject() { return const_cast<cl::Context &>(mContext); }
+
+  private:
+    void handleDeviceLost() const;
+
+    // Have the CL Context keep tabs on associated CL objects
+    struct Mutable
+    {
+        std::unordered_set<const _cl_mem *> mMemories;
+    };
+    using MutableData = angle::SynchronizedValue<Mutable>;
+    MutableData mAssociatedObjects;
+
+    const cl::DevicePtrs mAssociatedDevices;
+
+    friend class CLMemoryVk;
 };
+
+inline bool CLContextVk::hasMemory(cl_mem memory) const
+{
+    const auto data = mAssociatedObjects.synchronize();
+    return data->mMemories.find(memory) != data->mMemories.cend();
+}
 
 }  // namespace rx
 

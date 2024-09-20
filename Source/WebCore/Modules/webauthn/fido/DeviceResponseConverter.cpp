@@ -54,31 +54,12 @@ static ProtocolVersion convertStringToProtocolVersion(const String& version)
     return ProtocolVersion::kUnknown;
 }
 
-static std::optional<AuthenticatorTransport> convertStringToAuthenticatorTransport(const String& transport)
-{
-    if (transport == authenticatorTransportUsb)
-        return AuthenticatorTransport::Usb;
-    if (transport == authenticatorTransportNfc)
-        return AuthenticatorTransport::Nfc;
-    if (transport == authenticatorTransportBle)
-        return AuthenticatorTransport::Ble;
-    if (transport == authenticatorTransportInternal)
-        return AuthenticatorTransport::Internal;
-    if (transport == authenticatorTransportCable)
-        return AuthenticatorTransport::Cable;
-    if (transport == authenticatorTransportHybrid)
-        return AuthenticatorTransport::Hybrid;
-    if (transport == authenticatorTransportSmartCard)
-        return AuthenticatorTransport::SmartCard;
-    return std::nullopt;
-}
-
 std::optional<cbor::CBORValue> decodeResponseMap(const Vector<uint8_t>& inBuffer)
 {
     if (inBuffer.size() <= kResponseCodeLength || getResponseCode(inBuffer) != CtapDeviceResponseCode::kSuccess)
         return std::nullopt;
 
-    Vector<uint8_t> buffer { inBuffer.data() + 1, inBuffer.size() - 1 };
+    auto buffer = inBuffer.subvector(1);
     std::optional<CBOR> decodedResponse = cbor::CBORReader::read(buffer);
     if (!decodedResponse || !decodedResponse->isMap())
         return std::nullopt;
@@ -357,6 +338,14 @@ std::optional<AuthenticatorGetInfoResponse> readCTAPGetInfoResponse(const Vector
                 transports.append(*transport);
         }
         response.setTransports(WTFMove(transports));
+    }
+
+    it = responseMap.find(CBOR(20));
+    if (it != responseMap.end()) {
+        if (!it->second.isUnsigned())
+            return std::nullopt;
+
+        response.setRemainingDiscoverableCredentials(it->second.getUnsigned());
     }
 
     return WTFMove(response);

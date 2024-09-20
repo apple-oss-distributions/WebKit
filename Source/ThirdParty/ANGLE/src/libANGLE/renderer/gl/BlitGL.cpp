@@ -213,7 +213,7 @@ angle::Result UnbindAttachment(const gl::Context *context,
                                GLenum attachment)
 {
     // Always use framebufferTexture2D as a workaround for an Nvidia driver bug. See
-    // https://anglebug.com/5536 and FeaturesGL.alwaysUnbindFramebufferTexture2D
+    // https://anglebug.com/42264072 and FeaturesGL.alwaysUnbindFramebufferTexture2D
     ANGLE_GL_TRY(context,
                  functions->framebufferTexture2D(GL_FRAMEBUFFER, attachment, GL_TEXTURE_2D, 0, 0));
 
@@ -229,6 +229,32 @@ angle::Result UnbindAttachments(const gl::Context *context,
     {
         ANGLE_TRY(UnbindAttachment(context, functions, framebufferTarget, bindTarget));
     }
+    return angle::Result::Continue;
+}
+
+angle::Result CheckIfAttachmentNeedsClearing(const gl::Context *context,
+                                             const gl::FramebufferAttachment *attachment,
+                                             bool *needsClearInit)
+{
+    if (attachment->initState() == gl::InitState::Initialized)
+    {
+        *needsClearInit = false;
+        return angle::Result::Continue;
+    }
+
+    // Special case for 2D array and 3D textures. The init state tracks initialization for all
+    // layers but only one will be cleared by a clear call. Initialize those entire textures
+    // here.
+    if (attachment->type() == GL_TEXTURE &&
+        (attachment->getTextureImageIndex().getTarget() == gl::TextureTarget::_2DArray ||
+         attachment->getTextureImageIndex().getTarget() == gl::TextureTarget::_3D))
+    {
+        ANGLE_TRY(attachment->initializeContents(context));
+        *needsClearInit = false;
+        return angle::Result::Continue;
+    }
+
+    *needsClearInit = true;
     return angle::Result::Continue;
 }
 
@@ -1052,19 +1078,113 @@ angle::Result BlitGL::clearRenderbuffer(const gl::Context *context,
 }
 
 angle::Result BlitGL::clearFramebuffer(const gl::Context *context,
-                                       bool colorClear,
+                                       const gl::DrawBufferMask &colorAttachments,
                                        bool depthClear,
                                        bool stencilClear,
                                        FramebufferGL *source)
 {
     // initializeResources skipped because no local state is used
 
+    bool hasIntegerColorAttachments = false;
+
+    // Filter the color attachments for ones that actually have an init state of uninitialized.
+    gl::DrawBufferMask uninitializedColorAttachments;
+    for (size_t colorAttachmentIdx : colorAttachments)
+    {
+        bool needsInit = false;
+        const gl::FramebufferAttachment *attachment =
+            source->getState().getColorAttachment(colorAttachmentIdx);
+        ANGLE_TRY(CheckIfAttachmentNeedsClearing(context, attachment, &needsInit));
+        uninitializedColorAttachments[colorAttachmentIdx] = needsInit;
+        if (needsInit && (attachment->getComponentType() == GL_INT ||
+                          attachment->getComponentType() == GL_UNSIGNED_INT))
+        {
+            hasIntegerColorAttachments = true;
+        }
+    }
+
+    bool depthNeedsInit = false;
+    if (depthClear)
+    {
+        ANGLE_TRY(CheckIfAttachmentNeedsClearing(context, source->getState().getDepthAttachment(),
+                                                 &depthNeedsInit));
+    }
+
+    bool stencilNeedsInit = false;
+    if (stencilClear)
+    {
+        ANGLE_TRY(CheckIfAttachmentNeedsClearing(context, source->getState().getStencilAttachment(),
+                                                 &stencilNeedsInit));
+    }
+
     // Clear all attachments
     GLbitfield clearMask = 0;
-    ANGLE_TRY(SetClearState(mStateManager, colorClear, depthClear, stencilClear, &clearMask));
+    ANGLE_TRY(SetClearState(mStateManager, uninitializedColorAttachments.any(), depthNeedsInit,
+                            stencilNeedsInit, &clearMask));
 
     mStateManager->bindFramebuffer(GL_FRAMEBUFFER, source->getFramebufferID());
-    ANGLE_GL_TRY(context, mFunctions->clear(clearMask));
+
+    // If we're not clearing all attached color attachments, we need to clear them individually with
+    // glClearBuffer*
+    if ((clearMask & GL_COLOR_BUFFER_BIT) &&
+        (uninitializedColorAttachments != source->getState().getColorAttachmentsMask() ||
+         uninitializedColorAttachments != source->getState().getEnabledDrawBuffers() ||
+         hasIntegerColorAttachments))
+    {
+        for (size_t colorAttachmentIdx : uninitializedColorAttachments)
+        {
+            const gl::FramebufferAttachment *attachment =
+                source->getState().getColorAttachment(colorAttachmentIdx);
+            if (attachment->initState() == gl::InitState::Initialized)
+            {
+                continue;
+            }
+
+            switch (attachment->getComponentType())
+            {
+                case GL_UNSIGNED_NORMALIZED:
+                case GL_SIGNED_NORMALIZED:
+                case GL_FLOAT:
+                {
+                    constexpr GLfloat clearValue[] = {0, 0, 0, 0};
+                    ANGLE_GL_TRY(context,
+                                 mFunctions->clearBufferfv(
+                                     GL_COLOR, static_cast<GLint>(colorAttachmentIdx), clearValue));
+                }
+                break;
+
+                case GL_INT:
+                {
+                    constexpr GLint clearValue[] = {0, 0, 0, 0};
+                    ANGLE_GL_TRY(context,
+                                 mFunctions->clearBufferiv(
+                                     GL_COLOR, static_cast<GLint>(colorAttachmentIdx), clearValue));
+                }
+                break;
+
+                case GL_UNSIGNED_INT:
+                {
+                    constexpr GLuint clearValue[] = {0, 0, 0, 0};
+                    ANGLE_GL_TRY(context,
+                                 mFunctions->clearBufferuiv(
+                                     GL_COLOR, static_cast<GLint>(colorAttachmentIdx), clearValue));
+                }
+                break;
+
+                default:
+                    UNREACHABLE();
+                    break;
+            }
+        }
+
+        // Remove color buffer bit and clear the rest of the attachments with glClear
+        clearMask = clearMask & ~GL_COLOR_BUFFER_BIT;
+    }
+
+    if (clearMask != 0)
+    {
+        ANGLE_GL_TRY(context, mFunctions->clear(clearMask));
+    }
 
     return angle::Result::Continue;
 }
@@ -1095,11 +1215,12 @@ angle::Result BlitGL::clearRenderableTextureAlphaToOne(const gl::Context *contex
     return angle::Result::Continue;
 }
 
-angle::Result BlitGL::generateSRGBMipmap(const gl::Context *context,
-                                         TextureGL *source,
-                                         GLuint baseLevel,
-                                         GLuint levelCount,
-                                         const gl::Extents &sourceBaseLevelSize)
+angle::Result BlitGL::generateMipmap(const gl::Context *context,
+                                     TextureGL *source,
+                                     GLuint baseLevel,
+                                     GLuint levelCount,
+                                     const gl::Extents &sourceBaseLevelSize,
+                                     const nativegl::TexImageFormat &format)
 {
     ANGLE_TRY(initializeResources(context));
 
@@ -1112,23 +1233,17 @@ angle::Result BlitGL::generateSRGBMipmap(const gl::Context *context,
     scopedState.willUseTextureUnit(context, 0);
     mStateManager->activeTexture(0);
 
-    // Copy source to a linear intermediate texture.
-    GLuint linearTexture = mScratchTextures[0];
-    mStateManager->bindTexture(sourceType, linearTexture);
-    ANGLE_GL_TRY(context, mFunctions->texImage2D(
-                              ToGLenum(sourceTarget), 0, mSRGBMipmapGenerationFormat.internalFormat,
-                              sourceBaseLevelSize.width, sourceBaseLevelSize.height, 0,
-                              mSRGBMipmapGenerationFormat.format, mSRGBMipmapGenerationFormat.type,
-                              nullptr));
+    // Copy source to an intermediate texture.
+    GLuint intermediateTexture = mScratchTextures[0];
+    mStateManager->bindTexture(sourceType, intermediateTexture);
+    mStateManager->bindBuffer(gl::BufferBinding::PixelUnpack, 0);
+    ANGLE_GL_TRY(context, mFunctions->texParameteri(ToGLenum(sourceTarget), GL_TEXTURE_MIN_FILTER,
+                                                    GL_NEAREST));
+    ANGLE_GL_TRY(context, mFunctions->texParameteri(ToGLenum(sourceTarget), GL_TEXTURE_MAG_FILTER,
+                                                    GL_NEAREST));
 
-    mStateManager->bindFramebuffer(GL_FRAMEBUFFER, mScratchFBO);
-    ANGLE_GL_TRY(context,
-                 mFunctions->framebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
-                                                  ToGLenum(sourceTarget), linearTexture, 0));
-    mStateManager->setFramebufferSRGBEnabled(context, true);
-
-    // Use a shader to do the sRGB to linear conversion. glBlitFramebuffer does not always do this
-    // conversion for us.
+    // Use a shader to copy the source to intermediate texture. glBlitFramebuffer does not always do
+    // sRGB to linear conversions for us.
     BlitProgram *blitProgram = nullptr;
     ANGLE_TRY(getBlitProgram(context, sourceType, GL_FLOAT, GL_FLOAT, &blitProgram));
 
@@ -1140,40 +1255,62 @@ angle::Result BlitGL::generateSRGBMipmap(const gl::Context *context,
     ANGLE_GL_TRY(context, mFunctions->uniform1i(blitProgram->unMultiplyAlphaLocation, 0));
     ANGLE_GL_TRY(context, mFunctions->uniform1i(blitProgram->transformLinearToSrgbLocation, 0));
 
-    mStateManager->bindTexture(sourceType, source->getTextureID());
-    ANGLE_TRY(source->setMinFilter(context, GL_NEAREST));
+    mStateManager->bindFramebuffer(GL_FRAMEBUFFER, mScratchFBO);
+    mStateManager->setFramebufferSRGBEnabled(context, true);
 
     ANGLE_TRY(setVAOState(context));
-    ANGLE_GL_TRY(context, mFunctions->drawArrays(GL_TRIANGLES, 0, 3));
 
-    // Generate mipmaps on the linear texture
-    mStateManager->bindTexture(sourceType, linearTexture);
-    ANGLE_GL_TRY_ALWAYS_CHECK(context, mFunctions->generateMipmap(ToGLenum(sourceTarget)));
-    ANGLE_GL_TRY(context, mFunctions->texParameteri(ToGLenum(sourceTarget), GL_TEXTURE_MIN_FILTER,
-                                                    GL_NEAREST));
+    ANGLE_TRY(source->setMinFilter(context, GL_LINEAR));
+    ANGLE_TRY(source->setMagFilter(context, GL_LINEAR));
 
-    // Copy back to the source texture from the mips generated in the linear texture
-    for (GLuint levelIdx = 0; levelIdx < levelCount; levelIdx++)
+    // Copy back to the source texture from the mips generated in the intermediate texture
+    for (GLuint levelIdx = 1; levelIdx < levelCount; levelIdx++)
     {
         gl::Extents levelSize(std::max(sourceBaseLevelSize.width >> levelIdx, 1),
                               std::max(sourceBaseLevelSize.height >> levelIdx, 1), 1);
 
-        ANGLE_GL_TRY(context, mFunctions->framebufferTexture2D(
-                                  GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, ToGLenum(sourceTarget),
-                                  source->getTextureID(), baseLevel + levelIdx));
+        // Downsample from the source texture into the intermediate texture
+        mStateManager->bindTexture(sourceType, intermediateTexture);
+        ANGLE_GL_TRY(context, mFunctions->texImage2D(
+                                  ToGLenum(sourceTarget), 0, format.internalFormat, levelSize.width,
+                                  levelSize.height, 0, format.format, format.type, nullptr));
+
+        ANGLE_GL_TRY(context, mFunctions->framebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
+                                                               ToGLenum(sourceTarget),
+                                                               intermediateTexture, 0));
         mStateManager->setViewport(gl::Rectangle(0, 0, levelSize.width, levelSize.height));
 
-        ANGLE_GL_TRY(context, mFunctions->texParameteri(ToGLenum(sourceTarget),
-                                                        GL_TEXTURE_BASE_LEVEL, levelIdx));
+        GLuint sourceTextureReadLevel = baseLevel + levelIdx - 1;
+        mStateManager->bindTexture(sourceType, source->getTextureID());
+        ANGLE_TRY(source->setBaseLevel(context, sourceTextureReadLevel));
+        ANGLE_GL_TRY(context, mFunctions->drawArrays(GL_TRIANGLES, 0, 3));
 
+        // Copy back to the source texture
+        GLuint sourceTextureWriteLevel = sourceTextureReadLevel + 1;
+        ANGLE_GL_TRY(context, mFunctions->framebufferTexture2D(
+                                  GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, ToGLenum(sourceTarget),
+                                  source->getTextureID(), sourceTextureWriteLevel));
+        mStateManager->bindTexture(sourceType, intermediateTexture);
         ANGLE_GL_TRY(context, mFunctions->drawArrays(GL_TRIANGLES, 0, 3));
     }
+
+    ANGLE_TRY(source->setBaseLevel(context, baseLevel));
 
     ANGLE_TRY(orphanScratchTextures(context));
     ANGLE_TRY(UnbindAttachment(context, mFunctions, GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0));
 
     ANGLE_TRY(scopedState.exit(context));
     return angle::Result::Continue;
+}
+
+angle::Result BlitGL::generateSRGBMipmap(const gl::Context *context,
+                                         TextureGL *source,
+                                         GLuint baseLevel,
+                                         GLuint levelCount,
+                                         const gl::Extents &sourceBaseLevelSize)
+{
+    return generateMipmap(context, source, baseLevel, levelCount, sourceBaseLevelSize,
+                          mSRGBMipmapGenerationFormat);
 }
 
 angle::Result BlitGL::initializeResources(const gl::Context *context)

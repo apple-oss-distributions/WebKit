@@ -27,6 +27,7 @@
 
 #include "MediaPromiseTypes.h"
 
+#include "ProcessIdentity.h"
 #include <CoreMedia/CMTime.h>
 #include <atomic>
 #include <wtf/Deque.h>
@@ -91,6 +92,8 @@ public:
     bool hardwareDecoderEnabled() const { return m_hardwareDecoderEnabled; }
     void setHardwareDecoderEnabled(bool enabled) { m_hardwareDecoderEnabled = enabled; }
 
+    void setResourceOwner(const ProcessIdentity& resourceOwner) { m_resourceOwner = resourceOwner; }
+
 private:
     enum Mode {
         OpenGL,
@@ -111,6 +114,7 @@ private:
     void resetAutomaticDequeueTimer();
     void automaticDequeue();
     bool shouldDecodeSample(CMSampleBufferRef, bool displaying);
+    void assignResourceOwner(CVImageBufferRef);
 
     static CMTime getDecodeTime(CMBufferRef, void* refcon);
     static CMTime getPresentationTime(CMBufferRef, void* refcon);
@@ -173,6 +177,8 @@ private:
     std::atomic<unsigned> m_corruptedVideoFrames { 0 };
     std::atomic<bool> m_deliverDecodedFrames { false };
     MediaTime m_totalFrameDelay;
+
+    ProcessIdentity m_resourceOwner;
 };
 
 }

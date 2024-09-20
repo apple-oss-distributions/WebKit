@@ -115,6 +115,7 @@ class ValidateAST : public TIntermTraverser
 
     // For validateStructUsage:
     std::vector<std::map<ImmutableString, const TFieldListCollection *>> mStructsAndBlocksByName;
+    std::set<const TFunction *> mStructUsageProcessedFunctions;
     bool mStructUsageFailed = false;
 
     // For validateExpressionTypes:
@@ -125,6 +126,9 @@ class ValidateAST : public TIntermTraverser
 
     // For validateNoSwizzleOfSwizzle:
     bool mNoSwizzleOfSwizzleFailed = false;
+
+    // For validateNoQualifiersOnConstructors:
+    bool mNoQualifiersOnConstructorsFailed = false;
 
     // For validateNoStatementsAfterBranch:
     bool mIsBranchVisitedInBlock        = false;
@@ -483,7 +487,7 @@ void ValidateAST::validateExpressionTypeBinary(TIntermBinary *node)
             if (!expectedType.isArray())
             {
                 // TODO: Validate matrix column selection and vector component selection.
-                // http://anglebug.com/2733
+                // http://anglebug.com/42261441
                 break;
             }
 
@@ -525,7 +529,7 @@ void ValidateAST::validateExpressionTypeBinary(TIntermBinary *node)
         }
         break;
         default:
-            // TODO: Validate other expressions. http://anglebug.com/2733
+            // TODO: Validate other expressions. http://anglebug.com/42261441
             break;
     }
 
@@ -936,9 +940,12 @@ void ValidateAST::visitFunctionPrototype(TIntermFunctionPrototype *node)
 
     if (mOptions.validateStructUsage)
     {
-        if (returnType.isStructSpecifier())
+        bool needsProcessing =
+            mStructUsageProcessedFunctions.find(function) == mStructUsageProcessedFunctions.end();
+        if (needsProcessing && returnType.isStructSpecifier())
         {
             visitStructOrInterfaceBlockDeclaration(returnType, node->getLine());
+            mStructUsageProcessedFunctions.insert(function);
         }
         else
         {
@@ -995,7 +1002,6 @@ void ValidateAST::visitFunctionPrototype(TIntermFunctionPrototype *node)
 bool ValidateAST::visitFunctionDefinition(Visit visit, TIntermFunctionDefinition *node)
 {
     visitNode(visit, node);
-    scope(visit);
 
     if (mOptions.validateVariableReferences && visit == PreVisit)
     {
@@ -1047,6 +1053,53 @@ bool ValidateAST::visitAggregate(Visit visit, TIntermAggregate *node)
                                 "<validateNoRawFunctionCalls>",
                                 node->getFunction()->name().data());
             mNoRawFunctionCallsFailed = true;
+        }
+    }
+
+    if (visit == PreVisit && mOptions.validateNoQualifiersOnConstructors)
+    {
+        if (node->getOp() == EOpConstruct)
+        {
+            if (node->getType().isInvariant())
+            {
+                mDiagnostics->error(node->getLine(), "Found constructor node with invariant type",
+                                    "<validateNoQualifiersOnConstructors>");
+                mNoQualifiersOnConstructorsFailed = true;
+            }
+            if (node->getType().isPrecise())
+            {
+                mDiagnostics->error(node->getLine(), "Found constructor node with precise type",
+                                    "<validateNoQualifiersOnConstructors>");
+                mNoQualifiersOnConstructorsFailed = true;
+            }
+            if (node->getType().isInterpolant())
+            {
+                mDiagnostics->error(node->getLine(), "Found constructor node with interpolant type",
+                                    "<validateNoQualifiersOnConstructors>");
+                mNoQualifiersOnConstructorsFailed = true;
+            }
+            if (!node->getType().getMemoryQualifier().isEmpty())
+            {
+                mDiagnostics->error(node->getLine(),
+                                    "Found constructor node whose type has a memory qualifier",
+                                    "<validateNoQualifiersOnConstructors>");
+                mNoQualifiersOnConstructorsFailed = true;
+            }
+            if (node->getType().getInterfaceBlock() != nullptr)
+            {
+                mDiagnostics->error(
+                    node->getLine(),
+                    "Found constructor node whose type references an interface block",
+                    "<validateNoQualifiersOnConstructors>");
+                mNoQualifiersOnConstructorsFailed = true;
+            }
+            if (!node->getType().getLayoutQualifier().isEmpty())
+            {
+                mDiagnostics->error(node->getLine(),
+                                    "Found constructor node whose type has a layout qualifier",
+                                    "<validateNoQualifiersOnConstructors>");
+                mNoQualifiersOnConstructorsFailed = true;
+            }
         }
     }
 
@@ -1253,7 +1306,7 @@ bool ValidateAST::validateInternal()
            !mBuiltInOpsFailed && !mFunctionCallFailed && !mNoRawFunctionCallsFailed &&
            !mNullNodesFailed && !mQualifiersFailed && !mPrecisionFailed && !mStructUsageFailed &&
            !mExpressionTypesFailed && !mMultiDeclarationsFailed && !mNoSwizzleOfSwizzleFailed &&
-           !mNoStatementsAfterBranchFailed;
+           !mNoQualifiersOnConstructorsFailed && !mNoStatementsAfterBranchFailed;
 }
 
 }  // anonymous namespace

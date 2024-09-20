@@ -51,14 +51,14 @@ public:
 
     // Ensures frontBuffer is valid, either by swapping an existing back
     // buffer, or allocating a new one.
-    void ensureBufferForDisplay(ImageBufferSetPrepareBufferForDisplayInputData&, SwapBuffersDisplayRequirement&, RenderingUpdateID);
+    void ensureBufferForDisplay(ImageBufferSetPrepareBufferForDisplayInputData&, SwapBuffersDisplayRequirement&);
 
     // Initializes the contents of the new front buffer using the previous
     // frames (if applicable), clips to the dirty region, and clears the pixels
     // to be drawn (unless drawing will be opaque).
     void prepareBufferForDisplay(const WebCore::Region& dirtyRegion, bool requiresClearedPixels);
 
-    bool makeBuffersVolatile(OptionSet<BufferInSetType> requestedBuffers, OptionSet<BufferInSetType>& volatileBuffers);
+    bool makeBuffersVolatile(OptionSet<BufferInSetType> requestedBuffers, OptionSet<BufferInSetType>& volatileBuffers, bool forcePurge);
 
 private:
     RemoteImageBufferSet(RemoteImageBufferSetIdentifier, WebCore::RenderingResourceIdentifier, RemoteRenderingBackend&);
@@ -69,22 +69,22 @@ private:
     void didReceiveStreamMessage(IPC::StreamServerConnection&, IPC::Decoder&) final;
 
     // Messages
-    void updateConfiguration(const WebCore::FloatSize&, WebCore::RenderingMode, float resolutionScale, const WebCore::DestinationColorSpace&, WebCore::PixelFormat);
-    void setFlushSignal(IPC::Signal&&);
-    void flush();
+    void updateConfiguration(const WebCore::FloatSize&, WebCore::RenderingMode, float resolutionScale, const WebCore::DestinationColorSpace&, WebCore::ImageBufferPixelFormat);
+    void endPrepareForDisplay(RenderingUpdateID);
 
 #if ENABLE(RE_DYNAMIC_CONTENT_SCALING)
     void dynamicContentScalingDisplayList(CompletionHandler<void(std::optional<WebCore::DynamicContentScalingDisplayList>&&)>&&);
+    WebCore::DynamicContentScalingResourceCache ensureDynamicContentScalingResourceCache();
 #endif
 
     bool isOpaque() const
     {
-        return m_pixelFormat == WebCore::PixelFormat::RGB10 || m_pixelFormat == WebCore::PixelFormat::BGRX8;
+        return m_pixelFormat == WebCore::ImageBufferPixelFormat::RGB10 || m_pixelFormat == WebCore::ImageBufferPixelFormat::BGRX8;
     }
 
+    const RemoteImageBufferSetIdentifier m_identifier;
+    const WebCore::RenderingResourceIdentifier m_displayListIdentifier;
     RefPtr<RemoteRenderingBackend> m_backend;
-    RemoteImageBufferSetIdentifier m_identifier;
-    WebCore::RenderingResourceIdentifier m_displayListIdentifier;
 
     RefPtr<WebCore::ImageBuffer> m_frontBuffer;
     RefPtr<WebCore::ImageBuffer> m_backBuffer;
@@ -97,12 +97,15 @@ private:
     WebCore::RenderingPurpose m_purpose;
     float m_resolutionScale { 1.0f };
     WebCore::DestinationColorSpace m_colorSpace { WebCore::DestinationColorSpace::SRGB() };
-    WebCore::PixelFormat m_pixelFormat;
+    WebCore::ImageBufferPixelFormat m_pixelFormat;
     bool m_frontBufferIsCleared { false };
+    bool m_displayListCreated { false };
 
     std::optional<WebCore::IntRect> m_previouslyPaintedRect;
 
-    std::optional<IPC::Signal> m_flushSignal;
+#if ENABLE(RE_DYNAMIC_CONTENT_SCALING)
+    WebCore::DynamicContentScalingResourceCache m_dynamicContentScalingResourceCache;
+#endif
 };
 
 

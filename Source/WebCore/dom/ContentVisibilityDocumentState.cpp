@@ -27,7 +27,6 @@
 #include "ContentVisibilityDocumentState.h"
 
 #include "ContentVisibilityAutoStateChangeEvent.h"
-#include "DeclarativeAnimation.h"
 #include "DocumentInlines.h"
 #include "DocumentTimeline.h"
 #include "EventNames.h"
@@ -38,6 +37,7 @@
 #include "RenderElement.h"
 #include "RenderStyleInlines.h"
 #include "SimpleRange.h"
+#include "StyleOriginatedAnimation.h"
 #include "VisibleSelection.h"
 
 namespace WebCore {
@@ -196,10 +196,9 @@ HadInitialVisibleContentVisibilityDetermination ContentVisibilityDocumentState::
     return hadInitialVisibleContentVisibilityDetermination;
 }
 
-// Workaround for lack of support for scroll anchoring. We make sure any content-visibility: auto elements
-// above the one to be scrolled to are already hidden, so the scroll position will not need to be adjusted
-// later.
-// FIXME: remove when scroll anchoring is implemented (https://bugs.webkit.org/show_bug.cgi?id=259269).
+// Make sure any skipped content we want to scroll to is in the viewport, so it can be actually
+// scrolled to (i.e. the skipped content early exit in LocalFrameView::scrollRectToVisible does
+// not apply anymore).
 void ContentVisibilityDocumentState::updateContentRelevancyForScrollIfNeeded(const Element& scrollAnchor)
 {
     if (!m_observer)
@@ -216,13 +215,9 @@ void ContentVisibilityDocumentState::updateContentRelevancyForScrollIfNeeded(con
     };
 
     if (RefPtr scrollAnchorRoot = findSkippedContentRoot(scrollAnchor)) {
-        for (auto& weakTarget : m_observer->observationTargets()) {
-            if (RefPtr target = weakTarget.get()) {
-                ASSERT(target->renderer() && target->renderStyle()->contentVisibility() == ContentVisibility::Auto);
-                updateViewportProximity(*target, ViewportProximity::Far);
-            }
-        }
         updateViewportProximity(*scrollAnchorRoot, ViewportProximity::Near);
+        // Since we may not have determined initial visibility yet, force scheduling the content relevancy update.
+        scrollAnchorRoot->protectedDocument()->scheduleContentRelevancyUpdate(ContentRelevancy::OnScreen);
         scrollAnchorRoot->protectedDocument()->updateRelevancyOfContentVisibilityElements();
     }
 }
@@ -248,15 +243,15 @@ void ContentVisibilityDocumentState::updateAnimations(const Element& element, Is
     if (wasSkipped == IsSkippedContent::No || becomesSkipped == IsSkippedContent::Yes)
         return;
     for (RefPtr animation : WebAnimation::instances()) {
-        RefPtr declarativeAnimation = dynamicDowncast<DeclarativeAnimation>(animation.releaseNonNull());
-        if (!declarativeAnimation)
+        RefPtr styleOriginatedAnimation = dynamicDowncast<StyleOriginatedAnimation>(animation.releaseNonNull());
+        if (!styleOriginatedAnimation)
             continue;
-        auto owningElement = declarativeAnimation->owningElement();
+        auto owningElement = styleOriginatedAnimation->owningElement();
         if (!owningElement || !owningElement->element.isDescendantOrShadowDescendantOf(&element))
             continue;
 
-        if (RefPtr timeline = declarativeAnimation->timeline())
-            timeline->animationTimingDidChange(*declarativeAnimation);
+        if (RefPtr timeline = styleOriginatedAnimation->timeline())
+            timeline->animationTimingDidChange(*styleOriginatedAnimation);
     }
 }
 

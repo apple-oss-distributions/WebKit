@@ -35,7 +35,9 @@
 #import "Logging.h"
 #import "RemoteRenderingBackend.h"
 #import <pal/spi/cocoa/AVFoundationSPI.h>
+#import <pal/spi/cocoa/MetalSPI.h>
 #import <wtf/RetainPtr.h>
+#import <wtf/cocoa/SpanCocoa.h>
 
 #if PLATFORM(MAC)
 #include <pal/spi/cocoa/LaunchServicesSPI.h>
@@ -73,11 +75,6 @@ RetainPtr<NSDictionary> GPUProcess::additionalStateForDiagnosticReport() const
 #endif // USE(OS_STATE)
 
 #if ENABLE(CFPREFS_DIRECT_MODE)
-void GPUProcess::notifyPreferencesChanged(const String& domain, const String& key, const std::optional<String>& encodedValue)
-{
-    preferenceDidUpdate(domain, key, encodedValue);
-}
-
 void GPUProcess::dispatchSimulatedNotificationsForPreferenceChange(const String& key)
 {
 }
@@ -121,7 +118,20 @@ void GPUProcess::platformInitializeGPUProcess(GPUProcessCreationParameters& para
     if (launchServicesExtension)
         launchServicesExtension->revoke();
 #endif // PLATFORM(MAC)
+#if USE(SANDBOX_EXTENSIONS_FOR_CACHE_AND_TEMP_DIRECTORY_ACCESS) && USE(EXTENSIONKIT)
+    MTLSetShaderCachePath(parameters.containerCachesDirectory);
+#endif
 }
+
+#if USE(EXTENSIONKIT)
+void GPUProcess::resolveBookmarkDataForCacheDirectory(std::span<const uint8_t> bookmarkData)
+{
+    RetainPtr bookmark = toNSData(bookmarkData);
+    BOOL bookmarkIsStale = NO;
+    NSError* error = nil;
+    [NSURL URLByResolvingBookmarkData:bookmark.get() options:NSURLBookmarkResolutionWithoutUI relativeToURL:nil bookmarkDataIsStale:&bookmarkIsStale error:&error];
+}
+#endif
 
 } // namespace WebKit
 

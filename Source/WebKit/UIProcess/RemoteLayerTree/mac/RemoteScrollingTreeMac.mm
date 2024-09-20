@@ -188,11 +188,11 @@ void RemoteScrollingTreeMac::startPendingScrollAnimations()
 
     auto nodesWithPendingKeyboardScrollAnimations = std::exchange(m_nodesWithPendingKeyboardScrollAnimations, { });
     for (const auto& [key, value] : nodesWithPendingKeyboardScrollAnimations) {
-        RefPtr targetNode = nodeForID(key);
-        if (!is<ScrollingTreeScrollingNode>(targetNode))
+        RefPtr targetNode = dynamicDowncast<ScrollingTreeScrollingNode>(nodeForID(key));
+        if (!targetNode)
             continue;
 
-        downcast<ScrollingTreeScrollingNode>(*targetNode).handleKeyboardScrollRequest(value);
+        targetNode->handleKeyboardScrollRequest(value);
     }
 }
 
@@ -221,8 +221,8 @@ void RemoteScrollingTreeMac::scrollingTreeNodeDidScroll(ScrollingTreeScrollingNo
     ScrollingTree::scrollingTreeNodeDidScroll(node, action);
 
     std::optional<FloatPoint> layoutViewportOrigin;
-    if (is<ScrollingTreeFrameScrollingNode>(node))
-        layoutViewportOrigin = downcast<ScrollingTreeFrameScrollingNode>(node).layoutViewport().location();
+    if (auto* scrollingNode = dynamicDowncast<ScrollingTreeFrameScrollingNode>(node))
+        layoutViewportOrigin = scrollingNode->layoutViewport().location();
 
     auto nodeID = node.scrollingNodeID();
     auto scrollPosition = node.currentScrollPosition();
@@ -359,7 +359,7 @@ void RemoteScrollingTreeMac::receivedEventAfterDefaultHandling(const WebCore::Pl
     m_waitingForBeganEventCondition.notifyOne();
 }
 
-WheelEventHandlingResult RemoteScrollingTreeMac::handleWheelEventAfterDefaultHandling(const PlatformWheelEvent& wheelEvent, ScrollingNodeID targetNodeID, std::optional<WheelScrollGestureState> gestureState)
+WheelEventHandlingResult RemoteScrollingTreeMac::handleWheelEventAfterDefaultHandling(const PlatformWheelEvent& wheelEvent, std::optional<ScrollingNodeID> targetNodeID, std::optional<WheelScrollGestureState> gestureState)
 {
     LOG_WITH_STREAM(Scrolling, stream << "RemoteScrollingTreeMac::handleWheelEventAfterDefaultHandling - targetNodeID " << targetNodeID << " gestureState " << gestureState);
 
@@ -367,7 +367,7 @@ WheelEventHandlingResult RemoteScrollingTreeMac::handleWheelEventAfterDefaultHan
 
     if (!targetNodeID)
         return WheelEventHandlingResult::unhandled();
-    
+
     Locker locker { m_treeLock };
 
     bool allowLatching = false;
@@ -378,7 +378,7 @@ WheelEventHandlingResult RemoteScrollingTreeMac::handleWheelEventAfterDefaultHan
     }
 
     SetForScope disallowLatchingScope(m_allowLatching, allowLatching);
-    RefPtr<ScrollingTreeNode> targetNode = nodeForID(targetNodeID);
+    RefPtr<ScrollingTreeNode> targetNode = nodeForID(*targetNodeID);
     return handleWheelEventWithNode(wheelEvent, processingSteps, targetNode.get(), EventTargeting::NodeOnly);
 }
 
@@ -418,7 +418,7 @@ static ScrollingNodeID scrollingNodeIDForLayer(CALayer *layer)
 {
     auto* layerTreeNode = RemoteLayerTreeNode::forCALayer(layer);
     if (!layerTreeNode)
-        return 0;
+        return { };
 
     return layerTreeNode->scrollingNodeID();
 }
@@ -431,14 +431,14 @@ static bool isScrolledBy(const ScrollingTree& tree, ScrollingNodeID scrollingNod
             return true;
 
         auto* scrollingNode = tree.nodeForID(nodeID);
-        if (is<ScrollingTreeOverflowScrollProxyNode>(scrollingNode)) {
-            ScrollingNodeID actingOverflowScrollingNodeID = downcast<ScrollingTreeOverflowScrollProxyNode>(*scrollingNode).overflowScrollingNodeID();
+        if (auto* scollProxyNode = dynamicDowncast<ScrollingTreeOverflowScrollProxyNode>(scrollingNode)) {
+            auto actingOverflowScrollingNodeID = scollProxyNode->overflowScrollingNodeID();
             if (actingOverflowScrollingNodeID == scrollingNodeID)
                 return true;
         }
 
-        if (is<ScrollingTreePositionedNode>(scrollingNode)) {
-            if (downcast<ScrollingTreePositionedNode>(*scrollingNode).relatedOverflowScrollingNodes().contains(scrollingNodeID))
+        if (auto* positionedNode = dynamicDowncast<ScrollingTreePositionedNode>(scrollingNode)) {
+            if (positionedNode->relatedOverflowScrollingNodes().contains(scrollingNodeID))
                 return false;
         }
     }
@@ -491,12 +491,15 @@ RefPtr<ScrollingTreeNode> RemoteScrollingTreeMac::scrollingNodeForPoint(FloatPoi
 #endif
 
     if (layersAtPoint.size()) {
-        auto* frontmostLayer = layersAtPoint.first().first;
+        RetainPtr<CALayer> frontmostInteractiveLayer;
         for (size_t i = 0 ; i < layersAtPoint.size() ; i++) {
             auto [layer, point] = layersAtPoint[i];
 
             if (!layerEventRegionContainsPoint(layer, point))
                 continue;
+
+            if (!frontmostInteractiveLayer)
+                frontmostInteractiveLayer = layer;
 
             auto scrollingNodeForLayer = [&] (auto layer, auto point) -> RefPtr<ScrollingTreeNode> {
                 UNUSED_PARAM(point);
@@ -504,7 +507,8 @@ RefPtr<ScrollingTreeNode> RemoteScrollingTreeMac::scrollingNodeForPoint(FloatPoi
                 RefPtr scrollingNode = nodeForID(nodeID);
                 if (!is<ScrollingTreeScrollingNode>(scrollingNode))
                     return nullptr;
-                if (isScrolledBy(*this, nodeID, frontmostLayer)) {
+                ASSERT(frontmostInteractiveLayer);
+                if (isScrolledBy(*this, nodeID, frontmostInteractiveLayer.get())) {
                     LOG_WITH_STREAM(UIHitTesting, stream << "RemoteScrollingTreeMac " << this << " scrollingNodeForPoint " << point << " found scrolling node " << nodeID);
                     return scrollingNode;
                 }

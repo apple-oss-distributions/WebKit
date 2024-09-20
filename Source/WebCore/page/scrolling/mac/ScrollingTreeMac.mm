@@ -29,6 +29,7 @@
 #import "Logging.h"
 #import "PlatformCALayer.h"
 #import "PlatformCALayerContentsDelayedReleaser.h"
+#import "ScrollingThread.h"
 #import "ScrollingTreeFixedNodeCocoa.h"
 #import "ScrollingTreeFrameHostingNode.h"
 #import "ScrollingTreeFrameScrollingNodeMac.h"
@@ -101,7 +102,7 @@ static bool layerEventRegionContainsPoint(CALayer *layer, CGPoint localPoint)
 static ScrollingNodeID scrollingNodeIDForLayer(CALayer *layer)
 {
     auto platformCALayer = PlatformCALayer::platformCALayerForLayer((__bridge void*)layer);
-    return platformCALayer ? platformCALayer->scrollingNodeID() : 0;
+    return platformCALayer ? platformCALayer->scrollingNodeID() : ScrollingNodeID { };
 }
 
 static bool isScrolledBy(const ScrollingTree& tree, ScrollingNodeID scrollingNodeID, CALayer *hitLayer)
@@ -112,14 +113,14 @@ static bool isScrolledBy(const ScrollingTree& tree, ScrollingNodeID scrollingNod
             return true;
 
         auto* scrollingNode = tree.nodeForID(nodeID);
-        if (is<ScrollingTreeOverflowScrollProxyNode>(scrollingNode)) {
-            ScrollingNodeID actingOverflowScrollingNodeID = downcast<ScrollingTreeOverflowScrollProxyNode>(*scrollingNode).overflowScrollingNodeID();
+        if (auto* proxyNode = dynamicDowncast<ScrollingTreeOverflowScrollProxyNode>(scrollingNode)) {
+            auto actingOverflowScrollingNodeID = proxyNode->overflowScrollingNodeID();
             if (actingOverflowScrollingNodeID == scrollingNodeID)
                 return true;
         }
 
-        if (is<ScrollingTreePositionedNode>(scrollingNode)) {
-            if (downcast<ScrollingTreePositionedNode>(*scrollingNode).relatedOverflowScrollingNodes().contains(scrollingNodeID))
+        if (auto* positionedNode = dynamicDowncast<ScrollingTreePositionedNode>(scrollingNode)) {
+            if (positionedNode->relatedOverflowScrollingNodes().contains(scrollingNodeID))
                 return false;
         }
     }
@@ -150,12 +151,15 @@ RefPtr<ScrollingTreeNode> ScrollingTreeMac::scrollingNodeForPoint(FloatPoint poi
 #endif
 
     if (layersAtPoint.size()) {
-        auto* frontmostLayer = layersAtPoint.first().first;
+        RetainPtr<CALayer> frontmostInteractiveLayer;
         for (size_t i = 0 ; i < layersAtPoint.size() ; i++) {
             auto [layer, point] = layersAtPoint[i];
 
             if (!layerEventRegionContainsPoint(layer, point))
                 continue;
+
+            if (!frontmostInteractiveLayer)
+                frontmostInteractiveLayer = layer;
 
             auto scrollingNodeForLayer = [&] (auto layer, auto point) -> RefPtr<ScrollingTreeNode> {
                 UNUSED_PARAM(point);
@@ -163,7 +167,8 @@ RefPtr<ScrollingTreeNode> ScrollingTreeMac::scrollingNodeForPoint(FloatPoint poi
                 RefPtr scrollingNode = nodeForID(nodeID);
                 if (!is<ScrollingTreeScrollingNode>(scrollingNode))
                     return nullptr;
-                if (isScrolledBy(*this, nodeID, frontmostLayer)) {
+                ASSERT(frontmostInteractiveLayer);
+                if (isScrolledBy(*this, nodeID, frontmostInteractiveLayer.get())) {
                     LOG_WITH_STREAM(Scrolling, stream << "ScrollingTreeMac " << this << " scrollingNodeForPoint " << point << " found scrolling node " << nodeID);
                     return scrollingNode;
                 }

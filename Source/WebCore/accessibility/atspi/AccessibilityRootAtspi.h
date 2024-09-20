@@ -34,7 +34,7 @@ class AccessibilityObjectAtspi;
 class Page;
 
 DECLARE_ALLOCATOR_WITH_HEAP_IDENTIFIER(AccessibilityRootAtspi);
-class AccessibilityRootAtspi final : public RefCounted<AccessibilityRootAtspi> {
+class AccessibilityRootAtspi final : public RefCounted<AccessibilityRootAtspi>, public CanMakeWeakPtr<AccessibilityRootAtspi> {
     WTF_MAKE_FAST_ALLOCATED_WITH_HEAP_IDENTIFIER(AccessibilityRootAtspi);
 public:
     static Ref<AccessibilityRootAtspi> create(Page&);
@@ -64,7 +64,7 @@ private:
     static GDBusInterfaceVTable s_socketFunctions;
     static GDBusInterfaceVTable s_componentFunctions;
 
-    SingleThreadWeakPtr<Page> m_page;
+    WeakPtr<Page> m_page;
     String m_path;
     String m_parentUniqueName;
     String m_parentPath;

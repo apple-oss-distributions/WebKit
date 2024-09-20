@@ -26,7 +26,7 @@ LinkedUniform::LinkedUniform(GLenum typeIn,
     ASSERT(arraySizesIn.size() <= 1);
 
     memset(this, 0, sizeof(*this));
-    SetBitField(pod.type, typeIn);
+    pod.typeIndex = GetUniformTypeIndex(typeIn);
     SetBitField(pod.precision, precisionIn);
     pod.location = locationIn;
     SetBitField(pod.binding, bindingIn);
@@ -54,7 +54,7 @@ LinkedUniform::LinkedUniform(const UsedUniform &usedUniform)
 
     // Note: Ensure every data member is initialized.
     pod.flagBitsAsUByte = 0;
-    SetBitField(pod.type, usedUniform.type);
+    pod.typeIndex       = GetUniformTypeIndex(usedUniform.type);
     SetBitField(pod.precision, usedUniform.precision);
     SetBitField(pod.imageUnitFormat, usedUniform.imageUnitFormat);
     pod.location          = usedUniform.location;
@@ -107,12 +107,12 @@ BufferVariable::BufferVariable(GLenum type,
     SetBitField(pod.basicTypeElementCount, arraySizes.empty() ? 1u : arraySizes.back());
 }
 
-ShaderVariableBuffer::ShaderVariableBuffer()
+AtomicCounterBuffer::AtomicCounterBuffer()
 {
     memset(&pod, 0, sizeof(pod));
 }
 
-void ShaderVariableBuffer::unionReferencesWith(const LinkedUniform &other)
+void AtomicCounterBuffer::unionReferencesWith(const LinkedUniform &other)
 {
     pod.activeUseBits |= other.pod.activeUseBits;
     for (const ShaderType shaderType : AllShaderTypes())
@@ -144,7 +144,7 @@ InterfaceBlock::InterfaceBlock(const std::string &name,
 
     SetBitField(pod.isArray, isArray);
     SetBitField(pod.isReadOnly, isReadOnly);
-    SetBitField(pod.binding, binding);
+    SetBitField(pod.inShaderBinding, binding);
     pod.arrayElement        = arrayElementIn;
     pod.firstFieldArraySize = firstFieldArraySizeIn;
 }

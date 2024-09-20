@@ -21,6 +21,7 @@ class MSLVertexOutputTest : public MatchOutputCodeTest
     MSLVertexOutputTest() : MatchOutputCodeTest(GL_VERTEX_SHADER, SH_MSL_METAL_OUTPUT)
     {
         ShCompileOptions defaultCompileOptions = {};
+        defaultCompileOptions.validateAST      = true;
         setDefaultCompileOptions(defaultCompileOptions);
     }
 };
@@ -32,6 +33,7 @@ class MSLOutputTest : public MatchOutputCodeTest
     {
         ShCompileOptions defaultCompileOptions       = {};
         defaultCompileOptions.rescopeGlobalVariables = true;
+        defaultCompileOptions.validateAST            = true;
         setDefaultCompileOptions(defaultCompileOptions);
     }
 };
@@ -632,7 +634,7 @@ TEST_F(MSLOutputTest, AnonymousStruct)
             gl_FragColor = anonStruct.v;
         })";
     compile(shaderString);
-    // TODO(anglebug.com/6395): This success condition is expected to fail now.
+    // TODO(anglebug.com/42264909): This success condition is expected to fail now.
     // When WebKit build is able to run the tests, this should be changed to something else.
     //    ASSERT_TRUE(foundInCode(SH_MSL_METAL_OUTPUT, "__unnamed"));
 }
@@ -847,4 +849,75 @@ TEST_F(MSLOutputTest, ReusedOutVarName)
 
         )";
     compile(shaderString);
+}
+
+// Test that for loops without body do not crash. At the time of writing, constant hoisting would
+// traverse such ASTs and crash when loop bodies were not present.
+TEST_F(MSLOutputTest, RemovedForBodyNoCrash)
+{
+    const char kShader[] = R"(#version 310 es
+void main() {
+    for(;;)if(2==0);
+})";
+    compile(kShader);
+}
+
+// Test that accessing array element of array of anonymous struct instances does not fail
+// validation.
+TEST_F(MSLOutputTest, AnonymousStructArrayValidationNoCrash)
+{
+    const char kShader[] = R"(
+precision mediump float;
+void main() {
+    struct { vec4 field; } s1[1];
+    gl_FragColor = s1[0].field;
+})";
+    compile(kShader);
+}
+
+// Tests that rewriting varyings for per-element element access does not cause crash.
+// At the time of writing a_ would be confused with a due to matrixes being flattened
+// for fragment inputs, and the new variables would be given semantic names separated
+// with _. This would cause confusion because semantic naming would filter underscores.
+TEST_F(MSLOutputTest, VaryingRewriteUnderscoreNoCrash)
+{
+    const char kShader[] = R"(precision mediump float;
+varying mat2 a_;
+varying mat3 a;
+void main(){
+    gl_FragColor = vec4(a_) + vec4(a);
+})";
+    compile(kShader);
+}
+
+// Tests that rewriting attributes for per-element element access does not cause crash.
+// At the time of writing a_ would be confused with a due to matrixes being flattened
+// for fragment inputs, and the new variables would be given semantic names separated
+// with _. This would cause confusion because semantic naming would filter underscores.
+TEST_F(MSLVertexOutputTest, AttributeRewriteUnderscoreNoCrash)
+{
+    const char kShader[] = R"(precision mediump float;
+attribute mat2 a_;
+attribute mat3 a;
+void main(){
+    gl_Position = vec4(a_) + vec4(a);
+})";
+    compile(kShader);
+}
+
+// Test that emulated clip distance varying passes AST validation
+TEST_F(MSLVertexOutputTest, ClipDistanceVarying)
+{
+    getResources()->ANGLE_clip_cull_distance = 1;
+    const char kShader[]                     = R"(#version 300 es
+#extension GL_ANGLE_clip_cull_distance:require
+void main(){gl_ClipDistance[0];})";
+    compile(kShader);
+}
+
+TEST_F(MSLVertexOutputTest, VertexIDIvecNoCrash)
+{
+    const char kShader[] = R"(#version 300 es
+void main(){ivec2 xy=ivec2((+gl_VertexID));gl_Position=vec4((xy), 0,1);})";
+    compile(kShader);
 }

@@ -38,6 +38,7 @@
 #include "OfflineAudioContextOptions.h"
 #include <wtf/IsoMallocInlines.h>
 #include <wtf/Scope.h>
+#include <wtf/text/MakeString.h>
 
 namespace WebCore {
 
@@ -49,9 +50,9 @@ OfflineAudioContext::OfflineAudioContext(Document& document, const OfflineAudioC
     , m_length(options.length)
 {
     if (!renderTarget())
-        document.addConsoleMessage(MessageSource::JS, MessageLevel::Warning, makeString("Failed to construct internal AudioBuffer with ", options.numberOfChannels, " channel(s), a sample rate of ", options.sampleRate, " and a length of ", options.length, "."));
+        document.addConsoleMessage(MessageSource::JS, MessageLevel::Warning, makeString("Failed to construct internal AudioBuffer with "_s, options.numberOfChannels, " channel(s), a sample rate of "_s, options.sampleRate, " and a length of "_s, options.length, '.'));
     else if (noiseInjectionPolicy() == NoiseInjectionPolicy::Minimal)
-        renderTarget()->setNeedsAdditionalNoise();
+        renderTarget()->increaseNoiseInjectionMultiplier();
 }
 
 ExceptionOr<Ref<OfflineAudioContext>> OfflineAudioContext::create(ScriptExecutionContext& context, const OfflineAudioContextOptions& options)
@@ -76,6 +77,43 @@ ExceptionOr<Ref<OfflineAudioContext>> OfflineAudioContext::create(ScriptExecutio
     return create(context, { numberOfChannels, length, sampleRate });
 }
 
+void OfflineAudioContext::lazyInitialize()
+{
+    BaseAudioContext::lazyInitialize();
+
+    increaseNoiseMultiplierIfNeeded();
+}
+
+void OfflineAudioContext::increaseNoiseMultiplierIfNeeded()
+{
+    if (noiseInjectionPolicy() == NoiseInjectionPolicy::None)
+        return;
+
+    Locker locker { graphLock() };
+
+    RefPtr target = renderTarget();
+    if (!target)
+        return;
+
+    Vector<AudioConnectionRefPtr<AudioNode>, 1> remainingNodes;
+    for (auto& node : referencedSourceNodes())
+        remainingNodes.append(node.copyRef());
+
+    while (!remainingNodes.isEmpty()) {
+        auto node = remainingNodes.takeLast();
+        target->increaseNoiseInjectionMultiplier(node->noiseInjectionMultiplier());
+        for (unsigned i = 0; i < node->numberOfOutputs(); ++i) {
+            auto* output = node->output(i);
+            if (!output)
+                continue;
+
+            output->forEachInputNode([&](auto& inputNode) {
+                remainingNodes.append(&inputNode);
+            });
+        }
+    }
+}
+
 void OfflineAudioContext::uninitialize()
 {
     if (!isInitialized())
@@ -85,11 +123,6 @@ void OfflineAudioContext::uninitialize()
 
     if (auto promise = std::exchange(m_pendingRenderingPromise, nullptr); promise && !isContextStopped())
         promise->reject(Exception { ExceptionCode::InvalidStateError, "Context is going away"_s });
-}
-
-const char* OfflineAudioContext::activeDOMObjectName() const
-{
-    return "OfflineAudioContext";
 }
 
 void OfflineAudioContext::startRendering(Ref<DeferredPromise>&& promise)

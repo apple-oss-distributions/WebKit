@@ -206,6 +206,15 @@ typedef NS_ENUM(NSInteger, ASPublicKeyCredentialClientDataCrossOriginValue) {
 
 @end
 
+@protocol ASAuthorizationWebBrowserPlatformPublicKeyCredentialRegistrationRequest
+@property (nonatomic, readonly, nullable) ASPublicKeyCredentialClientData *clientData;
+@property (nonatomic, nullable, copy) NSArray<ASAuthorizationPlatformPublicKeyCredentialDescriptor *> *excludedCredentials;
+@property (nonatomic) BOOL shouldShowHybridTransport;
+@end
+
+@interface ASAuthorizationPlatformPublicKeyCredentialRegistrationRequest () <ASAuthorizationWebBrowserPlatformPublicKeyCredentialRegistrationRequest>
+@end
+
 typedef NS_ENUM(NSInteger, ASAuthorizationPublicKeyCredentialLargeBlobAssertionOperation) {
     ASAuthorizationPublicKeyCredentialLargeBlobAssertionOperationRead,
     ASAuthorizationPublicKeyCredentialLargeBlobAssertionOperationWrite,
@@ -250,6 +259,14 @@ typedef NS_ENUM(NSInteger, ASAuthorizationPublicKeyCredentialLargeBlobAssertionO
 @property (nonatomic, nullable, copy) ASAuthorizationPublicKeyCredentialLargeBlobAssertionInput *largeBlob;
 @end
 
+@protocol ASAuthorizationWebBrowserPlatformPublicKeyCredentialAssertionRequest
+@property (nonatomic, readonly, nullable) ASPublicKeyCredentialClientData *clientData;
+@property (nonatomic) BOOL shouldShowHybridTransport;
+@end
+
+@interface ASAuthorizationPlatformPublicKeyCredentialAssertionRequest () <ASAuthorizationWebBrowserPlatformPublicKeyCredentialAssertionRequest>
+@end
+
 @interface ASAuthorizationPlatformPublicKeyCredentialProvider : NSObject <ASAuthorizationProvider>
 
 - (instancetype)initWithRelyingPartyIdentifier:(NSString *)relyingPartyIdentifier NS_DESIGNATED_INITIALIZER;
@@ -274,6 +291,9 @@ typedef NS_ENUM(NSInteger, ASAuthorizationPublicKeyCredentialLargeBlobAssertionO
 
 @end
 
+@interface ASAuthorizationPlatformPublicKeyCredentialProvider () <ASAuthorizationWebBrowserPlatformPublicKeyCredentialProvider>
+@end
+
 typedef NSString *ASAuthorizationSecurityKeyPublicKeyCredentialDescriptorTransport;
 
 @interface ASAuthorizationSecurityKeyPublicKeyCredentialDescriptor : NSObject <ASAuthorizationPublicKeyCredentialDescriptor>
@@ -284,6 +304,7 @@ typedef NSString *ASAuthorizationSecurityKeyPublicKeyCredentialDescriptorTranspo
 @end
 
 @interface ASAuthorizationSecurityKeyPublicKeyCredentialRegistration : NSObject <ASAuthorizationPublicKeyCredentialRegistration>
+@property (nonatomic, readonly) NSArray<ASAuthorizationSecurityKeyPublicKeyCredentialDescriptorTransport> *transports;
 @end
 
 typedef NSInteger ASCOSEAlgorithmIdentifier NS_TYPED_EXTENSIBLE_ENUM;
@@ -312,11 +333,13 @@ typedef NSString *ASAuthorizationPublicKeyCredentialResidentKeyPreference;
 @end
 
 @interface ASAuthorizationSecurityKeyPublicKeyCredentialAssertion : NSObject <ASAuthorizationPublicKeyCredentialAssertion>
+@property (nonatomic, readonly) BOOL appID;
 @end
 
 @interface ASAuthorizationSecurityKeyPublicKeyCredentialAssertionRequest : ASAuthorizationRequest <ASAuthorizationPublicKeyCredentialAssertionRequest>
 
 @property (nonatomic, copy) NSArray<ASAuthorizationSecurityKeyPublicKeyCredentialDescriptor *> *allowedCredentials;
+@property (nonatomic, nullable, copy) NSString *appID;
 
 @end
 
@@ -335,5 +358,74 @@ typedef NSString *ASAuthorizationPublicKeyCredentialResidentKeyPreference;
 @property (nonatomic, readonly, copy) NSString *relyingPartyIdentifier;
 
 @end
+
+typedef NS_ENUM(NSInteger, ASAuthorizationPlatformPublicKeyCredentialRegistrationRequestStyle) {
+    ASAuthorizationPlatformPublicKeyCredentialRegistrationRequestStyleStandard,
+    ASAuthorizationPlatformPublicKeyCredentialRegistrationRequestStyleConditional,
+};
+
+@interface ASAuthorizationPlatformPublicKeyCredentialRegistrationRequest ()
+@property (nonatomic) ASAuthorizationPlatformPublicKeyCredentialRegistrationRequestStyle requestStyle;
+@end
+
+#if HAVE(WEB_AUTHN_PRF_API)
+@interface ASAuthorizationPublicKeyCredentialPRFAssertionOutput : NSObject
+@property (nonatomic, readonly) NSData *first;
+@property (nonatomic, nullable, readonly) NSData *second;
+@end
+
+@interface ASAuthorizationPublicKeyCredentialPRFAssertionInputValues : NSObject
+- (instancetype)initWithSaltInput1:(NSData *)saltInput1 saltInput2:(nullable NSData *)saltInput2;
+@property (nonatomic, readonly) NSData *saltInput1;
+@property (nonatomic, nullable, readonly) NSData *saltInput2;
+@end
+
+@interface ASAuthorizationPublicKeyCredentialPRFAssertionInput : NSObject
+- (instancetype)initWithInputValues:(nullable ASAuthorizationPublicKeyCredentialPRFAssertionInputValues *)inputValues perCredentialInputValues:(nullable NSDictionary<NSData *, ASAuthorizationPublicKeyCredentialPRFAssertionInputValues *> *)perCredentialInputValues;
+@property (nonatomic, nullable, readonly) ASAuthorizationPublicKeyCredentialPRFAssertionInputValues *inputValues;
+@property (nonatomic, nullable, readonly) NSDictionary<NSData *, ASAuthorizationPublicKeyCredentialPRFAssertionInputValues *> *perCredentialInputValues;
+@end
+
+@interface ASAuthorizationPlatformPublicKeyCredentialAssertionRequest ()
+@property (nonatomic, nullable) ASAuthorizationPublicKeyCredentialPRFAssertionInput *prf;
+@end
+
+@interface ASAuthorizationPlatformPublicKeyCredentialAssertion ()
+@property (nonatomic, nullable, readonly) ASAuthorizationPublicKeyCredentialPRFAssertionOutput *prf;
+@end
+
+@interface ASAuthorizationPublicKeyCredentialPRFRegistrationInput : NSObject
++ (instancetype)checkForSupport;
+- (instancetype)initWithInputValues:(nullable ASAuthorizationPublicKeyCredentialPRFAssertionInputValues *)inputValues;
+@property (nonatomic, readonly) BOOL shouldCheckForSupport;
+@property (nonatomic, nullable, readonly) ASAuthorizationPublicKeyCredentialPRFAssertionInputValues *inputValues;
+@end
+
+@interface ASAuthorizationPlatformPublicKeyCredentialRegistrationRequest ()
+@property (nonatomic, nullable) ASAuthorizationPublicKeyCredentialPRFRegistrationInput *prf;
+@end
+
+@interface ASAuthorizationPublicKeyCredentialPRFRegistrationOutput : NSObject
+@property (nonatomic, readonly) BOOL isSupported;
+@property (nonatomic, nullable, readonly) NSData *first;
+@property (nonatomic, nullable, readonly) NSData *second;
+@end
+
+@interface ASAuthorizationPlatformPublicKeyCredentialRegistration ()
+@property (nonatomic, nullable, readonly) ASAuthorizationPublicKeyCredentialPRFRegistrationOutput *prf;
+@end
+#endif
+
+extern NSErrorDomain const ASAuthorizationErrorDomain;
+
+typedef NS_ERROR_ENUM(ASAuthorizationErrorDomain, ASAuthorizationError) {
+    ASAuthorizationErrorUnknown = 1000,
+    ASAuthorizationErrorCanceled = 1001,
+    ASAuthorizationErrorInvalidResponse = 1002,
+    ASAuthorizationErrorNotHandled = 1003,
+    ASAuthorizationErrorFailed = 1004,
+    ASAuthorizationErrorNotInteractive = 1005,
+    ASAuthorizationErrorMatchedExcludedCredential = 1006,
+};
 
 NS_ASSUME_NONNULL_END

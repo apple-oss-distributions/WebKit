@@ -34,6 +34,7 @@ def AddCommonParserArgs(parser):
             'angle_end2end_tests',
             'angle_perftests',
             'angle_trace_tests',
+            'angle_unittests',
             # dEQP - grep \"angle_deqp infra/specs/gn_isolate_map.pyl
             'angle_deqp_egl_tests',
             'angle_deqp_gl46_tests',
@@ -63,6 +64,10 @@ def AddCommonParserArgs(parser):
         '--gtest_filter',
         type=str,
         help='Test filter.')
+    parser.add_argument(
+        '--prepare-only',
+        help='Only prepare traces, but do not actually run them.',
+        action='store_true')
 
 
 def RunAndroidTestSuite(args, extra_args):
@@ -107,7 +112,6 @@ def main():
     parser.add_argument('--output-directory', required=True)
     parser.add_argument('--wrapper-script-args')
     parser.add_argument('--runtime-deps-path')
-    parser.add_argument('--prepare-only', action='store_true')
     AddCommonParserArgs(parser)
 
     args, extra_args = parser.parse_known_args()

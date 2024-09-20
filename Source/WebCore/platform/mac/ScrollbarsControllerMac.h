@@ -42,12 +42,14 @@ namespace WebCore {
 
 class WheelEventTestMonitor;
 
-class ScrollbarsControllerMac : public ScrollbarsController {
+class ScrollbarsControllerMac final : public ScrollbarsController {
     WTF_MAKE_FAST_ALLOCATED;
     WTF_MAKE_NONCOPYABLE(ScrollbarsControllerMac);
 public:
     explicit ScrollbarsControllerMac(ScrollableArea&);
     ~ScrollbarsControllerMac();
+
+    bool isScrollbarsControllerMac() const final { return true; }
 
     void notifyContentAreaScrolled(const FloatSize& delta) final;
 
@@ -90,7 +92,7 @@ public:
 
 
     // Public to be callable from Obj-C.
-    void updateScrollerStyle();
+    void updateScrollerStyle() final;
     bool scrollbarPaintTimerIsActive() const;
     void startScrollbarPaintTimer();
     void stopScrollbarPaintTimer();
@@ -124,5 +126,9 @@ private:
 };
 
 } // namespace WebCore
+
+SPECIALIZE_TYPE_TRAITS_BEGIN(WebCore::ScrollbarsControllerMac)
+    static bool isType(const WebCore::ScrollbarsController& controller) { return controller.isScrollbarsControllerMac(); }
+SPECIALIZE_TYPE_TRAITS_END()
 
 #endif // PLATFORM(MAC)

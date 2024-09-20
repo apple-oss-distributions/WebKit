@@ -197,7 +197,6 @@ enum class FeatureToAnimate {
     return true;
 }
 
-#if HAVE(OS_DARK_MODE_SUPPORT)
 - (NSAppearance *)effectiveAppearanceForScrollerImp:(NSScrollerImp *)scrollerImp
 {
     UNUSED_PARAM(scrollerImp);
@@ -209,7 +208,6 @@ enum class FeatureToAnimate {
         return appearance;
     return [NSAppearance currentDrawingAppearance];
 }
-#endif
 
 - (void)setUpAlphaAnimation:(RetainPtr<WebScrollbarPartAnimationMac>&)scrollbarPartAnimation featureToAnimate:(FeatureToAnimate)featureToAnimate animateAlphaTo:(CGFloat)newAlpha duration:(NSTimeInterval)duration
 {
@@ -444,6 +442,11 @@ void ScrollerMac::setScrollerImp(NSScrollerImp *imp)
     updateMinimumKnobLength([m_scrollerImp knobMinLength]);
 }
 
+void ScrollerMac::setScrollbarLayoutDirection(UserInterfaceLayoutDirection scrollbarLayoutDirection)
+{
+    [m_scrollerImp setUserInterfaceLayoutDirection: scrollbarLayoutDirection == UserInterfaceLayoutDirection::RTL ? NSUserInterfaceLayoutDirectionRightToLeft : NSUserInterfaceLayoutDirectionLeftToRight];
+}
+
 String ScrollerMac::scrollbarState() const
 {
     if (!m_hostLayer || !m_scrollerImp)
@@ -463,6 +466,9 @@ String ScrollerMac::scrollbarState() const
 
     if ([m_scrollerImp knobAlpha] > 0)
         result.append(",visible_thumb"_s);
+
+    if ([m_scrollerImp userInterfaceLayoutDirection] == NSUserInterfaceLayoutDirectionRightToLeft)
+        result.append(",RTL"_s);
 
     return result.toString();
 }

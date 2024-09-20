@@ -51,6 +51,8 @@
 
 @implementation WKUserContentController
 
+WK_OBJECT_DISABLE_DISABLE_KVC_IVAR_ACCESS;
+
 - (instancetype)init
 {
     if (!(self = [super init]))
@@ -146,7 +148,7 @@ public:
     void didPostMessage(WebKit::WebPageProxy& page, WebKit::FrameInfoData&& frameInfoData, API::ContentWorld& world, WebCore::SerializedScriptValue& serializedScriptValue) final
     {
         @autoreleasepool {
-            auto webView = page.cocoaView();
+            RetainPtr webView = page.cocoaView();
             if (!webView)
                 return;
             RetainPtr<WKFrameInfo> frameInfo = wrapper(API::FrameInfo::create(WTFMove(frameInfoData), &page));

@@ -768,7 +768,7 @@ void ListTests(const std::map<TestIdentifier, TestResult> &resultsMap)
 
 // Prints the names of the tests matching the user-specified filter flag.
 // This matches the output from googletest/src/gtest.cc but is much much faster for large filters.
-// See http://anglebug.com/5164
+// See http://anglebug.com/42263725
 void GTestListTests(const std::map<TestIdentifier, TestResult> &resultsMap)
 {
     std::map<std::string, std::vector<std::string>> suites;
@@ -1035,7 +1035,7 @@ TestSuite::TestSuite(int *argc, char **argv, std::function<void()> registerTests
 #if defined(ANGLE_PLATFORM_FUCHSIA)
     if (mBotMode)
     {
-        printf("Note: Bot mode is not available on Fuchsia. See http://anglebug.com/7312\n");
+        printf("Note: Bot mode is not available on Fuchsia. See http://anglebug.com/42265786\n");
         mBotMode = false;
     }
 #endif
@@ -1959,7 +1959,7 @@ bool TestSuite::logAnyUnusedTestExpectations()
     }
     if (anyUnused)
     {
-        std::cerr << "Failed to validate test expectations." << unusedMsgStream.str() << std::endl;
+        std::cerr << "Found unused test expectations:" << unusedMsgStream.str() << std::endl;
         return true;
     }
     return false;

@@ -51,8 +51,10 @@ namespace WebCore {
 void EventDispatcher::dispatchScopedEvent(Node& node, Event& event)
 {
     // Need to set the target here so the scoped event queue knows which node to dispatch to.
-    event.setTarget(RefPtr { EventPath::eventTargetRespectingTargetRules(node) });
-    ScopedEventQueue::singleton().enqueueEvent(event);
+    RefPtr target = EventPath::eventTargetRespectingTargetRules(node);
+    ASSERT(target);
+    event.setTarget(target.copyRef());
+    ScopedEventQueue::singleton().enqueueEvent({ event, *target });
 }
 
 static void callDefaultEventHandlersInBubblingOrder(Event& event, const EventPath& path)
@@ -179,12 +181,15 @@ void EventDispatcher::dispatchEvent(Node& node, Event& event)
     bool targetOrRelatedTargetIsInShadowTree = node.isInShadowTree() || isInShadowTree(event.relatedTarget());
     // FIXME: We should also check touch target list.
     bool hasNoEventListnerOrDefaultEventHandler = !shouldDispatchEventToScripts && !typeInfo.hasDefaultEventHandler() && !node.document().hasConnectedPluginElements();
-    if (hasNoEventListnerOrDefaultEventHandler && !targetOrRelatedTargetIsInShadowTree)
+    if (hasNoEventListnerOrDefaultEventHandler && !targetOrRelatedTargetIsInShadowTree) {
+        event.resetBeforeDispatch();
+        event.setTarget(RefPtr { EventPath::eventTargetRespectingTargetRules(node) });
         return;
+    }
 
     EventPath eventPath { node, event };
 
-    if (node.document().settings().sendMouseEventsToDisabledFormControlsEnabled() && event.isTrusted() && event.isMouseEvent()
+    if (node.document().settings().sendMouseEventsToDisabledFormControlsEnabled() && event.isTrusted() && is<MouseEvent>(event)
         && (typeInfo.type() == EventType::mousedown || typeInfo.type() == EventType::mouseup || typeInfo.type() == EventType::click || typeInfo.type() == EventType::dblclick)) {
         eventPath.adjustForDisabledFormControl();
     }
@@ -205,8 +210,6 @@ void EventDispatcher::dispatchEvent(Node& node, Event& event)
             resetAfterDispatchInShadowTree(event);
         return;
     }
-
-    ChildNodesLazySnapshot::takeChildNodesLazySnapshot();
 
     event.resetBeforeDispatch();
 

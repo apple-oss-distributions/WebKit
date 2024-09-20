@@ -87,8 +87,10 @@ void AudioDestinationNode::renderQuantum(AudioBus* destinationBus, size_t number
     context().handlePreRenderTasks(outputPosition);
 
     RefPtr<AudioWorkletGlobalScope> workletGlobalScope;
-    if (RefPtr audioWorkletProxy = context().audioWorklet().proxy())
-        workletGlobalScope = audioWorkletProxy->workletThread().globalScope();
+    if (RefPtr audioWorkletProxy = context().audioWorklet().proxy()) {
+        if (Ref workletThread = audioWorkletProxy->workletThread(); workletThread->thread() == &Thread::current())
+            workletGlobalScope = workletThread->globalScope();
+    }
     if (workletGlobalScope)
         workletGlobalScope->handlePreRenderTasks();
 
@@ -116,12 +118,12 @@ void AudioDestinationNode::renderQuantum(AudioBus* destinationBus, size_t number
         workletGlobalScope->handlePostRenderTasks(m_currentSampleFrame);
 }
 
-void AudioDestinationNode::ref()
+void AudioDestinationNode::ref() const
 {
     context().ref();
 }
 
-void AudioDestinationNode::deref()
+void AudioDestinationNode::deref() const
 {
     context().deref();
 }

@@ -62,12 +62,13 @@ public:
     WPEView* wpeView() const;
 #endif
 
-#if ENABLE(ACCESSIBILITY)
+#if USE(ATK)
     AtkObject* accessible();
 #endif
 
     void sendMessageToWebView(UserMessage&&, CompletionHandler<void(UserMessage&&)>&&);
     void setInputMethodState(std::optional<InputMethodState>&&);
+    void callAfterNextPresentationUpdate(CompletionHandler<void()>&&);
 
 private:
     // PageClient
@@ -122,7 +123,7 @@ private:
     void exitAcceleratedCompositingMode() override;
     void updateAcceleratedCompositingMode(const LayerTreeContext&) override;
 
-    void didFinishLoadingDataForCustomContentProvider(const String&, const IPC::DataReference&) override;
+    void didFinishLoadingDataForCustomContentProvider(const String&, std::span<const uint8_t>) override;
 
     void navigationGestureDidBegin() override;
     void navigationGestureWillEnd(bool, WebBackForwardListItem&) override;
@@ -158,7 +159,7 @@ private:
 #endif
 
     UnixFileDescriptor hostFileDescriptor() final;
-    void requestDOMPasteAccess(WebCore::DOMPasteAccessCategory, const WebCore::IntRect&, const String&, CompletionHandler<void(WebCore::DOMPasteAccessResponse)>&&) final;
+    void requestDOMPasteAccess(WebCore::DOMPasteAccessCategory, WebCore::DOMPasteRequiresInteraction, const WebCore::IntRect&, const String&, CompletionHandler<void(WebCore::DOMPasteAccessResponse)>&&) final;
 
     WebCore::UserInterfaceLayoutDirection userInterfaceLayoutDirection() override;
 

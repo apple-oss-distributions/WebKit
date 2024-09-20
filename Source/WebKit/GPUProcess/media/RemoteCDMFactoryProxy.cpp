@@ -151,8 +151,9 @@ void RemoteCDMFactoryProxy::removeInstance(const RemoteCDMInstanceIdentifier& id
 {
     ASSERT(m_instances.contains(identifier));
     m_instances.remove(identifier);
-    if (m_gpuConnectionToWebProcess && allowsExitUnderMemoryPressure())
-        m_gpuConnectionToWebProcess->gpuProcess().tryExitIfUnusedAndUnderMemoryPressure();
+    auto connection = m_gpuConnectionToWebProcess.get();
+    if (connection && allowsExitUnderMemoryPressure())
+        connection->gpuProcess().tryExitIfUnusedAndUnderMemoryPressure();
 }
 
 RemoteCDMInstanceProxy* RemoteCDMFactoryProxy::getInstance(const RemoteCDMInstanceIdentifier& identifier)
@@ -177,12 +178,20 @@ bool RemoteCDMFactoryProxy::allowsExitUnderMemoryPressure() const
     return m_instances.isEmpty();
 }
 
+const String& RemoteCDMFactoryProxy::mediaKeysStorageDirectory() const
+{
+    if (RefPtr connection = m_gpuConnectionToWebProcess.get())
+        return connection->mediaKeysStorageDirectory();
+    return emptyString();
+}
+
 #if !RELEASE_LOG_DISABLED
 const Logger& RemoteCDMFactoryProxy::logger() const
 {
     if (!m_logger) {
         m_logger = Logger::create(this);
-        m_logger->setEnabled(this, m_gpuConnectionToWebProcess ? m_gpuConnectionToWebProcess->sessionID().isAlwaysOnLoggingAllowed() : false);
+        auto connection = m_gpuConnectionToWebProcess.get();
+        m_logger->setEnabled(this, connection ? connection->sessionID().isAlwaysOnLoggingAllowed() : false);
     }
 
     return *m_logger;

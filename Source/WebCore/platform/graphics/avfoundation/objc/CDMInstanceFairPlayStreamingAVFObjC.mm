@@ -199,10 +199,10 @@ struct LogArgument<WebCore::CDMInstanceFairPlayStreamingAVFObjC::Keys> {
     static String toString(const WebCore::CDMInstanceFairPlayStreamingAVFObjC::Keys& keys)
     {
         StringBuilder builder;
-        builder.append("[");
+        builder.append('[');
         for (auto key : keys)
             builder.append(key->toHexString());
-        builder.append("]");
+        builder.append(']');
         return builder.toString();
     }
 };
@@ -336,14 +336,11 @@ private:
 static RefPtr<JSON::Value> parseJSONValue(const SharedBuffer& buffer)
 {
     // Fail on large buffers whose size doesn't fit into a 32-bit unsigned integer.
-    size_t size = buffer.size();
-    if (size > std::numeric_limits<unsigned>::max())
+    if (buffer.size() > std::numeric_limits<unsigned>::max())
         return nullptr;
 
     // Parse the buffer contents as JSON, returning the root object (if any).
-    String json { buffer.makeContiguous()->data(), static_cast<unsigned>(size) };
-
-    return JSON::Value::parseJSON(json);
+    return JSON::Value::parseJSON(buffer.makeContiguous()->span());
 }
 
 bool CDMInstanceFairPlayStreamingAVFObjC::supportsPersistableState()
@@ -733,29 +730,12 @@ CDMInstanceSessionFairPlayStreamingAVFObjC::CDMInstanceSessionFairPlayStreamingA
 }
 
 using Keys = CDMInstanceSessionFairPlayStreamingAVFObjC::Keys;
-static Keys keyIDsForRequest(AVContentKeyRequest* request)
-{
-    if ([request.identifier isKindOfClass:[NSString class]])
-        return Keys::from(SharedBuffer::create([(NSString *)request.identifier dataUsingEncoding:NSUTF8StringEncoding]));
-    if ([request.identifier isKindOfClass:[NSData class]])
-        return Keys::from(SharedBuffer::create((NSData *)request.identifier));
-    if (request.initializationData) {
-        if (auto sinfKeyIDs = CDMPrivateFairPlayStreaming::extractKeyIDsSinf(SharedBuffer::create(request.initializationData)))
-            return WTFMove(sinfKeyIDs.value());
-#if HAVE(FAIRPLAYSTREAMING_MTPS_INITDATA)
-        if (auto mptsKeyIDs = CDMPrivateFairPlayStreaming::extractKeyIDsMpts(SharedBuffer::create(request.initializationData)))
-            return WTFMove(mptsKeyIDs.value());
-#endif
-    }
-    return { };
-}
-
 using Request = CDMInstanceSessionFairPlayStreamingAVFObjC::Request;
 static Keys keyIDsForRequest(const Request& requests)
 {
     Keys keyIDs;
     for (auto& request : requests.requests)
-        keyIDs.appendVector(keyIDsForRequest(request.get()));
+        keyIDs.appendVector(CDMPrivateFairPlayStreaming::keyIDsForRequest(request.get()));
     return keyIDs;
 }
 
@@ -814,7 +794,7 @@ ALLOW_NEW_API_WITHOUT_GUARDS_END
         identifier = adoptNS([[NSString alloc] initWithData:initData->makeContiguous()->createNSData().get() encoding:NSUTF8StringEncoding]);
 #if HAVE(FAIRPLAYSTREAMING_CENC_INITDATA)
     else if (initDataType == InitDataRegistry::cencName()) {
-        auto psshString = base64EncodeToString(initData->makeContiguous()->data(), initData->size());
+        auto psshString = base64EncodeToString(initData->makeContiguous()->span());
         initializationData = [NSJSONSerialization dataWithJSONObject:@{ @"pssh": (NSString*)psshString } options:NSJSONWritingPrettyPrinted error:nil];
     }
 #endif
@@ -961,7 +941,7 @@ void CDMInstanceSessionFairPlayStreamingAVFObjC::updateLicense(const String&, Li
 
             auto keyID = SharedBuffer::create(WTFMove(*keyIDVector));
             auto foundIndex = m_currentRequest.value().requests.findIf([&] (auto& request) {
-                auto keyIDs = keyIDsForRequest(request.get());
+                auto keyIDs = CDMPrivateFairPlayStreaming::keyIDsForRequest(request.get());
                 return keyIDs.findIf([&](const Ref<SharedBuffer>& id) {
                     return id.get() == keyID.get();
                 }) != notFound;
@@ -1195,7 +1175,7 @@ void CDMInstanceSessionFairPlayStreamingAVFObjC::didProvideRequest(AVContentKeyR
     if (auto* certificate = m_instance->serverCertificate())
         appIdentifier = certificate->makeContiguous()->createNSData();
 
-    auto keyIDs = keyIDsForRequest(request);
+    auto keyIDs = CDMPrivateFairPlayStreaming::keyIDsForRequest(request);
     if (keyIDs.isEmpty()) {
         if (m_requestLicenseCallback) {
             m_requestLicenseCallback(SharedBuffer::create(), m_sessionId, false, Failed);
@@ -1309,8 +1289,8 @@ void CDMInstanceSessionFairPlayStreamingAVFObjC::didProvideRequests(Vector<Retai
             auto entry = JSON::Object::create();
             auto& keyID = requestData.first;
             auto& payload = requestData.second;
-            entry->setString("keyID"_s, base64EncodeToString(keyID->makeContiguous()->data(), keyID->size()));
-            entry->setString("payload"_s, base64EncodeToString(payload.get().bytes, payload.get().length));
+            entry->setString("keyID"_s, base64EncodeToString(keyID->makeContiguous()->span()));
+            entry->setString("payload"_s, base64EncodeToString(span(payload.get())));
             requestJSON->pushObject(WTFMove(entry));
         }
         auto requestBuffer = utf8Buffer(requestJSON->toJSONString());
@@ -1323,7 +1303,7 @@ void CDMInstanceSessionFairPlayStreamingAVFObjC::didProvideRequests(Vector<Retai
 
     @try {
         for (auto request : m_currentRequest.value().requests) {
-            auto keyIDs = keyIDsForRequest(request.get());
+            auto keyIDs = CDMPrivateFairPlayStreaming::keyIDsForRequest(request.get());
             RefPtr<SharedBuffer> keyID = WTFMove(keyIDs.first());
             auto contentIdentifier = keyID->makeContiguous()->createNSData();
             [request makeStreamingContentKeyRequestDataForApp:appIdentifier.get() contentIdentifier:contentIdentifier.get() options:nil completionHandler:[keyID = WTFMove(keyID), aggregator] (NSData *contentKeyRequestData, NSError *) mutable {
@@ -1600,7 +1580,7 @@ void CDMInstanceSessionFairPlayStreamingAVFObjC::updateKeyStatuses()
     KeyStatusVector keyStatuses;
 
     for (auto& request : contentKeyRequests()) {
-        auto keyIDs = keyIDsForRequest(request.get());
+        auto keyIDs = CDMPrivateFairPlayStreaming::keyIDsForRequest(request.get());
         auto status = requestStatusToCDMStatus([request status]);
         if ([request error].code == SecurityLevelError)
             status = CDMKeyStatus::OutputRestricted;
@@ -1778,7 +1758,7 @@ AVContentKey *CDMInstanceSessionFairPlayStreamingAVFObjC::contentKeyForSample(co
     size_t keyStatusIndex = 0;
 
     for (auto& request : contentKeyRequests()) {
-        for (auto& keyID : keyIDsForRequest(request.get())) {
+        for (auto& keyID : CDMPrivateFairPlayStreaming::keyIDsForRequest(request.get())) {
             if (!isPotentiallyUsableKeyStatus(m_keyStatuses[keyStatusIndex++].second))
                 continue;
 

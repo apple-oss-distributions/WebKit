@@ -28,11 +28,13 @@
 
 #if HAVE(SCREEN_CAPTURE_KIT)
 
+#import "CaptureDevice.h"
 #import "Logging.h"
 #import "PlatformMediaSessionManager.h"
 #import "ScreenCaptureKitCaptureSource.h"
 #import <pal/spi/mac/ScreenCaptureKitSPI.h>
 #import <wtf/cocoa/Entitlements.h>
+#import <wtf/text/StringToIntegerConversion.h>
 
 #if HAVE(SC_CONTENT_SHARING_PICKER)
 #import <ScreenCaptureKit/SCContentSharingPicker.h>
@@ -48,19 +50,17 @@
 @end
 #endif
 
-using namespace WebCore;
-
 @interface WebDisplayMediaPromptHelper : NSObject <SCContentSharingSessionProtocol
 #if HAVE(SC_CONTENT_SHARING_PICKER)
     , SCContentSharingPickerObserver
 #endif
     > {
-    WeakPtr<ScreenCaptureKitSharingSessionManager> _callback;
+    WeakPtr<WebCore::ScreenCaptureKitSharingSessionManager> _callback;
     Vector<RetainPtr<SCContentSharingSession>> _sessions;
     BOOL _observingPicker;
 }
 
-- (instancetype)initWithCallback:(ScreenCaptureKitSharingSessionManager*)callback;
+- (instancetype)initWithCallback:(WebCore::ScreenCaptureKitSharingSessionManager*)callback;
 - (void)disconnect;
 - (void)startObservingSession:(SCContentSharingSession *)session;
 - (void)stopObservingSession:(SCContentSharingSession *)session;
@@ -77,7 +77,7 @@ using namespace WebCore;
 @end
 
 @implementation WebDisplayMediaPromptHelper
-- (instancetype)initWithCallback:(ScreenCaptureKitSharingSessionManager*)callback
+- (instancetype)initWithCallback:(WebCore::ScreenCaptureKitSharingSessionManager*)callback
 {
     self = [super init];
     if (self) {
@@ -231,6 +231,12 @@ ScreenCaptureKitSharingSessionManager::~ScreenCaptureKitSharingSessionManager()
     }
 }
 
+void ScreenCaptureKitSharingSessionManager::cancelGetDisplayMediaPrompt()
+{
+    if (promptingInProgress())
+        cancelPicking();
+}
+
 void ScreenCaptureKitSharingSessionManager::cancelPicking()
 {
     ASSERT(isMainThread());
@@ -279,7 +285,7 @@ void ScreenCaptureKitSharingSessionManager::completeDeviceSelection(SCContentFil
         break;
     }
     case SCContentFilterTypeDisplay:
-        device = CaptureDevice(String::number(contentFilter.displayInfo.display.displayID), CaptureDevice::DeviceType::Screen, makeString("Screen "), emptyString(), true);
+        device = CaptureDevice(String::number(contentFilter.displayInfo.display.displayID), CaptureDevice::DeviceType::Screen, "Screen "_str, emptyString(), true);
         break;
     case SCContentFilterTypeNothing:
     case SCContentFilterTypeAppsAndWindowsPinnedToDisplay:
@@ -474,6 +480,11 @@ bool ScreenCaptureKitSharingSessionManager::promptWithSCContentSharingPicker(Dis
 #endif
 }
 
+bool ScreenCaptureKitSharingSessionManager::promptingInProgress() const
+{
+    return !!m_completionHandler;
+}
+
 void ScreenCaptureKitSharingSessionManager::contentSharingPickerFailedWithError(NSError* error)
 {
 #if HAVE(SC_CONTENT_SHARING_PICKER)
@@ -516,7 +527,7 @@ void ScreenCaptureKitSharingSessionManager::cancelPendingSessionForDevice(const 
     ASSERT(isMainThread());
 
     if (m_pendingContentFilter.get() != device) {
-        RELEASE_LOG_ERROR(WebRTC, "ScreenCaptureKitSharingSessionManager::createSessionSourceForDevice - unknown capture device.");
+        RELEASE_LOG_ERROR(WebRTC, "ScreenCaptureKitSharingSessionManager::cancelPendingSessionForDevice - unknown capture device.");
         return;
     }
 
@@ -524,22 +535,32 @@ void ScreenCaptureKitSharingSessionManager::cancelPendingSessionForDevice(const 
     cancelPicking();
 }
 
-RefPtr<ScreenCaptureSessionSource> ScreenCaptureKitSharingSessionManager::createSessionSourceForDevice(WeakPtr<ScreenCaptureSessionSource::Observer> observer, const CaptureDevice& device, SCStreamConfiguration* configuration, SCStreamDelegate* delegate)
+std::pair<RetainPtr<SCContentFilter>, RetainPtr<SCContentSharingSession>> ScreenCaptureKitSharingSessionManager::contentFilterAndSharingSessionFromCaptureDevice(const CaptureDevice& device)
 {
     ASSERT(isMainThread());
 
+#if HAVE(SC_CONTENT_SHARING_PICKER)
     if (m_pendingContentFilter.get() != device) {
-        RELEASE_LOG_ERROR(WebRTC, "ScreenCaptureKitSharingSessionManager::createSessionSourceForDevice - unknown capture device.");
-        return nullptr;
+        RELEASE_LOG_ERROR(WebRTC, "ScreenCaptureKitSharingSessionManager::contentFilterFromCaptureDevice - unknown capture device.");
+        return { };
     }
+#else
+    UNUSED_PARAM(device);
+#endif
+    return std::make_pair(std::exchange(m_pendingContentFilter, { }), std::exchange(m_pendingSession, { }));
+}
+
+RefPtr<ScreenCaptureSessionSource> ScreenCaptureKitSharingSessionManager::createSessionSourceForDevice(WeakPtr<ScreenCaptureSessionSourceObserver> observer, SCContentFilter* contentFilter, SCContentSharingSession* sharingSession, SCStreamConfiguration* configuration, SCStreamDelegate* delegate)
+{
+    ASSERT(isMainThread());
 
     RetainPtr<SCStream> stream;
 #if HAVE(SC_CONTENT_SHARING_PICKER)
     if (useSCContentSharingPicker())
-        stream = adoptNS([PAL::allocSCStreamInstance() initWithFilter:m_pendingContentFilter.get() configuration:configuration delegate:(id<SCStreamDelegate> _Nullable)delegate]);
+        stream = adoptNS([PAL::allocSCStreamInstance() initWithFilter:contentFilter configuration:configuration delegate:(id<SCStreamDelegate> _Nullable)delegate]);
     else
 #endif
-        stream = adoptNS([PAL::allocSCStreamInstance() initWithSharingSession:m_pendingSession.get() captureOutputProperties:configuration delegate:(id<SCStreamDelegate> _Nullable)delegate]);
+        stream = adoptNS([PAL::allocSCStreamInstance() initWithSharingSession:sharingSession captureOutputProperties:configuration delegate:(id<SCStreamDelegate> _Nullable)delegate]);
 
     if (!stream) {
         RELEASE_LOG_ERROR(WebRTC, "ScreenCaptureKitSharingSessionManager::createSessionSourceForDevice - unable to create SCStream.");
@@ -553,7 +574,7 @@ RefPtr<ScreenCaptureSessionSource> ScreenCaptureKitSharingSessionManager::create
         cleanupSessionSource(source);
     };
 
-    auto newSession = ScreenCaptureSessionSource::create(WTFMove(observer), WTFMove(stream), WTFMove(m_pendingContentFilter), WTFMove(m_pendingSession), WTFMove(cleanupFunction));
+    auto newSession = ScreenCaptureSessionSource::create(WTFMove(observer), WTFMove(stream), contentFilter, sharingSession, WTFMove(cleanupFunction));
     m_activeSources.append(newSession);
 
     return newSession;
@@ -573,22 +594,21 @@ void ScreenCaptureKitSharingSessionManager::cleanupSessionSource(ScreenCaptureSe
 
     if (!promptingInProgress())
         cancelPicking();
+}
 
-    auto sharingSession = source.sharingSession();
-    if (!sharingSession)
-        return;
-
+void ScreenCaptureKitSharingSessionManager::cleanupSharingSession(SCContentSharingSession* sharingSession)
+{
     if (m_promptHelper)
         [m_promptHelper stopObservingSession:sharingSession];
     [sharingSession end];
 }
 
-Ref<ScreenCaptureSessionSource> ScreenCaptureSessionSource::create(WeakPtr<Observer> observer, RetainPtr<SCStream> stream, RetainPtr<SCContentFilter> filter, RetainPtr<SCContentSharingSession> sharingSession, CleanupFunction&& cleanupFunction)
+Ref<ScreenCaptureSessionSource> ScreenCaptureSessionSource::create(WeakPtr<ScreenCaptureSessionSourceObserver> observer, RetainPtr<SCStream> stream, RetainPtr<SCContentFilter> filter, RetainPtr<SCContentSharingSession> sharingSession, CleanupFunction&& cleanupFunction)
 {
     return adoptRef(*new ScreenCaptureSessionSource(WTFMove(observer), WTFMove(stream), WTFMove(filter), WTFMove(sharingSession), WTFMove(cleanupFunction)));
 }
 
-ScreenCaptureSessionSource::ScreenCaptureSessionSource(WeakPtr<Observer>&& observer, RetainPtr<SCStream>&& stream, RetainPtr<SCContentFilter>&& filter, RetainPtr<SCContentSharingSession>&& sharingSession, CleanupFunction&& cleanupFunction)
+ScreenCaptureSessionSource::ScreenCaptureSessionSource(WeakPtr<ScreenCaptureSessionSourceObserver>&& observer, RetainPtr<SCStream>&& stream, RetainPtr<SCContentFilter>&& filter, RetainPtr<SCContentSharingSession>&& sharingSession, CleanupFunction&& cleanupFunction)
     : m_stream(WTFMove(stream))
     , m_contentFilter(WTFMove(filter))
     , m_sharingSession(WTFMove(sharingSession))
@@ -629,6 +649,6 @@ void ScreenCaptureSessionSource::streamDidEnd()
     m_observer->sessionStreamDidEnd(m_stream.get());
 }
 
-};
+} // namespace WebCore
 
 #endif // HAVE(SCREEN_CAPTURE_KIT)

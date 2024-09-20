@@ -423,7 +423,7 @@ WI.CSSKeywordCompletions._colors = [
     "royalblue", "saddlebrown", "salmon", "sandybrown", "seagreen", "seashell", "sienna", "skyblue", "slateblue",
     "slategray", "slategrey", "snow", "springgreen", "steelblue", "tan", "thistle", "tomato", "turquoise", "violet",
     "wheat", "whitesmoke", "yellowgreen", "rgb()", "rgba()", "hsl()", "hsla()", "color()", "hwb()", "lch()", "lab()",
-    "color-mix()", "color-contrast()",
+    "color-mix()", "color-contrast()", "light-dark()",
 ];
 
 WI.CSSKeywordCompletions._colorAwareProperties = new Set([
@@ -529,7 +529,7 @@ WI.CSSKeywordCompletions._propertyKeywordMap = {
         "a3", "a4", "a5", "b4", "b5", "landscape", "ledger", "legal", "letter", "portrait"
     ],
     "background": [
-        "none", "url()", "linear-gradient()", "radial-gradient()", "repeating-linear-gradient()", "repeating-radial-gradient()", "-webkit-canvas()", "cross-fade()", "image-set()",
+        "none", "url()", "linear-gradient()", "radial-gradient()", "conic-gradient()", "repeating-linear-gradient()", "repeating-radial-gradient()", "repeating-conic-gradient()", "-webkit-canvas()", "cross-fade()", "image-set()",
         "repeat", "repeat-x", "repeat-y", "no-repeat", "space", "round",
         "scroll", "fixed", "local",
         "auto", "contain", "cover",
@@ -755,7 +755,7 @@ WI.CSSKeywordCompletions._propertyKeywordMap = {
         "baseline", "middle", "sub", "super", "text-top", "text-bottom", "top", "bottom", "-webkit-baseline-middle"
     ],
     "text-indent": [
-        "-webkit-each-line", "-webkit-hanging"
+        "each-line", "hanging"
     ],
     "clip": [
         "auto", "rect()"

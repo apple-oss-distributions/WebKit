@@ -30,6 +30,8 @@
 #include "CDMFactory.h"
 #include "CDMPrivate.h"
 
+OBJC_CLASS AVContentKeyRequest;
+
 namespace WebCore {
 
 struct FourCC;
@@ -59,7 +61,7 @@ public:
     void setLogIdentifier(const void* logIdentifier) final { m_logIdentifier = logIdentifier; }
     const Logger& logger() const { return m_logger; };
     const void* logIdentifier() const { return m_logIdentifier; }
-    const char* logClassName() const { return "CDMPrivateFairPlayStreaming"; }
+    ASCIILiteral logClassName() const { return "CDMPrivateFairPlayStreaming"_s; }
 #endif
 
     Vector<AtomString> supportedInitDataTypes() const override;
@@ -94,6 +96,10 @@ public:
 #endif
 
     static const Vector<FourCC>& validFairPlayStreamingSchemes();
+
+#if HAVE(AVCONTENTKEYSESSION)
+    static Vector<Ref<SharedBuffer>> keyIDsForRequest(AVContentKeyRequest *);
+#endif
 
 private:
 #if !RELEASE_LOG_DISABLED

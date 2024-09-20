@@ -112,6 +112,7 @@ def write_blueprint(output, target_type, values):
 // See: http://go/android-license-faq"""
         output.append(comment)
 
+    output.append('')
     output.append('%s {' % target_type)
     for (key, value) in values.items():
         write_blueprint_key_value(output, key, value)
@@ -199,14 +200,22 @@ target_blockist = [
 
 third_party_target_allowlist = [
     '//third_party/abseil-cpp',
-    '//third_party/vulkan-deps',
+    '//third_party/glslang/src',
+    '//third_party/spirv-cross/src',
+    '//third_party/spirv-headers/src',
+    '//third_party/spirv-tools/src',
+    '//third_party/vulkan-headers/src',
+    '//third_party/vulkan-loader/src',
+    '//third_party/vulkan-tools/src',
+    '//third_party/vulkan-utility-libraries/src',
+    '//third_party/vulkan-validation-layers/src',
     '//third_party/vulkan_memory_allocator',
 ]
 
 include_blocklist = [
     '//buildtools/third_party/libc++/',
     '//third_party/libc++/src/',
-    '//out/Android/gen/third_party/vulkan-deps/glslang/src/include/',
+    '//out/Android/gen/third_party/glslang/src/include/',
     '//third_party/zlib/',
     '//third_party/zlib/google/',
 ]
@@ -253,8 +262,8 @@ def gn_deps_to_blueprint_deps(abi, target, build_info):
             generated_headers += child_generated_headers
         elif dep == '//third_party/zlib/google:compression_utils_portable':
             # Replace zlib by Android's zlib, compression_utils_portable is the root dependency
-            static_libs.extend(
-                ['zlib_google_compression_utils_portable', 'libz_static', 'cpufeatures'])
+            shared_libs.append('libz')
+            static_libs.extend(['zlib_google_compression_utils_portable', 'cpufeatures'])
 
     return static_libs, shared_libs, defaults, generated_headers, header_libs
 
@@ -293,6 +302,7 @@ def gn_cflags_to_blueprint_cflags(target_info):
     # regexs of allowlisted cflags
     cflag_allowlist = [
         r'^-Wno-.*$',  # forward cflags that disable warnings
+        r'^-fvisibility.*$',  # forward visibility (https://gcc.gnu.org/wiki/Visibility) flags for better perf on x86
         r'-mpclmul'  # forward "-mpclmul" (used by zlib)
     ]
 
@@ -389,10 +399,8 @@ def gn_action_args_to_blueprint_args(blueprint_inputs, blueprint_outputs, args):
     # path. b/150457277
     remap_folders = [
         # Specific special-cases first, since the other will strip the prefixes.
-        ('gen/third_party/vulkan-deps/glslang/src/include/glslang/build_info.h',
-         'glslang/build_info.h'),
-        ('third_party/vulkan-deps/glslang/src',
-         'external/angle/third_party/vulkan-deps/glslang/src'),
+        ('gen/third_party/glslang/src/include/glslang/build_info.h', 'glslang/build_info.h'),
+        ('third_party/glslang/src', 'external/angle/third_party/glslang/src'),
         ('../../', ''),
         ('gen/', ''),
     ]
@@ -549,14 +557,14 @@ def get_gn_target_dependencies(abi, target, build_info):
     return result
 
 
-def get_angle_on_system_flag_config():
+def get_angle_in_vendor_flag_config():
     blueprint_results = []
 
     blueprint_results.append(('soong_config_module_type', {
         'name': 'angle_config_cc_defaults',
         'module_type': 'cc_defaults',
         'config_namespace': 'angle',
-        'bool_variables': ['angle_on_system',],
+        'bool_variables': ['angle_in_vendor',],
         'properties': [
             'target.android.relative_install_path',
             'vendor',
@@ -564,28 +572,28 @@ def get_angle_on_system_flag_config():
     }))
 
     blueprint_results.append(('soong_config_bool_variable', {
-        'name': 'angle_on_system',
+        'name': 'angle_in_vendor',
     }))
 
     blueprint_results.append((
         'angle_config_cc_defaults',
         {
             'name': 'angle_vendor_cc_defaults',
-            'vendor': True,
+            'vendor': False,
             'target': {
                 'android': {
-                    'relative_install_path': 'egl',
-                },
-            },
-            'soong_config_variables': {
-                'angle_on_system': {
-                    'vendor': False,
                     # Android EGL loader can not load from /system/egl/${LIB}
                     # path and hence don't set the relative path so that ANGLE
                     # libraries get built into /system/${LIB}
+                    'relative_install_path': '',
+                },
+            },
+            'soong_config_variables': {
+                'angle_in_vendor': {
+                    'vendor': True,
                     'target': {
                         'android': {
-                            'relative_install_path': '',
+                            'relative_install_path': 'egl',
                         },
                     },
                 },
@@ -605,6 +613,7 @@ def main():
             help=gn_abi(abi) +
             ' gn desc file in json format. Generated with \'gn desc <out_dir> --format=json "*"\'.',
             required=True)
+    parser.add_argument('--output', help='output file (e.g. Android.bp)')
     args = vars(parser.parse_args())
 
     infos = {}
@@ -620,7 +629,7 @@ def main():
 
     blueprint_targets = []
 
-    blueprint_targets.extend(get_angle_on_system_flag_config())
+    blueprint_targets.extend(get_angle_in_vendor_flag_config())
 
     blueprint_targets.append((
         'cc_defaults',
@@ -628,7 +637,7 @@ def main():
             'name':
                 'angle_common_library_cflags',
             'cpp_std':
-                'gnu++17',
+                'gnu++17',  # TODO(b/330910097): std::popcount missing from external/libcxx
             'cflags': [
                 # Chrome and Android use different versions of Clang which support differnt warning options.
                 # Ignore errors about unrecognized warning flags.
@@ -636,11 +645,29 @@ def main():
                 '-O2',
                 # Override AOSP build flags to match ANGLE's CQ testing and reduce binary size
                 '-fno-unwind-tables',
+                # Disable stack protector to reduce cpu overhead.
+                '-fno-stack-protector',
             ],
         }))
 
+    generated_targets = []
     for target in reversed(targets_to_write.keys()):
-        blueprint_targets.append(gn_target_to_blueprint(target, build_info))
+        generated_targets.append(gn_target_to_blueprint(target, build_info))
+
+    # Move cflags that are repeated in each target to cc_defaults
+    all_cflags = [set(bp['cflags']) for _, bp in generated_targets if 'cflags' in bp]
+    all_target_cflags = set.intersection(*all_cflags)
+
+    for _, bp in generated_targets:
+        if 'cflags' in bp:
+            bp['cflags'] = list(set(bp['cflags']) - all_target_cflags)
+            bp['defaults'].append('angle_common_auto_cflags')
+
+    blueprint_targets.append(('cc_defaults', {
+        'name': 'angle_common_auto_cflags',
+        'cflags': list(all_target_cflags),
+    }))
+    blueprint_targets.extend(generated_targets)
 
     # Add license build rules
     blueprint_targets.append(('package', {
@@ -675,16 +702,15 @@ def main():
             'third_party/proguard/LICENSE',
             'third_party/r8/LICENSE',
             'third_party/turbine/LICENSE',
-            'third_party/vulkan-deps/glslang/LICENSE',
-            'third_party/vulkan-deps/glslang/src/LICENSE.txt',
-            'third_party/vulkan-deps/LICENSE',
-            'third_party/vulkan-deps/spirv-headers/LICENSE',
-            'third_party/vulkan-deps/spirv-headers/src/LICENSE',
-            'third_party/vulkan-deps/spirv-tools/LICENSE',
-            'third_party/vulkan-deps/spirv-tools/src/LICENSE',
-            'third_party/vulkan-deps/spirv-tools/src/utils/vscode/src/lsp/LICENSE',
-            'third_party/vulkan-deps/vulkan-headers/LICENSE.txt',
-            'third_party/vulkan-deps/vulkan-headers/src/LICENSE.md',
+            'third_party/glslang/LICENSE',
+            'third_party/glslang/src/LICENSE.txt',
+            'third_party/spirv-headers/LICENSE',
+            'third_party/spirv-headers/src/LICENSE',
+            'third_party/spirv-tools/LICENSE',
+            'third_party/spirv-tools/src/LICENSE',
+            'third_party/spirv-tools/src/utils/vscode/src/lsp/LICENSE',
+            'third_party/vulkan-headers/LICENSE.txt',
+            'third_party/vulkan-headers/src/LICENSE.md',
             'third_party/vulkan_memory_allocator/LICENSE.txt',
             'tools/flex-bison/third_party/m4sugar/LICENSE',
             'tools/flex-bison/third_party/skeletons/LICENSE',
@@ -808,13 +834,13 @@ def main():
 // Copyright 2020 The ANGLE Project Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
-//
-""" % sys.argv[0]
+//""" % sys.argv[0]
     ]
     for (blueprint_type, blueprint_data) in blueprint_targets:
         write_blueprint(output, blueprint_type, blueprint_data)
 
-    print('\n'.join(output))
+    with open(args['output'], 'w') as f:
+        f.write('\n'.join(output) + '\n')
 
 
 if __name__ == '__main__':
