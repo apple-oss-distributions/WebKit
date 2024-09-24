@@ -5269,7 +5269,7 @@ void WebViewImpl::setMarkedText(id string, NSRange selectedRange, NSRange replac
 #if HAVE(INLINE_PREDICTIONS)
     if (RetainPtr attributedString = dynamic_objc_cast<NSAttributedString>(string)) {
         BOOL hasTextCompletion = [&] {
-            __block BOOL result;
+            __block BOOL result = NO;
 
             [attributedString enumerateAttribute:NSTextCompletionAttributeName inRange:NSMakeRange(0, [attributedString length]) options:0 usingBlock:^(id value, NSRange range, BOOL *stop) {
                 if ([value respondsToSelector:@selector(boolValue)] && [value boolValue]) {
@@ -6202,10 +6202,16 @@ bool WebViewImpl::isInWindowFullscreenActive() const
     return false;
 }
 
-void WebViewImpl::toggleInWindowFullscreen()
+void WebViewImpl::enterInWindowFullscreen()
 {
     if (RefPtr interface = protectedPlaybackSessionInterface())
-        return interface->toggleInWindowFullscreen();
+        return interface->enterInWindowFullscreen();
+}
+
+void WebViewImpl::exitInWindowFullscreen()
+{
+    if (RefPtr interface = protectedPlaybackSessionInterface())
+        return interface->exitInWindowFullscreen();
 }
 
 void WebViewImpl::updateMediaPlaybackControlsManager()
