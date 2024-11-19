@@ -794,8 +794,7 @@ void VideoPresentationInterfaceAVKit::setupFullscreen(UIView& videoView, const F
 {
     [playerController() setContentDimensions:videoDimensions];
     VideoPresentationInterfaceIOS::setupFullscreen(videoView, initialRect, videoDimensions, parentView, mode, allowsPictureInPicturePlayback, standby, blocksReturnToFullscreenFromPictureInPicture);
-    if (playerLayer().captionsLayer != captionsLayer())
-        playerLayer().captionsLayer = captionsLayer();
+    playerLayer().captionsLayer = captionsLayer();
 }
 
 void VideoPresentationInterfaceAVKit::updateRouteSharingPolicy()

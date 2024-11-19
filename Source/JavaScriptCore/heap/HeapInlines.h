@@ -82,7 +82,7 @@ ALWAYS_INLINE bool Heap::testAndSetMarked(HeapVersion markingVersion, const void
     if (cell->isPreciseAllocation())
         return cell->preciseAllocation().testAndSetMarked();
     MarkedBlock& block = cell->markedBlock();
-    Dependency dependency = block.aboutToMark(markingVersion, cell);
+    Dependency dependency = block.aboutToMark(markingVersion);
     return block.testAndSetMarked(cell, dependency);
 }
 
