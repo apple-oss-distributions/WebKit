@@ -32,6 +32,7 @@
 #include "JSDOMPromiseDeferredForward.h"
 #include "VideoEncoder.h"
 #include "WebCodecsCodecState.h"
+#include "WebCodecsControlMessage.h"
 #include "WebCodecsVideoEncoderConfig.h"
 #include <wtf/Vector.h>
 
@@ -48,7 +49,7 @@ class WebCodecsVideoEncoder
     : public ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr<WebCodecsVideoEncoder>
     , public ActiveDOMObject
     , public EventTarget {
-    WTF_MAKE_ISO_ALLOCATED(WebCodecsVideoEncoder);
+    WTF_MAKE_TZONE_OR_ISO_ALLOCATED(WebCodecsVideoEncoder);
 public:
     ~WebCodecsVideoEncoder();
 
@@ -96,14 +97,13 @@ private:
     void setInternalEncoder(UniqueRef<VideoEncoder>&&);
     void scheduleDequeueEvent();
 
-    void queueControlMessageAndProcess(Function<void()>&&);
+    void queueControlMessageAndProcess(WebCodecsControlMessage<WebCodecsVideoEncoder>&&);
     void processControlMessageQueue();
     WebCodecsEncodedVideoChunkMetadata createEncodedChunkMetadata(std::optional<unsigned>);
-    bool updateRates(const WebCodecsVideoEncoderConfig&);
+    void updateRates(const WebCodecsVideoEncoderConfig&);
 
     WebCodecsCodecState m_state { WebCodecsCodecState::Unconfigured };
     size_t m_encodeQueueSize { 0 };
-    size_t m_beingEncodedQueueSize { 0 };
     Ref<WebCodecsEncodedVideoChunkOutputCallback> m_output;
     Ref<WebCodecsErrorCallback> m_error;
     std::unique_ptr<VideoEncoder> m_internalEncoder;
@@ -111,12 +111,12 @@ private:
     Deque<Ref<DeferredPromise>> m_pendingFlushPromises;
     size_t m_clearFlushPromiseCount { 0 };
     bool m_isKeyChunkRequired { false };
-    Deque<Function<void()>> m_controlMessageQueue;
+    Deque<WebCodecsControlMessage<WebCodecsVideoEncoder>> m_controlMessageQueue;
     bool m_isMessageQueueBlocked { false };
     WebCodecsVideoEncoderConfig m_baseConfiguration;
     VideoEncoder::ActiveConfiguration m_activeConfiguration;
     bool m_hasNewActiveConfiguration { false };
-    bool m_isFlushing { false };
+    size_t m_encoderCount { 0 };
 };
 
 }

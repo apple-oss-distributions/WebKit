@@ -37,12 +37,15 @@
 #include "ProcessAssertion.h"
 #include "WebProcessPool.h"
 #include <wtf/StdLibExtras.h>
+#include <wtf/TZoneMallocInlines.h>
 
 #if PLATFORM(COCOA)
 #include <wtf/cocoa/Entitlements.h>
 #endif
 
 namespace WebKit {
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(DownloadProxyMap);
 
 DownloadProxyMap::DownloadProxyMap(NetworkProcessProxy& process)
     : m_process(process)
@@ -57,6 +60,16 @@ DownloadProxyMap::~DownloadProxyMap()
 {
     ASSERT(m_downloads.isEmpty());
     platformDestroy();
+}
+
+void DownloadProxyMap::ref() const
+{
+    m_process->ref();
+}
+
+void DownloadProxyMap::deref() const
+{
+    m_process->deref();
 }
 
 Ref<NetworkProcessProxy> DownloadProxyMap::protectedProcess()

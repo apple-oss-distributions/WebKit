@@ -27,7 +27,7 @@ enum class WebKit::NavigatingToAppBoundDomain : bool;
 
 class WebKit::NetworkLoadParameters {
     WebKit::WebPageProxyIdentifier webPageProxyID;
-    WebCore::PageIdentifier webPageID;
+    Markable<WebCore::PageIdentifier> webPageID;
     WebCore::FrameIdentifier webFrameID;
     RefPtr<WebCore::SecurityOrigin> topOrigin;
     RefPtr<WebCore::SecurityOrigin> sourceOrigin;
@@ -94,7 +94,7 @@ class WebKit::NetworkResourceLoadParameters : WebKit::NetworkLoadParameters {
     URL openerURL;
     WebCore::CrossOriginOpenerPolicy sourceCrossOriginOpenerPolicy;
     
-    uint64_t navigationID;
+    std::optional<WebCore::NavigationIdentifier> navigationID;
     std::optional<WebCore::NavigationRequester> navigationRequester;
     
     WebCore::ServiceWorkersMode serviceWorkersMode;

@@ -180,7 +180,7 @@ void GPUProcessConnection::didClose(IPC::Connection&)
     m_clients.clear();
 }
 
-void GPUProcessConnection::didReceiveInvalidMessage(IPC::Connection&, IPC::MessageName)
+void GPUProcessConnection::didReceiveInvalidMessage(IPC::Connection&, IPC::MessageName, int32_t)
 {
 }
 
@@ -433,12 +433,12 @@ void GPUProcessConnection::releaseGraphicsContextGL(GraphicsContextGLIdentifier 
 
 void GPUProcessConnection::createGPU(WebGPUIdentifier identifier, RenderingBackendIdentifier renderingBackendIdentifier, IPC::StreamServerConnection::Handle&& serverHandle)
 {
-    connection().send(Messages::GPUConnectionToWebProcess::CreateGPU(identifier, renderingBackendIdentifier, WTFMove(serverHandle)), 0, IPC::SendOption::DispatchMessageEvenWhenWaitingForSyncReply);
+    protectedConnection()->send(Messages::GPUConnectionToWebProcess::CreateGPU(identifier, renderingBackendIdentifier, WTFMove(serverHandle)), 0, IPC::SendOption::DispatchMessageEvenWhenWaitingForSyncReply);
 }
 
 void GPUProcessConnection::releaseGPU(WebGPUIdentifier identifier)
 {
-    connection().send(Messages::GPUConnectionToWebProcess::ReleaseGPU(identifier), 0, IPC::SendOption::DispatchMessageEvenWhenWaitingForSyncReply);
+    protectedConnection()->send(Messages::GPUConnectionToWebProcess::ReleaseGPU(identifier), 0, IPC::SendOption::DispatchMessageEvenWhenWaitingForSyncReply);
 }
 
 } // namespace WebKit

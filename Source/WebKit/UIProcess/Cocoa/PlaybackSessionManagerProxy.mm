@@ -40,12 +40,16 @@
 #import <WebCore/NullPlaybackSessionInterface.h>
 #import <WebCore/PlaybackSessionInterfaceAVKit.h>
 #import <WebCore/PlaybackSessionInterfaceMac.h>
+#import <WebCore/PlaybackSessionInterfaceTVOS.h>
 #import <wtf/LoggerHelper.h>
+#import <wtf/TZoneMallocInlines.h>
 
 namespace WebKit {
 using namespace WebCore;
 
 #pragma mark - PlaybackSessionModelContext
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(PlaybackSessionModelContext);
 
 PlaybackSessionModelContext::PlaybackSessionModelContext(PlaybackSessionManagerProxy& manager, PlaybackSessionContextIdentifier contextId)
     : m_manager(manager)
@@ -256,11 +260,18 @@ void PlaybackSessionModelContext::exitFullscreen()
         manager->exitFullscreen(m_contextId);
 }
 
-void PlaybackSessionModelContext::toggleInWindowFullscreen()
+void PlaybackSessionModelContext::enterInWindowFullscreen()
 {
     ALWAYS_LOG_IF_POSSIBLE(LOGIDENTIFIER);
     if (m_manager)
-        m_manager->toggleInWindow(m_contextId);
+        m_manager->enterInWindow(m_contextId);
+}
+
+void PlaybackSessionModelContext::exitInWindowFullscreen()
+{
+    ALWAYS_LOG_IF_POSSIBLE(LOGIDENTIFIER);
+    if (m_manager)
+        m_manager->exitInWindow(m_contextId);
 }
 
 void PlaybackSessionModelContext::toggleMuted()
@@ -459,6 +470,18 @@ void PlaybackSessionModelContext::supportsLinearMediaPlayerChanged(bool supports
     if (RefPtr manager = m_manager.get())
         manager->updateVideoControlsManager(m_contextId);
 }
+
+void PlaybackSessionModelContext::spatialVideoMetadataChanged(const std::optional<WebCore::SpatialVideoMetadata>& metadata)
+{
+    if (m_spatialVideoMetadata == metadata)
+        return;
+    if (metadata)
+        ALWAYS_LOG_IF_POSSIBLE(LOGIDENTIFIER, *metadata);
+    m_spatialVideoMetadata = metadata;
+
+    for (auto& client : m_clients)
+        client.spatialVideoMetadataChanged(m_spatialVideoMetadata);
+}
 #endif
 
 void PlaybackSessionModelContext::invalidate()
@@ -527,9 +550,11 @@ PlaybackSessionManagerProxy::ModelInterfaceTuple PlaybackSessionManagerProxy::cr
 
     RefPtr<PlatformPlaybackSessionInterface> interface;
 #if ENABLE(LINEAR_MEDIA_PLAYER)
-    if (RefPtr page = m_page.get(); page->preferences().linearMediaPlayerEnabled())
-        interface = PlaybackSessionInterfaceLMK::create(model);
-    else
+    if (RefPtr page = m_page.get(); page->preferences().linearMediaPlayerEnabled()) {
+        auto lmkInterface = PlaybackSessionInterfaceLMK::create(model);
+        lmkInterface->setSpatialVideoEnabled(page->preferences().spatialVideoEnabled());
+        interface = WTFMove(lmkInterface);
+    } else
         interface = PlaybackSessionInterfaceAVKit::create(model);
 #else
     interface = PlatformPlaybackSessionInterface::create(model);
@@ -572,7 +597,7 @@ void PlaybackSessionManagerProxy::removeClientForContext(PlaybackSessionContextI
 
 #pragma mark Messages from PlaybackSessionManager
 
-void PlaybackSessionManagerProxy::setUpPlaybackControlsManagerWithID(PlaybackSessionContextIdentifier contextId)
+void PlaybackSessionManagerProxy::setUpPlaybackControlsManagerWithID(PlaybackSessionContextIdentifier contextId, bool isVideo)
 {
     if (m_controlsManagerContextId == contextId)
         return;
@@ -581,6 +606,7 @@ void PlaybackSessionManagerProxy::setUpPlaybackControlsManagerWithID(PlaybackSes
         removeClientForContext(m_controlsManagerContextId);
 
     m_controlsManagerContextId = contextId;
+    m_controlsManagerContextIsVideo = isVideo;
     ensureInterface(m_controlsManagerContextId)->ensureControlsManager();
     addClientForContext(m_controlsManagerContextId);
 
@@ -595,6 +621,7 @@ void PlaybackSessionManagerProxy::clearPlaybackControlsManager()
 
     removeClientForContext(m_controlsManagerContextId);
     m_controlsManagerContextId = { };
+    m_controlsManagerContextIsVideo = false;
 
     if (RefPtr page = m_page.get())
         page->videoControlsManagerDidChange();
@@ -707,6 +734,12 @@ void PlaybackSessionManagerProxy::supportsLinearMediaPlayerChanged(PlaybackSessi
 {
     ensureModel(contextId)->supportsLinearMediaPlayerChanged(supportsLinearMediaPlayer);
 }
+
+void PlaybackSessionManagerProxy::spatialVideoMetadataChanged(PlaybackSessionContextIdentifier contextId, const std::optional<WebCore::SpatialVideoMetadata>& metadata)
+{
+    ensureModel(contextId)->spatialVideoMetadataChanged(metadata);
+}
+
 #endif
 
 void PlaybackSessionManagerProxy::handleControlledElementIDResponse(PlaybackSessionContextIdentifier contextId, String identifier) const
@@ -825,10 +858,16 @@ void PlaybackSessionManagerProxy::exitFullscreen(PlaybackSessionContextIdentifie
         page->legacyMainFrameProcess().send(Messages::PlaybackSessionManager::ExitFullscreen(contextId), page->webPageIDInMainFrameProcess());
 }
 
-void PlaybackSessionManagerProxy::toggleInWindow(PlaybackSessionContextIdentifier contextId)
+void PlaybackSessionManagerProxy::enterInWindow(PlaybackSessionContextIdentifier contextId)
 {
     if (RefPtr page = m_page.get())
-        page->legacyMainFrameProcess().send(Messages::PlaybackSessionManager::ToggleInWindow(contextId), page->webPageIDInMainFrameProcess());
+        page->legacyMainFrameProcess().send(Messages::PlaybackSessionManager::EnterInWindow(contextId), page->webPageIDInMainFrameProcess());
+}
+
+void PlaybackSessionManagerProxy::exitInWindow(PlaybackSessionContextIdentifier contextId)
+{
+    if (RefPtr page = m_page.get())
+        page->legacyMainFrameProcess().send(Messages::PlaybackSessionManager::ExitInWindow(contextId), page->webPageIDInMainFrameProcess());
 }
 
 void PlaybackSessionManagerProxy::toggleMuted(PlaybackSessionContextIdentifier contextId)
@@ -924,7 +963,7 @@ void PlaybackSessionManagerProxy::uncacheVideoReceiverEndpoint(PlaybackSessionCo
     if (!xpcConnection)
         return;
 
-    VideoReceiverEndpointMessage endpointMessage(WTFMove(processIdentifier), contextId, { WTF::HashTableDeletedValue }, nullptr);
+    VideoReceiverEndpointMessage endpointMessage(WTFMove(processIdentifier), contextId, { }, nullptr);
     xpc_connection_send_message(xpcConnection.get(), endpointMessage.encode().get());
 #else
     UNUSED_PARAM(contextId);

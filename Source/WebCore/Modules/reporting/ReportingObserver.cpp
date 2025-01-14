@@ -36,11 +36,11 @@
 #include "ReportingScope.h"
 #include "ScriptExecutionContext.h"
 #include "WorkerGlobalScope.h"
-#include <wtf/IsoMallocInlines.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(ReportingObserver);
+WTF_MAKE_TZONE_OR_ISO_ALLOCATED_IMPL(ReportingObserver);
 
 static bool isVisibleToReportingObservers(const String& type)
 {
@@ -130,19 +130,20 @@ void ReportingObserver::appendQueuedReportIfCorrectType(const Ref<Report>& repor
     if (m_queuedReports.size() > 1)
         return;
 
-    RefPtr context = m_callback->scriptExecutionContext();
-    if (!context)
-        return;
-
-    ASSERT(m_reportingScope && context == m_reportingScope->scriptExecutionContext());
+    ASSERT(m_reportingScope && scriptExecutionContext() == m_reportingScope->scriptExecutionContext());
 
     // Step 4.3.4: Queue a task to § 4.4
-    context->eventLoop().queueTask(TaskSource::Reporting, [protectedThis = RefPtr { this }, protectedCallback = Ref { m_callback }, context]() mutable {
+    queueTaskKeepingObjectAlive(*this, TaskSource::Reporting, [protectedThis = Ref { *this }, protectedCallback = Ref { m_callback }] {
+        RefPtr context = protectedThis->scriptExecutionContext();
+        ASSERT(context);
+        if (!context)
+            return;
+
         // Step 4.4: Invoke reporting observers with notify list with a copy of global’s registered reporting observer list.
         auto reports = protectedThis->takeRecords();
 
         InspectorInstrumentation::willFireObserverCallback(*context, "ReportingObserver"_s);
-        protectedCallback->handleEvent(reports, *protectedThis);
+        protectedCallback->handleEvent(reports, protectedThis);
         InspectorInstrumentation::didFireObserverCallback(*context);
     });
 }

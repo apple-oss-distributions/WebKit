@@ -657,7 +657,7 @@ AXCoreObject::AccessibilityChildrenVector AccessibilityNodeObject::visibleChildr
     return result;
 }
 
-bool AccessibilityNodeObject::computeAccessibilityIsIgnored() const
+bool AccessibilityNodeObject::computeIsIgnored() const
 {
 #ifndef NDEBUG
     // Double-check that an AccessibilityObject is never accessed before
@@ -2408,17 +2408,6 @@ String AccessibilityNodeObject::textUnderElement(TextUnderElementMode mode) cons
             }
         }
 
-        if (node) {
-            auto* childParentElement = child->node() ? child->node()->parentElement() : nullptr;
-            auto isInShadowTree = [] (Node& node) {
-                return node.isInShadowTree() || node.isInUserAgentShadowTree();
-            };
-            // Do not take the textUnderElement for a different element (determined by child's element parent not being us). Otherwise we may doubly-expose the same text.
-            // But for now, don't do this if either node is in the shadow DOM, as determining descendancy is suprisingly tricky. We may want to change this in the future.
-            if (childParentElement && childParentElement != node && !isInShadowTree(*node) && !isInShadowTree(*child->node()))
-                continue;
-        }
-
         appendTextUnderElement(*child);
     }
 
@@ -2938,14 +2927,14 @@ AccessibilityRole AccessibilityNodeObject::determineAriaRoleAttribute() const
 AccessibilityRole AccessibilityNodeObject::remapAriaRoleDueToParent(AccessibilityRole role) const
 {
     // Some objects change their role based on their parent.
-    // However, asking for the unignoredParent calls accessibilityIsIgnored(), which can trigger a loop.
-    // While inside the call stack of creating an element, we need to avoid accessibilityIsIgnored().
+    // However, asking for the unignoredParent calls isIgnored(), which can trigger a loop.
+    // While inside the call stack of creating an element, we need to avoid isIgnored().
     // https://bugs.webkit.org/show_bug.cgi?id=65174
 
     if (role != AccessibilityRole::ListBoxOption && role != AccessibilityRole::MenuItem)
         return role;
 
-    for (AccessibilityObject* parent = parentObject(); parent && !parent->accessibilityIsIgnored(); parent = parent->parentObject()) {
+    for (AccessibilityObject* parent = parentObject(); parent && !parent->isIgnored(); parent = parent->parentObject()) {
         AccessibilityRole parentAriaRole = parent->ariaRoleAttribute();
 
         // Selects and listboxes both have options as child roles, but they map to different roles within WebCore.

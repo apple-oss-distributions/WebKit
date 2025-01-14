@@ -1909,11 +1909,6 @@ private:
                 if (m_heapAtHead[block].getAllocation(location.base()).isEscapedAllocation())
                     return nullptr;
 
-                // If we point to a single allocation, we will
-                // directly use its materialization
-                if (m_heapAtHead[block].follow(location))
-                    return nullptr;
-
                 Node* phiNode = m_graph.addNode(SpecHeapTop, Phi, block->at(0)->origin.withInvalidExit());
                 phiNode->mergeFlags(NodeResultJS);
                 return phiNode;
@@ -2536,13 +2531,15 @@ private:
                         // nodes. Those nodes were guarded by the appropriate type checks. This means that
                         // at this point, we can simply trust that the incoming value has the right type
                         // for whatever structure we are using.
-                        data->variants.append(PutByVariant::replace(nullptr, currentSet, currentOffset));
+                        // Now, this data is used directly for the base, so viaGlobalProxy or not does not matter.
+                        data->variants.append(PutByVariant::replace(nullptr, currentSet, currentOffset, /* viaGlobalProxy */ false));
                         currentOffset = offset;
                         currentSet.clear();
                     }
                     currentSet.add(structure.get());
                 }
-                data->variants.append(PutByVariant::replace(nullptr, currentSet, currentOffset));
+                // Now, this data is used directly for the base, so viaGlobalProxy or not does not matter.
+                data->variants.append(PutByVariant::replace(nullptr, currentSet, currentOffset, /* viaGlobalProxy */ false));
             }
 
             return m_graph.addNode(

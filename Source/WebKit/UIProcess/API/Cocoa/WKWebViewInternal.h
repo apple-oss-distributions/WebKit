@@ -24,6 +24,7 @@
  */
 
 #import "PDFPluginIdentifier.h"
+#import "WKIntelligenceTextEffectCoordinator.h"
 #import "WKTextAnimationType.h"
 #import <WebKit/WKShareSheet.h>
 #import <WebKit/WKWebViewConfiguration.h>
@@ -103,7 +104,7 @@ enum class ContinueUnsafeLoad : bool;
 class IconLoadingDelegate;
 class NavigationState;
 class ResourceLoadDelegate;
-class SafeBrowsingWarning;
+class BrowsingWarning;
 class ViewSnapshot;
 class WebPageProxy;
 class UIDelegate;
@@ -118,12 +119,12 @@ class ViewGestureController;
 
 @class WKContentView;
 @class WKPasswordView;
-@class WKSafeBrowsingWarning;
 @class WKScrollView;
 @class WKTextExtractionItem;
 @class WKTextExtractionRequest;
 @class WKWebViewContentProviderRegistry;
 @class _WKFrameHandle;
+@class _WKWarningView;
 
 #if ENABLE(WRITING_TOOLS)
 @class WTTextSuggestion;
@@ -213,8 +214,8 @@ struct PerWebProcessState {
 
     std::optional<WebKit::TransactionID> firstTransactionIDAfterPageRestore;
 
-    WebCore::PlatformLayerIdentifier pendingFindLayerID;
-    WebCore::PlatformLayerIdentifier committedFindLayerID;
+    Markable<WebCore::PlatformLayerIdentifier> pendingFindLayerID;
+    Markable<WebCore::PlatformLayerIdentifier> committedFindLayerID;
 
     std::optional<LiveResizeParameters> liveResizeParameters;
 };
@@ -236,7 +237,7 @@ struct PerWebProcessState {
     WeakObjCPtr<id <_WKInputDelegate>> _inputDelegate;
     WeakObjCPtr<id <_WKAppHighlightDelegate>> _appHighlightDelegate;
 
-    RetainPtr<WKSafeBrowsingWarning> _safeBrowsingWarning;
+    RetainPtr<_WKWarningView> _warningView;
 
     std::optional<BOOL> _resolutionForShareSheetImmediateCompletionForTesting;
 
@@ -249,7 +250,12 @@ struct PerWebProcessState {
 
 #if ENABLE(WRITING_TOOLS)
     RetainPtr<NSMapTable<NSUUID *, WTTextSuggestion *>> _writingToolsTextSuggestions;
-    RetainPtr<NSMapTable<NSUUID *, WTSession *>> _writingToolsSessions;
+    RetainPtr<WTSession> _activeWritingToolsSession;
+
+    RetainPtr<WKIntelligenceTextEffectCoordinator> _intelligenceTextEffectCoordinator;
+
+    NSUInteger _partialIntelligenceTextAnimationCount;
+    BOOL _writingToolsTextReplacementsFinished;
 #endif
 
 #if PLATFORM(MAC)
@@ -374,6 +380,7 @@ struct PerWebProcessState {
 #endif
 
     BOOL _didAccessBackForwardList;
+    BOOL _dontResetTransientActivationAfterRunJavaScript;
 
 #if ENABLE(PAGE_LOAD_OBSERVER)
     RetainPtr<NSString> _pendingPageLoadObserverHost;
@@ -381,6 +388,10 @@ struct PerWebProcessState {
 
 #if ENABLE(GAMEPAD)
     RetainPtr<id> _gamepadsRecentlyAccessedState;
+#endif
+
+#if ENABLE(OVERLAY_REGIONS_IN_EVENT_REGION)
+    BOOL _isScrollingWithOverlayRegion;
 #endif
 }
 
@@ -402,9 +413,9 @@ struct PerWebProcessState {
 #endif
 
 #if ENABLE(WRITING_TOOLS)
-- (void)_proofreadingSessionWithUUID:(NSUUID *)sessionUUID showDetailsForSuggestionWithUUID:(NSUUID *)replacementUUID relativeToRect:(CGRect)rect;
+- (void)_proofreadingSessionShowDetailsForSuggestionWithUUID:(NSUUID *)replacementUUID relativeToRect:(CGRect)rect;
 
-- (void)_proofreadingSessionWithUUID:(NSUUID *)sessionUUID updateState:(WebCore::WritingTools::TextSuggestionState)state forSuggestionWithUUID:(NSUUID *)replacementUUID;
+- (void)_proofreadingSessionUpdateState:(WebCore::WritingTools::TextSuggestionState)state forSuggestionWithUUID:(NSUUID *)replacementUUID;
 
 #if PLATFORM(MAC)
 // FIXME: (rdar://130540028) Remove uses of the old WritingToolsAllowedInputOptions API in favor of the new WritingToolsResultOptions API, and remove staging.
@@ -416,11 +427,12 @@ struct PerWebProcessState {
 - (PlatformWritingToolsResultOptions)allowedWritingToolsResultOptions;
 #endif
 
-#endif // ENABLE(WRITING_TOOLS)
+- (void)_didEndPartialIntelligenceTextAnimation;
+- (BOOL)_writingToolsTextReplacementsFinished;
 
-#if ENABLE(WRITING_TOOLS_UI)
-- (void)_addTextAnimationForAnimationID:(NSUUID *)uuid withData:(const WebKit::TextAnimationData&)styleData;
+- (void)_addTextAnimationForAnimationID:(NSUUID *)uuid withData:(const WebCore::TextAnimationData&)styleData;
 - (void)_removeTextAnimationForAnimationID:(NSUUID *)uuid;
+
 #endif
 
 - (void)_internalDoAfterNextPresentationUpdate:(void (^)(void))updateBlock withoutWaitingForPainting:(BOOL)withoutWaitingForPainting withoutWaitingForAnimatedResize:(BOOL)withoutWaitingForAnimatedResize;
@@ -429,9 +441,12 @@ struct PerWebProcessState {
 
 - (void)_recalculateViewportSizesWithMinimumViewportInset:(CocoaEdgeInsets)minimumViewportInset maximumViewportInset:(CocoaEdgeInsets)maximumViewportInset throwOnInvalidInput:(BOOL)throwOnInvalidInput;
 
-- (void)_showSafeBrowsingWarning:(const WebKit::SafeBrowsingWarning&)warning completionHandler:(CompletionHandler<void(std::variant<WebKit::ContinueUnsafeLoad, URL>&&)>&&)completionHandler;
-- (void)_clearSafeBrowsingWarning;
-- (void)_clearSafeBrowsingWarningIfForMainFrameNavigation;
+- (void)_showWarningView:(const WebKit::BrowsingWarning&)warning completionHandler:(CompletionHandler<void(std::variant<WebKit::ContinueUnsafeLoad, URL>&&)>&&)completionHandler;
+- (void)_showBrowsingWarning:(const WebKit::BrowsingWarning&)warning completionHandler:(CompletionHandler<void(std::variant<WebKit::ContinueUnsafeLoad, URL>&&)>&&)completionHandler;
+- (void)_clearWarningView;
+- (void)_clearBrowsingWarning;
+- (void)_clearWarningViewIfForMainFrameNavigation;
+- (void)_clearBrowsingWarningIfForMainFrameNavigation;
 
 - (std::optional<BOOL>)_resolutionForShareSheetImmediateCompletionForTesting;
 

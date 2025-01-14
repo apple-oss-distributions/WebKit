@@ -43,6 +43,7 @@
 #include <WebCore/LegacySchemeRegistry.h>
 #include <WebCore/OriginAccessPatterns.h>
 #include <wtf/Scope.h>
+#include <wtf/TZoneMallocInlines.h>
 #include <wtf/text/MakeString.h>
 
 #define LOAD_CHECKER_RELEASE_LOG(fmt, ...) RELEASE_LOG(Network, "%p - NetworkLoadChecker::" fmt, this, ##__VA_ARGS__)
@@ -50,6 +51,8 @@
 namespace WebKit {
 
 using namespace WebCore;
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(NetworkLoadChecker);
 
 NetworkLoadChecker::NetworkLoadChecker(NetworkProcess& networkProcess, NetworkResourceLoader* networkResourceLoader, NetworkSchemeRegistry* schemeRegistry, FetchOptions&& options, PAL::SessionID sessionID, WebPageProxyIdentifier webPageProxyID, HTTPHeaderMap&& originalRequestHeaders, URL&& url, DocumentURL&& documentURL, RefPtr<SecurityOrigin>&& sourceOrigin, RefPtr<SecurityOrigin>&& topOrigin, RefPtr<SecurityOrigin>&& parentOrigin, PreflightPolicy preflightPolicy, String&& referrer, bool allowPrivacyProxy, OptionSet<AdvancedPrivacyProtections> advancedPrivacyProtections, bool shouldCaptureExtraNetworkLoadMetrics, LoadType requestLoadType)
     : m_options(WTFMove(options))
@@ -463,7 +466,7 @@ void NetworkLoadChecker::checkCORSRequestWithPreflight(ResourceRequest&& request
     ASSERT(m_options.mode == FetchOptions::Mode::Cors);
 
     m_isSimpleRequest = false;
-    if (CrossOriginPreflightResultCache::singleton().canSkipPreflight(m_sessionID, m_origin->toString(), request.url(), m_storedCredentialsPolicy, request.httpMethod(), m_originalRequestHeaders)) {
+    if (CrossOriginPreflightResultCache::singleton().canSkipPreflight(m_sessionID, { m_topOrigin->data(), m_origin->data() }, request.url(), m_storedCredentialsPolicy, request.httpMethod(), m_originalRequestHeaders)) {
         LOAD_CHECKER_RELEASE_LOG("checkCORSRequestWithPreflight - preflight can be skipped thanks to cached result");
         updateRequestForAccessControl(request, *origin(), m_storedCredentialsPolicy);
         handler(WTFMove(request));
@@ -476,7 +479,7 @@ void NetworkLoadChecker::checkCORSRequestWithPreflight(ResourceRequest&& request
     NetworkCORSPreflightChecker::Parameters parameters = {
         WTFMove(requestForPreflight),
         *m_origin,
-        m_topOrigin,
+        *m_topOrigin,
         request.httpReferrer(),
         request.httpUserAgent(),
         m_sessionID,

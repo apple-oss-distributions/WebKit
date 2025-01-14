@@ -48,6 +48,7 @@
 #include "VP9Utilities.h"
 #include <JavaScriptCore/Forward.h>
 #include <wtf/CheckedRef.h>
+#include <wtf/TZoneMalloc.h>
 
 #if ENABLE(VIDEO)
 #include "MediaElementSession.h"
@@ -180,6 +181,10 @@ class HTMLModelElement;
 class PlatformSpeechSynthesizerMock;
 #endif
 
+#if ENABLE(WEB_CODECS)
+class WebCodecsVideoDecoder;
+#endif
+
 template<typename IDLType> class DOMPromiseDeferred;
 
 struct MockWebAuthenticationConfiguration;
@@ -194,7 +199,7 @@ class Internals final
     , private RealtimeMediaSource::VideoFrameObserver
 #endif
     {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(Internals);
 #if ENABLE(MEDIA_STREAM)
     WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(Internals);
 #endif
@@ -260,6 +265,10 @@ public:
     unsigned remoteImagesCountForTesting() const;
     void setAsyncDecodingEnabledForTesting(HTMLImageElement&, bool enabled);
     void setForceUpdateImageDataEnabledForTesting(HTMLImageElement&, bool enabled);
+
+#if ENABLE(WEB_CODECS)
+    bool hasPendingActivity(const WebCodecsVideoDecoder&) const;
+#endif
 
     void setGridMaxTracksLimit(unsigned);
 
@@ -331,6 +340,7 @@ public:
     ExceptionOr<Ref<DOMRect>> absoluteLineRectFromPoint(int x, int y);
 
     ExceptionOr<Ref<DOMRect>> absoluteCaretBounds();
+    ExceptionOr<bool> isCaretVisible();
     ExceptionOr<bool> isCaretBlinkingSuspended();
     ExceptionOr<bool> isCaretBlinkingSuspended(Document&);
 
@@ -367,6 +377,7 @@ public:
 
     ExceptionOr<String> viewBaseBackgroundColor();
     ExceptionOr<void> setViewBaseBackgroundColor(const String& colorValue);
+    ExceptionOr<void> setUnderPageBackgroundColorOverride(const String& colorValue);
 
     ExceptionOr<String> documentBackgroundColor();
 
@@ -404,6 +415,8 @@ public:
         RefPtr<Range> range;
     };
     Vector<TextIteratorState> statesOfTextIterator(const Range&);
+
+    String textFragmentDirectiveForRange(const Range&);
 
     ExceptionOr<void> setDelegatesScrolling(bool enabled);
 
@@ -449,6 +462,7 @@ public:
 #if ENABLE(WRITING_TOOLS)
     bool hasWritingToolsTextSuggestionMarker(int from, int length);
 #endif
+    bool hasTransparentContentMarker(int from, int length);
     void setContinuousSpellCheckingEnabled(bool);
     void setAutomaticQuoteSubstitutionEnabled(bool);
     void setAutomaticLinkDetectionEnabled(bool);
@@ -457,6 +471,8 @@ public:
     void setAutomaticSpellingCorrectionEnabled(bool);
 
     bool isSpellcheckDisabledExceptTextReplacement(const HTMLInputElement&) const;
+
+    ExceptionOr<void> setMarkerFor(const String& markerTypeString, int from, int length, const String&);
 
     void handleAcceptedCandidate(const String& candidate, unsigned location, unsigned length);
     void changeSelectionListType();
@@ -582,7 +598,6 @@ public:
     uint64_t elementIdentifier(Element&) const;
     bool isElementAlive(uint64_t elementIdentifier) const;
 
-    uint64_t frameIdentifier(const Document&) const;
     uint64_t pageIdentifier(const Document&) const;
 
     bool isAnyWorkletGlobalScopeAlive() const;
@@ -603,8 +618,6 @@ public:
     ExceptionOr<String> pageSizeAndMarginsInPixels(int pageNumber, int width, int height, int marginTop, int marginRight, int marginBottom, int marginLeft) const;
 
     ExceptionOr<float> pageScaleFactor() const;
-
-    ExceptionOr<void> setPageScaleFactor(float scaleFactor, int x, int y);
     ExceptionOr<void> setPageZoomFactor(float);
     ExceptionOr<void> setTextZoomFactor(float);
 
@@ -615,8 +628,6 @@ public:
 
     void setHeaderHeight(float);
     void setFooterHeight(float);
-
-    void setTopContentInset(float);
 
 #if ENABLE(FULLSCREEN_API)
     void webkitWillEnterFullScreenForElement(Element&);
@@ -669,6 +680,12 @@ public:
     ExceptionOr<unsigned> styleRecalcCount();
     unsigned lastStyleUpdateSize() const;
 
+    ExceptionOr<void> startTrackingLayoutUpdates();
+    ExceptionOr<unsigned> layoutUpdateCount();
+
+    ExceptionOr<void> startTrackingRenderLayerPositionUpdates();
+    ExceptionOr<unsigned> renderLayerPositionUpdateCount();
+
     ExceptionOr<void> startTrackingCompositingUpdates();
     ExceptionOr<unsigned> compositingUpdateCount();
 
@@ -681,9 +698,8 @@ public:
 
     ExceptionOr<void> setAllowAnimationControlsOverride(bool);
 
-    void updateLayoutAndStyleForAllFrames();
+    void updateLayoutAndStyleForAllFrames() const;
     ExceptionOr<void> updateLayoutIgnorePendingStylesheetsAndRunPostLayoutTasks(Node*);
-    unsigned layoutCount() const;
 
     Ref<ArrayBuffer> serializeObject(const RefPtr<SerializedScriptValue>&) const;
     Ref<SerializedScriptValue> deserializeBuffer(ArrayBuffer&) const;
@@ -871,6 +887,7 @@ public:
     void disableCORSForURL(const String&);
 
     RefPtr<File> createFile(const String&);
+    void asyncCreateFile(const String&, DOMPromiseDeferred<IDLInterface<File>>&&);
     String createTemporaryFile(const String& name, const String& contents);
 
     void queueMicroTask(int);
@@ -1247,6 +1264,7 @@ public:
     using AV1CodecConfigurationRecord = WebCore::AV1CodecConfigurationRecord;
     std::optional<AV1CodecConfigurationRecord> parseAV1CodecParameters(const String&);
     String createAV1CodecParametersString(const AV1CodecConfigurationRecord&);
+    bool validateAV1ConfigurationRecord(const String&);
     bool validateAV1PerLevelConstraints(const String&, const VideoConfiguration&);
 
     struct CookieData {
@@ -1462,7 +1480,6 @@ public:
         
     bool isUsingUISideCompositing() const;
 
-    bool readyToRetrieveComputedRoleOrLabel(Element&) const;
     String getComputedLabel(Element&) const;
     String getComputedRole(Element&) const;
 
@@ -1477,6 +1494,7 @@ public:
     };
 
     Vector<PDFAnnotationRect> pdfAnnotationRectsForTesting(Element& pluginElement) const;
+    void setPDFTextAnnotationValueForTesting(Element& pluginElement, unsigned pageIndex, unsigned annotationIndex, const String& value);
     void setPDFDisplayModeForTesting(Element&, const String&) const;
     bool sendEditingCommandToPDFForTesting(Element&, const String& commandName, const String& argument) const;
     void registerPDFTest(Ref<VoidCallback>&&, Element&);
@@ -1491,6 +1509,8 @@ public:
     using ImageBufferResourceLimits = WebCore::ImageBufferResourceLimits;
     using ImageBufferResourceLimitsPromise = DOMPromiseDeferred<IDLDictionary<ImageBufferResourceLimits>>;
     void getImageBufferResourceLimits(ImageBufferResourceLimitsPromise&&);
+
+    void setResourceCachingDisabledByWebInspector(bool);
 
 private:
     explicit Internals(Document&);

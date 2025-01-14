@@ -40,7 +40,11 @@
 #include <wtf/HashSet.h>
 #include <wtf/RefCounted.h>
 #include <wtf/RefPtr.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/WeakHashSet.h>
+#if ENABLE(LINEAR_MEDIA_PLAYER)
+#include <WebCore/SpatialVideoMetadata.h>
+#endif
 
 namespace WebKit {
 
@@ -52,7 +56,7 @@ class PlaybackSessionModelContext final
     : public RefCounted<PlaybackSessionModelContext>
     , public WebCore::PlaybackSessionModel
     , public CanMakeCheckedPtr<PlaybackSessionModelContext> {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(PlaybackSessionModelContext);
     WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(PlaybackSessionModelContext);
 public:
     static Ref<PlaybackSessionModelContext> create(PlaybackSessionManagerProxy& manager, PlaybackSessionContextIdentifier contextId)
@@ -91,6 +95,7 @@ public:
     void isInWindowFullscreenActiveChanged(bool);
 #if ENABLE(LINEAR_MEDIA_PLAYER)
     void supportsLinearMediaPlayerChanged(bool);
+    void spatialVideoMetadataChanged(const std::optional<WebCore::SpatialVideoMetadata>&);
 #endif
 
     bool wirelessVideoPlaybackDisabled() const final { return m_wirelessVideoPlaybackDisabled; }
@@ -120,7 +125,8 @@ private:
     void selectAudioMediaOption(uint64_t) final;
     void selectLegibleMediaOption(uint64_t) final;
     void togglePictureInPicture() final;
-    void toggleInWindowFullscreen() final;
+    void enterInWindowFullscreen() final;
+    void exitInWindowFullscreen() final;
     void enterFullscreen() final;
     void exitFullscreen() final;
     void toggleMuted() final;
@@ -209,6 +215,7 @@ private:
     WebCore::AudioSessionSoundStageSize m_soundStageSize { 0 };
 #if ENABLE(LINEAR_MEDIA_PLAYER)
     bool m_supportsLinearMediaPlayer { false };
+    std::optional<WebCore::SpatialVideoMetadata> m_spatialVideoMetadata;
 #endif
 
 #if !RELEASE_LOG_DISABLED
@@ -230,7 +237,7 @@ public:
 
     void invalidate();
 
-    bool hasControlsManagerInterface() const { return !!m_controlsManagerContextId; }
+    bool canEnterVideoFullscreen() const { return !!m_controlsManagerContextId && m_controlsManagerContextIsVideo; }
     RefPtr<WebCore::PlatformPlaybackSessionInterface> controlsManagerInterface();
     void requestControlledElementID();
 
@@ -257,7 +264,7 @@ private:
     PlaybackSessionContextIdentifier controlsManagerContextId() const { return m_controlsManagerContextId; }
 
     // Messages from PlaybackSessionManager
-    void setUpPlaybackControlsManagerWithID(PlaybackSessionContextIdentifier);
+    void setUpPlaybackControlsManagerWithID(PlaybackSessionContextIdentifier, bool isVideo);
     void clearPlaybackControlsManager();
     void currentTimeChanged(PlaybackSessionContextIdentifier, double currentTime, double hostTime);
     void bufferedTimeChanged(PlaybackSessionContextIdentifier, double bufferedTime);
@@ -279,6 +286,7 @@ private:
     void isInWindowFullscreenActiveChanged(PlaybackSessionContextIdentifier, bool isInWindow);
 #if ENABLE(LINEAR_MEDIA_PLAYER)
     void supportsLinearMediaPlayerChanged(PlaybackSessionContextIdentifier, bool);
+    void spatialVideoMetadataChanged(PlaybackSessionContextIdentifier, const std::optional<WebCore::SpatialVideoMetadata>&);
 #endif
 
     // Messages to PlaybackSessionManager
@@ -299,7 +307,8 @@ private:
     void togglePictureInPicture(PlaybackSessionContextIdentifier);
     void enterFullscreen(PlaybackSessionContextIdentifier);
     void exitFullscreen(PlaybackSessionContextIdentifier);
-    void toggleInWindow(PlaybackSessionContextIdentifier);
+    void enterInWindow(PlaybackSessionContextIdentifier);
+    void exitInWindow(PlaybackSessionContextIdentifier);
     void toggleMuted(PlaybackSessionContextIdentifier);
     void setMuted(PlaybackSessionContextIdentifier, bool);
     void setVolume(PlaybackSessionContextIdentifier, double);
@@ -328,6 +337,7 @@ private:
     WeakPtr<WebPageProxy> m_page;
     HashMap<PlaybackSessionContextIdentifier, ModelInterfaceTuple> m_contextMap;
     PlaybackSessionContextIdentifier m_controlsManagerContextId;
+    bool m_controlsManagerContextIsVideo { false };
     HashCountedSet<PlaybackSessionContextIdentifier> m_clientCounts;
 
 #if !RELEASE_LOG_DISABLED

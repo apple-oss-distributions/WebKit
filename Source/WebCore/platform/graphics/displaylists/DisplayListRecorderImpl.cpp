@@ -37,10 +37,13 @@
 #include "NotImplemented.h"
 #include "SourceImage.h"
 #include <wtf/MathExtras.h>
+#include <wtf/TZoneMallocInlines.h>
 #include <wtf/text/TextStream.h>
 
 namespace WebCore {
 namespace DisplayList {
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(RecorderImpl);
 
 RecorderImpl::RecorderImpl(DisplayList& displayList, const GraphicsContextState& state, const FloatRect& initialClip, const AffineTransform& initialCTM, const DestinationColorSpace& colorSpace, DrawGlyphsMode drawGlyphsMode)
     : Recorder(state, initialClip, initialCTM, colorSpace, drawGlyphsMode)
@@ -347,12 +350,7 @@ void RecorderImpl::recordFillEllipse(const FloatRect& rect)
 }
 
 #if ENABLE(VIDEO)
-void RecorderImpl::recordPaintFrameForMedia(MediaPlayer& player, const FloatRect& destination)
-{
-    append(PaintFrameForMedia(player.identifier(), destination));
-}
-
-void RecorderImpl::recordPaintVideoFrame(VideoFrame&, const FloatRect&, bool /* shouldDiscardAlpha */)
+void RecorderImpl::recordDrawVideoFrame(VideoFrame&, const FloatRect&, ImageOrientation, bool)
 {
     // FIXME: TODO
 }

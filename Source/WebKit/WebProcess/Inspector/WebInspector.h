@@ -38,6 +38,8 @@ namespace WebKit {
 class WebPage;
 
 class WebInspector : public ThreadSafeRefCounted<WebInspector>, private IPC::Connection::Client {
+    WTF_MAKE_FAST_ALLOCATED;
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(WebInspector);
 public:
     static Ref<WebInspector> create(WebPage&);
     ~WebInspector();
@@ -51,7 +53,7 @@ public:
 
     // IPC::Connection::Client
     void didClose(IPC::Connection&) override { close(); }
-    void didReceiveInvalidMessage(IPC::Connection&, IPC::MessageName) override { close(); }
+    void didReceiveInvalidMessage(IPC::Connection&, IPC::MessageName, int32_t indexOfObjectFailingDecoding) override { close(); }
 
     void show();
     void close();

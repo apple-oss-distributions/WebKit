@@ -36,6 +36,7 @@
 #include "WebProcessDataStoreParameters.h"
 #include <WebCore/CrossOriginMode.h>
 #include <wtf/HashMap.h>
+#include <wtf/OptionSet.h>
 #include <wtf/ProcessID.h>
 #include <wtf/RetainPtr.h>
 #include <wtf/Vector.h>
@@ -125,7 +126,6 @@ struct WebProcessCreationParameters {
     bool attrStyleEnabled { false };
     bool shouldThrowExceptionForGlobalConstantRedeclaration { true };
     WebCore::CrossOriginMode crossOriginMode { WebCore::CrossOriginMode::Shared }; // Cross-origin isolation via COOP+COEP headers.
-    bool isLockdownModeEnabled { false };
 
 #if ENABLE(SERVICE_CONTROLS)
     bool hasImageServices { false };
@@ -133,7 +133,7 @@ struct WebProcessCreationParameters {
     bool hasRichContentServices { false };
 #endif
 
-    TextCheckerState textCheckerState;
+    OptionSet<TextCheckerState> textCheckerState;
 
 #if PLATFORM(COCOA)
     String uiProcessBundleIdentifier;
@@ -145,8 +145,6 @@ struct WebProcessCreationParameters {
     ProcessID presentingApplicationPID { 0 };
 
 #if PLATFORM(COCOA)
-    WTF::MachSendRight acceleratedCompositingPort;
-
     String uiProcessBundleResourcePath;
     SandboxExtension::Handle uiProcessBundleResourcePathExtensionHandle;
 
@@ -200,7 +198,7 @@ struct WebProcessCreationParameters {
     std::optional<SandboxExtension::Handle> mobileGestaltExtensionHandle;
     std::optional<SandboxExtension::Handle> launchServicesExtensionHandle;
 #if HAVE(VIDEO_RESTRICTED_DECODING)
-#if PLATFORM(MAC)
+#if PLATFORM(MAC) || PLATFORM(MACCATALYST)
     SandboxExtension::Handle trustdExtensionHandle;
 #endif
     bool enableDecodingHEIC { false };

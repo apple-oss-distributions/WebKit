@@ -45,12 +45,12 @@
 #include "SVGPathData.h"
 #include "SVGURIReference.h"
 #include "SVGVisitedRendererTracking.h"
-#include <wtf/IsoMallocInlines.h>
 #include <wtf/StackStats.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(RenderSVGShape);
+WTF_MAKE_TZONE_OR_ISO_ALLOCATED_IMPL(RenderSVGShape);
 
 RenderSVGShape::RenderSVGShape(Type type, SVGGraphicsElement& element, RenderStyle&& style)
     : RenderSVGModelObject(type, element, WTFMove(style), SVGModelObjectFlag::IsShape)
@@ -390,7 +390,8 @@ FloatRect RenderSVGShape::calculateApproximateStrokeBoundingBox() const
 float RenderSVGShape::strokeWidth() const
 {
     SVGLengthContext lengthContext(protectedGraphicsElement().ptr());
-    return lengthContext.valueForLength(style().strokeWidth());
+    auto strokeWidth = lengthContext.valueForLength(style().strokeWidth());
+    return std::isnan(strokeWidth) ? 0 : strokeWidth;
 }
 
 Path& RenderSVGShape::ensurePath()

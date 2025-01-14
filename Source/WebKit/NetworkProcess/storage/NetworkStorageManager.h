@@ -41,13 +41,14 @@
 #include <WebCore/FileSystemHandleIdentifier.h>
 #include <WebCore/FileSystemSyncAccessHandleIdentifier.h>
 #include <WebCore/IDBDatabaseConnectionIdentifier.h>
+#include <WebCore/IDBObjectStoreIdentifier.h>
 #include <WebCore/IDBResourceIdentifier.h>
 #include <WebCore/IndexedDB.h>
 #include <WebCore/ServiceWorkerTypes.h>
 #include <pal/SessionID.h>
 #include <wtf/CheckedPtr.h>
-#include <wtf/FastMalloc.h>
 #include <wtf/Forward.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/ThreadSafeWeakHashSet.h>
 
 namespace IPC {
@@ -91,7 +92,7 @@ class StorageAreaBase;
 class StorageAreaRegistry;
 
 class NetworkStorageManager final : public IPC::WorkQueueMessageReceiver, public CanMakeCheckedPtr<NetworkStorageManager> {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(NetworkStorageManager);
     WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(NetworkStorageManager);
 public:
     static Ref<NetworkStorageManager> create(NetworkProcess&, PAL::SessionID, Markable<WTF::UUID>, IPC::Connection::UniqueID, const String& path, const String& customLocalStoragePath, const String& customIDBStoragePath, const String& customCacheStoragePath, const String& customServiceWorkerStoragePath, uint64_t defaultOriginQuota, std::optional<double> originQuotaRatio, std::optional<double> totalQuotaRatio, std::optional<uint64_t> standardVolumeCapacity, std::optional<uint64_t> volumeCapacityOverride, UnifiedOriginStorageLevel, bool storageSiteValidationEnabled);
@@ -136,6 +137,8 @@ public:
     void clearServiceWorkerRegistrations(CompletionHandler<void()>&&);
     void importServiceWorkerRegistrations(CompletionHandler<void(std::optional<Vector<WebCore::ServiceWorkerContextData>>)>&&);
     void updateServiceWorkerRegistrations(Vector<WebCore::ServiceWorkerContextData>&&, Vector<WebCore::ServiceWorkerRegistrationKey>&&, CompletionHandler<void(std::optional<Vector<WebCore::ServiceWorkerScripts>>)>&&);
+    const String& path() const { return m_pathNormalizedMainThread; }
+    const String& customIDBStoragePath() const { return m_customIDBStoragePathNormalizedMainThread; }
 
 private:
     NetworkStorageManager(NetworkProcess&, PAL::SessionID, Markable<WTF::UUID>, IPC::Connection::UniqueID, const String& path, const String& customLocalStoragePath, const String& customIDBStoragePath, const String& customCacheStoragePath, const String& customServiceWorkerStoragePath, uint64_t defaultOriginQuota, std::optional<double> originQuotaRatio, std::optional<double> totalQuotaRatio, std::optional<uint64_t> standardVolumeCapacity, std::optional<uint64_t> volumeCapacityOverride, UnifiedOriginStorageLevel, bool storageSiteValidationEnabled);
@@ -199,11 +202,11 @@ private:
     void didFinishHandlingVersionChangeTransaction(WebCore::IDBDatabaseConnectionIdentifier, const WebCore::IDBResourceIdentifier&);
     void createObjectStore(const WebCore::IDBRequestData&, const WebCore::IDBObjectStoreInfo&);
     void deleteObjectStore(const WebCore::IDBRequestData&, const String& objectStoreName);
-    void renameObjectStore(const WebCore::IDBRequestData&, uint64_t objectStoreIdentifier, const String& newName);
-    void clearObjectStore(const WebCore::IDBRequestData&, uint64_t objectStoreIdentifier);
+    void renameObjectStore(const WebCore::IDBRequestData&, WebCore::IDBObjectStoreIdentifier, const String& newName);
+    void clearObjectStore(const WebCore::IDBRequestData&, WebCore::IDBObjectStoreIdentifier);
     void createIndex(const WebCore::IDBRequestData&, const WebCore::IDBIndexInfo&);
-    void deleteIndex(const WebCore::IDBRequestData&, uint64_t objectStoreIdentifier, const String& indexName);
-    void renameIndex(const WebCore::IDBRequestData&, uint64_t objectStoreIdentifier, uint64_t indexIdentifier, const String& newName);
+    void deleteIndex(const WebCore::IDBRequestData&, WebCore::IDBObjectStoreIdentifier, const String& indexName);
+    void renameIndex(const WebCore::IDBRequestData&, WebCore::IDBObjectStoreIdentifier, uint64_t indexIdentifier, const String& newName);
     void putOrAdd(IPC::Connection&, const WebCore::IDBRequestData&, const WebCore::IDBKeyData&, const WebCore::IDBValue&, WebCore::IndexedDB::ObjectStoreOverwriteMode);
     void getRecord(const WebCore::IDBRequestData&, const WebCore::IDBGetRecordData&);
     void getAllRecords(const WebCore::IDBRequestData&, const WebCore::IDBGetAllRecordsData&);
@@ -223,7 +226,7 @@ private:
     void unlockCacheStorage(IPC::Connection&, const WebCore::ClientOrigin&);
     void cacheStorageRetrieveRecords(WebCore::DOMCacheIdentifier, WebCore::RetrieveRecordsOptions&&, WebCore::DOMCacheEngine::CrossThreadRecordsCallback&&);
     void cacheStorageRemoveRecords(WebCore::DOMCacheIdentifier, WebCore::ResourceRequest&&, WebCore::CacheQueryOptions&&, WebCore::DOMCacheEngine::RecordIdentifiersCallback&&);
-    void cacheStoragePutRecords(WebCore::DOMCacheIdentifier, Vector<WebCore::DOMCacheEngine::CrossThreadRecord>&&, WebCore::DOMCacheEngine::RecordIdentifiersCallback&&);
+    void cacheStoragePutRecords(IPC::Connection&, WebCore::DOMCacheIdentifier, Vector<WebCore::DOMCacheEngine::CrossThreadRecord>&&, WebCore::DOMCacheEngine::RecordIdentifiersCallback&&);
     void cacheStorageClearMemoryRepresentation(const WebCore::ClientOrigin&, CompletionHandler<void()>&&);
     void cacheStorageRepresentation(CompletionHandler<void(String&&)>&&);
 
@@ -262,6 +265,7 @@ private:
     PAL::SessionID m_sessionID;
     Ref<SuspendableWorkQueue> m_queue;
     String m_path;
+    String m_pathNormalizedMainThread;
     FileSystem::Salt m_salt;
     bool m_closed { false };
     HashMap<WebCore::ClientOrigin, std::unique_ptr<OriginStorageManager>> m_originStorageManagers WTF_GUARDED_BY_CAPABILITY(workQueue());
@@ -272,6 +276,7 @@ private:
     std::unique_ptr<CacheStorageRegistry> m_cacheStorageRegistry;
     String m_customLocalStoragePath;
     String m_customIDBStoragePath;
+    String m_customIDBStoragePathNormalizedMainThread;
     String m_customCacheStoragePath;
     String m_customServiceWorkerStoragePath;
     uint64_t m_defaultOriginQuota;

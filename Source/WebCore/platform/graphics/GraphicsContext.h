@@ -43,6 +43,7 @@
 #include <wtf/Function.h>
 #include <wtf/Noncopyable.h>
 #include <wtf/OptionSet.h>
+#include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
 
@@ -52,10 +53,7 @@ class Filter;
 class FilterResults;
 class FloatRoundedRect;
 class Gradient;
-class GraphicsContextPlatformPrivate;
 class ImageBuffer;
-class MediaPlayer;
-class GraphicsContextGL;
 class Path;
 class SystemImage;
 class TextRun;
@@ -67,7 +65,8 @@ class ResourceHeap;
 }
 
 class GraphicsContext {
-    WTF_MAKE_NONCOPYABLE(GraphicsContext); WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED_EXPORT(GraphicsContext, WEBCORE_EXPORT);
+    WTF_MAKE_NONCOPYABLE(GraphicsContext);
     friend class BifurcatedGraphicsContext;
     friend class DisplayList::DrawNativeImage;
     friend class NativeImage;
@@ -284,8 +283,7 @@ public:
     WEBCORE_EXPORT virtual void drawControlPart(ControlPart&, const FloatRoundedRect& borderRect, float deviceScaleFactor, const ControlStyle&);
 
 #if ENABLE(VIDEO)
-    WEBCORE_EXPORT virtual void paintFrameForMedia(MediaPlayer&, const FloatRect& destination);
-    WEBCORE_EXPORT virtual void paintVideoFrame(VideoFrame&, const FloatRect& destination, bool shouldDiscardAlpha);
+    WEBCORE_EXPORT virtual void drawVideoFrame(VideoFrame&, const FloatRect& destination, ImageOrientation, bool shouldDiscardAlpha);
 #endif
 
     // Clipping

@@ -34,6 +34,7 @@
 #include <wtf/OptionSet.h>
 #include <wtf/RetainPtr.h>
 #include <wtf/StdLibExtras.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/Vector.h>
 
 #if PLATFORM(MAC)
@@ -64,8 +65,12 @@ template<typename T, typename = IsObjCObject<T>> Class getClass()
 }
 #endif
 
+#if PLATFORM(COCOA)
+using AllowedClassHashSet = HashSet<RetainPtr<ClassStructPtr>>;
+#endif
+
 class Decoder {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(Decoder);
 public:
     static std::unique_ptr<Decoder> create(std::span<const uint8_t> buffer, Vector<Attachment>&&);
     using BufferDeallocator = Function<void(std::span<const uint8_t>)>;
@@ -137,25 +142,30 @@ public:
 
 #ifdef __OBJC__
     template<typename T, typename = IsObjCObject<T>>
-    std::optional<RetainPtr<T>> decodeWithAllowedClasses(const HashSet<ClassStructPtr>& allowedClasses = { getClass<T>() })
+    std::optional<RetainPtr<T>> decodeWithAllowedClasses(const AllowedClassHashSet& allowedClasses = { getClass<T>() })
     {
         m_allowedClasses = allowedClasses;
         return IPC::decodeRequiringAllowedClasses<T>(*this);
     }
 
     template<typename T, typename = IsNotObjCObject<T>>
-    std::optional<T> decodeWithAllowedClasses(const HashSet<ClassStructPtr>& allowedClasses)
+    std::optional<T> decodeWithAllowedClasses(const AllowedClassHashSet& allowedClasses)
     {
         m_allowedClasses = allowedClasses;
         return decode<T>();
     }
-#endif
 
-#if PLATFORM(COCOA)
-    HashSet<ClassStructPtr>& allowedClasses() { return m_allowedClasses; }
+    AllowedClassHashSet& allowedClasses() { return m_allowedClasses; }
 #endif
 
     std::optional<Attachment> takeLastAttachment();
+
+    void setIndexOfDecodingFailure(int32_t indexOfObjectFailingDecoding)
+    {
+        if (m_indexOfObjectFailingDecoding == -1)
+            m_indexOfObjectFailingDecoding = indexOfObjectFailingDecoding;
+    }
+    int32_t indexOfObjectFailingDecoding() const { return m_indexOfObjectFailingDecoding; }
 
 private:
     Decoder(std::span<const uint8_t> buffer, BufferDeallocator&&, Vector<Attachment>&&);
@@ -174,10 +184,12 @@ private:
     ImportanceAssertion m_importanceAssertion;
 #endif
 #if PLATFORM(COCOA)
-    HashSet<ClassStructPtr> m_allowedClasses;
+    AllowedClassHashSet m_allowedClasses;
 #endif
 
     uint64_t m_destinationID;
+
+    int32_t m_indexOfObjectFailingDecoding { -1 };
 };
 
 template<>

@@ -26,6 +26,7 @@
 #pragma once
 
 #include <WebCore/CertificateInfo.h>
+#include <WebCore/NavigationIdentifier.h>
 #include <WebCore/SecurityOriginData.h>
 #include <wtf/URL.h>
 #include <wtf/WeakHashSet.h>
@@ -127,7 +128,7 @@ public:
     };
 
     struct PendingAPIRequest {
-        uint64_t navigationID { 0 };
+        Markable<WebCore::NavigationIdentifier> navigationID;
         String url;
     };
 
@@ -187,7 +188,7 @@ public:
 
     const String& title() const;
     void setTitle(const Transaction::Token&, const String&);
-    void setTitleFromSafeBrowsingWarning(const Transaction::Token&, const String&);
+    void setTitleFromBrowsingWarning(const Transaction::Token&, const String&);
 
     bool canGoBack() const;
     void setCanGoBack(const Transaction::Token&, bool);
@@ -199,6 +200,8 @@ public:
     void didChangeProgress(const Transaction::Token&, double);
     void didFinishProgress(const Transaction::Token&);
     void setNetworkRequestsInProgress(const Transaction::Token&, bool);
+    void setHTTPFallbackInProgress(const Transaction::Token&, bool);
+    bool httpFallbackInProgress();
 
     void didSwapWebProcesses();
 
@@ -232,12 +235,13 @@ private:
         String unreachableURL;
 
         String title;
-        String titleFromSafeBrowsingWarning;
+        String titleFromBrowsingWarning;
 
         URL resourceDirectoryURL;
 
         bool canGoBack { false };
         bool canGoForward { false };
+        bool isHTTPFallbackInProgress { false };
 
         double estimatedProgress { 0 };
         bool networkRequestsInProgress { false };
@@ -250,7 +254,9 @@ private:
     static bool hasOnlySecureContent(const Data&);
     static double estimatedProgress(const Data&);
 
-    WebPageProxy& m_webPageProxy;
+    Ref<WebPageProxy> protectedPage() const;
+
+    WeakRef<WebPageProxy> m_webPageProxy;
 
     Data m_committedState;
     Data m_uncommittedState;

@@ -50,9 +50,11 @@
 #import <WebCore/NullVideoPresentationInterface.h>
 #import <WebCore/PlaybackSessionInterfaceAVKit.h>
 #import <WebCore/PlaybackSessionInterfaceMac.h>
+#import <WebCore/PlaybackSessionInterfaceTVOS.h>
 #import <WebCore/TimeRanges.h>
 #import <WebCore/VideoPresentationInterfaceAVKit.h>
 #import <WebCore/VideoPresentationInterfaceMac.h>
+#import <WebCore/VideoPresentationInterfaceTVOS.h>
 #import <WebCore/WebAVPlayerLayer.h>
 #import <WebCore/WebAVPlayerLayerView.h>
 #import <pal/spi/cocoa/QuartzCoreSPI.h>
@@ -670,6 +672,7 @@ void VideoPresentationManagerProxy::removeClientForContext(PlaybackSessionContex
     int clientCount = m_clientCounts.get(contextId);
     ASSERT(clientCount > 0);
     clientCount--;
+    ALWAYS_LOG(LOGIDENTIFIER, clientCount);
 
     if (clientCount <= 0) {
         Ref interface = ensureInterface(contextId);
@@ -678,6 +681,10 @@ void VideoPresentationManagerProxy::removeClientForContext(PlaybackSessionContex
         m_playbackSessionManagerProxy->removeClientForContext(contextId);
         m_clientCounts.remove(contextId);
         m_contextMap.remove(contextId);
+
+        if (RefPtr page = m_page.get())
+            page->didCleanupFullscreen(contextId);
+
         return;
     }
 

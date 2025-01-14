@@ -32,14 +32,16 @@
 #include "IDBGetAllResult.h"
 #include "IDBGetResult.h"
 #include "IDBKeyData.h"
+#include "IDBObjectStoreIdentifier.h"
 #include "IDBResourceIdentifier.h"
 #include "IDBValue.h"
 #include "IndexedDB.h"
 #include "JSValueInWrappedObject.h"
 #include <JavaScriptCore/Strong.h>
+#include <optional>
 #include <wtf/Function.h>
-#include <wtf/IsoMalloc.h>
 #include <wtf/Scope.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/ThreadSafeRefCounted.h>
 #include <wtf/WeakPtr.h>
 
@@ -62,7 +64,7 @@ class IDBConnectionToServer;
 }
 
 class IDBRequest : public EventTarget, public IDBActiveDOMObject, public ThreadSafeRefCounted<IDBRequest> {
-    WTF_MAKE_ISO_ALLOCATED(IDBRequest);
+    WTF_MAKE_TZONE_OR_ISO_ALLOCATED(IDBRequest);
 public:
     enum class NullResultType {
         Empty,
@@ -95,7 +97,7 @@ public:
 
     bool isDone() const { return m_readyState == ReadyState::Done; }
 
-    uint64_t sourceObjectStoreIdentifier() const;
+    std::optional<IDBObjectStoreIdentifier> sourceObjectStoreIdentifier() const;
     uint64_t sourceIndexIdentifier() const;
     IndexedDB::ObjectStoreRecordType requestedObjectStoreRecordType() const;
     IndexedDB::IndexRecordType requestedIndexRecordType() const;
@@ -128,6 +130,7 @@ public:
     void setTransactionOperationID(uint64_t transactionOperationID) { m_currentTransactionOperationID = transactionOperationID; }
     bool willAbortTransactionAfterDispatchingEvent() const;
     void transactionTransitionedToFinishing();
+    bool isEventBeingDispatched() const { return !!m_eventBeingDispatched; }
 
 protected:
     IDBRequest(ScriptExecutionContext&, IDBClient::IDBConnectionProxy&, IndexedDB::RequestType);

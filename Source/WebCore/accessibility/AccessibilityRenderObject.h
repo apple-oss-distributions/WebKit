@@ -137,7 +137,6 @@ public:
     
     String secureFieldValue() const override;
     void labelText(Vector<AccessibilityText>&) const override;
-
 protected:
     explicit AccessibilityRenderObject(RenderObject&);
     explicit AccessibilityRenderObject(Node&);
@@ -149,7 +148,7 @@ protected:
 
     bool shouldIgnoreAttributeRole() const override;
     AccessibilityRole determineAccessibilityRole() override;
-    bool computeAccessibilityIsIgnored() const override;
+    bool computeIsIgnored() const override;
 
 #if ENABLE(MATHML)
     virtual bool isIgnoredElementWithinMathTree() const;

@@ -39,20 +39,20 @@
 #include <wtf/CheckedArithmetic.h>
 #include <wtf/Scope.h>
 
-#include <pal/cf/AudioToolboxSoftLink.h>
-#include <pal/cf/CoreMediaSoftLink.h>
-
-#include "CoreVideoSoftLink.h"
-
 #if USE(LIBWEBRTC)
 ALLOW_UNUSED_PARAMETERS_BEGIN
 ALLOW_COMMA_BEGIN
 
-#include <webrtc/sdk/WebKit/WebKitUtilities.h>
+#include <webrtc/webkit_sdk/WebKit/WebKitUtilities.h>
 
 ALLOW_UNUSED_PARAMETERS_END
 ALLOW_COMMA_END
 #endif
+
+#include <pal/cf/AudioToolboxSoftLink.h>
+#include <pal/cf/CoreMediaSoftLink.h>
+
+#include "CoreVideoSoftLink.h"
 
 namespace WebCore {
 
@@ -460,7 +460,7 @@ void VideoFrame::copyTo(std::span<uint8_t> span, VideoPixelFormat format, Vector
     callback({ });
 }
 
-void VideoFrame::paintInContext(GraphicsContext& context, const FloatRect& destination, const ImageOrientation& destinationImageRotation, bool shouldDiscardAlpha)
+void VideoFrame::draw(GraphicsContext& context, const FloatRect& destination, ImageOrientation destinationImageRotation, bool shouldDiscardAlpha)
 {
     // FIXME: Handle alpha discarding.
     UNUSED_PARAM(shouldDiscardAlpha);

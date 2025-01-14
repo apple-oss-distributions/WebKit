@@ -100,6 +100,7 @@ struct ContactInfo;
 struct ContactsRequestData;
 struct PromisedAttachmentInfo;
 struct ShareDataWithParsedURL;
+struct TextIndicatorData;
 struct TextRecognitionResult;
 enum class DOMPasteAccessCategory : uint8_t;
 enum class DOMPasteAccessResponse : uint8_t;
@@ -294,7 +295,7 @@ enum class DynamicImageAnalysisContextMenuState : uint8_t {
 };
 
 enum class ImageAnalysisRequestIdentifierType { };
-using ImageAnalysisRequestIdentifier = ObjectIdentifier<ImageAnalysisRequestIdentifierType>;
+using ImageAnalysisRequestIdentifier = LegacyNullableObjectIdentifier<ImageAnalysisRequestIdentifierType>;
 
 struct ImageAnalysisContextMenuActionData {
     bool hasSelectableText { false };
@@ -345,6 +346,7 @@ struct ImageAnalysisContextMenuActionData {
     RetainPtr<UITapGestureRecognizer> _doubleTapGestureRecognizerForDoubleClick;
     RetainPtr<UITapGestureRecognizer> _twoFingerDoubleTapGestureRecognizer;
     RetainPtr<UITapGestureRecognizer> _twoFingerSingleTapGestureRecognizer;
+    RetainPtr<WKScrollViewTrackingTapGestureRecognizer> _keyboardDismissalGestureRecognizer;
     RetainPtr<WKInspectorNodeSearchGestureRecognizer> _inspectorNodeSearchGestureRecognizer;
 
     RetainPtr<WKTouchActionGestureRecognizer> _touchActionGestureRecognizer;
@@ -393,7 +395,7 @@ struct ImageAnalysisContextMenuActionData {
     RetainPtr<WKFormInputSession> _formInputSession;
     RetainPtr<WKFileUploadPanel> _fileUploadPanel;
     WebKit::FrameInfoData _frameInfoForFileUploadPanel;
-#if !PLATFORM(WATCHOS) && !PLATFORM(APPLETV)
+#if HAVE(SHARE_SHEET_UI)
     RetainPtr<WKShareSheet> _shareSheet;
 #endif
 #if HAVE(CONTACTSUI)
@@ -428,6 +430,8 @@ struct ImageAnalysisContextMenuActionData {
 #endif
 
 #if ENABLE(WRITING_TOOLS)
+    BOOL _isPresentingWritingTools;
+
     RetainPtr<WKSTextAnimationManager> _textAnimationManager;
 #endif
 
@@ -435,7 +439,7 @@ struct ImageAnalysisContextMenuActionData {
 
     WeakObjCPtr<id <UITextInputDelegate>> _inputDelegate;
 
-    WebKit::TapIdentifier _latestTapID;
+    Markable<WebKit::TapIdentifier> _latestTapID;
     struct TapHighlightInformation {
         BOOL nodeHasBuiltInClickHandling { false };
         WebCore::Color color;
@@ -564,6 +568,7 @@ struct ImageAnalysisContextMenuActionData {
     RetainPtr<UIView<UITextCursorView>> _editDropTextCursorView;
     RetainPtr<UITextCursorDropPositionAnimator> _editDropCaretAnimator;
 #endif
+    RetainPtr<NSMutableDictionary<NSUUID *, NSUUID *>> _sourceAnimationIDtoDestinationAnimationID;
 
 #if HAVE(PEPPER_UI_CORE)
     RetainPtr<WKFocusedFormControlView> _focusedFormControlView;
@@ -617,7 +622,7 @@ struct ImageAnalysisContextMenuActionData {
 #if HAVE(CONTACTSUI)
     , WKContactPickerDelegate
 #endif
-#if !PLATFORM(WATCHOS) && !PLATFORM(APPLETV)
+#if HAVE(SHARE_SHEET_UI)
     , WKShareSheetDelegate
 #endif
 #if ENABLE(DRAG_SUPPORT)
@@ -638,8 +643,6 @@ struct ImageAnalysisContextMenuActionData {
 #endif
 #if ENABLE(WRITING_TOOLS)
     , WTWritingToolsDelegate
-#endif
-#if ENABLE(WRITING_TOOLS_UI)
     , WKSTextAnimationSourceDelegate
 #endif
 >
@@ -838,8 +841,8 @@ FOR_EACH_PRIVATE_WKCONTENTVIEW_ACTION(DECLARE_WKCONTENTVIEW_ACTION_FOR_WEB_VIEW)
 - (void)setTextIndicatorAnimationProgress:(float)NSAnimationProgress;
 - (void)clearTextIndicator:(WebCore::TextIndicatorDismissalAnimation)animation;
 
-#if ENABLE(WRITING_TOOLS_UI)
-- (void)addTextAnimationForAnimationID:(NSUUID *)uuid withStyleType:(WKTextAnimationType)styleType;
+#if ENABLE(WRITING_TOOLS)
+- (void)addTextAnimationForAnimationID:(NSUUID *)uuid withData:(const WebCore::TextAnimationData&)data;
 - (void)removeTextAnimationForAnimationID:(NSUUID *)uuid;
 #endif
 
@@ -857,7 +860,9 @@ FOR_EACH_PRIVATE_WKCONTENTVIEW_ACTION(DECLARE_WKCONTENTVIEW_ACTION_FOR_WEB_VIEW)
 - (void)updateSoftwareKeyboardSuppressionStateFromWebView;
 
 #if USE(UICONTEXTMENU)
+- (UIView *)containerForContextMenuHintPreviews;
 - (UIView *)textEffectsWindow;
+- (UITargetedPreview *)_createTargetedPreviewFromTextIndicator:(WebCore::TextIndicatorData)textIndicatorData previewContainer:(UIView *)previewContainer;
 - (UITargetedPreview *)_createTargetedContextMenuHintPreviewForFocusedElement:(WebKit::TargetedPreviewPositioning)positioning;
 - (UITargetedPreview *)_createTargetedContextMenuHintPreviewIfPossible;
 - (void)_removeContextMenuHintContainerIfPossible;

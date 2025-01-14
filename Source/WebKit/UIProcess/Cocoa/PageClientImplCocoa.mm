@@ -26,10 +26,12 @@
 #import "config.h"
 #import "PageClientImplCocoa.h"
 
-#import "TextAnimationType.h"
+
 #import "WKTextAnimationType.h"
 #import "WKWebViewInternal.h"
 #import <WebCore/AlternativeTextUIController.h>
+#import <WebCore/TextAnimationTypes.h>
+#import <WebCore/WritingToolsTypes.h>
 #import <WebKit/WKWebViewConfigurationPrivate.h>
 #import <WebKit/WKWebViewPrivateForTesting.h>
 #import <pal/spi/ios/BrowserEngineKitSPI.h>
@@ -156,18 +158,6 @@ void PageClientImplCocoa::storeAppHighlight(const WebCore::AppHighlight &highlig
 }
 #endif // ENABLE(APP_HIGHLIGHTS)
 
-#if ENABLE(WRITING_TOOLS_UI)
-void PageClientImplCocoa::addTextAnimationForAnimationID(const WTF::UUID& uuid, const WebKit::TextAnimationData& data)
-{
-    [m_webView _addTextAnimationForAnimationID:uuid withData:data];
-}
-
-void PageClientImplCocoa::removeTextAnimationForAnimationID(const WTF::UUID& uuid)
-{
-    [m_webView _removeTextAnimationForAnimationID:uuid];
-}
-#endif
-
 void PageClientImplCocoa::pageClosed()
 {
     m_alternativeTextUIController->clear();
@@ -287,14 +277,14 @@ WindowKind PageClientImplCocoa::windowKind()
 }
 
 #if ENABLE(WRITING_TOOLS)
-void PageClientImplCocoa::proofreadingSessionShowDetailsForSuggestionWithIDRelativeToRect(const WebCore::WritingTools::Session::ID& sessionID, const WebCore::WritingTools::TextSuggestion::ID& replacementID, WebCore::IntRect selectionBoundsInRootView)
+void PageClientImplCocoa::proofreadingSessionShowDetailsForSuggestionWithIDRelativeToRect(const WebCore::WritingTools::TextSuggestion::ID& replacementID, WebCore::IntRect selectionBoundsInRootView)
 {
-    [m_webView _proofreadingSessionWithUUID:sessionID showDetailsForSuggestionWithUUID:replacementID relativeToRect:selectionBoundsInRootView];
+    [m_webView _proofreadingSessionShowDetailsForSuggestionWithUUID:replacementID relativeToRect:selectionBoundsInRootView];
 }
 
-void PageClientImplCocoa::proofreadingSessionUpdateStateForSuggestionWithID(const WebCore::WritingTools::Session::ID& sessionID, WebCore::WritingTools::TextSuggestion::State state, const WebCore::WritingTools::TextSuggestion::ID& replacementID)
+void PageClientImplCocoa::proofreadingSessionUpdateStateForSuggestionWithID(WebCore::WritingTools::TextSuggestion::State state, const WebCore::WritingTools::TextSuggestion::ID& replacementID)
 {
-    [m_webView _proofreadingSessionWithUUID:sessionID updateState:state forSuggestionWithUUID:replacementID];
+    [m_webView _proofreadingSessionUpdateState:state forSuggestionWithUUID:replacementID];
 }
 
 static NSString *writingToolsActiveKey = @"writingToolsActive";
@@ -308,6 +298,27 @@ void PageClientImplCocoa::writingToolsActiveDidChange()
 {
     [m_webView didChangeValueForKey:writingToolsActiveKey];
 }
+
+void PageClientImplCocoa::didEndPartialIntelligenceTextAnimation()
+{
+    [m_webView _didEndPartialIntelligenceTextAnimation];
+}
+
+bool PageClientImplCocoa::writingToolsTextReplacementsFinished()
+{
+    return [m_webView _writingToolsTextReplacementsFinished];
+}
+
+void PageClientImplCocoa::addTextAnimationForAnimationID(const WTF::UUID& uuid, const WebCore::TextAnimationData& data)
+{
+    [m_webView _addTextAnimationForAnimationID:uuid withData:data];
+}
+
+void PageClientImplCocoa::removeTextAnimationForAnimationID(const WTF::UUID& uuid)
+{
+    [m_webView _removeTextAnimationForAnimationID:uuid];
+}
+
 #endif
 
 #if ENABLE(GAMEPAD)
@@ -329,6 +340,8 @@ void PageClientImplCocoa::hasActiveNowPlayingSessionChanged(bool hasActiveNowPla
     if ([m_webView _hasActiveNowPlayingSession] == hasActiveNowPlayingSession)
         return;
 
+    RELEASE_LOG(ViewState, "%p PageClientImplCocoa::hasActiveNowPlayingSessionChanged %d", m_webView.get().get(), hasActiveNowPlayingSession);
+
     [m_webView willChangeValueForKey:@"_hasActiveNowPlayingSession"];
     [m_webView _setHasActiveNowPlayingSession:hasActiveNowPlayingSession];
     [m_webView didChangeValueForKey:@"_hasActiveNowPlayingSession"];
@@ -336,8 +349,14 @@ void PageClientImplCocoa::hasActiveNowPlayingSessionChanged(bool hasActiveNowPla
 
 void PageClientImplCocoa::videoControlsManagerDidChange()
 {
+    RELEASE_LOG(ViewState, "%p PageClientImplCocoa::videoControlsManagerDidChange %d", m_webView.get().get(), [m_webView _canEnterFullscreen]);
     [m_webView willChangeValueForKey:@"_canEnterFullscreen"];
     [m_webView didChangeValueForKey:@"_canEnterFullscreen"];
+}
+
+CocoaWindow *PageClientImplCocoa::platformWindow() const
+{
+    return [m_webView window];
 }
 
 } // namespace WebKit

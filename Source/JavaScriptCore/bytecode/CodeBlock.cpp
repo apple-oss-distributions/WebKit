@@ -297,6 +297,9 @@ CodeBlock::CodeBlock(VM& vm, Structure* structure, CopyParsedBlockTag, CodeBlock
     , m_functionDecls(other.m_functionDecls)
     , m_functionExprs(other.m_functionExprs)
     , m_creationTime(ApproximateTime::now())
+#if ASSERT_ENABLED
+    , m_magic(CODEBLOCK_MAGIC)
+#endif
 {
     ASSERT(heap()->isDeferred());
     ASSERT(m_scopeRegister.isLocal());
@@ -344,6 +347,9 @@ CodeBlock::CodeBlock(VM& vm, Structure* structure, ScriptExecutable* ownerExecut
     , m_instructionsRawPointer(unlinkedCodeBlock->instructions().rawPointer())
     , m_metadata(unlinkedCodeBlock->metadata().link())
     , m_creationTime(ApproximateTime::now())
+#if ASSERT_ENABLED
+    , m_magic(CODEBLOCK_MAGIC)
+#endif
 {
     ASSERT(heap()->isDeferred());
     ASSERT(m_scopeRegister.isLocal());
@@ -1640,6 +1646,9 @@ void CodeBlock::finalizeUnconditionally(VM& vm, CollectionScope)
         DFG::CommonData* dfgCommon = m_jitCode->dfgCommon();
         if (auto* statuses = dfgCommon->recordedStatuses.get())
             statuses->finalize(vm);
+
+        if (auto* jitData = dfgJITData())
+            jitData->finalizeUnconditionally();
     }
 #endif // ENABLE(DFG_JIT)
 
@@ -1688,7 +1697,13 @@ void CodeBlock::finalizeUnconditionally(VM& vm, CollectionScope)
 
 void CodeBlock::destroy(JSCell* cell)
 {
-    static_cast<CodeBlock*>(cell)->~CodeBlock();
+    auto cb = static_cast<CodeBlock*>(cell);
+    ASSERT(!cb->wasDestructed());
+    cb->~CodeBlock();
+#if ASSERT_ENABLED
+    cb->m_magic = 0;
+#endif
+    ASSERT(cb->wasDestructed());
 }
 
 void CodeBlock::getICStatusMap(const ConcurrentJSLocker&, ICStatusMap& result)
@@ -1752,37 +1767,6 @@ StructureStubInfo* CodeBlock::findStubInfo(CodeOrigin codeOrigin)
         return IterationStatus::Continue;
     });
     return result;
-}
-
-void CodeBlock::resetBaselineJITData()
-{
-    RELEASE_ASSERT(!JITCode::isJIT(jitType()));
-    ConcurrentJSLocker locker(m_lock);
-    
-    if (auto* jitData = baselineJITData()) {
-        // We can clear these because no other thread will have references to any stub infos, call
-        // link infos, or by val infos if we don't have JIT code. Attempts to query these data
-        // structures using the concurrent API (getICStatusMap and friends) will return nothing if we
-        // don't have JIT code. So it's safe to call this if we fail a baseline JIT compile.
-        //
-        // We also call this from finalizeUnconditionally when we degrade from baseline JIT to LLInt
-        // code. This is safe to do since all compiler threads are safepointed in finalizeUnconditionally,
-        // which means we've made it past bytecode parsing. Only the bytecode parser will hold onto
-        // references to these various *infos via its use of ICStatusMap. Also, OSR exit might point to
-        // these *infos, but when we have an OSR exit linked to this CodeBlock, we won't downgrade
-        // to LLInt.
-
-        for (auto& stubInfo : jitData->stubInfos()) {
-            stubInfo.aboutToDie();
-            stubInfo.deref();
-        }
-
-        // We can clear this because the DFG's queries to these data structures are guarded by whether
-        // there is JIT code.
-
-        m_jitData = nullptr;
-        delete jitData;
-    }
 }
 #endif
 
@@ -2793,6 +2777,7 @@ void CodeBlock::updateAllNonLazyValueProfilePredictionsAndCountLiveness(const Co
     unsigned index = 0;
     UnlinkedCodeBlock* unlinkedCodeBlock = this->unlinkedCodeBlock();
     bool isBuiltinFunction = unlinkedCodeBlock->isBuiltinFunction();
+    auto unlinkedValueProfiles = unlinkedCodeBlock->unlinkedValueProfiles().mutableSpan();
     forEachValueProfile([&](auto& profile, bool isArgument) {
         unsigned numSamples = profile.totalNumberOfSamples();
         using Profile = std::remove_reference_t<decltype(profile)>;
@@ -2803,7 +2788,7 @@ void CodeBlock::updateAllNonLazyValueProfilePredictionsAndCountLiveness(const Co
         if (isArgument) {
             profile.computeUpdatedPrediction(locker);
             if (!isBuiltinFunction)
-                unlinkedCodeBlock->unlinkedValueProfile(index).update(profile);
+                unlinkedValueProfiles[index].update(profile);
             ++index;
             return;
         }
@@ -2811,7 +2796,7 @@ void CodeBlock::updateAllNonLazyValueProfilePredictionsAndCountLiveness(const Co
             numberOfLiveNonArgumentValueProfiles++;
         profile.computeUpdatedPrediction(locker);
         if (!isBuiltinFunction)
-            unlinkedCodeBlock->unlinkedValueProfile(index).update(profile);
+            unlinkedValueProfiles[index].update(profile);
         ++index;
     });
 
@@ -2853,10 +2838,11 @@ void CodeBlock::updateAllArrayProfilePredictions()
     unsigned index = 0;
     UnlinkedCodeBlock* unlinkedCodeBlock = this->unlinkedCodeBlock();
     bool isBuiltinFunction = unlinkedCodeBlock->isBuiltinFunction();
+    auto unlinkedArrayProfiles = unlinkedCodeBlock->unlinkedArrayProfiles().mutableSpan();
     auto process = [&] (ArrayProfile& profile) {
         profile.computeUpdatedPrediction(this);
         if (!isBuiltinFunction)
-            unlinkedCodeBlock->unlinkedArrayProfile(index).update(profile);
+            unlinkedArrayProfiles[index].update(profile);
         ++index;
     };
 

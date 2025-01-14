@@ -54,7 +54,7 @@ enum TextRunFlag {
 typedef unsigned TextRunFlags;
 
 class RenderBlock : public RenderBox {
-    WTF_MAKE_ISO_ALLOCATED(RenderBlock);
+    WTF_MAKE_TZONE_OR_ISO_ALLOCATED(RenderBlock);
     WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(RenderBlock);
 public:
     friend class LineLayoutState;
@@ -462,6 +462,9 @@ private:
     void removePositionedObjectsIfNeeded(const RenderStyle& oldStyle, const RenderStyle& newStyle);
 
     void absoluteQuadsIgnoringContinuation(const FloatRect&, Vector<FloatQuad>&, bool* wasFixed) const override;
+
+    bool contentBoxLogicalWidthChanged(const RenderStyle&, const RenderStyle&);
+    bool scrollbarWidthDidChange(const RenderStyle&, const RenderStyle&, ScrollbarOrientation);
 
 protected:
     void dirtyForLayoutFromPercentageHeightDescendants();

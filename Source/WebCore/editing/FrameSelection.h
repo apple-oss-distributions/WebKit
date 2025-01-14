@@ -38,6 +38,7 @@
 #include "VisibleSelection.h"
 #include <wtf/CheckedRef.h>
 #include <wtf/Noncopyable.h>
+#include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
 
@@ -54,14 +55,19 @@ class VisiblePosition;
 enum class UserTriggered : bool { No, Yes };
 enum class RevealExtentOption : bool { RevealExtent, DoNotRevealExtent };
 enum class ForceCenterScroll : bool { No, Yes };
+enum class CaretVisibility : bool { Visible, Hidden };
+
+enum class CaretVisibilitySuppressionReason : uint8_t {
+    IsNotFocusedOrActive = 1 << 0,
+    TextPlaceholderIsShowing = 1 << 1,
+};
 
 class CaretBase {
+    WTF_MAKE_TZONE_ALLOCATED(CaretBase);
     WTF_MAKE_NONCOPYABLE(CaretBase);
-    WTF_MAKE_FAST_ALLOCATED;
 public:
     WEBCORE_EXPORT static Color computeCaretColor(const RenderStyle& elementStyle, const Node*);
 protected:
-    enum class CaretVisibility : bool { Visible, Hidden };
     explicit CaretBase(CaretVisibility = CaretVisibility::Hidden);
 
     void invalidateCaretRect(Node*, bool caretRectChanged = false, CaretAnimator* = nullptr);
@@ -86,8 +92,8 @@ private:
 };
 
 class DragCaretController : private CaretBase {
+    WTF_MAKE_TZONE_ALLOCATED(DragCaretController);
     WTF_MAKE_NONCOPYABLE(DragCaretController);
-    WTF_MAKE_FAST_ALLOCATED;
 public:
     DragCaretController();
 
@@ -113,10 +119,11 @@ private:
 };
 
 class FrameSelection final : private CaretBase, public CaretAnimationClient, public CanMakeCheckedPtr<FrameSelection> {
+    WTF_MAKE_TZONE_ALLOCATED_EXPORT(FrameSelection, WEBCORE_EXPORT);
     WTF_MAKE_NONCOPYABLE(FrameSelection);
-    WTF_MAKE_FAST_ALLOCATED;
     WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(FrameSelection);
 public:
+    enum class ShouldUpdateAppearance : bool { No, Yes };
     enum class Alteration : bool { Move, Extend };
     enum class CursorAlignOnScroll : bool { IfNeeded, Always };
     enum class SetSelectionOption : uint16_t {
@@ -199,7 +206,10 @@ public:
     void nodeWillBeRemoved(Node&);
     void textWasReplaced(CharacterData&, unsigned offset, unsigned oldLength, unsigned newLength);
 
-    void setCaretVisible(bool caretIsVisible) { setCaretVisibility(caretIsVisible ? CaretVisibility::Visible : CaretVisibility::Hidden, ShouldUpdateAppearance::Yes); }
+    WEBCORE_EXPORT void addCaretVisibilitySuppressionReason(CaretVisibilitySuppressionReason, ShouldUpdateAppearance = ShouldUpdateAppearance::Yes);
+    WEBCORE_EXPORT void removeCaretVisibilitySuppressionReason(CaretVisibilitySuppressionReason, ShouldUpdateAppearance = ShouldUpdateAppearance::Yes);
+
+    bool isCaretVisible() const { return CaretBase::caretIsVisible(); }
     void paintCaret(GraphicsContext&, const LayoutPoint&);
 
     // Used to suspend caret blinking while the mouse is down.
@@ -322,8 +332,7 @@ private:
     void setFocusedElementIfNeeded(OptionSet<SetSelectionOption>);
     void focusedOrActiveStateChanged();
 
-    enum class ShouldUpdateAppearance : bool { No, Yes };
-    WEBCORE_EXPORT void setCaretVisibility(CaretVisibility, ShouldUpdateAppearance);
+    void updateCaretVisibility(ShouldUpdateAppearance);
 
     bool recomputeCaretRect();
     void invalidateCaretRect();
@@ -361,6 +370,8 @@ private:
     AXTextStateChangeIntent m_selectionRevealIntent;
 
     UniqueRef<CaretAnimator> m_caretAnimator;
+
+    OptionSet<CaretVisibilitySuppressionReason> m_caretVisibilitySuppressionReasons;
 
     bool m_caretInsidePositionFixed : 1;
     bool m_absCaretBoundsDirty : 1;

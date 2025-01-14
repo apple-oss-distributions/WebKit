@@ -284,6 +284,7 @@ enum class AXPropertyName : uint16_t {
     VisibleChildren,
     VisibleRows,
 };
+WTF::TextStream& operator<<(WTF::TextStream&, AXPropertyName);
 
 using AXPropertyNameSet = HashSet<AXPropertyName, IntHash<AXPropertyName>, WTF::StrongEnumHashTraits<AXPropertyName>>;
 
@@ -298,6 +299,7 @@ using AXPropertyValueVariant = std::variant<std::nullptr_t, AXID, String, bool, 
 #endif
 >;
 using AXPropertyMap = HashMap<AXPropertyName, AXPropertyValueVariant, IntHash<AXPropertyName>, WTF::StrongEnumHashTraits<AXPropertyName>>;
+WTF::TextStream& operator<<(WTF::TextStream&, const AXPropertyMap&);
 
 struct AXPropertyChange {
     AXID axID; // ID of the object whose properties changed.
@@ -384,6 +386,33 @@ public:
     void removeNode(const AccessibilityObject&);
     // Removes the given node and all its descendants from m_nodeMap.
     void removeSubtreeFromNodeMap(AXID axID, AccessibilityObject*);
+#if !ENABLE(INCLUDE_IGNORED_IN_CORE_AX_TREE)
+    void objectBecameIgnored(AXID axID)
+    {
+        // When an object becomes ignored, we should immediately remove it from the nodemap.
+        // This is critical because objects can become ignored at any point, including in the
+        // middle of AXObjectCache::handleChildrenChanged(). Consider this tree structure:
+        //   <main> (not ignored)
+        //   ++<div> (not ignored)
+        // Imagine <div> gains new children, and we run handleChildrenChanged() for it. However,
+        // it becomes ignored in the middle of handleChildrenChanged(). We will still call
+        // AXIsolatedTree::updateChildren for this <div>, and because it isn't yet removed from
+        // the nodemap, we will run the children update on the <div> rather than the <main>.
+        // Eagerly removing <div> from the nodemap when it becomes ignored prevents this by
+        // allowing us to ascend up the nodemap to the <main>, which can properly scoop up <div>s children.
+
+        // Note that this problem is only relevant in a world where !ENABLE(INCLUDE_IGNORED_IN_CORE_AX_TREE),
+        // because when that flag is on, is-ignored doesn't matter when building the core-tree.
+
+        // Normally, when removing things from the nodemap, we want to use removeSubtreeFromNodeMap because
+        // it removes both the given object, and all its descendants, as the descendants should not be in the
+        // tree without some parent. However, when something becomes ignored, those descendants still exist,
+        // just with a different parent (the next unignored ancestor). So we can safely only remove the given
+        // object from the nodemap, and rely on the normal updateChildren flow to repair parent relationships
+        // as needed.
+        m_nodeMap.remove(axID);
+    }
+#endif // !ENABLE(INCLUDE_IGNORED_IN_CORE_AX_TREE)
 
     // Both setRootNodeID and setFocusedNodeID are called during the generation
     // of the IsolatedTree.
@@ -433,7 +462,6 @@ private:
     void createEmptyContent(AccessibilityObject&);
     constexpr bool isUpdatingSubtree() const { return m_rootOfSubtreeBeingUpdated; }
     constexpr void updatingSubtree(AccessibilityObject* axObject) { m_rootOfSubtreeBeingUpdated = axObject; }
-    RefPtr<AXIsolatedObject> retrieveObjectForIDFromMainThread(const AXID) const;
 
     enum class AttachWrapper : bool { OnMainThread, OnAXThread };
     struct NodeChange {
@@ -452,7 +480,7 @@ private:
     void queueChange(const NodeChange&) WTF_REQUIRES_LOCK(m_changeLogLock);
     void queueRemovals(Vector<AXID>&&);
     void queueRemovalsLocked(Vector<AXID>&&) WTF_REQUIRES_LOCK(m_changeLogLock);
-    void queueRemovalsAndUnresolvedChanges(Vector<AXID>&&);
+    void queueRemovalsAndUnresolvedChanges();
     Vector<NodeChange> resolveAppends();
     void queueAppendsAndRemovals(Vector<NodeChange>&&, Vector<AXID>&&);
 
@@ -485,6 +513,11 @@ private:
     // The key is the ID of the object that will be resolved into an m_pendingAppends NodeChange.
     // The value is whether the wrapper should be attached on the main thread or the AX thread.
     HashMap<AXID, AttachWrapper> m_unresolvedPendingAppends;
+    // Only accessed on the main thread.
+    // While performing tree updates, we append nodes to this list that are no longer connected
+    // in the tree and should be removed. This list turns into m_pendingSubtreeRemovals when
+    // handed off to the secondary thread.
+    Vector<AXID> m_subtreesToRemove;
     // Only accessed on the main thread.
     // This is used when updating the isolated tree in response to dynamic children changes.
     // It is required to protect objects from being incorrectly deleted when they are re-parented,

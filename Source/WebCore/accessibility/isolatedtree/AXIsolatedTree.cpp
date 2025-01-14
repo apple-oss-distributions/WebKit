@@ -167,7 +167,7 @@ Ref<AXIsolatedTree> AXIsolatedTree::create(AXObjectCache& axObjectCache)
 
     for (auto& relatedObjectID : relations.keys()) {
         RefPtr axObject = axObjectCache.objectForID(relatedObjectID);
-        if (axObject && axObject->accessibilityIsIgnored())
+        if (axObject && axObject->isIgnored())
             tree->addUnconnectedNode(axObject.releaseNonNull());
     }
 
@@ -240,26 +240,6 @@ RefPtr<AXIsolatedObject> AXIsolatedTree::objectForID(const AXID axID) const
     return axID.isValid() ? m_readerThreadNodeMap.get(axID) : nullptr;
 }
 
-RefPtr<AXIsolatedObject> AXIsolatedTree::retrieveObjectForIDFromMainThread(const AXID axID) const
-{
-    // There is no isolated object for this AXID. This can happen if the corresponding live object is ignored.
-    // If there is a live object for this ID and it is an ignored target of a relationship, create an isolated object for it.
-    return Accessibility::retrieveValueFromMainThread<RefPtr<AXIsolatedObject>>([&axID, this] () -> RefPtr<AXIsolatedObject> {
-        auto* cache = axObjectCache();
-        if (!cache || !cache->relationTargetIDs().contains(axID))
-            return nullptr;
-
-        RefPtr axObject = cache->objectForID(axID);
-        if (!axObject || !axObject->accessibilityIsIgnored())
-            return nullptr;
-
-        auto object = AXIsolatedObject::create(*axObject, const_cast<AXIsolatedTree*>(this));
-        ASSERT(axObject->wrapper());
-        object->attachPlatformWrapper(axObject->wrapper());
-        return object;
-    });
-}
-
 void AXIsolatedTree::generateSubtree(AccessibilityObject& axObject)
 {
     AXTRACE("AXIsolatedTree::generateSubtree"_s);
@@ -271,13 +251,13 @@ void AXIsolatedTree::generateSubtree(AccessibilityObject& axObject)
     // We're about to a lot of read-only work, so start the attribute cache.
     AXAttributeCacheEnabler enableCache(axObject.axObjectCache());
     collectNodeChangesForSubtree(axObject);
-    queueRemovalsAndUnresolvedChanges({ });
+    queueRemovalsAndUnresolvedChanges();
 }
 
 bool AXIsolatedTree::shouldCreateNodeChange(AccessibilityObject& axObject)
 {
     // We should never create an isolated object from a detached or ignored object.
-    return !axObject.isDetached() && (!axObject.accessibilityIsIgnored() || m_unconnectedNodes.contains(axObject.objectID()));
+    return !axObject.isDetached() && (!axObject.isIgnored() || m_unconnectedNodes.contains(axObject.objectID()));
 }
 
 std::optional<AXIsolatedTree::NodeChange> AXIsolatedTree::nodeChangeForObject(Ref<AccessibilityObject> axObject, AttachWrapper attachWrapper)
@@ -369,13 +349,14 @@ void AXIsolatedTree::queueRemovalsLocked(Vector<AXID>&& subtreeRemovals)
     ASSERT(m_changeLogLock.isLocked());
 
     m_pendingSubtreeRemovals.appendVector(WTFMove(subtreeRemovals));
+    m_pendingProtectedFromDeletionIDs.formUnion(std::exchange(m_protectedFromDeletionIDs, { }));
 }
 
-void AXIsolatedTree::queueRemovalsAndUnresolvedChanges(Vector<AXID>&& subtreeRemovals)
+void AXIsolatedTree::queueRemovalsAndUnresolvedChanges()
 {
     ASSERT(isMainThread());
 
-    queueAppendsAndRemovals(resolveAppends(), WTFMove(subtreeRemovals));
+    queueAppendsAndRemovals(resolveAppends(), std::exchange(m_subtreesToRemove, { }));
 }
 
 Vector<AXIsolatedTree::NodeChange> AXIsolatedTree::resolveAppends()
@@ -435,7 +416,6 @@ void AXIsolatedTree::queueAppendsAndRemovals(Vector<NodeChange>&& appends, Vecto
     }
 
     queueRemovalsLocked(WTFMove(subtreeRemovals));
-    m_pendingProtectedFromDeletionIDs.formUnion(std::exchange(m_protectedFromDeletionIDs, { }));
 }
 
 void AXIsolatedTree::collectNodeChangesForSubtree(AXCoreObject& axObject)
@@ -795,7 +775,7 @@ void AXIsolatedTree::updateDependentProperties(AccessibilityObject& axObject)
 
         if (updateTableAncestorColumns && is<AccessibilityTable>(*ancestor)) {
             // Only `updateChildren` if the table is unignored, because otherwise `updateChildren` will ascend and update the next highest unignored ancestor, which doesn't accomplish our goal of updating table columns.
-            if (ancestor->accessibilityIsIgnored())
+            if (ancestor->isIgnored())
                 break;
             // Use `NodeUpdateOptions::childrenUpdate()` rather than `updateNodeProperty` because `childrenUpdate()` will ensure the columns (which are children) will have associated isolated objects created.
             queueNodeUpdate(ancestor->objectID(), NodeUpdateOptions::childrenUpdate());
@@ -942,10 +922,9 @@ void AXIsolatedTree::updateChildren(AccessibilityObject& axObject, ResolveNodeCh
         updateDependentProperties(*axAncestor);
     }
 
+    m_subtreesToRemove.appendVector(WTFMove(oldChildrenIDs));
     if (resolveNodeChanges == ResolveNodeChanges::Yes)
-        queueRemovalsAndUnresolvedChanges(WTFMove(oldChildrenIDs));
-    else
-        queueRemovals(WTFMove(oldChildrenIDs));
+        queueRemovalsAndUnresolvedChanges();
 }
 
 void AXIsolatedTree::updateChildrenForObjects(const ListHashSet<Ref<AccessibilityObject>>& axObjects)
@@ -959,7 +938,7 @@ void AXIsolatedTree::updateChildrenForObjects(const ListHashSet<Ref<Accessibilit
     for (auto& axObject : axObjects)
         updateChildren(axObject.get(), ResolveNodeChanges::No);
 
-    queueRemovalsAndUnresolvedChanges({ });
+    queueRemovalsAndUnresolvedChanges();
 }
 
 void AXIsolatedTree::setPageActivityState(OptionSet<ActivityState> state)
@@ -1367,7 +1346,7 @@ void AXIsolatedTree::processQueuedNodeUpdates()
     if (m_relationsNeedUpdate)
         updateRelations(cache->relations());
 
-    queueRemovalsAndUnresolvedChanges({ });
+    queueRemovalsAndUnresolvedChanges();
 }
 
 #if ENABLE(AX_THREAD_TEXT_APIS)

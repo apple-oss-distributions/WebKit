@@ -147,6 +147,15 @@ void AccessibilityScrollView::updateScrollbars()
     if (!scrollView)
         return;
 
+    if (isWithinHiddenWebArea()) {
+        removeChildScrollbar(m_horizontalScrollbar.get());
+        m_horizontalScrollbar = nullptr;
+
+        removeChildScrollbar(m_verticalScrollbar.get());
+        m_verticalScrollbar = nullptr;
+        return;
+    }
+
     if (scrollView->horizontalScrollbar() && !m_horizontalScrollbar)
         m_horizontalScrollbar = addChildScrollbar(scrollView->horizontalScrollbar());
     else if (!scrollView->horizontalScrollbar() && m_horizontalScrollbar) {
@@ -168,6 +177,9 @@ void AccessibilityScrollView::removeChildScrollbar(AccessibilityObject* scrollba
     if (pos != notFound) {
         m_children[pos]->detachFromParent();
         m_children.remove(pos);
+
+        if (CheckedPtr cache = axObjectCache())
+            cache->remove(scrollbar->objectID());
     }
 }
     
@@ -196,13 +208,13 @@ void AccessibilityScrollView::clearChildren()
     m_childrenDirty = false;
 }
 
-bool AccessibilityScrollView::computeAccessibilityIsIgnored() const
+bool AccessibilityScrollView::computeIsIgnored() const
 {
     AccessibilityObject* webArea = webAreaObject();
     if (!webArea)
         return true;
 
-    return webArea->accessibilityIsIgnored();
+    return webArea->isIgnored();
 }
 
 void AccessibilityScrollView::addRemoteFrameChild()

@@ -31,11 +31,15 @@
 #include "Decoder.h"
 #include "GPUConnectionToWebProcess.h"
 #include "GPUProcess.h"
+#include "Logging.h"
 #include "RemoteMediaRecorder.h"
 #include <WebCore/ExceptionData.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebKit {
 using namespace WebCore;
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(RemoteMediaRecorderManager);
 
 RemoteMediaRecorderManager::RemoteMediaRecorderManager(GPUConnectionToWebProcess& gpuConnectionToWebProcess)
     : m_gpuConnectionToWebProcess(gpuConnectionToWebProcess)
@@ -48,7 +52,8 @@ RemoteMediaRecorderManager::~RemoteMediaRecorderManager()
 
 void RemoteMediaRecorderManager::didReceiveRemoteMediaRecorderMessage(IPC::Connection& connection, IPC::Decoder& decoder)
 {
-    if (auto* recorder = m_recorders.get(ObjectIdentifier<MediaRecorderIdentifierType>(decoder.destinationID())))
+    MESSAGE_CHECK_BASE(LegacyNullableObjectIdentifier<MediaRecorderIdentifierType>::isValidIdentifier(decoder.destinationID()), connection);
+    if (auto* recorder = m_recorders.get(LegacyNullableObjectIdentifier<MediaRecorderIdentifierType>(decoder.destinationID())))
         recorder->didReceiveMessage(connection, decoder);
 }
 

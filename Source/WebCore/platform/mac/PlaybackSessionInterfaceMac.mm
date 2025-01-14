@@ -37,6 +37,7 @@
 #import <AVFoundation/AVTime.h>
 #import <pal/avfoundation/MediaTimeAVFoundation.h>
 #import <pal/spi/cocoa/AVKitSPI.h>
+#import <wtf/TZoneMallocInlines.h>
 
 #import <pal/cf/CoreMediaSoftLink.h>
 
@@ -44,6 +45,8 @@ SOFTLINK_AVKIT_FRAMEWORK()
 SOFT_LINK_CLASS_OPTIONAL(AVKit, AVValueTiming)
 
 namespace WebCore {
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(PlaybackSessionInterfaceMac);
 
 Ref<PlaybackSessionInterfaceMac> PlaybackSessionInterfaceMac::create(PlaybackSessionModel& model)
 {
@@ -72,10 +75,16 @@ bool PlaybackSessionInterfaceMac::isInWindowFullscreenActive() const
     return m_playbackSessionModel && m_playbackSessionModel->isInWindowFullscreenActive();
 }
 
-void PlaybackSessionInterfaceMac::toggleInWindowFullscreen()
+void PlaybackSessionInterfaceMac::enterInWindowFullscreen()
 {
     if (m_playbackSessionModel)
-        m_playbackSessionModel->toggleInWindowFullscreen();
+        m_playbackSessionModel->enterInWindowFullscreen();
+}
+
+void PlaybackSessionInterfaceMac::exitInWindowFullscreen()
+{
+    if (m_playbackSessionModel)
+        m_playbackSessionModel->exitInWindowFullscreen();
 }
 
 void PlaybackSessionInterfaceMac::durationChanged(double duration)

@@ -25,6 +25,7 @@
 
 #include "config.h"
 #include "BifurcatedGraphicsContext.h"
+#include <wtf/TZoneMallocInlines.h>
 
 #if ASSERT_ENABLED
 #define VERIFY_STATE_SYNCHRONIZATION() do { \
@@ -35,6 +36,8 @@
 #endif
 
 namespace WebCore {
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(BifurcatedGraphicsContext);
 
 BifurcatedGraphicsContext::BifurcatedGraphicsContext(GraphicsContext& primaryContext, GraphicsContext& secondaryContext)
     : m_primaryContext(primaryContext)
@@ -159,9 +162,15 @@ void BifurcatedGraphicsContext::beginTransparencyLayer(float opacity)
     VERIFY_STATE_SYNCHRONIZATION();
 }
 
-void BifurcatedGraphicsContext::beginTransparencyLayer(CompositeOperator, BlendMode)
+void BifurcatedGraphicsContext::beginTransparencyLayer(CompositeOperator compositeOperator, BlendMode blendMode)
 {
-    beginTransparencyLayer(1);
+    GraphicsContext::beginTransparencyLayer(compositeOperator, blendMode);
+    m_primaryContext.beginTransparencyLayer(compositeOperator, blendMode);
+    m_secondaryContext.beginTransparencyLayer(compositeOperator, blendMode);
+
+    GraphicsContext::save(GraphicsContextState::Purpose::TransparencyLayer);
+
+    VERIFY_STATE_SYNCHRONIZATION();
 }
 
 void BifurcatedGraphicsContext::endTransparencyLayer()
@@ -441,10 +450,10 @@ ImageDrawResult BifurcatedGraphicsContext::drawTiledImage(Image& image, const Fl
 }
 
 #if ENABLE(VIDEO)
-void BifurcatedGraphicsContext::paintFrameForMedia(MediaPlayer& player, const FloatRect& destination)
+void BifurcatedGraphicsContext::drawVideoFrame(VideoFrame& videoFrame, const FloatRect& destination, WebCore::ImageOrientation orientation, bool shouldDiscardAlpha)
 {
-    m_primaryContext.paintFrameForMedia(player, destination);
-    m_secondaryContext.paintFrameForMedia(player, destination);
+    m_primaryContext.drawVideoFrame(videoFrame, destination, orientation, shouldDiscardAlpha);
+    m_secondaryContext.drawVideoFrame(videoFrame, destination, orientation, shouldDiscardAlpha);
 
     VERIFY_STATE_SYNCHRONIZATION();
 }

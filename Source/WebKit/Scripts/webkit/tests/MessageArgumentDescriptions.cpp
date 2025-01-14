@@ -120,6 +120,7 @@
 #include <WebCore/FileSystemSyncAccessHandleIdentifier.h>
 #include <WebCore/GlobalWindowIdentifier.h>
 #include <WebCore/IDBDatabaseConnectionIdentifier.h>
+#include <WebCore/IDBObjectStoreIdentifier.h>
 #include <WebCore/ImageDecoderIdentifier.h>
 #include <WebCore/InbandGenericCueIdentifier.h>
 #include <WebCore/LayerHostingContextIdentifier.h>
@@ -130,6 +131,7 @@
 #include <WebCore/MediaSessionIdentifier.h>
 #include <WebCore/MediaUniqueIdentifier.h>
 #include <WebCore/ModelPlayerIdentifier.h>
+#include <WebCore/NavigationIdentifier.h>
 #include <WebCore/PageIdentifier.h>
 #if ENABLE(WIRELESS_PLAYBACK_TARGET)
 #include <WebCore/PlaybackTargetClientContextIdentifier.h>
@@ -168,6 +170,7 @@
 #include "TestWithStreamBufferMessages.h" // NOLINT
 #include "TestWithCVPixelBufferMessages.h" // NOLINT
 #include "TestWithStreamServerConnectionHandleMessages.h" // NOLINT
+#include "TestWithEnabledByMessages.h" // NOLINT
 #include "TestWithEnabledIfMessages.h" // NOLINT
 
 namespace IPC {
@@ -369,6 +372,14 @@ std::optional<JSC::JSValue> jsValueForArguments(JSC::JSGlobalObject* globalObjec
 #endif
     case MessageName::TestWithStreamServerConnectionHandle_SendStreamServerConnection:
         return jsValueForDecodedMessage<MessageName::TestWithStreamServerConnectionHandle_SendStreamServerConnection>(globalObject, decoder);
+    case MessageName::TestWithEnabledBy_AlwaysEnabled:
+        return jsValueForDecodedMessage<MessageName::TestWithEnabledBy_AlwaysEnabled>(globalObject, decoder);
+    case MessageName::TestWithEnabledBy_ConditionallyEnabled:
+        return jsValueForDecodedMessage<MessageName::TestWithEnabledBy_ConditionallyEnabled>(globalObject, decoder);
+    case MessageName::TestWithEnabledBy_ConditionallyEnabledAnd:
+        return jsValueForDecodedMessage<MessageName::TestWithEnabledBy_ConditionallyEnabledAnd>(globalObject, decoder);
+    case MessageName::TestWithEnabledBy_ConditionallyEnabledOr:
+        return jsValueForDecodedMessage<MessageName::TestWithEnabledBy_ConditionallyEnabledOr>(globalObject, decoder);
     case MessageName::TestWithEnabledIf_AlwaysEnabled:
         return jsValueForDecodedMessage<MessageName::TestWithEnabledIf_AlwaysEnabled>(globalObject, decoder);
     case MessageName::TestWithEnabledIf_OnlyEnabledIfFeatureEnabled:
@@ -484,6 +495,7 @@ Vector<ASCIILiteral> serializedIdentifiers()
     static_assert(sizeof(uint64_t) == sizeof(WebCore::FileSystemHandleIdentifier));
     static_assert(sizeof(uint64_t) == sizeof(WebCore::FileSystemSyncAccessHandleIdentifier));
     static_assert(sizeof(uint64_t) == sizeof(WebCore::FrameIdentifierID));
+    static_assert(sizeof(uint64_t) == sizeof(WebCore::IDBObjectStoreIdentifier));
     static_assert(sizeof(uint64_t) == sizeof(WebCore::ImageDecoderIdentifier));
     static_assert(sizeof(uint64_t) == sizeof(WebCore::InbandGenericCueIdentifier));
     static_assert(sizeof(uint64_t) == sizeof(WebCore::LayerHostingContextIdentifier));
@@ -494,6 +506,7 @@ Vector<ASCIILiteral> serializedIdentifiers()
     static_assert(sizeof(uint64_t) == sizeof(WebCore::MediaSessionIdentifier));
     static_assert(sizeof(uint64_t) == sizeof(WebCore::ModelPlayerIdentifier));
     static_assert(sizeof(uint64_t) == sizeof(WebCore::MediaUniqueIdentifier));
+    static_assert(sizeof(uint64_t) == sizeof(WebCore::NavigationIdentifier));
     static_assert(sizeof(uint64_t) == sizeof(WebCore::OpaqueOriginIdentifier));
     static_assert(sizeof(uint64_t) == sizeof(WebCore::PageIdentifier));
     static_assert(sizeof(uint64_t) == sizeof(WebCore::PlatformLayerIdentifierID));
@@ -628,6 +641,7 @@ Vector<ASCIILiteral> serializedIdentifiers()
         "WebCore::FileSystemHandleIdentifier"_s,
         "WebCore::FileSystemSyncAccessHandleIdentifier"_s,
         "WebCore::FrameIdentifierID"_s,
+        "WebCore::IDBObjectStoreIdentifier"_s,
         "WebCore::ImageDecoderIdentifier"_s,
         "WebCore::InbandGenericCueIdentifier"_s,
         "WebCore::LayerHostingContextIdentifier"_s,
@@ -638,6 +652,7 @@ Vector<ASCIILiteral> serializedIdentifiers()
         "WebCore::MediaSessionIdentifier"_s,
         "WebCore::ModelPlayerIdentifier"_s,
         "WebCore::MediaUniqueIdentifier"_s,
+        "WebCore::NavigationIdentifier"_s,
         "WebCore::OpaqueOriginIdentifier"_s,
         "WebCore::PageIdentifier"_s,
         "WebCore::PlatformLayerIdentifierID"_s,
@@ -1092,6 +1107,18 @@ std::optional<Vector<ArgumentDescription>> messageArgumentDescriptions(MessageNa
         return Vector<ArgumentDescription> {
             { "handle"_s, "IPC::StreamServerConnectionHandle"_s, ASCIILiteral(), false },
         };
+    case MessageName::TestWithEnabledBy_AlwaysEnabled:
+        return Vector<ArgumentDescription> {
+            { "url"_s, "String"_s, ASCIILiteral(), false },
+        };
+    case MessageName::TestWithEnabledBy_ConditionallyEnabled:
+        return Vector<ArgumentDescription> {
+            { "url"_s, "String"_s, ASCIILiteral(), false },
+        };
+    case MessageName::TestWithEnabledBy_ConditionallyEnabledAnd:
+        return Vector<ArgumentDescription> { };
+    case MessageName::TestWithEnabledBy_ConditionallyEnabledOr:
+        return Vector<ArgumentDescription> { };
     case MessageName::TestWithEnabledIf_AlwaysEnabled:
         return Vector<ArgumentDescription> {
             { "url"_s, "String"_s, ASCIILiteral(), false },

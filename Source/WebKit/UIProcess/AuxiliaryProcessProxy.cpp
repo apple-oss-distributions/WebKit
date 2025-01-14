@@ -37,6 +37,7 @@
 #include "WebProcessProxy.h"
 #include <wtf/RunLoop.h>
 #include <wtf/Scope.h>
+#include <wtf/TZoneMallocInlines.h>
 
 #if PLATFORM(COCOA)
 #include "CoreIPCSecureCoding.h"
@@ -73,6 +74,8 @@ static Seconds adjustedTimeoutForThermalState(Seconds timeout)
     return timeout;
 #endif
 }
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(AuxiliaryProcessProxy);
 
 AuxiliaryProcessProxy::AuxiliaryProcessProxy(ShouldTakeUIBackgroundAssertion shouldTakeUIBackgroundAssertion, AlwaysRunsAtBackgroundPriority alwaysRunsAtBackgroundPriority, Seconds responsivenessTimeout)
     : m_responsivenessTimer(*this, adjustedTimeoutForThermalState(responsivenessTimeout))
@@ -431,8 +434,8 @@ void AuxiliaryProcessProxy::shutDownProcess()
         send(Messages::AuxiliaryProcess::ShutDown(), 0);
 
     connection->invalidate();
-    ASSERT(connectionToProcessMap().get(m_connection->uniqueID()) == this);
-    connectionToProcessMap().remove(m_connection->uniqueID());
+    ASSERT(connectionToProcessMap().get(connection->uniqueID()) == this);
+    connectionToProcessMap().remove(connection->uniqueID());
     m_connection = nullptr;
     m_responsivenessTimer.invalidate();
 }
@@ -605,6 +608,16 @@ void AuxiliaryProcessProxy::didChangeThrottleState(ProcessThrottleState state)
     if (!m_isSuspended && (!m_domainlessPreferencesUpdatedWhileSuspended.isEmpty() || !m_preferencesUpdatedWhileSuspended.isEmpty()))
         send(Messages::AuxiliaryProcess::PreferencesDidUpdate(std::exchange(m_domainlessPreferencesUpdatedWhileSuspended, { }), std::exchange(m_preferencesUpdatedWhileSuspended, { })), 0);
 #endif
+}
+
+AuxiliaryProcessProxy::InitializationActivityAndGrant AuxiliaryProcessProxy::initializationActivityAndGrant()
+{
+    return {
+        throttler().foregroundActivity("Process initialization"_s)
+#if USE(EXTENSIONKIT)
+        , launchGrant()
+#endif
+    };
 }
 
 } // namespace WebKit

@@ -38,6 +38,11 @@
 #include <wtf/RefCounted.h>
 #include <wtf/WeakPtr.h>
 
+#if !LOG_DISABLED
+#include "Logging.h"
+#include <wtf/text/TextStream.h>
+#endif
+
 namespace WebKit {
 
 class RemoteRenderingBackend;
@@ -86,6 +91,9 @@ public:
     void drawImageBuffer(WebCore::RenderingResourceIdentifier imageBufferIdentifier, const WebCore::FloatRect& destinationRect, const WebCore::FloatRect& srcRect, WebCore::ImagePaintingOptions);
     void drawNativeImage(WebCore::RenderingResourceIdentifier imageIdentifier, const WebCore::FloatRect& destRect, const WebCore::FloatRect& srcRect, WebCore::ImagePaintingOptions);
     void drawSystemImage(Ref<WebCore::SystemImage>, const WebCore::FloatRect&);
+#if PLATFORM(COCOA) && ENABLE(VIDEO)
+    void drawVideoFrame(SharedVideoFrame&&, const WebCore::FloatRect& destination, WebCore::ImageOrientation, bool shouldDiscardAlpha);
+#endif
     void drawPattern(WebCore::RenderingResourceIdentifier imageIdentifier, const WebCore::FloatRect& destRect, const WebCore::FloatRect& tileRect, const WebCore::AffineTransform&, const WebCore::FloatPoint&, const WebCore::FloatSize& spacing, WebCore::ImagePaintingOptions);
     void beginTransparencyLayer(float opacity);
     void beginTransparencyLayerWithCompositeMode(WebCore::CompositeMode);
@@ -115,9 +123,6 @@ public:
     void fillPathSegment(const WebCore::PathSegment&);
     void fillPath(const WebCore::Path&);
     void fillEllipse(const WebCore::FloatRect&);
-#if ENABLE(VIDEO)
-    void paintFrameForMedia(WebCore::MediaPlayerIdentifier, const WebCore::FloatRect& destination);
-#endif
     void strokeRect(const WebCore::FloatRect&, float lineWidth);
 #if ENABLE(INLINE_PATH_DATA)
     void strokeLine(const WebCore::PathDataLine&);
@@ -155,6 +160,7 @@ private:
         // FIXME: In the future, we should consider buffering up batches of display list items before
         // applying them instead of applying them immediately, so that we can apply clipping and occlusion
         // optimizations to skip over parts of a display list, if possible.
+        LOG_WITH_STREAM(DisplayLists, stream << "handleItem " << item);
         item.apply(drawingContext(), std::forward<AdditionalArgs>(args)...);
     }
 
@@ -163,8 +169,6 @@ private:
 
 #if PLATFORM(COCOA) && ENABLE(VIDEO)
     SharedVideoFrameReader& sharedVideoFrameReader();
-
-    void paintVideoFrame(SharedVideoFrame&&, const WebCore::FloatRect&, bool shouldDiscardAlpha);
     void setSharedVideoFrameSemaphore(IPC::Semaphore&&);
     void setSharedVideoFrameMemory(WebCore::SharedMemory::Handle&&);
 #endif

@@ -47,12 +47,12 @@
 #include "SVGResourcesCache.h"
 #include "SVGURIReference.h"
 #include "SVGVisitedRendererTracking.h"
-#include <wtf/IsoMallocInlines.h>
 #include <wtf/StackStats.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(LegacyRenderSVGShape);
+WTF_MAKE_TZONE_OR_ISO_ALLOCATED_IMPL(LegacyRenderSVGShape);
 
 LegacyRenderSVGShape::LegacyRenderSVGShape(Type type, SVGGraphicsElement& element, RenderStyle&& style)
     : LegacyRenderSVGModelObject(type, element, WTFMove(style), { SVGModelObjectFlag::IsShape, SVGModelObjectFlag::UsesBoundaryCaching })
@@ -453,7 +453,8 @@ float LegacyRenderSVGShape::strokeWidth() const
 {
     Ref graphicsElement = this->graphicsElement();
     SVGLengthContext lengthContext(graphicsElement.ptr());
-    return lengthContext.valueForLength(style().strokeWidth());
+    auto strokeWidth = lengthContext.valueForLength(style().strokeWidth());
+    return std::isnan(strokeWidth) ? 0 : strokeWidth;
 }
 
 Path& LegacyRenderSVGShape::ensurePath()

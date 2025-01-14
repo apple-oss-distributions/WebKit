@@ -86,6 +86,10 @@ OBJC_CLASS WKWebInspectorPreferenceObserver;
 #include "ExtensionCapabilityGranter.h"
 #endif
 
+#if PLATFORM(IOS_FAMILY)
+#include "HardwareKeyboardState.h"
+#endif
+
 namespace API {
 class AutomationClient;
 class DownloadClient;
@@ -318,7 +322,7 @@ public:
     };
     static Statistics& statistics();    
 
-    void terminateAllWebContentProcesses();
+    void terminateAllWebContentProcesses(ProcessTerminationReason);
     void sendNetworkProcessPrepareToSuspendForTesting(CompletionHandler<void()>&&);
     void sendNetworkProcessWillSuspendImminentlyForTesting();
     void sendNetworkProcessDidResume();
@@ -345,6 +349,9 @@ public:
     // Defaults to false.
     void setHTTPPipeliningEnabled(bool);
     bool httpPipeliningEnabled() const;
+
+    WebProcessProxy* webProcessProxyFromConnection(const IPC::Connection&) const;
+    const SharedPreferencesForWebProcess& sharedPreferencesForWebProcess(const IPC::Connection&) const;
 
     bool javaScriptConfigurationFileEnabled() { return m_javaScriptConfigurationFileEnabled; }
     void setJavaScriptConfigurationFileEnabled(bool flag);
@@ -500,13 +507,18 @@ public:
     void sendResourceLoadStatisticsDataImmediately(CompletionHandler<void()>&&);
 
 #if PLATFORM(GTK) || PLATFORM(WPE)
-    void setSandboxEnabled(bool enabled) { m_sandboxEnabled = enabled; };
+    void setSandboxEnabled(bool);
     void addSandboxPath(const CString& path, SandboxPermission permission) { m_extraSandboxPaths.add(path, permission); };
     const HashMap<CString, SandboxPermission>& sandboxPaths() const { return m_extraSandboxPaths; };
     bool sandboxEnabled() const { return m_sandboxEnabled; };
 
     void setUserMessageHandler(Function<void(UserMessage&&, CompletionHandler<void(UserMessage&&)>&&)>&& handler) { m_userMessageHandler = WTFMove(handler); }
     const Function<void(UserMessage&&, CompletionHandler<void(UserMessage&&)>&&)>& userMessageHandler() const { return m_userMessageHandler; }
+
+#if USE(ATSPI)
+    const String& accessibilityBusAddress() const;
+    const String& sandboxedAccessibilityBusAddress() const;
+#endif
 #endif
 
     WebProcessWithAudibleMediaToken webProcessWithAudibleMediaToken() const;
@@ -568,6 +580,10 @@ public:
     bool usesSingleWebProcess() const { return m_configuration->usesSingleWebProcess(); }
 
     bool operator==(const WebProcessPool& other) const { return (this == &other); }
+
+#if PLATFORM(IOS_FAMILY)
+    HardwareKeyboardState cachedHardwareKeyboardState() const;
+#endif
 
 private:
     enum class NeedsGlobalStaticInitialization : bool { No, Yes };
@@ -670,6 +686,13 @@ private:
     void setMediaAccessibilityPreferences(WebProcessProxy&);
 #endif
     void clearAudibleActivity();
+
+#if PLATFORM(IOS_FAMILY)
+    static void hardwareKeyboardAvailabilityChangedCallback(CFNotificationCenterRef, void* observer, CFStringRef, const void*, CFDictionaryRef);
+    void initializeHardwareKeyboardAvailability();
+    void hardwareKeyboardAvailabilityChanged();
+    void setCachedHardwareKeyboardState(HardwareKeyboardState);
+#endif
 
     Ref<API::ProcessPoolConfiguration> m_configuration;
 
@@ -832,6 +855,11 @@ private:
     HashMap<CString, SandboxPermission> m_extraSandboxPaths;
 
     Function<void(UserMessage&&, CompletionHandler<void(UserMessage&&)>&&)> m_userMessageHandler;
+
+#if USE(ATSPI)
+    mutable std::optional<String> m_accessibilityBusAddress;
+    String m_sandboxedAccessibilityBusAddress;
+#endif
 #endif
 
     WebProcessWithAudibleMediaCounter m_webProcessWithAudibleMediaCounter;
@@ -878,7 +906,9 @@ private:
 
 #if PLATFORM(IOS_FAMILY)
     bool m_processesShouldSuspend { false };
+    HardwareKeyboardState m_hardwareKeyboardState;
 #endif
+
 #if ENABLE(ADVANCED_PRIVACY_PROTECTIONS)
     RefPtr<StorageAccessUserAgentStringQuirkObserver> m_storageAccessUserAgentStringQuirksDataUpdateObserver;
     RefPtr<StorageAccessPromptQuirkObserver> m_storageAccessPromptQuirksDataUpdateObserver;

@@ -112,11 +112,11 @@ void AuxiliaryProcess::platformInitialize(const AuxiliaryProcessInitializationPa
 #endif
 }
 
-void AuxiliaryProcess::didReceiveInvalidMessage(IPC::Connection&, IPC::MessageName messageName)
+void AuxiliaryProcess::didReceiveInvalidMessage(IPC::Connection&, IPC::MessageName messageName, int32_t indexOfObjectFailingDecoding)
 {
-    auto errorMessage = makeString("Received invalid message: '"_s, description(messageName), "' ("_s, messageName, ')');
+    auto errorMessage = makeString("Received invalid message: '"_s, description(messageName), "' ("_s, messageName, ", "_s, indexOfObjectFailingDecoding, ')');
     logAndSetCrashLogMessage(errorMessage.utf8().data());
-    CRASH_WITH_INFO(WTF::enumToUnderlyingType(messageName));
+    CRASH_WITH_INFO(WTF::enumToUnderlyingType(messageName), indexOfObjectFailingDecoding);
 }
 
 bool AuxiliaryProcess::parentProcessHasEntitlement(ASCIILiteral entitlement)
@@ -208,7 +208,7 @@ void AuxiliaryProcess::setPreferenceValue(const String& domain, const String& ke
         CFPreferencesSetValue(key.createCFString().get(), (__bridge CFPropertyListRef)value, kCFPreferencesAnyApplication, kCFPreferencesCurrentUser, kCFPreferencesAnyHost);
 #if ASSERT_ENABLED
         id valueAfterSetting = [[NSUserDefaults standardUserDefaults] objectForKey:key];
-        ASSERT(valueAfterSetting == value || [valueAfterSetting isEqual:value] || key == "AppleLanguages"_s);
+        ASSERT(valueAfterSetting == value || [valueAfterSetting isEqual:value] || key == "AppleLanguages"_s || key == "PayloadUUID"_s);
 #endif
     } else
         CFPreferencesSetValue(key.createCFString().get(), (__bridge CFPropertyListRef)value, domain.createCFString().get(), kCFPreferencesCurrentUser, kCFPreferencesAnyHost);

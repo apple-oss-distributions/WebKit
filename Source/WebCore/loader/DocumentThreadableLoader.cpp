@@ -122,7 +122,7 @@ DocumentThreadableLoader::DocumentThreadableLoader(Document& document, Threadabl
     , m_options(options)
     , m_origin(WTFMove(origin))
     , m_referrer(WTFMove(referrer))
-    , m_sameOriginRequest(securityOrigin().canRequest(request.url(), OriginAccessPatternsForWebProcess::singleton()))
+    , m_sameOriginRequest(protectedSecurityOrigin()->canRequest(request.url(), OriginAccessPatternsForWebProcess::singleton()))
     , m_simpleRequest(true)
     , m_async(blockingBehavior == LoadAsynchronously)
     , m_delayCallbacksForIntegrityCheck(!m_options.integrity.isEmpty())
@@ -224,7 +224,7 @@ void DocumentThreadableLoader::makeCrossOriginAccessRequest(ResourceRequest&& re
             return;
 
         m_simpleRequest = false;
-        if (RefPtr page = document().page(); page && CrossOriginPreflightResultCache::singleton().canSkipPreflight(page->sessionID(), securityOrigin().toString(), request.url(), m_options.storedCredentialsPolicy, request.httpMethod(), request.httpHeaderFields()))
+        if (RefPtr page = document().page(); page && CrossOriginPreflightResultCache::singleton().canSkipPreflight(page->sessionID(), document().clientOrigin(), request.url(), m_options.storedCredentialsPolicy, request.httpMethod(), request.httpHeaderFields()))
             preflightSuccess(WTFMove(request));
         else
             makeCrossOriginAccessRequestWithPreflight(WTFMove(request));
@@ -618,16 +618,18 @@ void DocumentThreadableLoader::loadRequest(ResourceRequest&& request, SecurityCh
     loadTiming.markStartTime();
 
     // FIXME: ThreadableLoaderOptions.sniffContent is not supported for synchronous requests.
+    RefPtr frame = m_document->frame();
+    if (!frame)
+        return;
+
+    if (MixedContentChecker::shouldBlockRequestForRunnableContent(*frame, m_document->protectedSecurityOrigin(), requestURL, MixedContentChecker::ShouldLogWarning::Yes))
+        return;
+
     RefPtr<SharedBuffer> data;
     ResourceError error;
     ResourceResponse response;
-    auto identifier = AtomicObjectIdentifier<ResourceLoader> { std::numeric_limits<uint64_t>::max() };
-    if (RefPtr frame = m_document->frame()) {
-        if (MixedContentChecker::shouldBlockRequestForRunnableContent(*frame, m_document->protectedSecurityOrigin(), requestURL, MixedContentChecker::ShouldLogWarning::Yes))
-            return;
-        CheckedRef frameLoader = frame->loader();
-        identifier = frameLoader->loadResourceSynchronously(request, m_options.clientCredentialPolicy, m_options, *m_originalHeaders, error, response, data);
-    }
+    CheckedRef frameLoader = frame->loader();
+    auto identifier = frameLoader->loadResourceSynchronously(request, m_options.clientCredentialPolicy, m_options, *m_originalHeaders, error, response, data);
 
     loadTiming.markEndTime();
 
@@ -727,6 +729,11 @@ bool DocumentThreadableLoader::isAllowedRedirect(const URL& url)
 SecurityOrigin& DocumentThreadableLoader::securityOrigin() const
 {
     return m_origin ? *m_origin : m_document->securityOrigin();
+}
+
+Ref<SecurityOrigin> DocumentThreadableLoader::topOrigin() const
+{
+    return m_document->topOrigin();
 }
 
 Ref<SecurityOrigin> DocumentThreadableLoader::protectedSecurityOrigin() const

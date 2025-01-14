@@ -27,6 +27,7 @@
 
 #include "IDBConnectionToServer.h"
 #include "IDBDatabaseNameAndVersionRequest.h"
+#include "IDBObjectStoreIdentifier.h"
 #include "IDBResourceIdentifier.h"
 #include "TransactionOperation.h"
 #include <wtf/CrossThreadQueue.h>
@@ -34,10 +35,10 @@
 #include <wtf/Forward.h>
 #include <wtf/Function.h>
 #include <wtf/HashMap.h>
-#include <wtf/IsoMalloc.h>
 #include <wtf/Lock.h>
 #include <wtf/MainThread.h>
 #include <wtf/RefPtr.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/text/WTFString.h>
 
 namespace WebCore {
@@ -60,7 +61,7 @@ namespace IDBClient {
 class IDBConnectionToServer;
 
 class WEBCORE_EXPORT IDBConnectionProxy final {
-    WTF_MAKE_ISO_ALLOCATED(IDBConnectionProxy);
+    WTF_MAKE_TZONE_OR_ISO_ALLOCATED(IDBConnectionProxy);
 public:
     IDBConnectionProxy(IDBConnectionToServer&);
 
@@ -72,9 +73,9 @@ public:
 
     void createObjectStore(TransactionOperation&, const IDBObjectStoreInfo&);
     void deleteObjectStore(TransactionOperation&, const String& objectStoreName);
-    void clearObjectStore(TransactionOperation&, uint64_t objectStoreIdentifier);
+    void clearObjectStore(TransactionOperation&, IDBObjectStoreIdentifier);
     void createIndex(TransactionOperation&, const IDBIndexInfo&);
-    void deleteIndex(TransactionOperation&, uint64_t objectStoreIdentifier, const String& indexName);
+    void deleteIndex(TransactionOperation&, IDBObjectStoreIdentifier, const String& indexName);
     void putOrAdd(TransactionOperation&, IDBKeyData&&, const IDBValue&, const IndexedDB::ObjectStoreOverwriteMode);
     void getRecord(TransactionOperation&, const IDBGetRecordData&);
     void getAllRecords(TransactionOperation&, const IDBGetAllRecordsData&);
@@ -82,8 +83,8 @@ public:
     void deleteRecord(TransactionOperation&, const IDBKeyRangeData&);
     void openCursor(TransactionOperation&, const IDBCursorInfo&);
     void iterateCursor(TransactionOperation&, const IDBIterateCursorData&);
-    void renameObjectStore(TransactionOperation&, uint64_t objectStoreIdentifier, const String& newName);
-    void renameIndex(TransactionOperation&, uint64_t objectStoreIdentifier, uint64_t indexIdentifier, const String& newName);
+    void renameObjectStore(TransactionOperation&, IDBObjectStoreIdentifier, const String& newName);
+    void renameIndex(TransactionOperation&, IDBObjectStoreIdentifier, uint64_t indexIdentifier, const String& newName);
 
     void fireVersionChangeEvent(IDBDatabaseConnectionIdentifier, const IDBResourceIdentifier& requestIdentifier, uint64_t requestedVersion);
     void didFireVersionChangeEvent(IDBDatabaseConnectionIdentifier, const IDBResourceIdentifier& requestIdentifier, const IndexedDB::ConnectionClosedOnBehalfOfServer = IndexedDB::ConnectionClosedOnBehalfOfServer::No);
@@ -124,7 +125,7 @@ public:
 
     void forgetActiveOperations(const Vector<RefPtr<TransactionOperation>>&);
     void forgetTransaction(IDBTransaction&);
-    void forgetActivityForCurrentThread();
+    void abortActivitiesForCurrentThread();
     void setContextSuspended(ScriptExecutionContext& currentContext, bool isContextSuspended);
 
 private:

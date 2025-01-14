@@ -30,9 +30,13 @@
 #include "EventListener.h"
 #include "HTMLMediaElementEnums.h"
 #include "PlaybackSessionModel.h"
+#if ENABLE(LINEAR_MEDIA_PLAYER)
+#include "SpatialVideoMetadata.h"
+#endif
 #include <wtf/CheckedPtr.h>
 #include <wtf/HashSet.h>
 #include <wtf/RefPtr.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/Vector.h>
 
 namespace WebCore {
@@ -45,7 +49,7 @@ class PlaybackSessionModelMediaElement final
     : public PlaybackSessionModel
     , public EventListener
     , public CanMakeCheckedPtr<PlaybackSessionModelMediaElement> {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED_EXPORT(PlaybackSessionModelMediaElement, WEBCORE_EXPORT);
     WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(PlaybackSessionModelMediaElement);
 public:
     static Ref<PlaybackSessionModelMediaElement> create()
@@ -85,7 +89,8 @@ public:
     WEBCORE_EXPORT void selectAudioMediaOption(uint64_t index) final;
     WEBCORE_EXPORT void selectLegibleMediaOption(uint64_t index) final;
     WEBCORE_EXPORT void togglePictureInPicture() final;
-    WEBCORE_EXPORT void toggleInWindowFullscreen() final;
+    WEBCORE_EXPORT void enterInWindowFullscreen() final;
+    WEBCORE_EXPORT void exitInWindowFullscreen() final;
     WEBCORE_EXPORT void enterFullscreen() final;
     WEBCORE_EXPORT void exitFullscreen() final;
     WEBCORE_EXPORT void toggleMuted() final;
@@ -145,6 +150,9 @@ private:
     Vector<RefPtr<TextTrack>> m_legibleTracksForMenu;
     Vector<RefPtr<AudioTrack>> m_audioTracksForMenu;
     AudioSessionSoundStageSize m_soundStageSize;
+#if ENABLE(LINEAR_MEDIA_PLAYER)
+    std::optional<SpatialVideoMetadata> m_spatialVideoMetadata;
+#endif
 
     double playbackStartedTime() const;
     void updateMediaSelectionOptions();

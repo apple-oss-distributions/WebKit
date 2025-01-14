@@ -70,6 +70,8 @@ struct StreamServerConnectionParameters {
 // The StreamServerConnection does not trust the StreamClientConnection.
 class StreamServerConnection final : public ThreadSafeRefCounted<StreamServerConnection>, private MessageReceiveQueue, private Connection::Client {
     WTF_MAKE_NONCOPYABLE(StreamServerConnection);
+    WTF_MAKE_FAST_ALLOCATED;
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(StreamServerConnection);
 public:
     using AsyncReplyID = Connection::AsyncReplyID;
     using Handle = StreamServerConnectionHandle;
@@ -116,7 +118,7 @@ private:
     void didReceiveMessage(Connection&, Decoder&) final;
     bool didReceiveSyncMessage(Connection&, Decoder&, UniqueRef<Encoder>&) final;
     void didClose(Connection&) final;
-    void didReceiveInvalidMessage(Connection&, MessageName) final;
+    void didReceiveInvalidMessage(Connection&, MessageName, int32_t indexOfObjectFailingDecoding) final;
 
     bool processSetStreamDestinationID(Decoder&&, RefPtr<StreamMessageReceiver>& currentReceiver);
     bool dispatchStreamMessage(Decoder&&, StreamMessageReceiver&);
@@ -133,6 +135,7 @@ private:
     Deque<UniqueRef<Decoder>> m_outOfStreamMessages WTF_GUARDED_BY_LOCK(m_outOfStreamMessagesLock);
 
     bool m_isDispatchingStreamMessage { false };
+    std::unique_ptr<IPC::Encoder> m_syncReplyToDispatch;
     Lock m_receiversLock;
     using ReceiversMap = HashMap<std::pair<uint8_t, uint64_t>, Ref<StreamMessageReceiver>>;
     ReceiversMap m_receivers WTF_GUARDED_BY_LOCK(m_receiversLock);
@@ -163,9 +166,16 @@ void StreamServerConnection::sendSyncReply(Connection::SyncRequestID syncRequest
         }
     }
     auto encoder = makeUniqueRef<Encoder>(MessageName::SyncMessageReply, syncRequestID.toUInt64());
-
     (encoder.get() << ... << std::forward<Arguments>(arguments));
-    m_connection->sendSyncReply(WTFMove(encoder));
+    if (m_isDispatchingStreamMessage) {
+        // Send sync reply only after releasing the buffer. Otherwise client might receive the message before server
+        // releases the buffer. Client would the send a new message, and release would happen only after.
+        m_syncReplyToDispatch = encoder.moveToUniquePtr();
+    } else {
+        // Asynchronously replying from the current thread is supported. Note: This is not thread safe,
+        // as any other thread might execute before the buffer release.
+        m_connection->sendSyncReply(WTFMove(encoder));
+    }
 }
 
 template<typename T, typename... Arguments>

@@ -28,6 +28,7 @@
 
 #include <WebCore/ChromeClient.h>
 #include <WebCore/HTMLVideoElement.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/WeakRef.h>
 
 namespace WebCore {
@@ -35,6 +36,7 @@ class HTMLImageElement;
 class RegistrableDomain;
 enum class CookieConsentDecisionResult : uint8_t;
 enum class DidFilterLinkDecoration : bool;
+enum class IsLoggedIn : uint8_t;
 enum class StorageAccessPromptWasShown : bool;
 enum class StorageAccessWasGranted : uint8_t;
 struct TextRecognitionOptions;
@@ -46,7 +48,7 @@ class WebFrame;
 class WebPage;
 
 class WebChromeClient final : public WebCore::ChromeClient {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(WebChromeClient);
 public:
     WebChromeClient(WebPage&);
     ~WebChromeClient();
@@ -115,7 +117,6 @@ private:
     void runJavaScriptAlert(WebCore::LocalFrame&, const String&) final;
     bool runJavaScriptConfirm(WebCore::LocalFrame&, const String&) final;
     bool runJavaScriptPrompt(WebCore::LocalFrame&, const String& message, const String& defaultValue, String& result) final;
-    void setStatusbarText(const String&) final;
 
     WebCore::KeyboardUIMode keyboardUIMode() final;
 
@@ -236,7 +237,8 @@ private:
     void triggerRenderingUpdate() final;
     bool scheduleRenderingUpdate() final;
     void renderingUpdateFramesPerSecondChanged() final;
-    unsigned remoteImagesCountForTesting() const final; 
+    unsigned remoteImagesCountForTesting() const final;
+    void registerBlobPathForTesting(const String& path, CompletionHandler<void()>&&) final;
 
     void contentRuleListNotification(const URL&, const WebCore::ContentRuleListResults&) final;
 
@@ -261,7 +263,7 @@ private:
     RefPtr<WebCore::ImageBuffer> createImageBuffer(const WebCore::FloatSize&, WebCore::RenderingPurpose, float resolutionScale, const WebCore::DestinationColorSpace&, WebCore::ImageBufferPixelFormat, OptionSet<WebCore::ImageBufferOptions>) const final;
     RefPtr<WebCore::ImageBuffer> sinkIntoImageBuffer(std::unique_ptr<WebCore::SerializedImageBuffer>) final;
 #endif
-    std::unique_ptr<WebCore::WorkerClient> createWorkerClient(SerialFunctionDispatcher&) final;
+    std::unique_ptr<WebCore::WorkerClient> createWorkerClient(WebCore::WorkerOrWorkletThread&) final;
 
 #if ENABLE(WEBGL)
     RefPtr<WebCore::GraphicsContextGL> createGraphicsContextGL(const WebCore::GraphicsContextGLAttributes&) const final;
@@ -297,7 +299,7 @@ private:
 #endif
 
 #if PLATFORM(MAC)
-    void ensureScrollbarsController(WebCore::Page&, WebCore::ScrollableArea&) const final;
+    void ensureScrollbarsController(WebCore::Page&, WebCore::ScrollableArea&, bool update = false) const final;
 #endif
 
 #if ENABLE(VIDEO_PRESENTATION_MODE)
@@ -433,6 +435,9 @@ private:
     void requestStorageAccess(WebCore::RegistrableDomain&& subFrameDomain, WebCore::RegistrableDomain&& topFrameDomain, WebCore::LocalFrame&, WebCore::StorageAccessScope, WTF::CompletionHandler<void(WebCore::RequestStorageAccessResult)>&&) final;
     bool hasPageLevelStorageAccess(const WebCore::RegistrableDomain& topLevelDomain, const WebCore::RegistrableDomain& resourceDomain) const final;
 
+    void setLoginStatus(WebCore::RegistrableDomain&&, WebCore::IsLoggedIn, WTF::CompletionHandler<void()>&&) final;
+    void isLoggedIn(WebCore::RegistrableDomain&&, WTF::CompletionHandler<void(bool)>&&) final;
+
 #if ENABLE(DEVICE_ORIENTATION)
     void shouldAllowDeviceOrientationAndMotionAccess(WebCore::LocalFrame&, bool mayPrompt, CompletionHandler<void(WebCore::DeviceOrientationOrMotionPermissionState)>&&) final;
 #endif
@@ -509,27 +514,26 @@ private:
 #endif
 
 #if ENABLE(WRITING_TOOLS)
-    void proofreadingSessionShowDetailsForSuggestionWithIDRelativeToRect(const WebCore::WritingTools::SessionID&, const WebCore::WritingTools::TextSuggestionID&, WebCore::IntRect selectionBoundsInRootView) final;
+    void proofreadingSessionShowDetailsForSuggestionWithIDRelativeToRect(const WebCore::WritingTools::TextSuggestionID&, WebCore::IntRect selectionBoundsInRootView) final;
 
-    void proofreadingSessionUpdateStateForSuggestionWithID(const WebCore::WritingTools::SessionID&, WebCore::WritingTools::TextSuggestionState, const WebCore::WritingTools::TextSuggestionID&) final;
-#endif
+    void proofreadingSessionUpdateStateForSuggestionWithID(WebCore::WritingTools::TextSuggestionState, const WebCore::WritingTools::TextSuggestionID&) final;
 
-#if ENABLE(WRITING_TOOLS_UI)
     void removeTextAnimationForAnimationID(const WTF::UUID&) final;
 
-    void removeInitialTextAnimation(const WebCore::WritingTools::SessionID&) final;
+    void removeInitialTextAnimationForActiveWritingToolsSession() final;
 
-    void addInitialTextAnimation(const WebCore::WritingTools::SessionID&) final;
+    void addInitialTextAnimationForActiveWritingToolsSession() final;
 
-    void removeTransparentMarkersForSessionID(const WebCore::WritingTools::SessionID&) final;
+    void addSourceTextAnimationForActiveWritingToolsSession(const WTF::UUID& sourceAnimationUUID, const WTF::UUID& destinationAnimationUUID, bool finished, const WebCore::CharacterRange&, const String&, CompletionHandler<void(WebCore::TextAnimationRunMode)>&&) final;
 
-    void addSourceTextAnimation(const WebCore::WritingTools::SessionID&, const WebCore::CharacterRange&, const String, WTF::CompletionHandler<void(void)>&&) final;
+    void addDestinationTextAnimationForActiveWritingToolsSession(const WTF::UUID& sourceAnimationUUID, const WTF::UUID& destinationAnimationUUID, const std::optional<WebCore::CharacterRange>&, const String&) final;
 
-    void addDestinationTextAnimation(const WebCore::WritingTools::SessionID&, const WebCore::CharacterRange&, const String) final;
+    void saveSnapshotOfTextPlaceholderForAnimation(const WebCore::SimpleRange&);
 
-    void clearAnimationsForSessionID(const WebCore::WritingTools::SessionID&) final;
-
+    void clearAnimationsForActiveWritingToolsSession() final;
 #endif
+
+    void setIsInRedo(bool) final;
 
     void hasActiveNowPlayingSessionChanged(bool) final;
 

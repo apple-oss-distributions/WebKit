@@ -104,8 +104,10 @@ void WebExtensionURLSchemeHandler::platformStartTask(WebPageProxy& page, WebURLS
             loadingExtensionMainFrame = true;
         }
 
-        auto *fileData = extensionContext->extension().resourceDataForPath(requestURL.path().toString());
+        NSError *error;
+        auto *fileData = extensionContext->extension().resourceDataForPath(requestURL.path().toString(), &error);
         if (!fileData) {
+            extensionContext->recordError(error);
             task.didComplete([NSError errorWithDomain:NSURLErrorDomain code:NSURLErrorFileDoesNotExist userInfo:nil]);
             return;
         }
@@ -121,7 +123,7 @@ void WebExtensionURLSchemeHandler::platformStartTask(WebPageProxy& page, WebURLS
 
         if ([mimeType isEqualToString:@"text/css"]) {
             // FIXME: <https://webkit.org/b/252628> Only attempt to localize CSS files if we notice a localization wildcard in the file's NSData.
-            auto *localization = extensionContext->extension().localization();
+            auto *localization = extensionContext->localization();
             auto *stylesheetContents = [[NSString alloc] initWithData:fileData encoding:NSUTF8StringEncoding];
             stylesheetContents = [localization localizedStringForString:stylesheetContents];
             fileData = [stylesheetContents dataUsingEncoding:NSUTF8StringEncoding];

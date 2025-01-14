@@ -46,7 +46,6 @@
 #include "StreamMessageReceiver.h"
 #include "StreamServerConnection.h"
 #include <WebCore/ImageBufferPixelFormat.h>
-#include <WebCore/MediaPlayerIdentifier.h>
 #include <WebCore/ProcessIdentity.h>
 #include <WebCore/RenderingResourceIdentifier.h>
 #include <wtf/HashMap.h>
@@ -74,7 +73,6 @@ struct FaceDetectorOptions;
 
 namespace WebKit {
 
-
 class GPUConnectionToWebProcess;
 class RemoteDisplayListRecorder;
 class RemoteImageBuffer;
@@ -83,6 +81,7 @@ class RemoteSharedResourceCache;
 struct BufferIdentifierSet;
 struct ImageBufferSetPrepareBufferForDisplayInputData;
 struct ImageBufferSetPrepareBufferForDisplayOutputData;
+struct SharedPreferencesForWebProcess;
 enum class SwapBuffersDisplayRequirement : uint8_t;
 
 namespace ShapeDetection {
@@ -94,6 +93,8 @@ public:
     static Ref<RemoteRenderingBackend> create(GPUConnectionToWebProcess&, RenderingBackendIdentifier, Ref<IPC::StreamServerConnection>&&);
     virtual ~RemoteRenderingBackend();
     void stopListeningForIPC();
+
+    const SharedPreferencesForWebProcess& sharedPreferencesForWebProcess() const;
 
     RemoteResourceCache& remoteResourceCache() { return m_remoteResourceCache; }
     RemoteSharedResourceCache& sharedResourceCache() { return m_sharedResourceCache; }

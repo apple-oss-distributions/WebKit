@@ -29,8 +29,11 @@
 #include <errno.h>
 #include <sys/mman.h>
 #include <wtf/Assertions.h>
+#include <wtf/DataLog.h>
 #include <wtf/MathExtras.h>
 #include <wtf/PageBlock.h>
+#include <wtf/SafeStrerror.h>
+#include <wtf/text/CString.h>
 
 #if ENABLE(JIT_CAGE)
 #include <WebKitAdditions/JITCageAdditions.h>
@@ -78,28 +81,7 @@ void* OSAllocator::tryReserveAndCommit(size_t bytes, Usage usage, bool writable,
     int fd = -1;
 #endif
 
-    void* result = nullptr;
-#if (OS(DARWIN) && CPU(X86_64))
-    if (executable) {
-        ASSERT(includesGuardPages);
-        // Cook up an address to allocate at, using the following recipe:
-        //   17 bits of zero, stay in userspace kids.
-        //   26 bits of randomness for ASLR.
-        //   21 bits of zero, at least stay aligned within one level of the pagetables.
-        //
-        // But! - as a temporary workaround for some plugin problems (rdar://problem/6812854),
-        // for now instead of 2^26 bits of ASLR lets stick with 25 bits of randomization plus
-        // 2^24, which should put up somewhere in the middle of userspace (in the address range
-        // 0x200000000000 .. 0x5fffffffffff).
-        intptr_t randomLocation = 0;
-        randomLocation = arc4random() & ((1 << 25) - 1);
-        randomLocation += (1 << 24);
-        randomLocation <<= 21;
-        result = reinterpret_cast<void*>(randomLocation);
-    }
-#endif
-
-    result = mmap(result, bytes, protection, flags, fd, 0);
+    void* result = mmap(nullptr, bytes, protection, flags, fd, 0);
     if (result == MAP_FAILED)
         result = nullptr;
     if (result && includesGuardPages) {
@@ -284,7 +266,7 @@ void OSAllocator::releaseDecommitted(void* address, size_t bytes)
         CRASH();
 }
 
-bool OSAllocator::protect(void* address, size_t bytes, bool readable, bool writable)
+bool OSAllocator::tryProtect(void* address, size_t bytes, bool readable, bool writable)
 {
     int protection = 0;
     if (readable) {
@@ -297,6 +279,14 @@ bool OSAllocator::protect(void* address, size_t bytes, bool readable, bool writa
         protection = PROT_NONE;
     }
     return !mprotect(address, bytes, protection);
+}
+
+void OSAllocator::protect(void* address, size_t bytes, bool readable, bool writable)
+{
+    if (bool result = tryProtect(address, bytes, readable, writable); UNLIKELY(!result)) {
+        dataLogLn("mprotect failed: ", safeStrerror(errno).data());
+        RELEASE_ASSERT_NOT_REACHED();
+    }
 }
 
 } // namespace WTF

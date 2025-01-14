@@ -31,7 +31,7 @@
 #import "AVAssetMIMETypeCache.h"
 #import "AVAssetTrackUtilities.h"
 #import "AVStreamDataParserMIMETypeCache.h"
-#import "CDMSessionMediaSourceAVFObjC.h"
+#import "CDMSessionAVContentKeySession.h"
 #import "ContentTypeUtilities.h"
 #import "GraphicsContext.h"
 #import "IOSurface.h"
@@ -60,6 +60,7 @@
 #import <wtf/MainThread.h>
 #import <wtf/NativePromise.h>
 #import <wtf/NeverDestroyed.h>
+#import <wtf/TZoneMallocInlines.h>
 #import <wtf/WeakPtr.h>
 
 #import "CoreVideoSoftLink.h"
@@ -223,6 +224,7 @@ MediaPlayerPrivateMediaSourceAVFObjC::~MediaPlayerPrivateMediaSourceAVFObjC()
 #pragma mark MediaPlayer Factory Methods
 
 class MediaPlayerFactoryMediaSourceAVFObjC final : public MediaPlayerFactory {
+    WTF_MAKE_TZONE_ALLOCATED_INLINE(MediaPlayerFactoryMediaSourceAVFObjC);
 public:
     MediaPlayerFactoryMediaSourceAVFObjC()
     {
@@ -576,7 +578,7 @@ void MediaPlayerPrivateMediaSourceAVFObjC::maybeCompleteSeek()
 {
     if (m_seekState == SeekCompleted)
         return;
-    if (hasVideo() && !m_hasAvailableVideoFrame) {
+    if (hasVideo() && hasVideoRenderer() && !m_hasAvailableVideoFrame) {
         ALWAYS_LOG(LOGIDENTIFIER, "waiting for video frame");
         m_seekState = WaitingForAvailableFame;
         return;
@@ -1249,7 +1251,7 @@ void MediaPlayerPrivateMediaSourceAVFObjC::updateAllRenderersHaveAvailableSample
     bool allRenderersHaveAvailableSamples = true;
 
     do {
-        if (hasVideo() && !m_hasAvailableVideoFrame) {
+        if (hasVideo() && hasVideoRenderer() && !m_hasAvailableVideoFrame) {
             allRenderersHaveAvailableSamples = false;
             break;
         }
@@ -1339,7 +1341,7 @@ void MediaPlayerPrivateMediaSourceAVFObjC::flushPendingSizeChanges()
 }
 
 #if ENABLE(LEGACY_ENCRYPTED_MEDIA)
-CDMSessionMediaSourceAVFObjC* MediaPlayerPrivateMediaSourceAVFObjC::cdmSession() const
+CDMSessionAVContentKeySession* MediaPlayerPrivateMediaSourceAVFObjC::cdmSession() const
 {
     return m_session.get();
 }
@@ -1351,13 +1353,20 @@ void MediaPlayerPrivateMediaSourceAVFObjC::setCDMSession(LegacyCDMSession* sessi
 
     ALWAYS_LOG(LOGIDENTIFIER);
 
-    m_session = toCDMSessionMediaSourceAVFObjC(session);
+    m_session = toCDMSessionAVContentKeySession(session);
 
     if (!m_mediaSourcePrivate)
         return;
 
     m_mediaSourcePrivate->setCDMSession(session);
 }
+
+void MediaPlayerPrivateMediaSourceAVFObjC::keyAdded()
+{
+    if (m_mediaSourcePrivate)
+        m_mediaSourcePrivate->keyAdded();
+}
+
 #endif // ENABLE(LEGACY_ENCRYPTED_MEDIA)
 
 #if ENABLE(LEGACY_ENCRYPTED_MEDIA) || ENABLE(ENCRYPTED_MEDIA)
@@ -1463,7 +1472,7 @@ void MediaPlayerPrivateMediaSourceAVFObjC::setReadyState(MediaPlayer::ReadyState
     else
         setSynchronizerRate(0);
 
-    if (m_readyState >= MediaPlayer::ReadyState::HaveCurrentData && hasVideo() && !m_hasAvailableVideoFrame) {
+    if (m_readyState >= MediaPlayer::ReadyState::HaveCurrentData && hasVideo() && hasVideoRenderer() && !m_hasAvailableVideoFrame) {
         m_readyStateIsWaitingForAvailableFrame = true;
         return;
     }

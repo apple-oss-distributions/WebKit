@@ -37,6 +37,7 @@
 #include "MediaPlayer.h"
 #include "NotImplemented.h"
 #include <wtf/MathExtras.h>
+#include <wtf/TZoneMallocInlines.h>
 #include <wtf/text/TextStream.h>
 
 #if USE(SYSTEM_PREVIEW)
@@ -45,6 +46,8 @@
 
 namespace WebCore {
 namespace DisplayList {
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(Recorder);
 
 Recorder::Recorder(IsDeferred isDeferred, const GraphicsContextState& state, const FloatRect& initialClip, const AffineTransform& initialCTM, const DestinationColorSpace& colorSpace, DrawGlyphsMode drawGlyphsMode)
     : GraphicsContext(isDeferred, state)
@@ -693,21 +696,10 @@ void Recorder::clipToImageBuffer(ImageBuffer& imageBuffer, const FloatRect& dest
 }
 
 #if ENABLE(VIDEO)
-void Recorder::paintFrameForMedia(MediaPlayer& player, const FloatRect& destination)
-{
-    if (!player.identifier()) {
-        GraphicsContext::paintFrameForMedia(player, destination);
-        return;
-    }
-    ASSERT(player.identifier());
-    appendStateChangeItemIfNecessary();
-    recordPaintFrameForMedia(player, destination);
-}
-
-void Recorder::paintVideoFrame(VideoFrame& frame, const FloatRect& destination, bool shouldDiscardAlpha)
+void Recorder::drawVideoFrame(VideoFrame& frame, const FloatRect& destination, ImageOrientation orientation, bool shouldDiscardAlpha)
 {
     appendStateChangeItemIfNecessary();
-    recordPaintVideoFrame(frame, destination, shouldDiscardAlpha);
+    recordDrawVideoFrame(frame, destination, orientation, shouldDiscardAlpha);
 }
 #endif
 

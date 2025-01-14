@@ -157,7 +157,7 @@ static RetainPtr<NSAttributedString> selectionAsAttributedString(const Document&
     if (ImageOverlay::isInsideOverlay(selection))
         return selectionInImageOverlayAsAttributedString(selection);
     auto range = selection.firstRange();
-    return range ? attributedString(*range).nsAttributedString() : adoptNS([[NSAttributedString alloc] init]);
+    return range ? attributedString(*range, IgnoreUserSelectNone::Yes).nsAttributedString() : adoptNS([[NSAttributedString alloc] init]);
 }
 
 template<typename PasteboardContent>
@@ -421,8 +421,6 @@ void Editor::insertMultiRepresentationHEIC(const std::span<const uint8_t>& data,
     auto fragment = document->createDocumentFragment();
     fragment->appendChild(WTFMove(picture));
 
-    ReplaceSelectionCommand::create(document.get(), WTFMove(fragment), { ReplaceSelectionCommand::MatchStyle, ReplaceSelectionCommand::PreventNesting }, EditAction::Insert)->apply();
-
 #if ENABLE(ATTACHMENT_ELEMENT)
     if (DeprecatedGlobalSettings::attachmentElementEnabled()) {
         auto primaryAttachment = HTMLAttachmentElement::create(HTMLNames::attachmentTag, document.get());
@@ -436,6 +434,8 @@ void Editor::insertMultiRepresentationHEIC(const std::span<const uint8_t>& data,
         image->setAttachmentElement(WTFMove(fallbackAttachment));
     }
 #endif
+
+    ReplaceSelectionCommand::create(document.get(), WTFMove(fragment), { ReplaceSelectionCommand::MatchStyle, ReplaceSelectionCommand::PreventNesting }, EditAction::Insert)->apply();
 }
 #endif
 
