@@ -288,6 +288,9 @@ static_assert(sizeof(DeferrableOneShotTimer) == sizeof(SameSizeAsDeferrableOneSh
 
 TimerBase::TimerBase()
 {
+#if USE(WEB_THREAD)
+    RELEASE_ASSERT(WebThreadIsLockedOrDisabledInMainOrWebThread());
+#endif
 }
 
 TimerBase::~TimerBase()
