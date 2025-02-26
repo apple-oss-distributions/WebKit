@@ -229,7 +229,7 @@ static unsigned nextTouchIdentifier()
     }
 }
 
-- (WebKit::WKTouchEvent)_touchEventForTouch:(UITouch *)touch
+- (WebKit::WKTouchEvent)_touchEventForChildTouch:(UITouch *)touch withParent:(const WebKit::WKTouchPoint&)parentTouchPoint
 {
     auto locationInWindow = [touch locationInView:nil];
     auto locationInViewport = [[self view] convertPoint:locationInWindow fromView:nil];
@@ -237,7 +237,7 @@ static unsigned nextTouchIdentifier()
     WebKit::WKTouchPoint touchPoint;
     touchPoint.locationInDocumentCoordinates = locationInViewport;
     touchPoint.locationInScreenCoordinates = locationInWindow;
-    touchPoint.identifier = 0;
+    touchPoint.identifier = parentTouchPoint.identifier;
     touchPoint.phase = touch.phase;
     touchPoint.majorRadiusInScreenCoordinates = touch.majorRadius;
     touchPoint.force = touch.maximumPossibleForce > 0 ? touch.force / touch.maximumPossibleForce : 0;
@@ -262,7 +262,7 @@ static unsigned nextTouchIdentifier()
     return event;
 }
 
-- (void)_recordTouches:(NSSet<UITouch *> *)touches type:(WebKit::WKTouchEventType)type coalescedTouches:(NSArray<UITouch *> *)coalescedTouches predictedTouches:(NSArray<UITouch *> *)predictedTouches
+- (void)_recordTouches:(NSSet<UITouch *> *)touches ofType:(WebKit::WKTouchEventType)type forEvent:(UIEvent *)event
 {
     _lastTouchEvent.type = type;
     _lastTouchEvent.inJavaScriptGesture = false;
@@ -286,14 +286,6 @@ static unsigned nextTouchIdentifier()
 
     _lastTouchEvent.coalescedEvents = { };
     _lastTouchEvent.predictedEvents = { };
-
-    if (type == WebKit::WKTouchEventType::Change) {
-        for (UITouch *coalescedTouch in coalescedTouches)
-            _lastTouchEvent.coalescedEvents.append([self _touchEventForTouch:coalescedTouch]);
-
-        for (UITouch *predictedTouch in predictedTouches)
-            _lastTouchEvent.predictedEvents.append([self _touchEventForTouch:predictedTouch]);
-    }
 
     NSUInteger touchIndex = 0;
 
@@ -341,6 +333,15 @@ static unsigned nextTouchIdentifier()
             touchPoint.touchType = WebKit::WKTouchPointType::Direct;
             touchPoint.altitudeAngle = 0;
             touchPoint.azimuthAngle = 0;
+        }
+
+        // FIXME (284852): Instead of retrieving coalesced and predicted touches from the first touch, we should store them per-touch.
+        if (!touchIndex && type == WebKit::WKTouchEventType::Change) {
+            for (UITouch *coalescedTouch in [event coalescedTouchesForTouch:touch])
+                _lastTouchEvent.coalescedEvents.append([self _touchEventForChildTouch:coalescedTouch withParent:touchPoint]);
+
+            for (UITouch *predictedTouch in [event predictedTouchesForTouch:touch])
+                _lastTouchEvent.predictedEvents.append([self _touchEventForChildTouch:predictedTouch withParent:touchPoint]);
         }
 
         ++touchIndex;
@@ -465,7 +466,7 @@ static WebKit::WKTouchEventType lastExpectedWKEventTypeForTouches(NSSet *touches
     if (lastExpectedWKEventTypeForTouches(touches) != type)
         return;
 
-    [self _recordTouches:touches type:type coalescedTouches:[event coalescedTouchesForTouch:touches.anyObject] predictedTouches:[event predictedTouchesForTouch:touches.anyObject]];
+    [self _recordTouches:touches ofType:type forEvent:event];
 
     [self performAction];
 
