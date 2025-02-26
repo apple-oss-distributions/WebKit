@@ -2820,15 +2820,21 @@ void WKPageSetMuted(WKPageRef pageRef, WKMediaMutedState mutedState)
     if (mutedState & kWKMediaCaptureDevicesMuted)
         coreState.add(WebCore::MediaProducer::AudioAndVideoCaptureIsMuted);
 
-    if (mutedState & kWKMediaScreenCaptureMuted)
+    if (mutedState & kWKMediaScreenCaptureMuted) {
         coreState.add(WebCore::MediaProducerMutedState::ScreenCaptureIsMuted);
+        coreState.add(WebCore::MediaProducerMutedState::WindowCaptureIsMuted);
+        coreState.add(WebCore::MediaProducerMutedState::SystemAudioCaptureIsMuted);
+    }
     if (mutedState & kWKMediaCameraCaptureMuted)
         coreState.add(WebCore::MediaProducerMutedState::VideoCaptureIsMuted);
     if (mutedState & kWKMediaMicrophoneCaptureMuted)
         coreState.add(WebCore::MediaProducerMutedState::AudioCaptureIsMuted);
 
-    if (mutedState & kWKMediaScreenCaptureUnmuted)
+    if (mutedState & kWKMediaScreenCaptureUnmuted) {
         coreState.remove(WebCore::MediaProducerMutedState::ScreenCaptureIsMuted);
+        coreState.remove(WebCore::MediaProducerMutedState::WindowCaptureIsMuted);
+        coreState.remove(WebCore::MediaProducerMutedState::SystemAudioCaptureIsMuted);
+    }
     if (mutedState & kWKMediaCameraCaptureUnmuted)
         coreState.remove(WebCore::MediaProducerMutedState::VideoCaptureIsMuted);
     if (mutedState & kWKMediaMicrophoneCaptureUnmuted)
