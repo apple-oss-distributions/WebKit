@@ -77,7 +77,6 @@ public:
     void synchronousRemoveAllContentRuleLists();
     void invalidateContentRuleListVersion(const WTF::String& identifier);
     void corruptContentRuleListHeader(const WTF::String& identifier, bool usingCurrentVersion);
-    void corruptContentRuleListActionsMatchingEverything(const WTF::String& identifier);
     void invalidateContentRuleListHeader(const WTF::String& identifier);
     void getContentRuleListSource(WTF::String&& identifier, CompletionHandler<void(WTF::String)>);
 

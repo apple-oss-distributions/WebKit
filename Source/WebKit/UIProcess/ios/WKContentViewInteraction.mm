@@ -1350,7 +1350,7 @@ static WKDragSessionContext *ensureLocalDragSessionContext(id <UIDragSession> se
     if (_gestureRecognizerConsistencyEnforcer)
         _gestureRecognizerConsistencyEnforcer->reset();
 
-    _touchEventGestureRecognizer = adoptNS([[WKTouchEventsGestureRecognizer alloc] initWithTarget:self action:@selector(_touchEventsRecognized:) touchDelegate:self]);
+    _touchEventGestureRecognizer = adoptNS([[WKTouchEventsGestureRecognizer alloc] initWithContentView:self]);
     [_touchEventGestureRecognizer setDelegate:self];
     [self addGestureRecognizer:_touchEventGestureRecognizer.get()];
 
@@ -2134,12 +2134,12 @@ typedef NS_ENUM(NSInteger, EndEditingReason) {
     return [uiDelegate respondsToSelector:@selector(_webView:gestureRecognizerCanBePreventedByTouchEvents:)] && [uiDelegate _webView:self.webView gestureRecognizerCanBePreventedByTouchEvents:gestureRecognizer];
 }
 
-- (void)_touchEventsRecognized:(WKTouchEventsGestureRecognizer *)gestureRecognizer
+- (void)_touchEventsRecognized
 {
     if (!_page->hasRunningProcess())
         return;
 
-    auto& lastTouchEvent = gestureRecognizer.lastTouchEvent;
+    auto& lastTouchEvent = [_touchEventGestureRecognizer lastTouchEvent];
     _lastInteractionLocation = lastTouchEvent.locationInRootViewCoordinates;
 
     if (lastTouchEvent.type == WebKit::WKTouchEventType::Begin) {
@@ -2160,8 +2160,8 @@ typedef NS_ENUM(NSInteger, EndEditingReason) {
     }
 
 #if ENABLE(TOUCH_EVENTS)
-    WebKit::NativeWebTouchEvent nativeWebTouchEvent { lastTouchEvent, gestureRecognizer.modifierFlags };
-    nativeWebTouchEvent.setCanPreventNativeGestures(_touchEventsCanPreventNativeGestures || [gestureRecognizer isDefaultPrevented]);
+    WebKit::NativeWebTouchEvent nativeWebTouchEvent { lastTouchEvent, [_touchEventGestureRecognizer modifierFlags] };
+    nativeWebTouchEvent.setCanPreventNativeGestures(_touchEventsCanPreventNativeGestures || [_touchEventGestureRecognizer isDefaultPrevented]);
 
     [self _handleTouchActionsForTouchEvent:nativeWebTouchEvent];
 
@@ -2212,8 +2212,8 @@ typedef NS_ENUM(NSInteger, EndEditingReason) {
     for (const auto& touchPoint : touchEvent.touchPoints()) {
         auto phase = touchPoint.phase();
         if (phase == WebKit::WebPlatformTouchPoint::State::Pressed) {
-            auto touchActions = WebKit::touchActionsForPoint(self, touchPoint.location());
-            LOG_WITH_STREAM(UIHitTesting, stream << "touchActionsForPoint " << touchPoint.location() << " found " << touchActions);
+            auto touchActions = WebKit::touchActionsForPoint(self, touchPoint.locationInRootView());
+            LOG_WITH_STREAM(UIHitTesting, stream << "touchActionsForPoint " << touchPoint.locationInRootView() << " found " << touchActions);
             if (!touchActions || touchActions.contains(WebCore::TouchAction::Auto))
                 continue;
             [_touchActionGestureRecognizer setTouchActions:touchActions forTouchIdentifier:touchPoint.identifier()];
@@ -9522,18 +9522,16 @@ static String fallbackLabelTextForUnlabeledInputFieldInZoomedFormControls(WebCor
         _focusStateStack.append(false);
 }
 
-#pragma mark - Implementation of WKTouchEventsGestureRecognizerDelegate.
-
-- (BOOL)gestureRecognizer:(WKTouchEventsGestureRecognizer *)gestureRecognizer shouldIgnoreTouchEvent:(UIEvent *)event
+- (BOOL)_shouldIgnoreTouchEvent:(UIEvent *)event
 {
     _touchEventsCanPreventNativeGestures = YES;
 
 #if ENABLE(IMAGE_ANALYSIS_ENHANCEMENTS)
-    if ([_imageAnalysisInteraction interactableItemExistsAtPoint:[gestureRecognizer locationInView:self]])
+    if ([_imageAnalysisInteraction interactableItemExistsAtPoint:[_touchEventGestureRecognizer locationInView:self]])
         return YES;
 #endif
 
-    return [self gestureRecognizer:gestureRecognizer isInterruptingMomentumScrollingWithEvent:event];
+    return [self gestureRecognizer:_touchEventGestureRecognizer.get() isInterruptingMomentumScrollingWithEvent:event];
 }
 
 - (BOOL)gestureRecognizer:(UIGestureRecognizer *)gestureRecognizer isInterruptingMomentumScrollingWithEvent:(UIEvent *)event
@@ -9544,11 +9542,6 @@ static String fallbackLabelTextForUnlabeledInputFieldInZoomedFormControls(WebCor
             return YES;
     }
     return self._scroller._wk_isInterruptingDeceleration;
-}
-
-- (BOOL)isAnyTouchOverActiveArea:(NSSet *)touches
-{
-    return YES;
 }
 
 #pragma mark - Implementation of WKActionSheetAssistantDelegate.

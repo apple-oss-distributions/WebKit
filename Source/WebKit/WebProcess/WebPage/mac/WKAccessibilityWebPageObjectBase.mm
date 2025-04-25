@@ -215,7 +215,10 @@ namespace ax = WebCore::Accessibility;
     if (!m_page)
         return nullptr;
 
-    auto* page = m_page->corePage();
+    RefPtr page = m_page->corePage();
+    if (!page)
+        return nullptr;
+
     for (auto& rootFrame : page->rootFrames()) {
         if (rootFrame->frameID() == m_frameID)
             return rootFrame.ptr();

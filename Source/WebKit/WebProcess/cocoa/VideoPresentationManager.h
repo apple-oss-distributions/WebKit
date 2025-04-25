@@ -105,7 +105,6 @@ private:
     // VideoPresentationModelClient
     void hasVideoChanged(bool) override;
     void documentVisibilityChanged(bool) override;
-    void audioSessionCategoryChanged(WebCore::AudioSessionCategory, WebCore::AudioSessionMode, WebCore::RouteSharingPolicy) final;
 
     // CheckedPtr interface
     uint32_t checkedPtrCount() const final { return CanMakeCheckedPtr::checkedPtrCount(); }
@@ -187,7 +186,6 @@ protected:
     void documentVisibilityChanged(PlaybackSessionContextIdentifier, bool isDocumentVisible);
     void videoDimensionsChanged(PlaybackSessionContextIdentifier, const WebCore::FloatSize&);
     void setPlayerIdentifier(PlaybackSessionContextIdentifier, std::optional<WebCore::MediaPlayerIdentifier>);
-    void audioSessionCategoryChanged(PlaybackSessionContextIdentifier, WebCore::AudioSessionCategory, WebCore::AudioSessionMode, WebCore::RouteSharingPolicy);
 
     // Messages from VideoPresentationManagerProxy
     void requestFullscreenMode(PlaybackSessionContextIdentifier, WebCore::HTMLMediaElementEnums::VideoFullscreenMode, bool finishedWithMedia);

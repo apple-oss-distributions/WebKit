@@ -4284,7 +4284,7 @@ void WebPageProxy::updateTouchEventTracking(const WebTouchEvent& touchStartEvent
 {
 #if ENABLE(ASYNC_SCROLLING) && PLATFORM(COCOA)
     for (auto& touchPoint : touchStartEvent.touchPoints()) {
-        auto location = touchPoint.location();
+        auto location = touchPoint.locationInRootView();
         auto update = [this, location](TrackingType& trackingType, EventTrackingRegions::EventType eventType) {
             if (trackingType == TrackingType::Synchronous)
                 return;
@@ -13173,32 +13173,39 @@ void WebPageProxy::takeSnapshot(IntRect rect, IntSize bitmapSize, SnapshotOption
 
 void WebPageProxy::navigationGestureDidBegin()
 {
-    RefPtr protectedPageClient { pageClient() };
+    RefPtr pageClient = this->pageClient();
+    if (!pageClient)
+        return;
 
     m_isShowingNavigationGestureSnapshot = true;
-    protectedPageClient->navigationGestureDidBegin();
+    pageClient->navigationGestureDidBegin();
 
     m_navigationClient->didBeginNavigationGesture(*this);
 }
 
 void WebPageProxy::navigationGestureWillEnd(bool willNavigate, WebBackForwardListItem& item)
 {
-    RefPtr protectedPageClient { pageClient() };
+    RefPtr pageClient = this->pageClient();
+    if (!pageClient)
+        return;
+
     if (willNavigate) {
         m_isLayerTreeFrozenDueToSwipeAnimation = true;
         send(Messages::WebPage::SwipeAnimationDidStart());
     }
 
-    protectedPageClient->navigationGestureWillEnd(willNavigate, item);
+    pageClient->navigationGestureWillEnd(willNavigate, item);
 
     m_navigationClient->willEndNavigationGesture(*this, willNavigate, item);
 }
 
 void WebPageProxy::navigationGestureDidEnd(bool willNavigate, WebBackForwardListItem& item)
 {
-    RefPtr protectedPageClient { pageClient() };
+    RefPtr pageClient = this->pageClient();
+    if (!pageClient)
+        return;
 
-    protectedPageClient->navigationGestureDidEnd(willNavigate, item);
+    pageClient->navigationGestureDidEnd(willNavigate, item);
 
     m_navigationClient->didEndNavigationGesture(*this, willNavigate, item);
 
@@ -13213,16 +13220,14 @@ void WebPageProxy::navigationGestureDidEnd(bool willNavigate, WebBackForwardList
 
 void WebPageProxy::navigationGestureDidEnd()
 {
-    RefPtr protectedPageClient { pageClient() };
-
-    protectedPageClient->navigationGestureDidEnd();
+    if (RefPtr pageClient = this->pageClient())
+        pageClient->navigationGestureDidEnd();
 }
 
 void WebPageProxy::willRecordNavigationSnapshot(WebBackForwardListItem& item)
 {
-    RefPtr protectedPageClient { pageClient() };
-
-    protectedPageClient->willRecordNavigationSnapshot(item);
+    if (RefPtr pageClient = this->pageClient())
+        pageClient->willRecordNavigationSnapshot(item);
 }
 
 void WebPageProxy::navigationGestureSnapshotWasRemoved()

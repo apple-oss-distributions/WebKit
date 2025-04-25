@@ -9490,25 +9490,6 @@ void HTMLMediaElement::setFullscreenMode(VideoFullscreenMode mode)
     computeAcceleratedRenderingStateAndUpdateMediaPlayer();
 }
 
-void HTMLMediaElement::addClient(HTMLMediaElementClient& client)
-{
-    ASSERT(!m_clients.contains(client));
-    m_clients.add(client);
-}
-
-void HTMLMediaElement::removeClient(const HTMLMediaElementClient& client)
-{
-    ASSERT(m_clients.contains(client));
-    m_clients.remove(client);
-}
-
-void HTMLMediaElement::audioSessionCategoryChanged(AudioSessionCategory category, AudioSessionMode mode, RouteSharingPolicy policy)
-{
-    m_clients.forEach([category, mode, policy] (auto& client) {
-        client.audioSessionCategoryChanged(category, mode, policy);
-    });
-}
-
 #if !RELEASE_LOG_DISABLED
 WTFLogChannel& HTMLMediaElement::logChannel() const
 {

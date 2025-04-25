@@ -277,13 +277,6 @@ void VideoPresentationModelContext::setVideoDimensions(const WebCore::FloatSize&
     });
 }
 
-void VideoPresentationModelContext::audioSessionCategoryChanged(WebCore::AudioSessionCategory category, WebCore::AudioSessionMode mode, WebCore::RouteSharingPolicy policy)
-{
-    m_clients.forEach([&](auto& client) {
-        client.audioSessionCategoryChanged(category, mode, policy);
-    });
-}
-
 void VideoPresentationModelContext::requestCloseAllMediaPresentations(bool finishedWithMedia, CompletionHandler<void()>&& completionHandler)
 {
     RefPtr manager = m_manager.get();
@@ -1041,11 +1034,6 @@ void VideoPresentationManagerProxy::setPlayerIdentifier(PlaybackSessionContextId
 
     if (auto interface = findInterface(contextId))
         interface->setPlayerIdentifier(playerIdentifier);
-}
-
-void VideoPresentationManagerProxy::audioSessionCategoryChanged(PlaybackSessionContextIdentifier contextId, WebCore::AudioSessionCategory category, WebCore::AudioSessionMode mode, WebCore::RouteSharingPolicy policy)
-{
-    Ref { ensureModel(contextId) }->audioSessionCategoryChanged(category, mode, policy);
 }
 
 void VideoPresentationManagerProxy::setHasVideo(PlaybackSessionContextIdentifier contextId, bool hasVideo)

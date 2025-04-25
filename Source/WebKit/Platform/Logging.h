@@ -94,7 +94,6 @@ extern "C" {
     M(BackForwardCache) \
     M(CacheStorage) \
     M(ContentObservation) \
-    M(ContentRuleLists) \
     M(ContextMenu) \
     M(DisplayLink) \
     M(DisplayLists) \

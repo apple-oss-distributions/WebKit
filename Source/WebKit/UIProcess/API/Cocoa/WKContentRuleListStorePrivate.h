@@ -31,7 +31,6 @@
 - (void)_removeAllContentRuleLists;
 - (void)_invalidateContentRuleListVersionForIdentifier:(NSString *)identifier;
 - (void)_corruptContentRuleListHeaderForIdentifier:(NSString *)identifier usingCurrentVersion:(BOOL)usingCurrentVersion;
-- (void)_corruptContentRuleListActionsMatchingEverythingForIdentifier:(NSString *)identifier;
 - (void)_invalidateContentRuleListHeaderForIdentifier:(NSString *)identifier;
 - (void)_getContentRuleListSourceForIdentifier:(NSString *)identifier completionHandler:(void (^)(NSString *))completionHandler;
 
