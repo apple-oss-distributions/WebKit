@@ -7770,16 +7770,11 @@ void WebPageProxy::decidePolicyForNavigationAction(Ref<WebProcessProxy>&& proces
 
     RefPtr mainFrameNavigation = frame.isMainFrame() ? navigation.get() : nullptr;
     RefPtr originatingFrame = WebFrameProxy::webFrame(navigation->originatingFrameInfo().frameID);
-    RefPtr sourceFrameInfo = API::FrameInfo::create(FrameInfoData { navigation->originatingFrameInfo() }, navigationOriginatingPage(navigation->originatingFrameInfo()));
+    Ref sourceFrameInfo = API::FrameInfo::create(FrameInfoData { navigation->originatingFrameInfo() }, navigationOriginatingPage(navigation->originatingFrameInfo()));
 
     bool sourceAndDestinationEqual = originatingFrame == &frame
         || (originatingFrame == mainFrame() && m_provisionalPage && m_provisionalPage->mainFrame() == &frame);
-    Ref destinationFrameInfo = sourceAndDestinationEqual ? Ref { *sourceFrameInfo } : API::FrameInfo::create(FrameInfoData { frameInfo }, this);
-
-#if PLATFORM(COCOA)
-    if (fromAPI && !linkedOnOrAfterSDKWithBehavior(SDKAlignedBehavior::NavigationActionSourceFrameNonNull))
-        sourceFrameInfo = nullptr;
-#endif
+    Ref destinationFrameInfo = sourceAndDestinationEqual ? sourceFrameInfo : API::FrameInfo::create(FrameInfoData { frameInfo }, this);
 
     bool shouldOpenAppLinks = !m_shouldSuppressAppLinksInNextNavigationPolicyDecision
     && destinationFrameInfo->isMainFrame()
@@ -7790,7 +7785,7 @@ void WebPageProxy::decidePolicyForNavigationAction(Ref<WebProcessProxy>&& proces
     std::optional<WebCore::FrameIdentifier> currentMainFrameIdentifier;
     if (frame.isMainFrame() && m_mainFrame)
         currentMainFrameIdentifier = m_mainFrame->frameID();
-    Ref navigationAction = API::NavigationAction::create(WTFMove(navigationActionData), sourceFrameInfo.get(), destinationFrameInfo.ptr(), String(), ResourceRequest(request), originalRequest.url(), shouldOpenAppLinks, WTFMove(userInitiatedActivity), mainFrameNavigation.get(), currentMainFrameIdentifier);
+    Ref navigationAction = API::NavigationAction::create(WTFMove(navigationActionData), sourceFrameInfo.ptr(), destinationFrameInfo.ptr(), String(), ResourceRequest(request), originalRequest.url(), shouldOpenAppLinks, WTFMove(userInitiatedActivity), mainFrameNavigation.get(), currentMainFrameIdentifier);
 
 #if ENABLE(CONTENT_FILTERING)
     if (frame.didHandleContentFilterUnblockNavigation(request)) {

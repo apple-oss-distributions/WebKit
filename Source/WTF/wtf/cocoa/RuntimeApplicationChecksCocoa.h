@@ -71,7 +71,6 @@ enum class SDKAlignedBehavior {
     MediaTypesRequiringUserActionForPlayback,
     MinimizesLanguages,
     ModernCompabilityModeByDefault,
-    NavigationActionSourceFrameNonNull,
     NoClientCertificateLookup,
     NoExpandoIndexedPropertiesOnWindow,
     NoGetElementsByNameQuirk,
