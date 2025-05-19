@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2022 Apple Inc. All rights reserved.
+ * Copyright (C) 2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -23,13 +23,35 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#pragma once
+#include "config.h"
+#include "APINavigationResponse.h"
 
-#include <JavaScriptCore/JSCJSValue.h>
-#include <JavaScriptCore/Microtask.h>
+#include "APIFrameInfo.h"
+#include "APINavigation.h"
+#include "WebFrameProxy.h"
 
-namespace WebCore {
+namespace API {
 
-Ref<JSC::Microtask> createJSDOMMicrotask(JSC::VM&, JSC::JSObject* job);
+NavigationResponse::NavigationResponse(API::FrameInfo& frame, const WebCore::ResourceRequest& request, const WebCore::ResourceResponse& response, bool canShowMIMEType, const WTF::String& downloadAttribute, Navigation* navigation)
+    : m_frame(frame)
+    , m_request(request)
+    , m_response(response)
+    , m_canShowMIMEType(canShowMIMEType)
+    , m_downloadAttribute(downloadAttribute)
+    , m_navigation(navigation) { }
+
+NavigationResponse::~NavigationResponse() = default;
+
+FrameInfo* NavigationResponse::navigationInitiatingFrame()
+{
+    if (m_sourceFrame)
+        return m_sourceFrame.get();
+    if (!m_navigation)
+        return nullptr;
+    auto& frameInfo = m_navigation->originatingFrameInfo();
+    RefPtr frame = WebKit::WebFrameProxy::webFrame(frameInfo.frameID);
+    m_sourceFrame = FrameInfo::create(FrameInfoData { frameInfo }, frame ? frame->page() : nullptr);
+    return m_sourceFrame.get();
+}
 
 }

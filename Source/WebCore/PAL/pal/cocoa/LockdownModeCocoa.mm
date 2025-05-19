@@ -23,14 +23,53 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#pragma once
+#import "config.h"
+#import "LockdownModeCocoa.h"
 
 #if HAVE(LOCKDOWN_MODE_FRAMEWORK)
 
+#import <LockdownMode/LockdownMode.h>
+#import <sys/sysctl.h>
+#import <wtf/NeverDestroyed.h>
+#import <wtf/SoftLinking.h>
+
+OBJC_CLASS LockdownModeManager;
+
+SOFT_LINK_PRIVATE_FRAMEWORK_OPTIONAL(LockdownMode)
+SOFT_LINK_CLASS_OPTIONAL(LockdownMode, LockdownModeManager)
+
 namespace PAL {
 
-PAL_EXPORT BOOL isLockdownModeEnabled();
+bool isLockdownModeEnabled()
+{
+    if (LockdownModeLibrary())
+        return [(LockdownModeManager *)[getLockdownModeManagerClass() shared] enabled];
 
+    // FIXME(<rdar://108208100>): Remove this fallback once recoveryOS includes the framework.
+    uint64_t ldmState = 0;
+    size_t sysCtlLen = sizeof(ldmState);
+    if (!sysctlbyname("security.mac.lockdown_mode_state", &ldmState, &sysCtlLen, NULL, 0))
+        return ldmState == 1;
+
+    return false;
 }
 
-#endif // HAVE(LOCKDOWN_MODE_FRAMEWORK)
+static std::optional<bool>& isLockdownModeEnabledForCurrentProcessCached()
+{
+    static NeverDestroyed<std::optional<bool>> cachedIsLockdownModeEnabledForCurrentProcess;
+    return cachedIsLockdownModeEnabledForCurrentProcess;
+}
+
+bool isLockdownModeEnabledForCurrentProcess()
+{
+    return isLockdownModeEnabledForCurrentProcessCached().value_or(isLockdownModeEnabled());
+}
+
+void setLockdownModeEnabledForCurrentProcess(bool isLockdownModeEnabled)
+{
+    isLockdownModeEnabledForCurrentProcessCached() = isLockdownModeEnabled;
+}
+
+} // namespace PAL
+
+#endif

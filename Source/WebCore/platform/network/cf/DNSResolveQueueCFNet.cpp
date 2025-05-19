@@ -130,6 +130,10 @@ void DNSResolveQueueCFNet::performDNSLookup(const String& hostname, Ref<Completi
         if (status != nw_resolver_status_complete)
             return;
 
+#if PLATFORM(IOS_FAMILY)
+        WebThreadLock();
+#endif
+
         auto callCompletionHandler = [resolver = WTFMove(resolver), completionHandler = WTFMove(completionHandler), timeoutTimer = WTFMove(timeoutTimer)](DNSAddressesOrError&& result) mutable {
             timeoutTimer->stop();
             completionHandler->complete(WTFMove(result));

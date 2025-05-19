@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2023 Apple Inc. All rights reserved.
+ * Copyright (C) 2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -23,36 +23,50 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#import "config.h"
-#import "LockdownModeSoftLink.h"
+#pragma once
 
-#if HAVE(LOCKDOWN_MODE_FRAMEWORK)
+#include "CatchScope.h"
+#include "Debugger.h"
+#include "MicrotaskQueue.h"
 
-#import <LockdownMode/LockdownMode.h>
-#import <sys/sysctl.h>
-#import <wtf/SoftLinking.h>
+namespace JSC {
 
-OBJC_CLASS LockdownModeManager;
-
-SOFT_LINK_PRIVATE_FRAMEWORK_OPTIONAL(LockdownMode)
-SOFT_LINK_CLASS_OPTIONAL(LockdownMode, LockdownModeManager)
-
-namespace PAL {
-
-BOOL isLockdownModeEnabled()
+inline void MicrotaskQueue::performMicrotaskCheckpoint(VM& vm, NOESCAPE const Invocable<QueuedTask::Result(QueuedTask&)> auto& functor)
 {
-    if (LockdownModeLibrary())
-        return [(LockdownModeManager *)[getLockdownModeManagerClass() shared] enabled];
+    auto catchScope = DECLARE_CATCH_SCOPE(vm);
+    while (!m_queue.isEmpty()) {
+        if (UNLIKELY(vm.executionForbidden())) {
+            clear();
+            break;
+        }
 
-    // FIXME(<rdar://108208100>): Remove this fallback once recoveryOS includes the framework.
-    uint64_t ldmState = 0;
-    size_t sysCtlLen = sizeof(ldmState);
-    if (!sysctlbyname("security.mac.lockdown_mode_state", &ldmState, &sysCtlLen, NULL, 0))
-        return ldmState == 1;
+        auto task = m_queue.dequeue();
+        auto result = functor(task);
+        if (UNLIKELY(!catchScope.clearExceptionExceptTermination())) {
+            clear();
+            break;
+        }
 
-    return false;
+        vm.callOnEachMicrotaskTick();
+        if (UNLIKELY(!catchScope.clearExceptionExceptTermination())) {
+            clear();
+            break;
+        }
+
+        switch (result) {
+        case QueuedTask::Result::Executed:
+            break;
+        case QueuedTask::Result::Discard:
+            // Let this task go away.
+            break;
+        case QueuedTask::Result::Suspended: {
+            m_toKeep.enqueue(WTFMove(task));
+            break;
+        }
+        }
+    }
+    m_queue.swap(m_toKeep);
 }
 
-}
 
-#endif
+} // namespace JSC
