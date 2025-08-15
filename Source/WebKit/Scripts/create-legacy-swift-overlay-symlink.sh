@@ -1,4 +1,6 @@
-# Copyright (C) 2020 Apple Inc. All rights reserved.
+#!/bin/bash
+#
+# Copyright (C) 2025 Apple Inc. All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions
@@ -20,28 +22,18 @@
 # CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
 # THE POSSIBILITY OF SUCH DAMAGE.
-
-#if PLATFORM(COCOA) && ENABLE(GPU_PROCESS) && ENABLE(MEDIA_STREAM)
-
-[
-    DispatchedFrom=WebContent,
-    DispatchedTo=GPU,
-    EnabledBy=UseGPUProcessForMediaEnabled
-]
-messages -> RemoteSampleBufferDisplayLayer {
-#if !RELEASE_LOG_DISABLED
-    SetLogIdentifier(uint64_t logIdentifier)
-#endif
-    UpdateDisplayMode(bool hideDisplayLayer, bool hideRootLayer)
-    Flush()
-    FlushAndRemoveImage()
-    EnqueueVideoFrame(struct WebKit::SharedVideoFrame frame)
-    ClearVideoFrames()
-    Play()
-    Pause()
-    SetSharedVideoFrameSemaphore(IPC::Semaphore semaphore)
-    SetSharedVideoFrameMemory(WebCore::SharedMemory::Handle storageHandle)
-    SetShouldMaintainAspectRatio(bool shouldMaintainAspectRatio)
-}
-
-#endif
+#
+set -e
+if [ "${ACTION}" != installhdrs -a "${WK_USE_OVERRIDE_FRAMEWORKS_DIR}" = NO ]; then
+    if [ "${ACTION}" != installapi ]; then
+        ln -sfhv "../../../System/Library/Frameworks/WebKit.framework/${WK_FRAMEWORK_VERSION_PREFIX}WebKit" "${SCRIPT_OUTPUT_FILE_0}"
+        if [[ "${WK_PLATFORM_NAME}" == *simulator && -n "${SYSTEM_CONTENT_PATH}" ]]; then
+            # rdar://152200884: On simulated platforms which have an OS cryptex
+            # but ship without a shared cache (e.g. iOS Simulator), also
+            # install the symlink to the root /usr directory.
+            mkdir -p "$(dirname "${SCRIPT_OUTPUT_FILE_0/${SYSTEM_CONTENT_PATH}/}")"
+            ln -sfhv "../../../System/Library/Frameworks/WebKit.framework/${WK_FRAMEWORK_VERSION_PREFIX}WebKit" "${SCRIPT_OUTPUT_FILE_0/${SYSTEM_CONTENT_PATH}/}"
+        fi
+    fi
+    ln -sfhv "../../../System/Library/Frameworks/WebKit.framework/${WK_FRAMEWORK_VERSION_PREFIX}WebKit.tbd" "${SCRIPT_OUTPUT_FILE_1}"
+fi
