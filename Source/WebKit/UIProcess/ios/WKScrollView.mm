@@ -157,8 +157,6 @@ static BOOL shouldForwardScrollViewDelegateMethodToExternalDelegate(SEL selector
 #endif
 #if HAVE(LIQUID_GLASS)
     WebCore::RectEdges<RetainPtr<WKUIScrollEdgeEffect>> _edgeEffectWrappers;
-    RetainPtr<UIColor> _topPocketColorSetInternally;
-    RetainPtr<UIColor> _topPocketColorSetByClient;
 #endif
 }
 
@@ -660,36 +658,6 @@ static inline bool valuesAreWithinOnePixel(CGFloat a, CGFloat b)
         _edgeEffectWrappers.setAt(WebCore::BoxSide::Bottom, wrapper);
     }
     return wrapper.get();
-}
-
-- (void)_setInternalTopPocketColor:(UIColor *)color
-{
-    _topPocketColorSetInternally = color;
-
-    [self _updateTopPocketColor];
-}
-
-- (void)_setPocketColor:(UIColor *)color forEdge:(UIRectEdge)edge
-{
-    if (edge != UIRectEdgeTop) {
-        [super _setPocketColor:color forEdge:edge];
-        return;
-    }
-
-    _topPocketColorSetByClient = color;
-
-    [self _updateTopPocketColor];
-}
-
-- (void)_updateTopPocketColor
-{
-    RetainPtr colorToSet = _topPocketColorSetByClient ?: _topPocketColorSetInternally;
-    [super _setPocketColor:colorToSet.get() forEdge:UIRectEdgeTop];
-}
-
-- (BOOL)_usesHardTopScrollEdgeEffect
-{
-    return [[self _wk_topEdgeEffect] usesHardStyle];
 }
 
 #endif // HAVE(LIQUID_GLASS)

@@ -167,6 +167,6 @@ LOCALFRAMEVIEW_NOT_PAINTING_LAYOUT_NEEDED, "    [pageID=%" PRIu64 ", frameID=%" 
 SERVICEWORKERTHREADPROXY_REMOVEFETCH, "ServiceWorkerThreadProxy::removeFetch %llu", (uint64_t), DEFAULT, ServiceWorker
 
 FONTCACHECORETEXT_REGISTER_FONT, "Registering font %{private}s with fontURL %{private}s", (CString, CString), DEFAULT, Fonts
-FONTCACHECORETEXT_REGISTER_ERROR, "Could not register font %{private}s, error %s", (CString, CString), DEFAULT, Fonts
+FONTCACHECORETEXT_REGISTER_ERROR, "Could not register font %{private}s, error %{public}s", (CString, CString), DEFAULT, Fonts
 
 WEBCORE_TEST_LOG, "WebCore log message for testing (%u)", (unsigned), DEFAULT, Testing

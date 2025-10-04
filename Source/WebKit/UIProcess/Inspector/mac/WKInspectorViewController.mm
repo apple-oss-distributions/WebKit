@@ -229,6 +229,7 @@ static void* const safeAreaInsetsKVOContext = (void*)&safeAreaInsetsKVOContext;
     RetainPtr attachedView = [self _horizontallyAttachedInspectedWebView];
     [_webView _setOverrideTopScrollEdgeEffectColor:[attachedView _topScrollPocket].captureColor];
     [_webView _setAlwaysPrefersSolidColorHardPocket:!!attachedView];
+    [_webView _setOverflowHeightForTopScrollEdgeEffect:[attachedView _overflowHeightForTopScrollEdgeEffect]];
     [_webView _updateHiddenScrollPocketEdges];
 #endif
 }

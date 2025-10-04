@@ -3227,6 +3227,12 @@ void WebPageProxy::dispatchActivityStateChange()
     }
 #endif
 
+#if PLATFORM(MAC)
+    // FIXME: This could be cross-platform, but macOS-only for now to limit risk.
+    if (isNowInWindow)
+        protectedDrawingArea()->hideContentUntilAnyUpdate();
+#endif
+
     updateBackingStoreDiscardableState();
 
     if (activityStateChangeID != ActivityStateChangeAsynchronous)
@@ -11886,6 +11892,7 @@ WebPageCreationParameters WebPageProxy::creationParameters(WebProcessProxy& proc
     parameters.footerBannerHeight = footerBannerHeight();
     if (m_viewWindowCoordinates)
         parameters.viewWindowCoordinates = *m_viewWindowCoordinates;
+    parameters.overflowHeightForTopScrollEdgeEffect = m_overflowHeightForTopScrollEdgeEffect;
 #endif
 
 #if ENABLE(META_VIEWPORT)

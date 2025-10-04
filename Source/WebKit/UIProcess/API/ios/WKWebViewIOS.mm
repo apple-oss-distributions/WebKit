@@ -1175,28 +1175,8 @@ static void changeContentOffsetBoundedInValidRange(UIScrollView *scrollView, Web
 
         if (isFirstTransactionAfterObscuredInsetChange) {
             _perProcessState.firstTransactionIDAfterObscuredInsetChange = std::nullopt;
-            bool needsOverrideLayoutSizeUpdate = [&] {
-                if (!_overriddenLayoutParameters)
-                    return false;
-
-                if (!self._shouldDeferGeometryUpdates)
-                    return true;
-
-                // rdar://157669095: SFSafariViewController may misplace content if geometry updates are deferred.
-                // Dispatch updates as long as the scene isn't being interactively resized.
-                if (WTF::IOSApplication::isSafariViewService() && !self.window.windowScene.effectiveGeometry.isInteractivelyResizing)
-                    return true;
-
-                return false;
-            }();
-
-            if (needsOverrideLayoutSizeUpdate) {
-                [self _dispatchSetViewLayoutSize:WebCore::FloatSize(_overriddenLayoutParameters->viewLayoutSize)];
-                _page->setMinimumUnobscuredSize(WebCore::FloatSize(_overriddenLayoutParameters->minimumUnobscuredSize));
-                _page->setDefaultUnobscuredSize(WebCore::FloatSize(_overriddenLayoutParameters->maximumUnobscuredSize));
-                _page->setMaximumUnobscuredSize(WebCore::FloatSize(_overriddenLayoutParameters->maximumUnobscuredSize));
-                needUpdateVisibleContentRects = true;
-            }
+            [self _didStopDeferringGeometryUpdates];
+            needUpdateVisibleContentRects = true;
         }
 
         if (_perProcessState.dynamicViewportUpdateMode != WebKit::DynamicViewportUpdateMode::NotResizing) {
@@ -2512,7 +2492,7 @@ static WebCore::FloatPoint constrainContentOffset(WebCore::FloatPoint contentOff
         if ([_scrollView _wk_isScrolledBeyondTopExtent])
             return NO;
 
-        if ([_scrollView _usesHardTopScrollEdgeEffect])
+        if ([_scrollView _wk_usesHardTopScrollEdgeEffect])
             return NO;
 
         return [_scrollView contentOffset].y < 0;
@@ -2533,9 +2513,6 @@ static WebCore::FloatPoint constrainContentOffset(WebCore::FloatPoint contentOff
         return YES;
 
     if (_needsTopScrollPocketDueToVisibleContentInset)
-        return NO;
-
-    if ([_scrollView _usesHardTopScrollEdgeEffect])
         return NO;
 
     return [self _hasVisibleColorExtensionView:WebCore::BoxSide::Top];

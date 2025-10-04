@@ -544,7 +544,6 @@ struct PerWebProcessState {
 #if ENABLE(CONTENT_INSET_BACKGROUND_FILL)
 - (void)_updateFixedColorExtensionViews;
 - (void)_updateFixedColorExtensionViewFrames;
-- (void)_updatePrefersSolidColorHardPocket;
 - (BOOL)_hasVisibleColorExtensionView:(WebCore::BoxSide)side;
 - (void)_addReasonToHideTopScrollPocket:(WebKit::HideScrollPocketReason)reason;
 - (void)_removeReasonToHideTopScrollPocket:(WebKit::HideScrollPocketReason)reason;

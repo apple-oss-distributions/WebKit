@@ -864,6 +864,10 @@
 
     (home-subpath "/Library/Dictionaries"))
 
+;; rdar://156748194
+(with-filter (require-not (state-flag "BlockUserInstalledFonts"))
+    (allow file-read* (home-regex #".+\.(otf|ttf|ttc)$")))
+
 (allow file-read-data
     (literal "/usr/local/lib/log") ; <rdar://problem/36629495>
     ;; Needed for AES3 support

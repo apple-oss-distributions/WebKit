@@ -1401,9 +1401,15 @@ BoxSideSet WebPage::sidesRequiringFixedContainerEdges() const
     auto obscuredInsets = m_page->obscuredContentInsets();
 #endif
 
+#if PLATFORM(MAC)
+    auto additionalHeight = m_overflowHeightForTopScrollEdgeEffect;
+#else
+    auto additionalHeight = 0;
+#endif
+
     auto sides = m_page->fixedContainerEdges().fixedEdges();
 
-    if (obscuredInsets.top() > 0)
+    if ((additionalHeight + obscuredInsets.top()) > 0)
         sides.add(BoxSideFlag::Top);
 
     if (obscuredInsets.left() > 0)

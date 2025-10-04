@@ -358,6 +358,7 @@ bool hasCapacityToUseLargeGigacage();
     v(Int32, maximumExecutionCountsBetweenCheckpointsForBaseline, 1000, Normal, nullptr) \
     v(Int32, maximumExecutionCountsBetweenCheckpointsForUpperTiers, 30000, Normal, nullptr) \
     v(Int32, highCostBaselineProfilingFunctionBytecodeCost, 10000, Normal, nullptr) \
+    v(Int32, valueProfileFillingRateMonitoringBytecodeCost, 5000, Normal, nullptr) \
     \
     v(Unsigned, likelyToTakeSlowCaseMinimumCount, 20, Normal, nullptr) \
     v(Unsigned, couldTakeSlowCaseMinimumCount, 10, Normal, nullptr) \

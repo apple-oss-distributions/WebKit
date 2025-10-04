@@ -10997,32 +10997,100 @@ IGNORE_CLANG_WARNINGS_END
             break;
         case 2: {
             const ConcatKeyAtomStringCache* cache = nullptr;
-            if (auto string = m_node->child1()->tryGetString(m_graph); !string.isNull())
+            LValue variable = nullptr;
+            if (auto string = m_node->child1()->tryGetString(m_graph); !string.isNull()) {
                 cache = m_graph.tryAddConcatKeyAtomStringCache(string, emptyString(), ConcatKeyAtomStringCache::Mode::Variable1);
-            else if (auto string = m_node->child2()->tryGetString(m_graph); !string.isNull())
+                variable = strings[1];
+            } else if (auto string = m_node->child2()->tryGetString(m_graph); !string.isNull()) {
                 cache = m_graph.tryAddConcatKeyAtomStringCache(string, emptyString(), ConcatKeyAtomStringCache::Mode::Variable0);
+                variable = strings[0];
+            }
 
-            if (cache)
-                setJSValue(vmCall(pointerType(), operationMakeAtomString2WithCache, weakPointer(globalObject), strings[0], strings[1], m_out.constIntPtr(cache)));
-            else
+            if (cache) {
+                LBasicBlock cacheHit0Case = m_out.newBlock();
+                LBasicBlock cacheCheck1Case = m_out.newBlock();
+                LBasicBlock cacheHit1Case = m_out.newBlock();
+                LBasicBlock genericCase = m_out.newBlock();
+                LBasicBlock continuation = m_out.newBlock();
+
+                LValue cachePtr = m_out.constIntPtr(cache);
+                m_out.branch(
+                    m_out.equal(variable, m_out.loadPtr(cachePtr, m_heaps.ConcatKeyAtomStringCache_quickCache0_key)),
+                    unsure(cacheHit0Case), unsure(cacheCheck1Case));
+
+                LBasicBlock lastNext = m_out.appendTo(cacheHit0Case, cacheCheck1Case);
+                ValueFromBlock fastResult0 = m_out.anchor(m_out.loadPtr(cachePtr, m_heaps.ConcatKeyAtomStringCache_quickCache0_value));
+                m_out.jump(continuation);
+
+                m_out.appendTo(cacheCheck1Case, cacheHit1Case);
+                m_out.branch(
+                    m_out.equal(variable, m_out.loadPtr(cachePtr, m_heaps.ConcatKeyAtomStringCache_quickCache1_key)),
+                    unsure(cacheHit1Case), unsure(genericCase));
+
+                m_out.appendTo(cacheHit1Case, genericCase);
+                ValueFromBlock fastResult1 = m_out.anchor(m_out.loadPtr(cachePtr, m_heaps.ConcatKeyAtomStringCache_quickCache1_value));
+                m_out.jump(continuation);
+
+                m_out.appendTo(genericCase, continuation);
+                ValueFromBlock genericResult = m_out.anchor(vmCall(pointerType(), operationMakeAtomString2WithCache, weakPointer(globalObject), strings[0], strings[1], cachePtr));
+                m_out.jump(continuation);
+
+                m_out.appendTo(continuation, lastNext);
+                setJSValue(m_out.phi(pointerType(), fastResult0, fastResult1, genericResult));
+            } else
                 setJSValue(vmCall(pointerType(), operationMakeAtomString2, weakPointer(globalObject), strings[0], strings[1]));
             break;
         }
         case 3: {
             const ConcatKeyAtomStringCache* cache = nullptr;
+            LValue variable = nullptr;
             if (auto s0 = m_node->child1()->tryGetString(m_graph); !s0.isNull()) {
-                if (auto s1 = m_node->child2()->tryGetString(m_graph); !s1.isNull())
+                if (auto s1 = m_node->child2()->tryGetString(m_graph); !s1.isNull()) {
                     cache = m_graph.tryAddConcatKeyAtomStringCache(s0, s1, ConcatKeyAtomStringCache::Mode::Variable2);
-                else if (auto s2 = m_node->child3()->tryGetString(m_graph); !s2.isNull())
+                    variable = strings[2];
+                } else if (auto s2 = m_node->child3()->tryGetString(m_graph); !s2.isNull()) {
                     cache = m_graph.tryAddConcatKeyAtomStringCache(s0, s2, ConcatKeyAtomStringCache::Mode::Variable1);
+                    variable = strings[1];
+                }
             } else if (auto s1 = m_node->child2()->tryGetString(m_graph); !s1.isNull()) {
-                if (auto s2 = m_node->child3()->tryGetString(m_graph); !s2.isNull())
+                if (auto s2 = m_node->child3()->tryGetString(m_graph); !s2.isNull()) {
                     cache = m_graph.tryAddConcatKeyAtomStringCache(s1, s2, ConcatKeyAtomStringCache::Mode::Variable0);
+                    variable = strings[0];
+                }
             }
 
-            if (cache)
-                setJSValue(vmCall(pointerType(), operationMakeAtomString3WithCache, weakPointer(globalObject), strings[0], strings[1], strings[2], m_out.constIntPtr(cache)));
-            else
+            if (cache) {
+                LBasicBlock cacheHit0Case = m_out.newBlock();
+                LBasicBlock cacheCheck1Case = m_out.newBlock();
+                LBasicBlock cacheHit1Case = m_out.newBlock();
+                LBasicBlock genericCase = m_out.newBlock();
+                LBasicBlock continuation = m_out.newBlock();
+
+                LValue cachePtr = m_out.constIntPtr(cache);
+                m_out.branch(
+                    m_out.equal(variable, m_out.loadPtr(cachePtr, m_heaps.ConcatKeyAtomStringCache_quickCache0_key)),
+                    unsure(cacheHit0Case), unsure(cacheCheck1Case));
+
+                LBasicBlock lastNext = m_out.appendTo(cacheHit0Case, cacheCheck1Case);
+                ValueFromBlock fastResult0 = m_out.anchor(m_out.loadPtr(cachePtr, m_heaps.ConcatKeyAtomStringCache_quickCache0_value));
+                m_out.jump(continuation);
+
+                m_out.appendTo(cacheCheck1Case, cacheHit1Case);
+                m_out.branch(
+                    m_out.equal(variable, m_out.loadPtr(cachePtr, m_heaps.ConcatKeyAtomStringCache_quickCache1_key)),
+                    unsure(cacheHit1Case), unsure(genericCase));
+
+                m_out.appendTo(cacheHit1Case, genericCase);
+                ValueFromBlock fastResult1 = m_out.anchor(m_out.loadPtr(cachePtr, m_heaps.ConcatKeyAtomStringCache_quickCache1_value));
+                m_out.jump(continuation);
+
+                m_out.appendTo(genericCase, continuation);
+                ValueFromBlock genericResult = m_out.anchor(vmCall(pointerType(), operationMakeAtomString3WithCache, weakPointer(globalObject), strings[0], strings[1], strings[2], cachePtr));
+                m_out.jump(continuation);
+
+                m_out.appendTo(continuation, lastNext);
+                setJSValue(m_out.phi(pointerType(), fastResult0, fastResult1, genericResult));
+            } else
                 setJSValue(vmCall(pointerType(), operationMakeAtomString3, weakPointer(globalObject), strings[0], strings[1], strings[2]));
             break;
         }

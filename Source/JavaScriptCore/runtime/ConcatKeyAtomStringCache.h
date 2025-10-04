@@ -55,10 +55,40 @@ public:
     template<typename Func>
     JSString* getOrInsert(VM&, JSString*, JSString*, JSString*, const Func&);
 
+    struct CacheEntry {
+        static constexpr ptrdiff_t offsetOfKey()
+        {
+            return OBJECT_OFFSETOF(CacheEntry, m_key);
+        }
+
+        static constexpr ptrdiff_t offsetOfValue()
+        {
+            return OBJECT_OFFSETOF(CacheEntry, m_value);
+        }
+
+        WriteBarrier<JSString> m_key { };
+        WriteBarrier<JSString> m_value { };
+    };
+
+    static constexpr ptrdiff_t offsetOfQuickCache0()
+    {
+        return OBJECT_OFFSETOF(ConcatKeyAtomStringCache, m_quickCache);
+    }
+
+    static constexpr ptrdiff_t offsetOfQuickCache1()
+    {
+        return OBJECT_OFFSETOF(ConcatKeyAtomStringCache, m_quickCache) + sizeof(CacheEntry);
+    }
+
+
+
     DECLARE_VISIT_AGGREGATE;
+
+    size_t size() const { return m_cache.size(); }
 
 private:
     CodeBlock* m_owner { nullptr };
+    std::array<CacheEntry, 2> m_quickCache { };
     UncheckedKeyHashMap<Ref<AtomStringImpl>, JSString*> m_cache;
     Mode m_mode { Mode::Megamorphic };
     Lock m_lock;

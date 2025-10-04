@@ -46,7 +46,6 @@
     if (!(self = [super init]))
         return nil;
 
-    self.allowsNumberPadPopover = NO;
     self.typingAdaptationEnabled = YES;
     self.autocapitalizationType = UITextAutocapitalizationTypeSentences;
     return self;
@@ -138,7 +137,6 @@
     self.smartDashesType = UITextSmartDashesTypeDefault;
     self.keyboardType = UIKeyboardTypeDefault;
     self.keyboardAppearance = UIKeyboardAppearanceDefault;
-    self.allowsNumberPadPopover = NO;
     self.returnKeyType = UIReturnKeyDefault;
     self.secureTextEntry = NO;
     self.singleLineDocument = NO;

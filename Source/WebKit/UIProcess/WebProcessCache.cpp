@@ -157,12 +157,11 @@ bool WebProcessCache::addProcess(Ref<CachedProcess>&& cachedProcess)
         m_processesPerSite.remove(it);
     }
 
-#if PLATFORM(COCOA) || PLATFORM(GTK) || PLATFORM(WPE)
+#if PLATFORM(MAC) || PLATFORM(GTK) || PLATFORM(WPE)
     cachedProcess->startSuspensionTimer();
 #endif
 
-    WEBPROCESSCACHE_RELEASE_LOG("addProcess: Added process to WebProcess cache (size=%u, capacity=%u) %{private}s", cachedProcess->process().processID(), size() + 1, capacity(), site.toString().utf8().data());
-
+    WEBPROCESSCACHE_RELEASE_LOG("addProcess: Added process to WebProcess cache (size=%u, capacity=%u)", cachedProcess->process().processID(), size() + 1, capacity());
     m_processesPerSite.add(site, WTFMove(cachedProcess));
 
     return true;
@@ -171,37 +170,27 @@ bool WebProcessCache::addProcess(Ref<CachedProcess>&& cachedProcess)
 RefPtr<WebProcessProxy> WebProcessCache::takeProcess(const WebCore::Site& site, WebsiteDataStore& dataStore, WebProcessProxy::LockdownMode lockdownMode, const API::PageConfiguration& pageConfiguration)
 {
     auto it = m_processesPerSite.find(site);
-    if (it == m_processesPerSite.end()) {
-        WEBPROCESSCACHE_RELEASE_LOG("takeProcess: did not find %{private}s", 0, site.toString().utf8().data());
+    if (it == m_processesPerSite.end())
         return nullptr;
-    }
 
-    if (it->value->process().websiteDataStore() != &dataStore) {
-        WEBPROCESSCACHE_RELEASE_LOG("takeProcess: cannot take process, datastore not identical", it->value->process().processID());
+    if (it->value->process().websiteDataStore() != &dataStore)
         return nullptr;
-    }
 
-    if (it->value->process().lockdownMode() != lockdownMode) {
-        WEBPROCESSCACHE_RELEASE_LOG("takeProcess: cannot take process, lockdown mode not identical", it->value->process().processID());
+    if (it->value->process().lockdownMode() != lockdownMode)
         return nullptr;
-    }
 
-    if (!Ref { it->value->process() }->hasSameGPUAndNetworkProcessPreferencesAs(pageConfiguration)) {
-        WEBPROCESSCACHE_RELEASE_LOG("takeProcess: cannot take process, preferences not identical", it->value->process().processID());
+    if (!Ref { it->value->process() }->hasSameGPUAndNetworkProcessPreferencesAs(pageConfiguration))
         return nullptr;
-    }
 
     Ref process = m_processesPerSite.take(it)->takeProcess();
-    WEBPROCESSCACHE_RELEASE_LOG("takeProcess: Taking process from WebProcess cache (size=%u, capacity=%u, processWasTerminated=%d) %{private}s", process->processID(), size(), capacity(), process->wasTerminated(), site.toString().utf8().data());
+    WEBPROCESSCACHE_RELEASE_LOG("takeProcess: Taking process from WebProcess cache (size=%u, capacity=%u, processWasTerminated=%d)", process->processID(), size(), capacity(), process->wasTerminated());
 
     ASSERT(!process->pageCount());
     ASSERT(!process->provisionalPageCount());
     ASSERT(!process->suspendedPageCount());
 
-    if (process->wasTerminated()) {
-        WEBPROCESSCACHE_RELEASE_LOG("takeProcess: cannot take process, was terminated", process->processID());
+    if (process->wasTerminated())
         return nullptr;
-    }
 
     return process;
 }
@@ -323,7 +312,7 @@ Ref<WebProcessCache::CachedProcess> WebProcessCache::CachedProcess::create(Ref<W
 WebProcessCache::CachedProcess::CachedProcess(Ref<WebProcessProxy>&& process)
     : m_process(WTFMove(process))
     , m_evictionTimer(RunLoop::mainSingleton(), "WebProcessCache::CachedProcess::EvictionTimer"_s, this, &CachedProcess::evictionTimerFired)
-#if PLATFORM(COCOA) || PLATFORM(GTK) || PLATFORM(WPE)
+#if PLATFORM(MAC) || PLATFORM(GTK) || PLATFORM(WPE)
     , m_suspensionTimer(RunLoop::mainSingleton(), "WebProcessCache::CachedProcess::SuspensionTimer"_s, this, &CachedProcess::suspensionTimerFired)
 #endif
 {
@@ -344,7 +333,7 @@ WebProcessCache::CachedProcess::~CachedProcess()
     ASSERT(!m_process->suspendedPageCount());
 
     RefPtr process = m_process;
-#if PLATFORM(COCOA) || PLATFORM(GTK) || PLATFORM(WPE)
+#if PLATFORM(MAC) || PLATFORM(GTK) || PLATFORM(WPE)
     if (isSuspended())
         process->platformResumeProcess();
 #endif
@@ -357,7 +346,7 @@ Ref<WebProcessProxy> WebProcessCache::CachedProcess::takeProcess()
     ASSERT(m_process);
     m_evictionTimer.stop();
     RefPtr process = m_process;
-#if PLATFORM(COCOA) || PLATFORM(GTK) || PLATFORM(WPE)
+#if PLATFORM(MAC) || PLATFORM(GTK) || PLATFORM(WPE)
     if (isSuspended())
         process->platformResumeProcess();
     else
@@ -383,7 +372,7 @@ void WebProcessCache::CachedProcess::evictionTimerFired()
     process->protectedProcessPool()->webProcessCache().removeProcess(*process, ShouldShutDownProcess::Yes);
 }
 
-#if PLATFORM(COCOA) || PLATFORM(GTK) || PLATFORM(WPE)
+#if PLATFORM(MAC) || PLATFORM(GTK) || PLATFORM(WPE)
 void WebProcessCache::CachedProcess::startSuspensionTimer()
 {
     ASSERT(m_process);

@@ -31,6 +31,7 @@
 #include "CodeBlock.h"
 
 #include "ArithProfile.h"
+#include "BaselineJITCode.h"
 #include "BasicBlockLocation.h"
 #include "BytecodeDumper.h"
 #include "BytecodeLivenessAnalysisInlines.h"
@@ -3069,6 +3070,29 @@ bool CodeBlock::shouldOptimizeNowFromBaseline()
 
     if (livenessRate >= Options::desiredProfileLivenessRate() && fullnessRate >= Options::desiredProfileFullnessRate() && static_cast<unsigned>(m_optimizationDelayCounter) + 1 >= Options::minimumOptimizationDelay())
         return true;
+
+#if ENABLE(DFG_JIT)
+    if (auto* jitCode = m_jitCode.get(); jitCode && JITCode::isBaselineCode(jitCode->jitType())) {
+        // If this CodeBlock is large enough, then there is a chance that some part of code is just a dead code.
+        // This can happen in a framework code since it is crafted as a generic function.
+        // In this case, we track whether the liveness / fullness rate changes from the previous sampling time,
+        // and if it is not changed, we say that we are reaching to the plateau and we do not expect that we will
+        // get more information with retrying. Thus we will start compiling it in DFG.
+        auto* baselineJITCode = static_cast<BaselineJITCode*>(jitCode);
+        double previousLivenessRate = baselineJITCode->livenessRate();
+        double previousFullnessRate = baselineJITCode->fullnessRate();
+        if (static_cast<unsigned>(m_optimizationDelayCounter) + 1 >= Options::minimumOptimizationDelay()) {
+            if (static_cast<int32_t>(this->bytecodeCost()) >= Options::valueProfileFillingRateMonitoringBytecodeCost()) {
+                if (previousLivenessRate && previousFullnessRate) {
+                    if (previousLivenessRate == livenessRate && previousFullnessRate == fullnessRate)
+                        return true;
+                }
+            }
+        }
+        baselineJITCode->setLivenessRate(livenessRate);
+        baselineJITCode->setFullnessRate(fullnessRate);
+    }
+#endif
 
     auto* codeBlock = this;
     CODEBLOCK_LOG_EVENT(codeBlock, "delayOptimizeToDFG", ("insufficient profiling (", livenessRate,  " / ", fullnessRate, ") for ", numberOfNonArgumentValueProfiles(), " ", totalNumberOfValueProfiles()));

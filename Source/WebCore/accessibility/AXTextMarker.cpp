@@ -933,14 +933,16 @@ AXTextMarker AXTextMarker::findLastBefore(std::optional<AXID> stopAtID) const
         return textRunMarker.findLastBefore(stopAtID);
     }
 
-    AXTextMarker marker;
-    auto newMarker = *this;
+    RefPtr lastObjectWithRuns = isolatedObject();
     // FIXME: Do we need to compare both tree ID and object ID here?
-    while (newMarker.isValid() && (!stopAtID || *stopAtID != newMarker.objectID())) {
-        marker = WTFMove(newMarker);
-        newMarker = marker.findMarker(AXDirection::Next, CoalesceObjectBreaks::No, IgnoreBRs::No, stopAtID);
+    while (!stopAtID || *stopAtID != lastObjectWithRuns->objectID()) {
+        RefPtr newObject = findObjectWithRuns(*lastObjectWithRuns, AXDirection::Next, stopAtID);
+        if (!newObject)
+            break;
+        lastObjectWithRuns = WTFMove(newObject);
     }
-    return marker;
+
+    return AXTextMarker { *lastObjectWithRuns, lastObjectWithRuns->textRuns()->totalLength() };
 }
 
 AXTextMarkerRange AXTextMarker::rangeWithSameStyle() const

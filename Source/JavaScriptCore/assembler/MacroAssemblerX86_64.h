@@ -1721,6 +1721,12 @@ public:
             m_assembler.movsd_rm(src, address.offset, address.base, address.index, address.scale);
     }
 
+    void storeDouble(FPRegisterID src, TrustedImmPtr address)
+    {
+        move(address, scratchRegister());
+        storeDouble(src, Address(scratchRegister()));
+    }
+
     void storeFloat(FPRegisterID src, Address address)
     {
         if (supportsAVX())

@@ -37,7 +37,6 @@
 - (instancetype)initWithScrollEdgeEffect:(UIScrollEdgeEffect *)effect boxSide:(WebCore::BoxSide)side;
 
 @property (nonatomic, getter=isInternallyHidden) BOOL internallyHidden;
-@property (nonatomic) BOOL usesHardStyle;
 
 @end
 

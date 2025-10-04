@@ -235,6 +235,10 @@ enum class WebCore::UserInterfaceLayoutDirection : bool;
 
     bool hasResizableWindows;
 
+#if PLATFORM(MAC)
+    double overflowHeightForTopScrollEdgeEffect;
+#endif
+
     WebCore::ContentSecurityPolicyModeForExtension contentSecurityPolicyModeForExtension;
 
     std::optional<WebKit::RemotePageParameters> remotePageParameters;

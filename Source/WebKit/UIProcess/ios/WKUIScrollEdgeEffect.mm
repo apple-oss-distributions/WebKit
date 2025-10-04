@@ -44,7 +44,6 @@ enum class HiddenScrollEdgeEffectSource : uint8_t {
     __weak UIScrollEdgeEffect *_effect;
     OptionSet<WebKit::HiddenScrollEdgeEffectSource> _hiddenSources;
     WebCore::BoxSide _boxSide;
-    BOOL _usesHardStyle;
 }
 
 - (instancetype)initWithScrollEdgeEffect:(UIScrollEdgeEffect *)effect boxSide:(WebCore::BoxSide)boxSide
@@ -101,13 +100,6 @@ enum class HiddenScrollEdgeEffectSource : uint8_t {
         return;
 
     _effect.hidden = !newVisible;
-}
-
-- (void)setStyle:(UIScrollEdgeEffectStyle *)style
-{
-    _usesHardStyle = [style isEqual:UIScrollEdgeEffectStyle.hardStyle];
-
-    _effect.style = style;
 }
 
 - (NSString *)description

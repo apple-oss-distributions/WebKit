@@ -345,20 +345,6 @@ void WebProcessProxy::platformDestroy()
 #endif
 }
 
-void WebProcessProxy::platformResumeProcess()
-{
-    if (m_platformSuspendDidReleaseNearSuspendedAssertion) {
-        m_platformSuspendDidReleaseNearSuspendedAssertion = false;
-        protectedThrottler()->setShouldTakeNearSuspendedAssertion(true);
-    }
-}
-
-void WebProcessProxy::platformSuspendProcess()
-{
-    m_platformSuspendDidReleaseNearSuspendedAssertion = throttler().isHoldingNearSuspendedAssertion();
-    protectedThrottler()->setShouldTakeNearSuspendedAssertion(false);
-}
-
 }
 
 #undef MESSAGE_CHECK_URL

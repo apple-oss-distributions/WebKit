@@ -314,6 +314,10 @@ struct WebPageCreationParameters {
 
     bool hasResizableWindows { false };
 
+#if PLATFORM(MAC)
+    double overflowHeightForTopScrollEdgeEffect { 0 };
+#endif
+
     WebCore::ContentSecurityPolicyModeForExtension contentSecurityPolicyModeForExtension { WebCore::ContentSecurityPolicyModeForExtension::None };
 
     std::optional<RemotePageParameters> remotePageParameters { };

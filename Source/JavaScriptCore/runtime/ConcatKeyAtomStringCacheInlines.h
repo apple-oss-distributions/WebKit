@@ -72,7 +72,8 @@ inline JSString* ConcatKeyAtomStringCache::getOrInsert(VM& vm, JSString* s0, JSS
         return result;
 
     if (auto* result = func(vm)) [[likely]] {
-        if (m_cache.size() == maxCapacity) [[unlikely]] {
+        size_t size = m_cache.size();
+        if (size == maxCapacity) [[unlikely]] {
             {
                 Locker locker { m_lock };
                 m_cache.clear();
@@ -84,6 +85,11 @@ inline JSString* ConcatKeyAtomStringCache::getOrInsert(VM& vm, JSString* s0, JSS
                 m_cache.add(atomStringImpl, result);
             }
             vm.writeBarrier(m_owner, result);
+            if (size < 2) {
+                auto& entry = m_quickCache[size];
+                entry.m_key.set(vm, m_owner, variable);
+                entry.m_value.set(vm, m_owner, result);
+            }
         }
         return result;
     }

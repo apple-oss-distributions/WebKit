@@ -74,7 +74,6 @@
 #import "WKPreviewActionItemInternal.h"
 #import "WKPreviewElementInfoInternal.h"
 #import "WKQuickboardViewControllerDelegate.h"
-#import "WKScrollView.h"
 #import "WKSelectMenuListViewController.h"
 #import "WKSyntheticFlagsChangedWebEvent.h"
 #import "WKTapHighlightView.h"
@@ -8467,7 +8466,7 @@ static RetainPtr<NSObject <WKFormPeripheral>> createInputPeripheralWithView(WebK
         [self becomeFirstResponder];
 
 #if ENABLE(CONTENT_INSET_BACKGROUND_FILL)
-    if (_focusedElementInformation.shouldHideSoftTopScrollEdgeEffect && ![[_webView _wkScrollView] _usesHardTopScrollEdgeEffect])
+    if (_focusedElementInformation.shouldHideSoftTopScrollEdgeEffect && ![[_webView scrollView] _wk_usesHardTopScrollEdgeEffect])
         [_webView _addReasonToHideTopScrollPocket:WebKit::HideScrollPocketReason::SiteSpecificQuirk];
     else
         [_webView _removeReasonToHideTopScrollPocket:WebKit::HideScrollPocketReason::SiteSpecificQuirk];

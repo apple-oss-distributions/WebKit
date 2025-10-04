@@ -63,8 +63,6 @@
 @property (nonatomic, strong) UIConversationContext *conversationContext;
 #endif
 
-@property (nonatomic) BOOL allowsNumberPadPopover;
-
 - (void)setSelectionColorsToMatchTintColor:(UIColor *)tintColor;
 - (void)restoreDefaultValues;
 

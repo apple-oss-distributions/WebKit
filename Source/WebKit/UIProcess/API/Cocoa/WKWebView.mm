@@ -68,7 +68,6 @@
 #import "ViewGestureController.h"
 #import "WKBackForwardListInternal.h"
 #import "WKBackForwardListItemInternal.h"
-#import "WKBrowsingContextController.h"
 #import "WKBrowsingContextHandleInternal.h"
 #import "WKColorExtensionView.h"
 #import "WKContentWorldInternal.h"
@@ -547,14 +546,7 @@ static uint32_t convertSystemLayoutDirection(NSUserInterfaceLayoutDirection dire
 
 #if PLATFORM(IOS_FAMILY)
 
-static id browsingContextControllerMethodStubNonNil(id, SEL)
-{
-ALLOW_DEPRECATED_DECLARATIONS_BEGIN
-    return adoptNS([WKBrowsingContextController new]).autorelease();
-ALLOW_DEPRECATED_DECLARATIONS_END
-}
-
-static id browsingContextControllerMethodStubNil(id, SEL)
+static id browsingContextControllerMethodStub(id, SEL)
 {
     return nil;
 }
@@ -566,8 +558,8 @@ static void addBrowsingContextControllerMethodStubsIfNeeded()
         if (linkedOnOrAfterSDKWithBehavior(SDKAlignedBehavior::BrowsingContextControllerMethodStubRemoved))
             return;
 
-        class_addMethod(WKWebView.class, NSSelectorFromString(@"browsingContextController"), reinterpret_cast<IMP>(browsingContextControllerMethodStubNil), "@@:");
-        class_addMethod(WKContentView.class, NSSelectorFromString(@"browsingContextController"), reinterpret_cast<IMP>(browsingContextControllerMethodStubNonNil), "@@:");
+        for (auto wkClass : std::array { WKWebView.class, WKContentView.class })
+            class_addMethod(wkClass, NSSelectorFromString(@"browsingContextController"), reinterpret_cast<IMP>(browsingContextControllerMethodStub), "@@:");
     });
 }
 
@@ -3173,20 +3165,17 @@ static WebCore::CocoaColor *sampledFixedPositionContentColor(const WebCore::Fixe
 #if PLATFORM(MAC)
     _impl->updateTopScrollPocketCaptureColor();
 #else
-    if (!_needsTopScrollPocketDueToVisibleContentInset && ![_scrollView _usesHardTopScrollEdgeEffect]) {
-        // When using a soft pocket (iPhone), overriding the top scroll pocket capture color is only
-        // necessary when:
+    if (!_needsTopScrollPocketDueToVisibleContentInset) {
+        // On iOS, overriding the top scroll pocket capture color is only necessary when:
         //   1. The top content inset area is visible.
         //   2. There's an element with a top fixed-position color.
         // If either condition is false, the scroll pocket is either not visible in the first place,
         // or it should match the scroll view background color anyways.
-        // When using a hard pocket (iPad), the top scroll pocket capture color must be set to ensure
-        // that glass elements overlaying the pocket adapt correctly.
         return;
     }
 
     if (RetainPtr color = [self _sampledTopFixedPositionContentColor] ?: [self underPageBackgroundColor])
-        [_scrollView _setInternalTopPocketColor:color.get()];
+        [_scrollView _setPocketColor:color.get() forEdge:UIRectEdgeTop];
 #endif
 }
 
@@ -3341,16 +3330,6 @@ static WebCore::CocoaColor *sampledFixedPositionContentColor(const WebCore::Fixe
     }
 }
 
-- (void)_updatePrefersSolidColorHardPocket
-{
-#if PLATFORM(MAC)
-    _impl->updatePrefersSolidColorHardPocket();
-#else
-    BOOL useSolidColor = [_scrollView _usesHardTopScrollEdgeEffect] && [self _hasVisibleColorExtensionView:WebCore::BoxSide::Top];
-    [_scrollView _setPrefersSolidColorHardPocket:useSolidColor forEdge:UIRectEdgeTop];
-#endif
-}
-
 - (void)_updateHiddenScrollPocketEdges
 {
 #if PLATFORM(IOS_FAMILY)
@@ -3455,8 +3434,10 @@ static ASCIILiteral descriptionForReason(WebKit::HideScrollPocketReason reason)
 
 - (void)colorExtensionViewWillDisappear:(WKColorExtensionView *)view
 {
+#if PLATFORM(MAC)
     if (view == _fixedColorExtensionViews.at(WebCore::BoxSide::Top))
-        [self _updatePrefersSolidColorHardPocket];
+        _impl->updatePrefersSolidColorHardPocket();
+#endif
 
 #if PLATFORM(IOS_FAMILY)
     [self _updateHiddenScrollPocketEdges];
@@ -3465,8 +3446,10 @@ static ASCIILiteral descriptionForReason(WebKit::HideScrollPocketReason reason)
 
 - (void)colorExtensionViewDidAppear:(WKColorExtensionView *)view
 {
+#if PLATFORM(MAC)
     if (view == _fixedColorExtensionViews.at(WebCore::BoxSide::Top))
-        [self _updatePrefersSolidColorHardPocket];
+        _impl->updatePrefersSolidColorHardPocket();
+#endif
 
 #if PLATFORM(IOS_FAMILY)
     [self _updateHiddenScrollPocketEdges];

@@ -491,7 +491,7 @@ public:
 
     void markProcessAsRecentlyUsed();
 
-#if PLATFORM(COCOA) || PLATFORM(GTK) || PLATFORM(WPE)
+#if PLATFORM(MAC) || PLATFORM(GTK) || PLATFORM(WPE)
     void platformSuspendProcess();
     void platformResumeProcess();
 #endif
@@ -822,7 +822,7 @@ private:
     const std::unique_ptr<AudioSessionRoutingArbitratorProxy> m_routingArbitrator;
 #endif
     bool m_isConnectedToHardwareConsole { true };
-#if PLATFORM(COCOA)
+#if PLATFORM(MAC)
     bool m_platformSuspendDidReleaseNearSuspendedAssertion { false };
 #endif
     mutable String m_environmentIdentifier;
