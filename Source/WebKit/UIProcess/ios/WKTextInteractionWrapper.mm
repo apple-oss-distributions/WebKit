@@ -209,8 +209,10 @@ WTF_MAKE_TZONE_ALLOCATED_IMPL(HideEditMenuScope);
         for (UIView *subview in newContainer.subviews)
             [viewsBeforeInstallingInteraction addObject:subview];
 
-        // Calling these delegate methods tells the display interaction to remove and reparent all internally
-        // managed views (e.g. selection highlight views, selection handles) in the new selection container.
+        // When the display interaction is in the activated state, calling these delegate methods tells it
+        // to remove and reparent all internally managed views (e.g. selection highlight views, selection
+        // handles) in the new selection container.
+        [self activateSelection];
         [displayInteraction willMoveToView:_view];
         [displayInteraction didMoveToView:_view];
 

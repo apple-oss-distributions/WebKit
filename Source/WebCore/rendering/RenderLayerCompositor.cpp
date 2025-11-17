@@ -4125,7 +4125,7 @@ bool RenderLayerCompositor::requiresCompositingForOverflowScrolling(const Render
 
 bool RenderLayerCompositor::requiresCompositingForAnchorPositioning(const RenderLayer& layer) const
 {
-    return !!layer.snapshottedScrollOffsetForAnchorPositioning();
+    return !!layer.anchorScrollAdjustment();
 }
 
 IndirectCompositingReason RenderLayerCompositor::computeIndirectCompositingReason(const RenderLayer& layer, bool hasCompositedDescendants, bool has3DTransformedDescendants, bool paintsIntoProvidedBacking) const
@@ -4240,6 +4240,9 @@ ViewportConstrainedSublayers RenderLayerCompositor::viewportConstrainedSublayers
     }
 
     if (!(layer.renderer().isFixedPositioned() && layer.behavesAsFixed()))
+        return None;
+
+    if (layer.renderer().effectiveCapturedInViewTransition())
         return None;
 
     for (auto* ancestor = layer.parent(); ancestor; ancestor = ancestor->parent()) {

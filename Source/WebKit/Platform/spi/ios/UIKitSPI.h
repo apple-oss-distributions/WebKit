@@ -243,7 +243,6 @@ WTF_EXTERN_C_END
 - (void)_cancelAllTouches;
 - (BOOL)isSuspendedUnderLock;
 - (void)_enqueueHIDEvent:(IOHIDEventRef)event;
-- (BOOL)_appAdoptsUISceneLifecycle;
 - (void)_registerBSActionHandler:(id<_UIApplicationBSActionHandler>)handler;
 @end
 
@@ -624,6 +623,9 @@ extern NSString * const UIPresentationControllerDismissalTransitionDidEndComplet
 #if PLATFORM(VISION)
 @interface UIActivityViewController ()
 @property (nonatomic) BOOL allowsCustomPresentationStyle;
+@end
+@interface UIView ()
+- (void)_requestRemoteEffects:(NSArray *)effects forKey:(NSString *)key;
 @end
 #endif // PLATFORM(VISION)
 
@@ -1259,6 +1261,10 @@ typedef NS_ENUM(NSUInteger, _UIScrollDeviceCategory) {
 
 @interface UIScrollView (ScrollPocket_IPI)
 - (_UIScrollPocket *)_pocketForEdge:(UIRectEdge)edge makeIfNeeded:(BOOL)makeIfNeeded;
+@end
+
+@interface UIScrollView (Staging_155261419)
+- (void)_setPrefersSolidColorHardPocket:(BOOL)prefersSolidColorHardPocket forEdge:(UIRectEdge)edge;
 @end
 
 #endif // HAVE(LIQUID_GLASS)

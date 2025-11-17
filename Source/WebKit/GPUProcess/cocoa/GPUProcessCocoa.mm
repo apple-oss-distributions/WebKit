@@ -147,6 +147,8 @@ void GPUProcess::platformInitializeGPUProcess(GPUProcessCreationParameters& para
     if (WKProcessExtension.sharedInstance)
         [WKProcessExtension.sharedInstance lockdownSandbox:@"2.0"];
 #endif
+
+    increaseFileDescriptorLimit();
 }
 
 #if USE(EXTENSIONKIT)
