@@ -243,6 +243,7 @@ WTF_EXTERN_C_END
 - (void)_cancelAllTouches;
 - (BOOL)isSuspendedUnderLock;
 - (void)_enqueueHIDEvent:(IOHIDEventRef)event;
+- (BOOL)_appAdoptsUISceneLifecycle;
 - (void)_registerBSActionHandler:(id<_UIApplicationBSActionHandler>)handler;
 @end
 

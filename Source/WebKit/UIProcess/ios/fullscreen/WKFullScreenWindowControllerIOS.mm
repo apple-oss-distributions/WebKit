@@ -50,7 +50,6 @@
 #import <WebCore/GeometryUtilities.h>
 #import <WebCore/IntRect.h>
 #import <WebCore/LocalizedStrings.h>
-#import <WebCore/Timer.h>
 #import <WebCore/VideoPresentationInterfaceAVKitLegacy.h>
 #import <WebCore/VideoPresentationInterfaceTVOS.h>
 #import <WebCore/VideoPresentationModel.h>
@@ -74,8 +73,6 @@
 #if !HAVE(URL_FORMATTING)
 SOFT_LINK_PRIVATE_FRAMEWORK_OPTIONAL(LinkPresentation)
 #endif
-
-static constexpr Seconds DefaultWatchdogTimerInterval = 1_s;
 
 namespace WebKit {
 using namespace WebKit;
@@ -784,7 +781,6 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 
     CGRect _initialFrame;
     CGRect _finalFrame;
-    std::unique_ptr<WebCore::Timer> _watchdogTimer;
     CGSize _originalWindowSize;
 
     RetainPtr<NSString> _EVOrganizationName;
@@ -795,7 +791,6 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     BOOL _exitingFullScreen;
 
     RetainPtr<id> _notificationListener;
-
 #if !RELEASE_LOG_DISABLED
     RefPtr<Logger> _logger;
     uint64_t _logIdentifier;
@@ -1277,8 +1272,6 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 
 - (void)exitFullScreen:(CompletionHandler<void()>&&)completionHandler
 {
-    [self _cancelWatchdogTimer];
-
     if (_fullScreenState == WebKit::NotInFullScreen) {
         OBJC_ALWAYS_LOG(OBJC_LOGIDENTIFIER, _fullScreenState, ", dropping");
         return completionHandler();
@@ -1321,7 +1314,6 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     if (auto* manager = self._manager) {
         OBJC_ALWAYS_LOG(OBJC_LOGIDENTIFIER);
         manager->setAnimatingFullScreen(true);
-        [self _startWatchdogTimer];
         return completionHandler();
     }
 
@@ -1394,8 +1386,6 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 
 - (void)_completedExitFullScreen:(CompletionHandler<void()>&&)completionHandler
 {
-    [self _cancelWatchdogTimer];
-
     if (_fullScreenState != WebKit::ExitingFullScreen) {
         OBJC_ALWAYS_LOG(OBJC_LOGIDENTIFIER, _fullScreenState, " != ExitingFullScreen, dropping");
         return completionHandler();
@@ -1604,35 +1594,11 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 #endif
 }
 
-- (void)_startWatchdogTimer
-{
-    // If the page doesn't respond in DefaultWatchdogTimerInterval seconds, it could be because
-    // the WebProcess has hung, so exit anyway.
-    if (!_watchdogTimer) {
-        _watchdogTimer = makeUnique<WebCore::Timer>([weakSelf = WeakObjCPtr { self }] {
-            RetainPtr strongSelf = weakSelf.get();
-            if (strongSelf)
-                [strongSelf _exitFullscreenImmediately];
-        });
-        _watchdogTimer->startOneShot(DefaultWatchdogTimerInterval);
-    }
-}
-
-- (void)_cancelWatchdogTimer
-{
-    if (!_watchdogTimer)
-        return;
-    _watchdogTimer->stop();
-    _watchdogTimer = nullptr;
-}
-
 #pragma mark -
 #pragma mark Internal Interface
 
 - (void)_exitFullscreenImmediately
 {
-    [self _cancelWatchdogTimer];
-
     if (_fullScreenState == WebKit::NotInFullScreen) {
         OBJC_ALWAYS_LOG(OBJC_LOGIDENTIFIER, _fullScreenState, ", dropping");
         return;

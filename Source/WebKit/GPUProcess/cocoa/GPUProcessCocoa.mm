@@ -34,6 +34,8 @@
 #import "GPUProcessCreationParameters.h"
 #import "Logging.h"
 #import "RemoteRenderingBackend.h"
+#import <WebCore/AV1UtilitiesCocoa.h>
+#import <WebCore/VP9UtilitiesCocoa.h>
 #import <pal/spi/cocoa/AVFoundationSPI.h>
 #import <pal/spi/cocoa/MetalSPI.h>
 #import <wtf/RetainPtr.h>
@@ -138,6 +140,15 @@ void GPUProcess::platformInitializeGPUProcess(GPUProcessCreationParameters& para
         setenv("MTL_SHADER_VALIDATION_REPORT_TO_STDERR", "1", 1);
         setenv("MTL_SHADER_VALIDATION_GPUOPT_ENABLE_RUNTIME_STACKTRACE", "0", 1);
     }
+
+#if ENABLE(VP9)
+    if (parameters.hasVP9HardwareDecoder)
+        setVP9HardwareDecoderAvailableInProcess(*parameters.hasVP9HardwareDecoder);
+#endif
+#if ENABLE(AV1)
+    if (parameters.hasAV1HardwareDecoder)
+        setAV1HardwareDecoderAvailable(*parameters.hasAV1HardwareDecoder);
+#endif
 
 #if USE(SANDBOX_EXTENSIONS_FOR_CACHE_AND_TEMP_DIRECTORY_ACCESS) && USE(EXTENSIONKIT)
     MTLSetShaderCachePath(parameters.containerCachesDirectory.createNSString().get());
