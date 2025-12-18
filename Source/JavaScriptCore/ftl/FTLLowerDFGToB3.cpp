@@ -53,7 +53,6 @@
 #include "DFGOSRAvailabilityAnalysisPhase.h"
 #include "DFGOSRExitFuzz.h"
 #include "DirectArguments.h"
-#include "FTLAbstractHeapRepository.h"
 #include "FTLExceptionTarget.h"
 #include "FTLForOSREntryJITCode.h"
 #include "FTLFormattedValue.h"
@@ -65,6 +64,7 @@
 #include "FTLSnippetParams.h"
 #include "FTLThunks.h"
 #include "FTLWeightedTarget.h"
+#include "HasOwnPropertyCache.h"
 #include "JITAddGenerator.h"
 #include "JITBitAndGenerator.h"
 #include "JITBitOrGenerator.h"
@@ -78,20 +78,27 @@
 #include "JITSubGenerator.h"
 #include "JITThunks.h"
 #include "JSArrayIterator.h"
+#include "JSAsyncFromSyncIterator.h"
 #include "JSAsyncFunction.h"
 #include "JSAsyncGenerator.h"
 #include "JSAsyncGeneratorFunction.h"
 #include "JSBoundFunction.h"
 #include "JSCInlines.h"
+#include "JSCellButterfly.h"
 #include "JSGenerator.h"
 #include "JSGeneratorFunction.h"
-#include "JSImmutableButterfly.h"
 #include "JSInternalPromise.h"
 #include "JSIteratorHelper.h"
 #include "JSLexicalEnvironment.h"
 #include "JSMapIterator.h"
+#include "JSPromiseAllContext.h"
+#include "JSPromiseAllGlobalContext.h"
+#include "JSPromiseReaction.h"
+#include "JSRegExpStringIterator.h"
 #include "JSSetIterator.h"
+#include "JSWeakMap.h"
 #include "JSWebAssemblyInstance.h"
+#include "JSWrapForValidIterator.h"
 #include "LLIntThunks.h"
 #include "MegamorphicCache.h"
 #include "OperandsInlines.h"
@@ -1258,8 +1265,11 @@ private:
         case NewArrayWithSize:
             compileNewArrayWithSize();
             break;
-        case NewArrayWithConstantSize:
-            compileNewArrayWithConstantSize();
+        case NewArrayWithButterfly:
+            compileNewArrayWithButterfly();
+            break;
+        case NewButterflyWithSize:
+            compileNewButterflyWithSize();
             break;
         case NewArrayWithSpecies:
             compileNewArrayWithSpecies();
@@ -1498,6 +1508,7 @@ private:
             compileCallDirectEval();
             break;
         case CallWasm:
+        case TailCallInlinedCallerWasm:
             compileCallWasm();
             break;
         case CallCustomAccessorGetter:
@@ -1743,8 +1754,8 @@ private:
         case MaterializeNewObject:
             compileMaterializeNewObject();
             break;
-        case MaterializeNewArrayWithConstantSize:
-            compileMaterializeNewArrayWithConstantSize();
+        case MaterializeNewArrayWithButterfly:
+            compileMaterializeNewArrayWithButterfly();
             break;
         case MaterializeCreateActivation:
             compileMaterializeCreateActivation();
@@ -1882,18 +1893,43 @@ private:
             compileDataViewSet();
             break;
 
+        case ResolvePromiseFirstResolving:
+            compileResolvePromiseFirstResolving();
+            break;
+
+        case RejectPromiseFirstResolving:
+            compileRejectPromiseFirstResolving();
+            break;
+
+        case FulfillPromiseFirstResolving:
+            compileFulfillPromiseFirstResolving();
+            break;
+
+        case PromiseResolve:
+            compilePromiseResolve();
+            break;
+
+        case PromiseReject:
+            compilePromiseReject();
+            break;
+
+        case PromiseThen:
+            compilePromiseThen();
+            break;
+
         case LoopHint: {
             compileLoopHint();
             codeGenerationResult = CodeGenerationResult::NotGenerated;
             break;
         }
 
+        case PhantomNewArrayWithButterfly:
         case PhantomLocal:
         case MovHint:
         case ZombieHint:
         case ExitOK:
         case PhantomNewObject:
-        case PhantomNewArrayWithConstantSize:
+        case PhantomNewButterflyWithSize:
         case PhantomNewFunction:
         case PhantomNewGeneratorFunction:
         case PhantomNewAsyncGeneratorFunction:
@@ -1953,34 +1989,41 @@ private:
     void compileUpsilon()
     {
         LValue upsilonValue = nullptr;
+        Node* phi = m_node->phi();
         switch (m_node->child1().useKind()) {
         case DoubleRepUse:
             upsilonValue = lowDouble(m_node->child1());
+            ASSERT(phi->result() == NodeResultDouble);
             break;
         case Int32Use:
         case KnownInt32Use:
             upsilonValue = lowInt32(m_node->child1());
+            ASSERT(phi->result() == NodeResultInt32);
             break;
         case Int52RepUse:
             upsilonValue = lowInt52(m_node->child1());
+            ASSERT(phi->result() == NodeResultInt52);
             break;
         case BooleanUse:
         case KnownBooleanUse:
             upsilonValue = lowBoolean(m_node->child1());
+            ASSERT(phi->result() == NodeResultBoolean);
             break;
         case CellUse:
         case KnownCellUse:
             upsilonValue = lowCell(m_node->child1());
+            ASSERT(phi->result() == NodeResultJS);
             break;
         case UntypedUse:
             upsilonValue = lowJSValue(m_node->child1());
+            ASSERT(phi->result() == NodeResultJS);
             break;
         default:
             DFG_CRASH(m_graph, m_node, "Bad use kind");
             break;
         }
         ValueFromBlock upsilon = m_out.anchor(upsilonValue);
-        LValue phiNode = m_phis.get(m_node->phi());
+        LValue phiNode = m_phis.get(phi);
         m_out.addIncomingToPhi(phiNode, upsilon);
     }
 
@@ -5242,7 +5285,7 @@ private:
         // Signify that the state against which the atomic operations are serialized is confined to just
         // the typed array storage, since that's as precise of an abstraction as we can have of shared
         // array buffer storage.
-        m_heaps.decorateFencedAccess(&m_heaps.typedArrayProperties, atomicValue);
+        m_heaps.decorateFencedAccess(&m_heaps.TypedArrayProperties, atomicValue);
 
         // We have to keep base alive since that keeps storage alive.
         ensureStillAliveHere(lowCell(baseEdge));
@@ -5842,12 +5885,12 @@ IGNORE_CLANG_WARNINGS_END
 #else
             PatchpointValue* patchpoint = m_out.patchpoint(Int32);
 #endif
-            patchpoint->appendSomeRegister(base);
-            patchpoint->clobber(RegisterSetBuilder::macroClobberedGPRs());
-            patchpoint->numGPScratchRegisters = 2;
-
             if (typedArrayType.has_value() && typedArrayType.value() == TypeDataView) {
-                unsigned osrExitArgumentOffset = patchpoint->numChildren();
+                patchpoint->appendSomeRegister(base);
+                patchpoint->clobber(RegisterSetBuilder::macroClobberedGPRs());
+                patchpoint->numGPScratchRegisters = 3;
+
+                unsigned osrExitArgumentOffset = patchpoint->numChildren() + /* result */ 1;
                 OSRExitDescriptor* exitDescriptor = appendOSRExitDescriptor(jsValueValue(base), m_node);
                 patchpoint->appendColdAnys(buildExitArguments(exitDescriptor, m_origin.forExit, jsValueValue(base)));
 
@@ -5863,19 +5906,24 @@ IGNORE_CLANG_WARNINGS_END
                     GPRReg baseGPR = params[1].gpr();
                     GPRReg scratch1GPR = params.gpScratch(0);
                     GPRReg scratch2GPR = params.gpScratch(1);
+                    GPRReg scratch3GPR = params.gpScratch(2);
 
                     RefPtr<OSRExitHandle> handle = exitDescriptor->emitOSRExitLater(*state, OutOfBounds, origin, params, nodeIndex, osrExitArgumentOffset);
                     RefPtr<FTL::JITCode> jitCode = state->jitCode;
 
-                    auto [outOfBounds, doneCases] = jit.loadDataViewByteLength(baseGPR, resultGPR, scratch1GPR, scratch2GPR, TypeDataView);
+                    auto [outOfBounds, doneCases] = jit.loadDataViewByteLength(baseGPR, scratch1GPR, scratch2GPR, scratch3GPR, TypeDataView);
                     jit.addLinkTask([=, protectedJitCode = jitCode, outOfBoundsJump = outOfBounds](LinkBuffer& linkBuffer) {
                         linkBuffer.link(outOfBoundsJump, linkBuffer.locationOf<NoPtrTag>(handle->label));
                     });
                     doneCases.link(&jit);
+                    jit.move(scratch1GPR, resultGPR);
                 });
                 return patchpoint;
             }
 
+            patchpoint->appendSomeRegister(base);
+            patchpoint->clobber(RegisterSetBuilder::macroClobberedGPRs());
+            patchpoint->numGPScratchRegisters = 2;
             patchpoint->setGenerator([=] (CCallHelpers& jit, const StackmapGenerationParams& params) {
                 JIT_COMMENT(jit, "typedArrayLength");
                 AllowMacroScratchRegisterUsage allowScratch(jit);
@@ -7302,7 +7350,7 @@ IGNORE_CLANG_WARNINGS_END
             ASSERT(isTypedView(type));
             {
                 TypedPointer pointer = TypedPointer(
-                    m_heaps.typedArrayProperties,
+                    m_heaps.TypedArrayProperties,
                     m_out.add(
                         storage,
                         m_out.shl(
@@ -8402,8 +8450,8 @@ IGNORE_CLANG_WARNINGS_END
 
             if (isCopyOnWriteArrayWithContiguous()) {
                 operation = operationCopyOnWriteArrayIndexOfString;
-                LValue targetStructureID = encodeStructureID(weakPointer(vm().immutableButterflyOnlyAtomStringsStructure.get()));
-                LValue butterflyStructureID = m_out.load32(m_out.add(storage, m_out.constIntPtr(-JSImmutableButterfly::offsetOfData())), m_heaps.JSCell_structureID);
+                LValue targetStructureID = encodeStructureID(weakPointer(vm().cellButterflyOnlyAtomStringsStructure.get()));
+                LValue butterflyStructureID = m_out.load32(m_out.add(storage, m_out.constIntPtr(-JSCellButterfly::offsetOfData())), m_heaps.JSCell_structureID);
                 m_out.branch(m_out.equal(butterflyStructureID, targetStructureID), unsure(slowCase), unsure(checkSearchRopeString));
             } else
                 m_out.jump(checkSearchRopeString);
@@ -9182,7 +9230,7 @@ IGNORE_CLANG_WARNINGS_END
 
                 m_out.appendTo(useCacheCase, slowButArrayBufferCase);
                 RegisteredStructure arrayStructure = m_graph.registerStructure(globalObject->arrayStructureForIndexingTypeDuringAllocation(CopyOnWriteArrayWithContiguous));
-                LValue fastArray = allocateObject<JSArray>(arrayStructure, m_out.addPtr(cached, JSImmutableButterfly::offsetOfData()), slowButArrayBufferCase);
+                LValue fastArray = allocateObject<JSArray>(arrayStructure, m_out.addPtr(cached, JSCellButterfly::offsetOfData()), slowButArrayBufferCase);
                 ValueFromBlock fastResult = m_out.anchor(fastArray);
                 m_out.jump(continuation);
 
@@ -9387,6 +9435,21 @@ IGNORE_CLANG_WARNINGS_END
         case JSIteratorHelperType:
             compileNewInternalFieldObjectImpl<JSIteratorHelper>(operationNewIteratorHelper);
             break;
+        case JSWrapForValidIteratorType:
+            compileNewInternalFieldObjectImpl<JSWrapForValidIterator>(operationNewWrapForValidIterator);
+            break;
+        case JSAsyncFromSyncIteratorType:
+            compileNewInternalFieldObjectImpl<JSAsyncFromSyncIterator>(operationNewAsyncFromSyncIterator);
+            break;
+        case JSPromiseAllContextType:
+            compileNewInternalFieldObjectImpl<JSPromiseAllContext>(operationNewPromiseAllContext);
+            break;
+        case JSPromiseAllGlobalContextType:
+            compileNewInternalFieldObjectImpl<JSPromiseAllGlobalContext>(operationNewPromiseAllGlobalContext);
+            break;
+        case JSRegExpStringIteratorType:
+            compileNewInternalFieldObjectImpl<JSRegExpStringIterator>(operationNewRegExpStringIterator);
+            break;
         case JSPromiseType:
             if (m_node->structure()->classInfoForCells() == JSInternalPromise::info())
                 compileNewInternalFieldObjectImpl<JSInternalPromise>(operationNewInternalPromise);
@@ -9438,10 +9501,10 @@ IGNORE_CLANG_WARNINGS_END
     {
         JSGlobalObject* globalObject = m_graph.globalObjectFor(m_origin.semantic);
         if (m_node->child1().useKind() == StringUse && m_node->child2().useKind() == StringUse) {
-            setJSValue(vmCall(pointerType(), operationNewRegExpString, weakPointer(globalObject), lowString(m_node->child1()), lowString(m_node->child2())));
+            setJSValue(vmCall(pointerType(), operationNewRegExpString, weakPointer(globalObject), weakStructure(m_node->structure()), lowString(m_node->child1()), lowString(m_node->child2())));
             return;
         }
-        setJSValue(vmCall(pointerType(), operationNewRegExpUntyped, weakPointer(globalObject), lowJSValue(m_node->child1()), lowJSValue(m_node->child2())));
+        setJSValue(vmCall(pointerType(), operationNewRegExpUntyped, weakPointer(globalObject), weakStructure(m_node->structure()), lowJSValue(m_node->child1()), lowJSValue(m_node->child2())));
     }
 
     void compileNewSymbol()
@@ -9569,7 +9632,7 @@ IGNORE_CLANG_WARNINGS_END
                         immutableButterfly = createContiguousImmutableButterflyFromPhantomCreateRest(globalObject, use->child1().node());
                     }
                 } else {
-                    // If a node is producing JSImmutableButterfly, it must be contiguous.
+                    // If a node is producing JSCellButterfly, it must be contiguous.
                     immutableButterfly = lowCell(use);
                 }
 
@@ -9599,7 +9662,7 @@ IGNORE_CLANG_WARNINGS_END
                 else {
                     Edge& child = m_graph.varArgChild(m_node, i);
                     if (child->op() == PhantomSpread && child->child1()->op() == PhantomNewArrayBuffer)
-                        startLength += child->child1()->castOperand<JSImmutableButterfly*>()->length();
+                        startLength += child->child1()->castOperand<JSCellButterfly*>()->length();
                 }
             }
 
@@ -9650,7 +9713,7 @@ IGNORE_CLANG_WARNINGS_END
                     if (use->op() == PhantomSpread) {
                         if (use->child1()->op() == PhantomNewArrayBuffer) {
                             IndexedAbstractHeap& heap = m_heaps.indexedContiguousProperties;
-                            auto* array = use->child1()->castOperand<JSImmutableButterfly*>();
+                            auto* array = use->child1()->castOperand<JSCellButterfly*>();
                             for (unsigned i = 0; i < array->length(); ++i) {
                                 // Because resulted array from NewArrayWithSpread is always contiguous, we should not generate value
                                 // in Double form even if PhantomNewArrayBuffer's indexingType is ArrayWithDouble.
@@ -9933,7 +9996,7 @@ IGNORE_CLANG_WARNINGS_END
     LValue createContiguousImmutableButterflyFromPhantomNewArrayBuffer(JSGlobalObject* globalObject, Node* newArrayBufferNode)
     {
         ASSERT(newArrayBufferNode->op() == PhantomNewArrayBuffer);
-        auto* immutableButterfly = newArrayBufferNode->castOperand<JSImmutableButterfly*>();
+        auto* immutableButterfly = newArrayBufferNode->castOperand<JSCellButterfly*>();
         if (hasContiguous(immutableButterfly->indexingType()))
             return frozenPointer(newArrayBufferNode->cellOperand());
 
@@ -9942,9 +10005,9 @@ IGNORE_CLANG_WARNINGS_END
 
         ASSERT(immutableButterfly->length() <= MAX_STORAGE_VECTOR_LENGTH);
 
-        LValue fastImmutableButterflyValue = allocateVariableSizedCell<JSImmutableButterfly>(
-            m_out.constIntPtr(JSImmutableButterfly::allocationSize(immutableButterfly->length())),
-            m_graph.m_vm.immutableButterflyStructure(CopyOnWriteArrayWithContiguous), slowAllocation);
+        LValue fastImmutableButterflyValue = allocateVariableSizedCell<JSCellButterfly>(
+            m_out.constIntPtr(JSCellButterfly::allocationSize(immutableButterfly->length())),
+            m_graph.m_vm.cellButterflyStructure(CopyOnWriteArrayWithContiguous), slowAllocation);
         LValue fastImmutableButterflyStorage = toButterfly(fastImmutableButterflyValue);
         m_out.store32(m_out.constInt32(immutableButterfly->length()), fastImmutableButterflyStorage, m_heaps.Butterfly_publicLength);
         m_out.store32(m_out.constInt32(immutableButterfly->length()), fastImmutableButterflyStorage, m_heaps.Butterfly_vectorLength);
@@ -9986,11 +10049,11 @@ IGNORE_CLANG_WARNINGS_END
         static_assert(sizeof(JSValue) == 8 && 1 << 3 == 8, "Assumed in the code below.");
         LValue size = m_out.add(
             m_out.shl(m_out.zeroExtPtr(length), m_out.constInt32(3)),
-            m_out.constIntPtr(JSImmutableButterfly::offsetOfData()));
+            m_out.constIntPtr(JSCellButterfly::offsetOfData()));
         m_out.branch(m_out.above(length, m_out.constInt32(MAX_STORAGE_VECTOR_LENGTH)), rarely(slowAllocation), usually(fastAllocation));
 
         LBasicBlock lastNext = m_out.appendTo(fastAllocation, slowAllocation);
-        LValue fastArrayValue = allocateVariableSizedCell<JSImmutableButterfly>(size, m_graph.m_vm.immutableButterflyStructures[arrayIndexFromIndexingType(CopyOnWriteArrayWithContiguous) - NumberOfIndexingShapes].get(), slowAllocation);
+        LValue fastArrayValue = allocateVariableSizedCell<JSCellButterfly>(size, m_graph.m_vm.cellButterflyStructures[arrayIndexFromIndexingType(CopyOnWriteArrayWithContiguous) - NumberOfIndexingShapes].get(), slowAllocation);
         LValue fastArrayStorage = toButterfly(fastArrayValue);
         m_out.store32(length, fastArrayStorage, m_heaps.Butterfly_vectorLength);
         m_out.store32(length, fastArrayStorage, m_heaps.Butterfly_publicLength);
@@ -10025,7 +10088,7 @@ IGNORE_CLANG_WARNINGS_END
         JSGlobalObject* globalObject = m_graph.globalObjectFor(m_origin.semantic);
         if (m_node->child1()->op() == PhantomNewArrayBuffer) {
             ASSERT(m_graph.isWatchingHavingABadTimeWatchpoint(m_node->child1().node()));
-            // FIXME: JSImmutableButterfly::createFromArray should support re-using non contiguous indexing types as well.
+            // FIXME: JSCellButterfly::createFromArray should support re-using non contiguous indexing types as well.
             setJSValue(createContiguousImmutableButterflyFromPhantomNewArrayBuffer(globalObject, m_node->child1().node()));
             return;
         }
@@ -10072,7 +10135,7 @@ IGNORE_CLANG_WARNINGS_END
             m_out.branch(m_out.equal(m_out.bitAnd(indexingMode, m_out.constInt32(IndexingModeMask)), m_out.constInt32(CopyOnWriteArrayWithContiguous)), unsure(copyOnWritePropagation), unsure(preLoop));
 
             m_out.appendTo(copyOnWritePropagation, preLoop);
-            ValueFromBlock sharedResult = m_out.anchor(m_out.add(butterfly, m_out.constIntPtr(-JSImmutableButterfly::offsetOfData())));
+            ValueFromBlock sharedResult = m_out.anchor(m_out.add(butterfly, m_out.constIntPtr(-JSCellButterfly::offsetOfData())));
             m_out.jump(continuation);
 
             m_out.appendTo(preLoop, fastPath);
@@ -10080,11 +10143,11 @@ IGNORE_CLANG_WARNINGS_END
             static_assert(sizeof(JSValue) == 8 && 1 << 3 == 8, "Assumed in the code below.");
             LValue size = m_out.add(
                 m_out.shl(m_out.zeroExtPtr(length), m_out.constInt32(3)),
-                m_out.constIntPtr(JSImmutableButterfly::offsetOfData()));
+                m_out.constIntPtr(JSCellButterfly::offsetOfData()));
             m_out.branch(m_out.above(length, m_out.constInt32(MAX_STORAGE_VECTOR_LENGTH)), rarely(slowPath), usually(fastPath));
 
             m_out.appendTo(fastPath, loopSelection);
-            LValue fastAllocation = allocateVariableSizedCell<JSImmutableButterfly>(size, m_graph.m_vm.immutableButterflyStructure(CopyOnWriteArrayWithContiguous), slowPath);
+            LValue fastAllocation = allocateVariableSizedCell<JSCellButterfly>(size, m_graph.m_vm.cellButterflyStructure(CopyOnWriteArrayWithContiguous), slowPath);
             LValue fastStorage = toButterfly(fastAllocation);
             m_out.store32(length, fastStorage, m_heaps.Butterfly_vectorLength);
             m_out.store32(length, fastStorage, m_heaps.Butterfly_publicLength);
@@ -10151,7 +10214,7 @@ IGNORE_CLANG_WARNINGS_END
         JSGlobalObject* globalObject = m_graph.globalObjectFor(m_origin.semantic);
         RegisteredStructure structure = m_graph.registerStructure(globalObject->arrayStructureForIndexingTypeDuringAllocation(
             m_node->indexingMode()));
-        auto* immutableButterfly = m_node->castOperand<JSImmutableButterfly*>();
+        auto* immutableButterfly = m_node->castOperand<JSCellButterfly*>();
 
         if (!globalObject->isHavingABadTime() && !hasAnyArrayStorage(m_node->indexingMode())) {
             LBasicBlock slowPath = m_out.newBlock();
@@ -10202,23 +10265,29 @@ IGNORE_CLANG_WARNINGS_END
         setJSValue(vmCall(Int64, operationNewArrayWithSize, weakPointer(globalObject), structureValue, publicLength, m_out.intPtrZero));
     }
 
-    LValue compileNewArrayWithConstantSizeImpl()
+    void compileNewButterflyWithSize()
     {
-        LValue publicLength = m_out.constInt32(m_node->newArraySize());
-
-        JSGlobalObject* globalObject = m_graph.globalObjectFor(m_origin.semantic);
-
         ASSERT(m_graph.isWatchingHavingABadTimeWatchpoint(m_node));
-        ASSERT(!hasAnyArrayStorage(m_node->indexingType()));
-        IndexingType indexingType = m_node->indexingType();
-        LValue result = allocateJSArray(
-            publicLength, publicLength, weakPointer(globalObject->arrayStructureForIndexingTypeDuringAllocation(indexingType)), m_out.constInt32(indexingType)).array;
-        return result;
+        ASSERT(!isCopyOnWrite(m_node->indexingMode()));
+
+        LValue publicLength = lowInt32(m_node->child1());
+        LValue indexingType = m_out.constInt32(m_node->indexingType());
+
+        LValue butterfly = allocateButterfly(indexingType, m_out.int32Zero, publicLength, publicLength);
+
+        setStorage(butterfly);
+        // No mutator fence is needed. Butterflies are only scanned when the GC discovers them in an object not on the stack.
     }
 
-    void compileNewArrayWithConstantSize()
+    void compileNewArrayWithButterfly()
     {
-        setJSValue(compileNewArrayWithConstantSizeImpl());
+        ASSERT(m_graph.isWatchingHavingABadTimeWatchpoint(m_node));
+        ASSERT(!hasAnyArrayStorage(m_node->indexingType()));
+
+        LValue publicLength = lowInt32(m_node->child1());
+        LValue butterfly = lowStorage(m_node->child2());
+        LValue array = allocateJSArray(m_node->indexingType(), publicLength, butterfly);
+        setJSValue(array);
         mutatorFence();
     }
 
@@ -10343,7 +10412,7 @@ IGNORE_CLANG_WARNINGS_END
             m_out.int32Zero,
             m_out.castToInt32(m_out.lShr(byteSize, m_out.constIntPtr(3))),
             m_out.int64Zero,
-            m_heaps.typedArrayProperties);
+            m_heaps.TypedArrayProperties);
 
         ValueFromBlock haveStorage = m_out.anchor(storage);
 
@@ -10997,32 +11066,100 @@ IGNORE_CLANG_WARNINGS_END
             break;
         case 2: {
             const ConcatKeyAtomStringCache* cache = nullptr;
-            if (auto string = m_node->child1()->tryGetString(m_graph); !string.isNull())
+            LValue variable = nullptr;
+            if (auto string = m_node->child1()->tryGetString(m_graph); !string.isNull()) {
                 cache = m_graph.tryAddConcatKeyAtomStringCache(string, emptyString(), ConcatKeyAtomStringCache::Mode::Variable1);
-            else if (auto string = m_node->child2()->tryGetString(m_graph); !string.isNull())
+                variable = strings[1];
+            } else if (auto string = m_node->child2()->tryGetString(m_graph); !string.isNull()) {
                 cache = m_graph.tryAddConcatKeyAtomStringCache(string, emptyString(), ConcatKeyAtomStringCache::Mode::Variable0);
+                variable = strings[0];
+            }
 
-            if (cache)
-                setJSValue(vmCall(pointerType(), operationMakeAtomString2WithCache, weakPointer(globalObject), strings[0], strings[1], m_out.constIntPtr(cache)));
-            else
+            if (cache) {
+                LBasicBlock cacheHit0Case = m_out.newBlock();
+                LBasicBlock cacheCheck1Case = m_out.newBlock();
+                LBasicBlock cacheHit1Case = m_out.newBlock();
+                LBasicBlock genericCase = m_out.newBlock();
+                LBasicBlock continuation = m_out.newBlock();
+
+                LValue cachePtr = m_out.constIntPtr(cache);
+                m_out.branch(
+                    m_out.equal(variable, m_out.loadPtr(cachePtr, m_heaps.ConcatKeyAtomStringCache_quickCache0_key)),
+                    unsure(cacheHit0Case), unsure(cacheCheck1Case));
+
+                LBasicBlock lastNext = m_out.appendTo(cacheHit0Case, cacheCheck1Case);
+                ValueFromBlock fastResult0 = m_out.anchor(m_out.loadPtr(cachePtr, m_heaps.ConcatKeyAtomStringCache_quickCache0_value));
+                m_out.jump(continuation);
+
+                m_out.appendTo(cacheCheck1Case, cacheHit1Case);
+                m_out.branch(
+                    m_out.equal(variable, m_out.loadPtr(cachePtr, m_heaps.ConcatKeyAtomStringCache_quickCache1_key)),
+                    unsure(cacheHit1Case), unsure(genericCase));
+
+                m_out.appendTo(cacheHit1Case, genericCase);
+                ValueFromBlock fastResult1 = m_out.anchor(m_out.loadPtr(cachePtr, m_heaps.ConcatKeyAtomStringCache_quickCache1_value));
+                m_out.jump(continuation);
+
+                m_out.appendTo(genericCase, continuation);
+                ValueFromBlock genericResult = m_out.anchor(vmCall(pointerType(), operationMakeAtomString2WithCache, weakPointer(globalObject), strings[0], strings[1], cachePtr));
+                m_out.jump(continuation);
+
+                m_out.appendTo(continuation, lastNext);
+                setJSValue(m_out.phi(pointerType(), fastResult0, fastResult1, genericResult));
+            } else
                 setJSValue(vmCall(pointerType(), operationMakeAtomString2, weakPointer(globalObject), strings[0], strings[1]));
             break;
         }
         case 3: {
             const ConcatKeyAtomStringCache* cache = nullptr;
+            LValue variable = nullptr;
             if (auto s0 = m_node->child1()->tryGetString(m_graph); !s0.isNull()) {
-                if (auto s1 = m_node->child2()->tryGetString(m_graph); !s1.isNull())
+                if (auto s1 = m_node->child2()->tryGetString(m_graph); !s1.isNull()) {
                     cache = m_graph.tryAddConcatKeyAtomStringCache(s0, s1, ConcatKeyAtomStringCache::Mode::Variable2);
-                else if (auto s2 = m_node->child3()->tryGetString(m_graph); !s2.isNull())
+                    variable = strings[2];
+                } else if (auto s2 = m_node->child3()->tryGetString(m_graph); !s2.isNull()) {
                     cache = m_graph.tryAddConcatKeyAtomStringCache(s0, s2, ConcatKeyAtomStringCache::Mode::Variable1);
+                    variable = strings[1];
+                }
             } else if (auto s1 = m_node->child2()->tryGetString(m_graph); !s1.isNull()) {
-                if (auto s2 = m_node->child3()->tryGetString(m_graph); !s2.isNull())
+                if (auto s2 = m_node->child3()->tryGetString(m_graph); !s2.isNull()) {
                     cache = m_graph.tryAddConcatKeyAtomStringCache(s1, s2, ConcatKeyAtomStringCache::Mode::Variable0);
+                    variable = strings[0];
+                }
             }
 
-            if (cache)
-                setJSValue(vmCall(pointerType(), operationMakeAtomString3WithCache, weakPointer(globalObject), strings[0], strings[1], strings[2], m_out.constIntPtr(cache)));
-            else
+            if (cache) {
+                LBasicBlock cacheHit0Case = m_out.newBlock();
+                LBasicBlock cacheCheck1Case = m_out.newBlock();
+                LBasicBlock cacheHit1Case = m_out.newBlock();
+                LBasicBlock genericCase = m_out.newBlock();
+                LBasicBlock continuation = m_out.newBlock();
+
+                LValue cachePtr = m_out.constIntPtr(cache);
+                m_out.branch(
+                    m_out.equal(variable, m_out.loadPtr(cachePtr, m_heaps.ConcatKeyAtomStringCache_quickCache0_key)),
+                    unsure(cacheHit0Case), unsure(cacheCheck1Case));
+
+                LBasicBlock lastNext = m_out.appendTo(cacheHit0Case, cacheCheck1Case);
+                ValueFromBlock fastResult0 = m_out.anchor(m_out.loadPtr(cachePtr, m_heaps.ConcatKeyAtomStringCache_quickCache0_value));
+                m_out.jump(continuation);
+
+                m_out.appendTo(cacheCheck1Case, cacheHit1Case);
+                m_out.branch(
+                    m_out.equal(variable, m_out.loadPtr(cachePtr, m_heaps.ConcatKeyAtomStringCache_quickCache1_key)),
+                    unsure(cacheHit1Case), unsure(genericCase));
+
+                m_out.appendTo(cacheHit1Case, genericCase);
+                ValueFromBlock fastResult1 = m_out.anchor(m_out.loadPtr(cachePtr, m_heaps.ConcatKeyAtomStringCache_quickCache1_value));
+                m_out.jump(continuation);
+
+                m_out.appendTo(genericCase, continuation);
+                ValueFromBlock genericResult = m_out.anchor(vmCall(pointerType(), operationMakeAtomString3WithCache, weakPointer(globalObject), strings[0], strings[1], strings[2], cachePtr));
+                m_out.jump(continuation);
+
+                m_out.appendTo(continuation, lastNext);
+                setJSValue(m_out.phi(pointerType(), fastResult0, fastResult1, genericResult));
+            } else
                 setJSValue(vmCall(pointerType(), operationMakeAtomString3, weakPointer(globalObject), strings[0], strings[1], strings[2]));
             break;
         }
@@ -11169,10 +11306,12 @@ IGNORE_CLANG_WARNINGS_END
         LValue stringImpl = m_out.loadPtr(base, m_heaps.JSString_value);
         LValue data = m_out.loadPtr(stringImpl, m_heaps.StringImpl_data);
 
-        speculate(
-            Uncountable, noValue(), nullptr,
-            m_out.aboveOrEqual(
-                index, m_out.load32NonNegative(stringImpl, m_heaps.StringImpl_length)));
+        if (!m_node->arrayMode().isInBounds()) {
+            speculate(
+                Uncountable, noValue(), nullptr,
+                m_out.aboveOrEqual(
+                    index, m_out.load32NonNegative(stringImpl, m_heaps.StringImpl_length)));
+        }
 
         m_out.branch(
             m_out.testIsZero32(
@@ -12971,7 +13110,7 @@ IGNORE_CLANG_WARNINGS_END
                 return;
             }
             case PhantomNewArrayBuffer: {
-                auto* array = target->castOperand<JSImmutableButterfly*>();
+                auto* array = target->castOperand<JSCellButterfly*>();
                 unsigned arrayLength = array->length();
                 staticArgumentCount += arrayLength;
                 Checked<int32_t> offsetCount { 1 };
@@ -13754,7 +13893,7 @@ IGNORE_CLANG_WARNINGS_END
                     }
                 }
 
-                jit.storeWasmCalleeCallee(wasmFunction->boxedWasmCalleeLoadLocation());
+                jit.storeWasmCalleeToCalleeCallFrame(wasmFunction->boxedCallee());
 
                 // FIXME: Currently we just do an indirect jump. But we should teach the Module
                 // how to repatch us:
@@ -14014,7 +14153,7 @@ IGNORE_CLANG_WARNINGS_END
             }
 
             if (target->op() == PhantomNewArrayBuffer) {
-                auto* array = target->castOperand<JSImmutableButterfly*>();
+                auto* array = target->castOperand<JSCellButterfly*>();
                 for (unsigned i = 0; i < array->length(); i++) {
                     // Because forwarded values are drained as JSValue, we should not generate value
                     // in Double form even if PhantomNewArrayBuffer's indexingType is ArrayWithDouble.
@@ -15051,8 +15190,8 @@ IGNORE_CLANG_WARNINGS_END
 
         LValue hash = lowInt32(m_node->child3());
 
-        // Get the JSImmutableButterfly first.
-        LValue mapStorage = m_out.loadPtr(map, m_heaps.JSSet_butterfly);
+        // Get the JSCellButterfly first.
+        LValue mapStorage = m_out.loadPtr(map, m_heaps.JSSet_storage);
         m_out.branch(m_out.isNull(mapStorage), unsure(notPresentInTable), unsure(indexSetUp));
 
         // Compute the bucketCount = Capacity / LoadFactor and bucketIndex = hashTableStartIndex + (hash & bucketCount - 1).
@@ -17170,21 +17309,37 @@ IGNORE_CLANG_WARNINGS_END
             });
     }
 
-    void compileMaterializeNewArrayWithConstantSize()
+    void compileMaterializeNewArrayWithButterfly()
     {
-        // Step 1: Speculate appropriately on all of the children.
-        for (unsigned i = 0; i < m_node->numChildren(); ++i)
-            speculate(m_graph.varArgChild(m_node, i));
+        SpeculatedType validTypes = [&]() {
+            switch (m_node->indexingType()) {
+            // We can get JSValue() (aka SpecEmpty) when the property hasn't been initialized yet and is still a hole.
+            case ALL_INT32_INDEXING_TYPES: return SpecInt32Only | SpecEmpty;
+            case ALL_DOUBLE_INDEXING_TYPES: return SpecBytecodeNumber;
+            case ALL_CONTIGUOUS_INDEXING_TYPES: return SpecBytecodeTop;
+            default: break;
+            }
+            RELEASE_ASSERT_NOT_REACHED();
+        }();
+        for (unsigned i = 0; i < m_node->numChildren(); ++i) {
+            Edge child = m_graph.varArgChild(m_node, i);
+            DFG_ASSERT(m_graph, m_node, !m_interpreter.needsTypeCheck(child));
+            if (i >= 2) {
+                SpeculatedType provenType = m_state.forNode(child).m_type;
+                DFG_ASSERT(m_graph, m_node, isSubtypeSpeculation(provenType, validTypes), provenType, validTypes);
+            }
+        }
 
-        // Step 2: Create a new array with constant size.
-        LValue result = compileNewArrayWithConstantSizeImpl();
-
-        // Step 3: Get the buttferfly storage and fill the slots.
-        LValue butterfly = m_out.loadPtr(result, m_heaps.JSObject_butterfly);
         IndexingType indexingType = m_node->indexingType();
+        LValue publicLength = lowInt32(m_graph.varArgChild(m_node, 0));
+        // FIXME: we should sort the properties by index then we can shouldInitializeElements = false here but when we do the properties below.
+        LValue butterfly = lowStorage(m_graph.varArgChild(m_node, 1));
+
         ObjectMaterializationData& data = m_node->objectMaterializationData();
+
         for (unsigned i = 0; i < data.m_properties.size(); ++i) {
-            Edge edge = m_graph.varArgChild(m_node, i);
+            // Add two to account for `size` and `butterfly`
+            Edge edge = m_graph.varArgChild(m_node, i + 2);
             unsigned index = data.m_properties[i].info();
             switch (m_node->indexingType()) {
             case ALL_DOUBLE_INDEXING_TYPES:
@@ -17202,7 +17357,8 @@ IGNORE_CLANG_WARNINGS_END
             }
         }
 
-        setJSValue(result);
+        LValue array = allocateJSArray(indexingType, publicLength, butterfly);
+        setJSValue(array);
         mutatorFence();
     }
 
@@ -17642,6 +17798,21 @@ IGNORE_CLANG_WARNINGS_END
         case JSIteratorHelperType:
             compileMaterializeNewInternalFieldObjectImpl<JSIteratorHelper>(operationNewIteratorHelper);
             break;
+        case JSWrapForValidIteratorType:
+            compileMaterializeNewInternalFieldObjectImpl<JSWrapForValidIterator>(operationNewWrapForValidIterator);
+            break;
+        case JSAsyncFromSyncIteratorType:
+            compileMaterializeNewInternalFieldObjectImpl<JSAsyncFromSyncIterator>(operationNewAsyncFromSyncIterator);
+            break;
+        case JSRegExpStringIteratorType:
+            compileMaterializeNewInternalFieldObjectImpl<JSRegExpStringIterator>(operationNewRegExpStringIterator);
+            break;
+        case JSPromiseAllContextType:
+            compileMaterializeNewInternalFieldObjectImpl<JSPromiseAllContext>(operationNewPromiseAllContext);
+            break;
+        case JSPromiseAllGlobalContextType:
+            compileMaterializeNewInternalFieldObjectImpl<JSPromiseAllGlobalContext>(operationNewPromiseAllGlobalContext);
+            break;
         case JSPromiseType:
             if (m_node->structure()->classInfoForCells() == JSInternalPromise::info())
                 compileMaterializeNewInternalFieldObjectImpl<JSInternalPromise>(operationNewInternalPromise);
@@ -17974,30 +18145,44 @@ IGNORE_CLANG_WARNINGS_END
 
     void compileNewMap()
     {
-        VM& vm = this->vm();
-        RegisteredStructure structure = m_node->structure();
-        LValue slowResultValue = lazySlowPath(
-            [=, &vm] (const Vector<Location>& locations) -> RefPtr<LazySlowPath::Generator> {
-                return createLazyCallGenerator(vm,
-                    operationNewMap, locations[0].directGPR(), locations[1].directGPR(),
-                    CCallHelpers::TrustedImmPtr(structure.get()));
-            },
-            m_vmValue);
-        setJSValue(slowResultValue);
+        LBasicBlock slowCase = m_out.newBlock();
+        LBasicBlock continuation = m_out.newBlock();
+
+        LBasicBlock lastNext = m_out.insertNewBlocksBefore(slowCase);
+
+        LValue object = allocateObject<JSMap>(m_node->structure(), m_out.intPtrZero, slowCase);
+        m_out.storePtr(m_out.constIntPtr(0), object, m_heaps.JSMap_storage);
+        mutatorFence();
+        ValueFromBlock fastResult = m_out.anchor(object);
+        m_out.jump(continuation);
+
+        m_out.appendTo(slowCase, continuation);
+        ValueFromBlock slowResult = m_out.anchor(vmCall(pointerType(), operationNewMap, m_vmValue, frozenPointer(m_graph.freezeStrong(m_node->structure().get()))));
+        m_out.jump(continuation);
+
+        m_out.appendTo(continuation, lastNext);
+        setJSValue(m_out.phi(pointerType(), fastResult, slowResult));
     }
 
     void compileNewSet()
     {
-        VM& vm = this->vm();
-        RegisteredStructure structure = m_node->structure();
-        LValue slowResultValue = lazySlowPath(
-            [=, &vm] (const Vector<Location>& locations) -> RefPtr<LazySlowPath::Generator> {
-                return createLazyCallGenerator(vm,
-                    operationNewSet, locations[0].directGPR(), locations[1].directGPR(),
-                    CCallHelpers::TrustedImmPtr(structure.get()));
-            },
-            m_vmValue);
-        setJSValue(slowResultValue);
+        LBasicBlock slowCase = m_out.newBlock();
+        LBasicBlock continuation = m_out.newBlock();
+
+        LBasicBlock lastNext = m_out.insertNewBlocksBefore(slowCase);
+
+        LValue object = allocateObject<JSSet>(m_node->structure(), m_out.intPtrZero, slowCase);
+        m_out.storePtr(m_out.constIntPtr(0), object, m_heaps.JSSet_storage);
+        mutatorFence();
+        ValueFromBlock fastResult = m_out.anchor(object);
+        m_out.jump(continuation);
+
+        m_out.appendTo(slowCase, continuation);
+        ValueFromBlock slowResult = m_out.anchor(vmCall(pointerType(), operationNewSet, m_vmValue, frozenPointer(m_graph.freezeStrong(m_node->structure().get()))));
+        m_out.jump(continuation);
+
+        m_out.appendTo(continuation, lastNext);
+        setJSValue(m_out.phi(pointerType(), fastResult, slowResult));
     }
 
     void compileSetFunctionName()
@@ -19402,7 +19587,7 @@ IGNORE_CLANG_WARNINGS_END
 
         LValue vector = caged(Gigacage::Primitive, m_out.loadPtr(dataView, m_heaps.JSArrayBufferView_vector), dataView);
 
-        TypedPointer pointer(m_heaps.typedArrayProperties, m_out.add(vector, m_out.zeroExtPtr(index)));
+        TypedPointer pointer(m_heaps.TypedArrayProperties, m_out.add(vector, m_out.zeroExtPtr(index)));
 
         if (m_node->op() == DataViewGetInt) {
             switch (data.byteSize) {
@@ -19593,7 +19778,7 @@ IGNORE_CLANG_WARNINGS_END
         }
 
         LValue vector = caged(Gigacage::Primitive, m_out.loadPtr(dataView, m_heaps.JSArrayBufferView_vector), dataView);
-        TypedPointer pointer(m_heaps.typedArrayProperties, m_out.add(vector, m_out.zeroExtPtr(index)));
+        TypedPointer pointer(m_heaps.TypedArrayProperties, m_out.add(vector, m_out.zeroExtPtr(index)));
 
         if (data.isFloatingPoint) {
             switch (data.byteSize) {
@@ -19856,6 +20041,55 @@ IGNORE_CLANG_WARNINGS_END
         LValue result = m_out.select(m_out.doubleGreaterThanOrUnordered(m_out.doubleAbs(arg), m_out.constDouble(WTF::maxECMAScriptTime)), m_out.constDouble(PNaN), time);
         m_out.storeDouble(result, base, m_heaps.DateInstance_internalNumber);
         setDouble(result);
+    }
+
+    void compileResolvePromiseFirstResolving()
+    {
+        auto* globalObject = m_graph.globalObjectFor(m_origin.semantic);
+        LValue promise = lowCell(m_node->child1());
+        LValue argument = lowJSValue(m_node->child2());
+        vmCall(Void, operationResolvePromiseFirstResolving, weakPointer(globalObject), promise, argument);
+    }
+
+    void compileRejectPromiseFirstResolving()
+    {
+        auto* globalObject = m_graph.globalObjectFor(m_origin.semantic);
+        LValue promise = lowCell(m_node->child1());
+        LValue argument = lowJSValue(m_node->child2());
+        vmCall(Void, operationRejectPromiseFirstResolving, weakPointer(globalObject), promise, argument);
+    }
+
+    void compileFulfillPromiseFirstResolving()
+    {
+        auto* globalObject = m_graph.globalObjectFor(m_origin.semantic);
+        LValue promise = lowCell(m_node->child1());
+        LValue argument = lowJSValue(m_node->child2());
+        vmCall(Void, operationFulfillPromiseFirstResolving, weakPointer(globalObject), promise, argument);
+    }
+
+    void compilePromiseResolve()
+    {
+        auto* globalObject = m_graph.globalObjectFor(m_origin.semantic);
+        LValue constructor = lowObject(m_node->child1());
+        LValue argument = lowJSValue(m_node->child2());
+        setJSValue(vmCall(pointerType(), operationPromiseResolve, weakPointer(globalObject), constructor, argument));
+    }
+
+    void compilePromiseReject()
+    {
+        auto* globalObject = m_graph.globalObjectFor(m_origin.semantic);
+        LValue constructor = lowObject(m_node->child1());
+        LValue argument = lowJSValue(m_node->child2());
+        setJSValue(vmCall(pointerType(), operationPromiseReject, weakPointer(globalObject), constructor, argument));
+    }
+
+    void compilePromiseThen()
+    {
+        auto* globalObject = m_graph.globalObjectFor(m_origin.semantic);
+        LValue promise = lowPromiseObject(m_node->child1());
+        LValue onFulfilled = lowJSValue(m_node->child2());
+        LValue onRejected = lowJSValue(m_node->child3());
+        setJSValue(vmCall(pointerType(), operationPromiseThen, weakPointer(globalObject), promise, onFulfilled, onRejected));
     }
 
     void compileLoopHint()
@@ -20605,6 +20839,107 @@ IGNORE_CLANG_WARNINGS_END
         LValue butterfly;
     };
 
+    // FIXME: Reduced version of the JSArray allocation below. We should consolidate them.
+    LValue allocateButterfly(LValue indexingType, LValue preCapacity, LValue publicLength, LValue vectorLength, bool shouldInitializeElements = true)
+    {
+        LBasicBlock slowBlock = m_out.newBlock();
+        LBasicBlock continuation = m_out.newBlock();
+
+        if (preCapacity->hasInt32() && vectorLength->hasInt32()) {
+            unsigned vectorLengthConst = static_cast<unsigned>(vectorLength->asInt32());
+            if (vectorLengthConst <= MAX_STORAGE_VECTOR_LENGTH) {
+                vectorLengthConst = Butterfly::optimalContiguousVectorLength(
+                    preCapacity->asInt32(), vectorLengthConst);
+                vectorLength = m_out.constInt32(vectorLengthConst);
+            }
+        } else {
+            // We don't compute the optimal vector length for new Array(blah) where blah is not
+            // statically known, since the compute effort of doing it here is probably not worth it.
+        }
+
+        static_assert(MarkedSpace::largeCutoff < MIN_ARRAY_STORAGE_CONSTRUCTION_LENGTH * sizeof(JSValue), "This assumes any butterfly allocation that would be force to change indexing type would hit the slow path anyway.");
+        static_assert(1 << 3 == sizeof(JSValue));
+
+        LValue payloadSizeInBytes =
+            m_out.shl(
+                m_out.zeroExt(
+                    m_out.add(vectorLength, preCapacity),
+                    pointerType()),
+                m_out.constIntPtr(3));
+
+        LValue allocationSizeInBytes = m_out.add(
+            payloadSizeInBytes, m_out.constIntPtr(sizeof(IndexingHeader)));
+
+        LValue allocator = allocatorForSize(vm().auxiliarySpace(), allocationSizeInBytes, slowBlock);
+        LValue base = allocateHeapCell(allocator, slowBlock);
+        ValueFromBlock fastBase = m_out.anchor(base);
+        m_out.jump(continuation);
+
+        m_out.appendTo(slowBlock);
+        VM& vm = this->vm();
+        JSGlobalObject* globalObject = m_graph.globalObjectFor(m_origin.semantic);
+        LValue slowButterflyBase = lazySlowPath(
+            [=, &vm] (const Vector<Location>& locations) -> RefPtr<LazySlowPath::Generator> {
+                return createLazyCallGenerator(vm,
+                    operationAllocateUnitializedAuxiliaryBase, locations[0].directGPR(), CCallHelpers::TrustedImmPtr(globalObject),
+                    locations[1].directGPR());
+            },
+            allocationSizeInBytes);
+        ValueFromBlock slowBase = m_out.anchor(slowButterflyBase);
+        m_out.jump(continuation);
+
+        m_out.appendTo(continuation);
+        LValue butterflyBase = m_out.phi(pointerType(), fastBase, slowBase);
+        LValue butterfly = m_out.add(
+            butterflyBase,
+            m_out.add(
+                m_out.shl(m_out.zeroExt(preCapacity, pointerType()), m_out.constIntPtr(3)),
+                m_out.constIntPtr(sizeof(IndexingHeader))));
+
+
+        m_out.store32(publicLength, butterfly, m_heaps.Butterfly_publicLength);
+        m_out.store32(vectorLength, butterfly, m_heaps.Butterfly_vectorLength);
+
+        initializeArrayElements(
+            indexingType,
+            shouldInitializeElements ? m_out.int32Zero : publicLength, vectorLength,
+            butterfly);
+
+        return butterfly;
+    }
+
+    LValue allocateJSArray(IndexingType indexingType, LValue publicLength, LValue butterfly)
+    {
+        LBasicBlock slowCase = m_out.newBlock();
+        LBasicBlock continuation = m_out.newBlock();
+
+        VM& vm = this->vm();
+        JSGlobalObject* globalObject = m_graph.globalObjectFor(m_origin.semantic);
+        RegisteredStructure structure = m_graph.registerStructure(globalObject->arrayStructureForIndexingTypeDuringAllocation(
+            indexingType));
+
+        LValue structureValue = weakStructure(structure);
+        LValue array = allocateObject<JSArray>(structureValue, butterfly, slowCase);
+        ValueFromBlock fastArray = m_out.anchor(array);
+        m_out.jump(continuation);
+
+        m_out.appendTo(slowCase);
+        LValue slowResult = lazySlowPath(
+            [=, &vm] (const Vector<Location>& locations) -> RefPtr<LazySlowPath::Generator> {
+                return createLazyCallGenerator(vm,
+                    operationNewArrayWithSize, locations[0].directGPR(), CCallHelpers::TrustedImmPtr(globalObject),
+                    locations[1].directGPR(), locations[2].directGPR(), locations[3].directGPR());
+            },
+            structureValue, publicLength, butterfly);
+        ValueFromBlock slowArray = m_out.anchor(slowResult);
+        m_out.jump(continuation);
+
+        m_out.appendTo(continuation);
+        return m_out.phi(pointerType(), fastArray, slowArray);
+    }
+
+    // FIXME: We don't need to handle large array sizes because anything that big has to be precise allocated anyway.
+    // FIXME: We should try replacing this with the two methods above.
     ArrayValues allocateJSArray(LValue publicLength, LValue vectorLength, LValue structure, LValue indexingType, bool shouldInitializeElements = true, bool shouldLargeArraySizeCreateArrayStorage = true)
     {
         JSGlobalObject* globalObject = m_graph.globalObjectFor(m_origin.semantic);
@@ -21248,7 +21583,7 @@ IGNORE_CLANG_WARNINGS_END
         {
         }
 
-        CharacterCase(LChar character, unsigned begin, unsigned end)
+        CharacterCase(Latin1Character character, unsigned begin, unsigned end)
             : character(character)
             , begin(begin)
             , end(end)
@@ -21260,7 +21595,7 @@ IGNORE_CLANG_WARNINGS_END
             return character < other.character;
         }
 
-        LChar character;
+        Latin1Character character;
         unsigned begin;
         unsigned end;
     };
@@ -21352,7 +21687,7 @@ IGNORE_CLANG_WARNINGS_END
         Vector<CharacterCase> characterCases;
         CharacterCase currentCase(cases[begin].string->at(commonChars), begin, begin + 1);
         for (unsigned i = begin + 1; i < end; ++i) {
-            LChar currentChar = cases[i].string->at(commonChars);
+            Latin1Character currentChar = cases[i].string->at(commonChars);
             if (currentChar != currentCase.character) {
                 currentCase.end = i;
                 characterCases.append(currentCase);
@@ -21641,7 +21976,7 @@ IGNORE_CLANG_WARNINGS_END
         LValue offset = m_out.shl(m_out.zeroExtPtr(index), m_out.constIntPtr(logElementSize(type)));
 
         return TypedPointer(
-            m_heaps.typedArrayProperties,
+            m_heaps.TypedArrayProperties,
             m_out.add(
                 storage,
                 offset
@@ -22341,6 +22676,13 @@ IGNORE_CLANG_WARNINGS_END
     {
         LValue result = lowCell(edge);
         speculateGlobalProxy(edge, result);
+        return result;
+    }
+
+    LValue lowPromiseObject(Edge edge)
+    {
+        LValue result = lowCell(edge);
+        speculatePromiseObject(edge, result);
         return result;
     }
 
@@ -23641,7 +23983,7 @@ IGNORE_CLANG_WARNINGS_END
     void speculateMapIteratorObject(Edge edge, LValue cell)
     {
         FTL_TYPE_CHECK(
-            jsValueValue(cell), edge, SpecObjectOther, isNotType(cell, JSMapIteratorType));
+            jsValueValue(cell), edge, SpecMapIteratorObject, isNotType(cell, JSMapIteratorType));
     }
 
     void speculateMapIteratorObject(Edge edge)
@@ -23663,7 +24005,7 @@ IGNORE_CLANG_WARNINGS_END
     void speculateSetIteratorObject(Edge edge, LValue cell)
     {
         FTL_TYPE_CHECK(
-            jsValueValue(cell), edge, SpecObjectOther, isNotType(cell, JSSetIteratorType));
+            jsValueValue(cell), edge, SpecSetIteratorObject, isNotType(cell, JSSetIteratorType));
     }
 
     void speculateSetIteratorObject(Edge edge)
@@ -24137,19 +24479,22 @@ IGNORE_CLANG_WARNINGS_END
     CodeOrigin codeOriginDescriptionOfCallSite() const
     {
         CodeOrigin codeOrigin = m_origin.semantic;
-        if (m_node->op() == TailCallInlinedCaller
-            || m_node->op() == TailCallVarargsInlinedCaller
-            || m_node->op() == TailCallForwardVarargsInlinedCaller
-            || m_node->op() == DirectTailCallInlinedCaller) {
+        switch (m_node->op()) {
+        case TailCallInlinedCaller:
+        case TailCallVarargsInlinedCaller:
+        case TailCallForwardVarargsInlinedCaller:
+        case DirectTailCallInlinedCaller:
+        case TailCallInlinedCallerWasm: {
             // This case arises when you have a situation like this:
             // foo makes a call to bar, bar is inlined in foo. bar makes a call
             // to baz and baz is inlined in bar. And then baz makes a tail-call to jaz,
             // and jaz is inlined in baz. We want the callframe for jaz to appear to
             // have caller be bar.
-            codeOrigin = *codeOrigin.inlineCallFrame()->getCallerSkippingTailCalls();
+            return *codeOrigin.inlineCallFrame()->getCallerSkippingTailCalls();
         }
-
-        return codeOrigin;
+        default:
+            return codeOrigin;
+        }
     }
 
     template<typename OperationResultType>
@@ -24560,6 +24905,10 @@ IGNORE_CLANG_WARNINGS_END
         if (isValid(value))
             return exitArgument(arguments, DataFormatDouble, value.value());
 
+        value = m_storageValues.get(node);
+        if (isValid(value))
+            return exitArgument(arguments, DataFormatStorage, value.value());
+
         DFG_CRASH(m_graph, m_node, toCString("Cannot find value for node: ", node).data());
         return ExitValue::dead();
     }
@@ -24708,7 +25057,7 @@ IGNORE_CLANG_WARNINGS_END
 
     LValue toButterfly(LValue immutableButterfly)
     {
-        return m_out.addPtr(immutableButterfly, JSImmutableButterfly::offsetOfData());
+        return m_out.addPtr(immutableButterfly, JSCellButterfly::offsetOfData());
     }
 
     LValue toIntegerOrInfinity(LValue doubleValue)

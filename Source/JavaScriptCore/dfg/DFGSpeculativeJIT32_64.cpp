@@ -3191,8 +3191,13 @@ void SpeculativeJIT::compile(Node* node)
         break;
     }
 
-    case NewArrayWithConstantSize: {
-        compileNewArrayWithConstantSize(node);
+    case NewButterflyWithSize: {
+        compileNewButterflyWithSize(node);
+        break;
+    }
+
+    case NewArrayWithButterfly: {
+        compileNewArrayWithButterfly(node);
         break;
     }
 
@@ -4306,10 +4311,6 @@ void SpeculativeJIT::compile(Node* node)
         compileMaterializeNewObject(node);
         break;
 
-    case MaterializeNewArrayWithConstantSize:
-        compileMaterializeNewArrayWithConstantSize(node);
-        break;
-
     case PutDynamicVar: {
         compilePutDynamicVar(node);
         break;
@@ -4341,6 +4342,30 @@ void SpeculativeJIT::compile(Node* node)
     case CheckJSCast:
     case CheckNotJSCast:
         compileCheckJSCast(node);
+        break;
+
+    case ResolvePromiseFirstResolving:
+        compileResolvePromiseFirstResolving(node);
+        break;
+
+    case RejectPromiseFirstResolving:
+        compileRejectPromiseFirstResolving(node);
+        break;
+
+    case FulfillPromiseFirstResolving:
+        compileFulfillPromiseFirstResolving(node);
+        break;
+
+    case PromiseResolve:
+        compilePromiseResolve(node);
+        break;
+
+    case PromiseReject:
+        compilePromiseReject(node);
+        break;
+
+    case PromiseThen:
+        compilePromiseThen(node);
         break;
 
     case Unreachable:
@@ -4399,7 +4424,8 @@ void SpeculativeJIT::compile(Node* node)
     case CheckBadValue:
     case BottomValue:
     case PhantomNewObject:
-    case PhantomNewArrayWithConstantSize:
+    case PhantomNewArrayWithButterfly:
+    case PhantomNewButterflyWithSize:
     case PhantomNewFunction:
     case PhantomNewGeneratorFunction:
     case PhantomNewAsyncFunction:
@@ -4411,6 +4437,7 @@ void SpeculativeJIT::compile(Node* node)
     case CheckStructureImmediate:
     case MaterializeCreateActivation:
     case MaterializeNewInternalFieldObject:
+    case MaterializeNewArrayWithButterfly:
     case PutStack:
     case KillStack:
     case GetStack:
@@ -4443,6 +4470,7 @@ void SpeculativeJIT::compile(Node* node)
     case DateGetTime:
     case DateSetTime:
     case CallWasm:
+    case TailCallInlinedCallerWasm:
     case FunctionBind:
     case NewBoundFunction:
     case EnumeratorPutByVal:

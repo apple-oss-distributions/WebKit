@@ -31,6 +31,7 @@
 #include "CodeBlock.h"
 
 #include "ArithProfile.h"
+#include "BaselineJITCode.h"
 #include "BasicBlockLocation.h"
 #include "BytecodeDumper.h"
 #include "BytecodeLivenessAnalysisInlines.h"
@@ -603,7 +604,7 @@ bool CodeBlock::finishCreation(VM& vm, ScriptExecutable* ownerExecutable, Unlink
             if (op.type == GlobalVar || op.type == GlobalVarWithVarInjectionChecks || op.type == GlobalLexicalVar || op.type == GlobalLexicalVarWithVarInjectionChecks)
                 metadata.m_watchpointSet = op.watchpointSet;
             else if (op.structure)
-                metadata.m_structure.set(vm, this, op.structure);
+                metadata.m_structureID.set(vm, this, op.structure);
             metadata.m_operand = op.operand;
             break;
         }
@@ -642,7 +643,7 @@ bool CodeBlock::finishCreation(VM& vm, ScriptExecutable* ownerExecutable, Unlink
                 if (op.watchpointSet)
                     op.watchpointSet->invalidate(vm, PutToScopeFireDetail(this, ident));
             } else if (op.structure)
-                metadata.m_structure.set(vm, this, op.structure);
+                metadata.m_structureID.set(vm, this, op.structure);
             metadata.m_operand = op.operand;
             break;
         }
@@ -1655,7 +1656,7 @@ void CodeBlock::finalizeLLIntInlineCaches()
             if (getPutInfo.resolveType() == GlobalVar || getPutInfo.resolveType() == GlobalVarWithVarInjectionChecks
                 || getPutInfo.resolveType() == ResolvedClosureVar || getPutInfo.resolveType() == GlobalLexicalVar || getPutInfo.resolveType() == GlobalLexicalVarWithVarInjectionChecks)
                 return;
-            WriteBarrierBase<Structure>& structure = metadata.m_structure;
+            WriteBarrierStructureID& structure = metadata.m_structureID;
             if (!structure || vm.heap.isMarked(structure.get()))
                 return;
             dataLogLnIf(Options::verboseOSR(), "Clearing scope access with structure ", RawPointer(structure.get()));
@@ -2284,7 +2285,7 @@ void CodeBlock::jettison(Profiler::JettisonReason reason, ReoptimizationMode mod
     {
         ConcurrentJSLocker locker(m_lock);
         forEachStructureStubInfo([&](StructureStubInfo& stubInfo) {
-            stubInfo.reset(locker, this);
+            stubInfo.deref();
             return IterationStatus::Continue;
         });
     }
@@ -3069,6 +3070,29 @@ bool CodeBlock::shouldOptimizeNowFromBaseline()
 
     if (livenessRate >= Options::desiredProfileLivenessRate() && fullnessRate >= Options::desiredProfileFullnessRate() && static_cast<unsigned>(m_optimizationDelayCounter) + 1 >= Options::minimumOptimizationDelay())
         return true;
+
+#if ENABLE(DFG_JIT)
+    if (auto* jitCode = m_jitCode.get(); jitCode && JITCode::isBaselineCode(jitCode->jitType())) {
+        // If this CodeBlock is large enough, then there is a chance that some part of code is just a dead code.
+        // This can happen in a framework code since it is crafted as a generic function.
+        // In this case, we track whether the liveness / fullness rate changes from the previous sampling time,
+        // and if it is not changed, we say that we are reaching to the plateau and we do not expect that we will
+        // get more information with retrying. Thus we will start compiling it in DFG.
+        auto* baselineJITCode = static_cast<BaselineJITCode*>(jitCode);
+        double previousLivenessRate = baselineJITCode->livenessRate();
+        double previousFullnessRate = baselineJITCode->fullnessRate();
+        if (static_cast<unsigned>(m_optimizationDelayCounter) + 1 >= Options::minimumOptimizationDelay()) {
+            if (static_cast<int32_t>(this->bytecodeCost()) >= Options::valueProfileFillingRateMonitoringBytecodeCost()) {
+                if (previousLivenessRate && previousFullnessRate) {
+                    if (previousLivenessRate == livenessRate && previousFullnessRate == fullnessRate)
+                        return true;
+                }
+            }
+        }
+        baselineJITCode->setLivenessRate(livenessRate);
+        baselineJITCode->setFullnessRate(fullnessRate);
+    }
+#endif
 
     auto* codeBlock = this;
     CODEBLOCK_LOG_EVENT(codeBlock, "delayOptimizeToDFG", ("insufficient profiling (", livenessRate,  " / ", fullnessRate, ") for ", numberOfNonArgumentValueProfiles(), " ", totalNumberOfValueProfiles()));

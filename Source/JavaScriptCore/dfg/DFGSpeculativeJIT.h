@@ -74,7 +74,7 @@ enum GeneratedOperandType { GeneratedOperandTypeUnknown, GeneratedOperandInteger
 DECLARE_ALLOCATOR_WITH_HEAP_IDENTIFIER(SpeculativeJIT);
 class SpeculativeJIT : public JITCompiler {
     using Base = JITCompiler;
-    WTF_MAKE_FAST_ALLOCATED_WITH_HEAP_IDENTIFIER(SpeculativeJIT);
+    WTF_DEPRECATED_MAKE_FAST_ALLOCATED_WITH_HEAP_IDENTIFIER(SpeculativeJIT, SpeculativeJIT);
     friend struct OSRExit;
 private:
     typedef JITCompiler::TrustedImm32 TrustedImm32;
@@ -1712,7 +1712,6 @@ public:
     void compileSetRegExpObjectLastIndex(Node*);
     void compileLazyJSConstant(Node*);
     void compileMaterializeNewObject(Node*);
-    void compileMaterializeNewArrayWithConstantSize(Node*);
     void compileRecordRegExpCachedResult(Node*);
     void compileToObjectOrCallObjectConstructor(Node*);
     void compileResolveScope(Node*);
@@ -1758,9 +1757,9 @@ public:
     void compileSetArgumentCountIncludingThis(Node*);
     void compileStrCat(Node*);
     void compileNewArrayBuffer(Node*);
+    void compileNewButterflyWithSize(Node*);
     void compileNewArrayWithSize(Node*);
-    void compileNewArrayWithConstantSizeImpl(Node*, GPRReg, GPRReg);
-    void compileNewArrayWithConstantSize(Node*);
+    void compileNewArrayWithButterfly(Node*);
     void compileNewArrayWithSpecies(Node*);
     void compileNewArrayWithSizeAndStructure(Node*);
     void compileNewTypedArray(Node*);
@@ -1801,6 +1800,12 @@ public:
     void compileNumberIsSafeInteger(Node*);
     void compileToIntegerOrInfinity(Node*);
     void compileToLength(Node*);
+    void compileResolvePromiseFirstResolving(Node*);
+    void compileRejectPromiseFirstResolving(Node*);
+    void compileFulfillPromiseFirstResolving(Node*);
+    void compilePromiseResolve(Node*);
+    void compilePromiseReject(Node*);
+    void compilePromiseThen(Node*);
 
     template<typename JSClass, typename Operation>
     void compileCreateInternalFieldObject(Node*, Operation);
@@ -1938,8 +1943,8 @@ public:
     void speculateDateObject(Edge);
     void speculateDateObject(Edge, GPRReg cell);
     void speculateMapObject(Edge);
-    void speculateImmutableButterfly(Edge, GPRReg);
-    void speculateImmutableButterfly(Edge);
+    void speculateCellButterfly(Edge, GPRReg);
+    void speculateCellButterfly(Edge);
     void speculateMapObject(Edge, GPRReg cell);
     void speculateSetObject(Edge);
     void speculateSetObject(Edge, GPRReg cell);
@@ -1993,6 +1998,11 @@ public:
 
     unsigned appendOSRExit(OSRExit&&, bool isExceptionHandler = false);
     unsigned appendExceptionHandlingOSRExit(ExitKind, unsigned eventStreamIndex, CodeOrigin, HandlerInfo* exceptionHandler, CallSiteIndex, MacroAssembler::JumpList jumpsToFail = MacroAssembler::JumpList());
+
+#if USE(JSVALUE64)
+    void unboxRealNumberDouble(Node*, FPRReg boxedFPR, FPRReg resultFPR, GPRReg scratchGPR);
+    void boxDoubleAsDouble(FPRReg inputFPR, FPRReg resultFPR);
+#endif
 
     template<bool strict>
     GPRReg fillSpeculateInt32Internal(Edge, DataFormat& returnFormat);

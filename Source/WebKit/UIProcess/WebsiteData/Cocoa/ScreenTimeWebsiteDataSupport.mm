@@ -30,6 +30,7 @@
 
 #import "WebsiteDataStoreConfiguration.h"
 #import <wtf/BlockPtr.h>
+#import <wtf/CompletionHandler.h>
 #import <wtf/HashSet.h>
 #import <wtf/URL.h>
 #import <wtf/URLHash.h>
@@ -44,7 +45,7 @@ void getScreenTimeURLs(std::optional<WTF::UUID> identifier, CompletionHandler<vo
 {
     RetainPtr<NSString> profileIdentifier;
     if (identifier)
-        profileIdentifier = identifier->toString().createNSString();
+        profileIdentifier = [identifier->createNSUUID() UUIDString];
 
     RetainPtr webHistory = adoptNS([PAL::allocSTWebHistoryInstance() initWithProfileIdentifier:profileIdentifier.get()]);
 
@@ -71,14 +72,14 @@ void removeScreenTimeData(const HashSet<URL>& websitesToRemove, const WebsiteDat
 {
     RetainPtr<NSString> profileIdentifier;
     if (configuration.identifier())
-        profileIdentifier = configuration.identifier()->toString().createNSString();
+        profileIdentifier = [configuration.identifier()->createNSUUID() UUIDString];
 
     RetainPtr webHistory = adoptNS([PAL::allocSTWebHistoryInstance() initWithProfileIdentifier:profileIdentifier.get()]);
 
     RetainPtr<NSMutableSet<NSString *>> websitesToRemoveDomains = [NSMutableSet set];
     for (auto& url : websitesToRemove)
-        if (RetainPtr nsURL = url.createNSURL())
-            [websitesToRemoveDomains addObject:[nsURL host]];
+        if (RetainPtr host = url.host().createNSString())
+            [websitesToRemoveDomains addObject:host.get()];
 
     [webHistory fetchAllHistoryWithCompletionHandler:^(NSSet<NSURL *> *urls, NSError *error) {
         if (error)
@@ -97,7 +98,7 @@ void removeScreenTimeDataWithInterval(WallTime modifiedSince, const WebsiteDataS
 {
     RetainPtr<NSString> profileIdentifier;
     if (configuration.identifier())
-        profileIdentifier = configuration.identifier()->toString().createNSString();
+        profileIdentifier = [configuration.identifier()->createNSUUID() UUIDString];
 
     RetainPtr webHistory = adoptNS([PAL::allocSTWebHistoryInstance() initWithProfileIdentifier:profileIdentifier.get()]);
 

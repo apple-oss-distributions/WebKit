@@ -69,7 +69,15 @@ static void initializeSQLiteIfNecessary()
         // completely threadsafe. But in the past it was not safe, and the SQLite developers still
         // aren't confident that it really is, and we still support ancient versions of SQLite. So
         // std::call_once is used to stay on the safe side. See bug #143245.
-        int ret = sqlite3_initialize();
+        int ret;
+        callOnMainThreadAndWait([&] {
+            // In the Network process, this function can be called on a background thread when
+            // creating WebKit::ResourceLoadStatisticsStore, which then races with
+            // WebKit::NetworkProcess::initializeNetworkProcess(). Since both of those calls query
+            // the Darwin user temp directory via confstr(), this should only be called from the
+            // main thread.
+            ret = sqlite3_initialize();
+        });
         if (ret != SQLITE_OK) {
 #if SQLITE_VERSION_NUMBER >= 3007015
             WTFLogAlways("Failed to initialize SQLite: %s", sqlite3_errstr(ret));
@@ -124,7 +132,7 @@ bool SQLiteDatabase::open(const String& filename, OpenMode openMode, OptionSet<O
     initializeSQLiteIfNecessary();
     close();
 
-    auto closeDatabase = makeScopeExit([&]() {
+    auto closeDatabase = makeScopeExit([this, checkedThis = CheckedRef { *this }]() {
         if (!m_db)
             return;
 
@@ -267,16 +275,16 @@ bool SQLiteDatabase::useWALJournalMode()
     m_useWAL = true;
     {
         SQLiteTransactionInProgressAutoCounter transactionCounter;
-        auto walStatement = prepareStatement("PRAGMA journal_mode=WAL;"_s);
-        if (!walStatement)
+        auto statement = prepareStatement("PRAGMA journal_mode=WAL;"_s);
+        if (!statement)
             return false;
 
-        int stepResult = walStatement->step();
+        int stepResult = statement->step();
         if (stepResult != SQLITE_ROW)
             return false;
 
 #ifndef NDEBUG
-        String mode = walStatement->columnText(0);
+        String mode = statement->columnText(0);
         if (!equalLettersIgnoringASCIICase(mode, "wal"_s)) {
             LOG_ERROR("SQLite database journal_mode should be 'WAL', but is '%s'", mode.utf8().data());
             return false;
@@ -347,8 +355,10 @@ int64_t SQLiteDatabase::maximumSize()
     {
         Locker locker { m_authorizerLock };
         enableAuthorizer(false);
-        auto statement = prepareStatement("PRAGMA max_page_count"_s);
-        maxPageCount = statement ? statement->columnInt64(0) : 0;
+        if (auto statement = prepareStatement("PRAGMA max_page_count"_s))
+            maxPageCount = statement->columnInt64(0);
+        else
+            maxPageCount = 0;
         enableAuthorizer(true);
     }
 
@@ -368,10 +378,11 @@ void SQLiteDatabase::setMaximumSize(int64_t size)
     Locker locker { m_authorizerLock };
     enableAuthorizer(false);
 
-    auto statement = prepareStatementSlow(makeString("PRAGMA max_page_count = "_s, newMaxPageCount));
-    if (!statement || statement->step() != SQLITE_ROW)
+    if (auto statement = prepareStatementSlow(makeString("PRAGMA max_page_count = "_s, newMaxPageCount))) {
+        if (statement->step() != SQLITE_ROW)
+            LOG_ERROR("Failed to set maximum size of database to %lli bytes", static_cast<long long>(size));
+    } else
         LOG_ERROR("Failed to set maximum size of database to %lli bytes", static_cast<long long>(size));
-
     enableAuthorizer(true);
 
 }
@@ -383,9 +394,11 @@ int SQLiteDatabase::pageSize()
     if (m_pageSize == -1) {
         Locker locker { m_authorizerLock };
         enableAuthorizer(false);
-        
-        auto statement = prepareStatement("PRAGMA page_size"_s);
-        m_pageSize = statement ? statement->columnInt(0) : 0;
+
+        if (auto statement = prepareStatement("PRAGMA page_size"_s))
+            m_pageSize = statement->columnInt(0);
+        else
+            m_pageSize = 0;
         
         enableAuthorizer(true);
     }
@@ -401,8 +414,11 @@ int64_t SQLiteDatabase::freeSpaceSize()
         Locker locker { m_authorizerLock };
         enableAuthorizer(false);
         // Note: freelist_count was added in SQLite 3.4.1.
-        auto statement = prepareStatement("PRAGMA freelist_count"_s);
-        freelistCount = statement ? statement->columnInt64(0) : 0;
+        if (auto statement = prepareStatement("PRAGMA freelist_count"_s))
+            freelistCount = statement->columnInt64(0);
+        else
+            freelistCount = 0;
+
         enableAuthorizer(true);
     }
 
@@ -416,8 +432,10 @@ int64_t SQLiteDatabase::totalSize()
     {
         Locker locker { m_authorizerLock };
         enableAuthorizer(false);
-        auto statement = prepareStatement("PRAGMA page_count"_s);
-        pageCount = statement ? statement->columnInt64(0) : 0;
+        if (auto statement = prepareStatement("PRAGMA page_count"_s))
+            pageCount = statement->columnInt64(0);
+        else
+            pageCount = 0;
         enableAuthorizer(true);
     }
 
@@ -449,8 +467,7 @@ int SQLiteDatabase::executeSlow(StringView query)
 {
     auto statement = prepareStatementSlow(query);
     if (!statement)
-        return statement.error();
-
+        return lastError();
     return statement->step();
 }
 
@@ -458,8 +475,7 @@ int SQLiteDatabase::execute(ASCIILiteral query)
 {
     auto statement = prepareStatement(query);
     if (!statement)
-        return statement.error();
-
+        return lastError();
     return statement->step();
 }
 
@@ -489,7 +505,9 @@ String SQLiteDatabase::tableSQL(StringView tableName)
         return { };
 
     auto statement = prepareStatement("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?;"_s);
-    if (!statement || statement->bindText(1, tableName) != SQLITE_OK || statement->step() != SQLITE_ROW)
+    if (!statement)
+        return { };
+    if (statement->bindText(1, tableName) != SQLITE_OK || statement->step() != SQLITE_ROW)
         return { };
 
     return statement->columnText(0);
@@ -501,7 +519,9 @@ String SQLiteDatabase::indexSQL(StringView indexName)
         return { };
 
     auto statement = prepareStatement("SELECT sql FROM sqlite_master WHERE type = 'index' AND name = ?;"_s);
-    if (!statement || statement->bindText(1, indexName) != SQLITE_OK || statement->step() != SQLITE_ROW)
+    if (!statement)
+        return { };
+    if (statement->bindText(1, indexName) != SQLITE_OK || statement->step() != SQLITE_ROW)
         return { };
 
     return statement->columnText(0);
@@ -535,8 +555,14 @@ int SQLiteDatabase::runIncrementalVacuumCommand()
     Locker locker { m_authorizerLock };
     enableAuthorizer(false);
 
-    if (!executeCommand("PRAGMA incremental_vacuum"_s))
-        LOG(SQLDatabase, "Unable to run incremental vacuum - %s", lastErrorMsg());
+    if (auto statement = prepareStatement("PRAGMA incremental_vacuum"_s)) {
+        auto ret = statement->step();
+        while (ret == SQLITE_ROW)
+            ret = statement->step();
+
+        if (ret != SQLITE_DONE)
+            LOG(SQLDatabase, "Unable to run incremental vacuum - %s", lastErrorMsg());
+    }
 
     enableAuthorizer(true);
     return lastError();
@@ -781,46 +807,25 @@ static Expected<sqlite3_stmt*, int> constructAndPrepareStatement(SQLiteDatabase&
     return statement;
 }
 
-Expected<SQLiteStatement, int> SQLiteDatabase::prepareStatementSlow(StringView queryString)
+std::unique_ptr<SQLiteStatement> SQLiteDatabase::prepareStatementSlow(StringView queryString)
 {
-    auto query = queryString.trim(isUnicodeCompatibleASCIIWhitespace<UChar>).utf8();
+    auto query = queryString.trim(isUnicodeCompatibleASCIIWhitespace<char16_t>).utf8();
     auto sqlStatement = constructAndPrepareStatement(*this, query.spanIncludingNullTerminator());
     if (!sqlStatement) {
         RELEASE_LOG_ERROR(SQLDatabase, "SQLiteDatabase::prepareStatement: Failed to prepare statement %" PUBLIC_LOG_STRING, query.data());
-        return makeUnexpected(sqlStatement.error());
+        return nullptr;
     }
-    return SQLiteStatement { *this, sqlStatement.value() };
+    return std::unique_ptr<SQLiteStatement>(new SQLiteStatement(*this, sqlStatement.value()));
 }
 
-Expected<SQLiteStatement, int> SQLiteDatabase::prepareStatement(ASCIILiteral query)
+std::unique_ptr<SQLiteStatement> SQLiteDatabase::prepareStatement(ASCIILiteral query)
 {
     auto sqlStatement = constructAndPrepareStatement(*this, query.spanIncludingNullTerminator());
     if (!sqlStatement) {
         RELEASE_LOG_ERROR(SQLDatabase, "SQLiteDatabase::prepareStatement: Failed to prepare statement %" PUBLIC_LOG_STRING, query.characters());
-        return makeUnexpected(sqlStatement.error());
+        return nullptr;
     }
-    return SQLiteStatement { *this, sqlStatement.value() };
-}
-
-Expected<UniqueRef<SQLiteStatement>, int> SQLiteDatabase::prepareHeapStatementSlow(StringView queryString)
-{
-    auto query = queryString.trim(isUnicodeCompatibleASCIIWhitespace<UChar>).utf8();
-    auto sqlStatement = constructAndPrepareStatement(*this, query.spanIncludingNullTerminator());
-    if (!sqlStatement) {
-        RELEASE_LOG_ERROR(SQLDatabase, "SQLiteDatabase::prepareHeapStatement: Failed to prepare statement %" PUBLIC_LOG_STRING, query.data());
-        return makeUnexpected(sqlStatement.error());
-    }
-    return UniqueRef<SQLiteStatement>(*new SQLiteStatement(*this, sqlStatement.value()));
-}
-
-Expected<UniqueRef<SQLiteStatement>, int> SQLiteDatabase::prepareHeapStatement(ASCIILiteral query)
-{
-    auto sqlStatement = constructAndPrepareStatement(*this, query.spanIncludingNullTerminator());
-    if (!sqlStatement) {
-        RELEASE_LOG_ERROR(SQLDatabase, "SQLiteDatabase::prepareHeapStatement: Failed to prepare statement %" PUBLIC_LOG_STRING, query.characters());
-        return makeUnexpected(sqlStatement.error());
-    }
-    return UniqueRef<SQLiteStatement>(*new SQLiteStatement(*this, sqlStatement.value()));
+    return std::unique_ptr<SQLiteStatement>(new SQLiteStatement(*this, sqlStatement.value()));
 }
 
 } // namespace WebCore

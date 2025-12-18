@@ -53,10 +53,11 @@ namespace JSC {
     \
     macro(CodeBlockType, SpecCellOther) \
     \
-    macro(JSImmutableButterflyType, SpecCellOther) \
+    macro(JSCellButterflyType, SpecCellOther) \
     macro(JSSourceCodeType, SpecCellOther) \
     macro(JSScriptFetcherType, SpecCellOther) \
     macro(JSScriptFetchParametersType, SpecCellOther) \
+    macro(JSPromiseReactionType, SpecCellOther) \
     \
     /* The ObjectType value must come before any JSType that is a subclass of JSObject. */ \
     macro(ObjectType, SpecObjectOther) \
@@ -124,13 +125,15 @@ namespace JSC {
     macro(JSArrayIteratorType, SpecObjectOther) \
     macro(JSIteratorType, SpecObjectOther) \
     macro(JSIteratorHelperType, SpecObjectOther) \
-    macro(JSMapIteratorType, SpecObjectOther) \
-    macro(JSSetIteratorType, SpecObjectOther) \
+    macro(JSMapIteratorType, SpecMapIteratorObject) \
+    macro(JSSetIteratorType, SpecSetIteratorObject) \
     macro(JSStringIteratorType, SpecObjectOther) \
     macro(JSWrapForValidIteratorType, SpecObjectOther) \
     macro(JSRegExpStringIteratorType, SpecObjectOther) \
     macro(JSAsyncFromSyncIteratorType, SpecObjectOther) \
     macro(JSPromiseType, SpecPromiseObject) \
+    macro(JSPromiseAllContextType, SpecObjectOther) \
+    macro(JSPromiseAllGlobalContextType, SpecObjectOther) \
     macro(JSMapType, SpecMapObject) \
     macro(JSSetType, SpecSetObject) \
     macro(JSWeakMapType, SpecWeakMapObject) \

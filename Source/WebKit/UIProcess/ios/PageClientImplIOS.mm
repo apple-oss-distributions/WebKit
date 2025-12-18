@@ -46,7 +46,9 @@
 #import "RemoteLayerTreeNode.h"
 #import "RunningBoardServicesSPI.h"
 #import "TapHandlingResult.h"
+#import "TextExtractionFilter.h"
 #import "UIKitSPI.h"
+#import "UIKitUtilities.h"
 #import "UndoOrRedo.h"
 #import "ViewSnapshotStore.h"
 #import "WKContentView.h"
@@ -71,9 +73,9 @@
 #import <WebCore/Cursor.h>
 #import <WebCore/DOMPasteAccess.h>
 #import <WebCore/DictionaryLookup.h>
-#import <WebCore/ElementIdentifier.h>
 #import <WebCore/MediaPlaybackTarget.h>
 #import <WebCore/MediaSessionHelperIOS.h>
+#import <WebCore/NodeIdentifier.h>
 #import <WebCore/NotImplemented.h>
 #import <WebCore/PlatformScreen.h>
 #import <WebCore/PromisedAttachmentInfo.h>
@@ -252,9 +254,9 @@ void PageClientImpl::didCreateContextInModelProcessForVisibilityPropagation(Laye
     [m_contentView _modelProcessDidCreateContextForVisibilityPropagation];
 }
 
-void PageClientImpl::didReceiveInteractiveModelElement(std::optional<WebCore::ElementIdentifier> elementID)
+void PageClientImpl::didReceiveInteractiveModelElement(std::optional<WebCore::NodeIdentifier> nodeID)
 {
-    [m_contentView didReceiveInteractiveModelElement:elementID];
+    [m_contentView didReceiveInteractiveModelElement:nodeID];
 }
 #endif // ENABLE(MODEL_PROCESS)
 
@@ -262,6 +264,11 @@ void PageClientImpl::didReceiveInteractiveModelElement(std::optional<WebCore::El
 UIView *PageClientImpl::createVisibilityPropagationView()
 {
     return [contentView() _createVisibilityPropagationView];
+}
+
+void PageClientImpl::removeVisibilityPropagationView(UIView *view)
+{
+    [contentView() _removeVisibilityPropagationView:view];
 }
 #endif
 #endif // HAVE(VISIBILITY_PROPAGATION_VIEW)
@@ -284,12 +291,21 @@ void PageClientImpl::modelProcessDidExit()
 
 void PageClientImpl::preferencesDidChange()
 {
+#if ENABLE(OVERLAY_REGIONS_IN_EVENT_REGION)
+    if (RetainPtr webView = this->webView())
+        [webView _updateOverlayRegions];
+#else
     notImplemented();
+#endif
 }
 
-void PageClientImpl::toolTipChanged(const String&, const String&)
+void PageClientImpl::toolTipChanged(const String&, const String& newToolTip)
 {
-    notImplemented();
+#if HAVE(UITOOLTIPINTERACTION)
+    [contentView() _toolTipChanged:newToolTip.createNSString().get()];
+#else
+    UNUSED_PARAM(newToolTip);
+#endif
 }
 
 void PageClientImpl::didNotHandleTapAsClick(const WebCore::IntPoint& point)
@@ -334,6 +350,10 @@ void PageClientImpl::didCommitLoadForMainFrame(const String& mimeType, bool useC
     [webView _hidePasswordView];
     [webView _setHasCustomContentView:useCustomContentProvider loadedMIMEType:mimeType];
     [contentView() _didCommitLoadForMainFrame];
+
+#if ENABLE(TEXT_EXTRACTION_FILTER)
+    [webView _clearTextExtractionFilterCache];
+#endif
 }
 
 void PageClientImpl::didChangeContentSize(const WebCore::IntSize&)
@@ -737,7 +757,7 @@ bool PageClientImpl::handleRunOpenPanel(const WebPageProxy& page, const WebFrame
 #if ENABLE(MEDIA_CAPTURE)
     if (parameters.mediaCaptureType() != WebCore::MediaCaptureType::MediaCaptureTypeNone) {
         if (auto pid = page.configuration().processPool().configuration().presentingApplicationPID())
-            WebCore::MediaSessionHelper::sharedHelper().providePresentingApplicationPID(pid, WebCore::MediaSessionHelper::ShouldOverride::Yes);
+            WebCore::MediaSessionHelper::sharedHelper().providePresentingApplicationPID(pid);
     }
 #endif
 
@@ -811,7 +831,6 @@ WebFullScreenManagerProxyClient& PageClientImpl::fullScreenManagerProxyClient()
         return *m_fullscreenClientForTesting;
     return *this;
 }
-
 // WebFullScreenManagerProxyClient
 
 void PageClientImpl::closeFullScreenManager()
@@ -891,6 +910,20 @@ void PageClientImpl::beganExitFullScreen(const IntRect& initialFrame, const IntR
 }
 
 #endif // ENABLE(FULLSCREEN_API)
+
+void PageClientImpl::didEnterFullscreen()
+{
+#if ENABLE(VIDEO_PRESENTATION_MODE) && ENABLE(FULLSCREEN_API)
+    [[webView() fullScreenWindowController] didEnterVideoFullscreen];
+#endif
+}
+
+void PageClientImpl::didExitFullscreen()
+{
+#if ENABLE(VIDEO_PRESENTATION_MODE) && ENABLE(FULLSCREEN_API)
+    [[webView() fullScreenWindowController] didExitVideoFullscreen];
+#endif
+}
 
 void PageClientImpl::didFinishLoadingDataForCustomContentProvider(const String& suggestedFilename, std::span<const uint8_t> dataReference)
 {
@@ -1043,12 +1076,12 @@ void PageClientImpl::didPerformDragOperation(bool handled)
     [contentView() _didPerformDragOperation:handled];
 }
 
-void PageClientImpl::startDrag(const DragItem& item, ShareableBitmap::Handle&& image, const std::optional<ElementIdentifier>& elementID)
+void PageClientImpl::startDrag(const DragItem& item, ShareableBitmap::Handle&& image, const std::optional<NodeIdentifier>& nodeID)
 {
     auto bitmap = ShareableBitmap::create(WTFMove(image));
     if (!bitmap)
         return;
-    [contentView() _startDrag:bitmap->makeCGImageCopy() item:item elementID:elementID];
+    [contentView() _startDrag:bitmap->createPlatformImage() item:item nodeID:nodeID];
 }
 
 void PageClientImpl::willReceiveEditDragSnapshot()
@@ -1056,9 +1089,9 @@ void PageClientImpl::willReceiveEditDragSnapshot()
     [contentView() _willReceiveEditDragSnapshot];
 }
 
-void PageClientImpl::didReceiveEditDragSnapshot(std::optional<TextIndicatorData> data)
+void PageClientImpl::didReceiveEditDragSnapshot(RefPtr<WebCore::TextIndicator>&& textIndicator)
 {
-    [contentView() _didReceiveEditDragSnapshot:data];
+    [contentView() _didReceiveEditDragSnapshot:WTFMove(textIndicator)];
 }
 
 void PageClientImpl::didChangeDragCaretRect(const IntRect& previousCaretRect, const IntRect& caretRect)
@@ -1180,6 +1213,11 @@ void PageClientImpl::runModalJavaScriptDialog(CompletionHandler<void()>&& callba
     [contentView() runModalJavaScriptDialog:WTFMove(callback)];
 }
 
+FloatBoxExtent PageClientImpl::computedObscuredInset() const
+{
+    return floatBoxExtent([webView() _computedObscuredInset]);
+}
+
 WebCore::Color PageClientImpl::contentViewBackgroundColor()
 {
     WebCore::Color color;
@@ -1263,6 +1301,20 @@ UIViewController *PageClientImpl::presentingViewController() const
 
     return nil;
 }
+
+#if ENABLE(POINTER_LOCK)
+
+void PageClientImpl::beginPointerLockMouseTracking()
+{
+    [contentView() _beginPointerLockMouseTracking];
+}
+
+void PageClientImpl::endPointerLockMouseTracking()
+{
+    [contentView() _endPointerLockMouseTracking];
+}
+
+#endif
 
 FloatRect PageClientImpl::rootViewToWebView(const FloatRect& rect) const
 {

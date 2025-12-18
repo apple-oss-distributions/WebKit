@@ -40,7 +40,7 @@ class ContentSecurityPolicyResponseHeaders;
 class ScriptBuffer;
 class WorkerObjectProxy;
 
-class DedicatedWorkerThread : public WorkerThread {
+class DedicatedWorkerThread final : public WorkerThread {
 public:
     template<typename... Args> static Ref<DedicatedWorkerThread> create(Args&&... args)
     {
@@ -48,18 +48,25 @@ public:
     }
     virtual ~DedicatedWorkerThread();
 
-    WorkerObjectProxy& workerObjectProxy() const { return m_workerObjectProxy; }
+    WorkerObjectProxy* workerObjectProxy() const { return m_workerObjectProxy.get(); }
     void start() { WorkerThread::start(nullptr); }
+
+    void clearProxies() override;
 
 protected:
     Ref<WorkerGlobalScope> createWorkerGlobalScope(const WorkerParameters&, Ref<SecurityOrigin>&&, Ref<SecurityOrigin>&& topOrigin) override;
 
 private:
     DedicatedWorkerThread(const WorkerParameters&, const ScriptBuffer& sourceCode, WorkerLoaderProxy&, WorkerDebuggerProxy&, WorkerObjectProxy&, WorkerBadgeProxy&, WorkerThreadStartMode, const SecurityOrigin& topOrigin, IDBClient::IDBConnectionProxy*, SocketProvider*, JSC::RuntimeFlags);
+    bool isDedicatedWorkerThread() const final { return true; }
 
     ASCIILiteral threadName() const final { return "WebCore: Worker"_s; }
 
-    const CheckedRef<WorkerObjectProxy> m_workerObjectProxy;
+    CheckedPtr<WorkerObjectProxy> m_workerObjectProxy;
 };
 
 } // namespace WebCore
+
+SPECIALIZE_TYPE_TRAITS_BEGIN(WebCore::DedicatedWorkerThread)
+    static bool isType(const WebCore::WorkerOrWorkletThread& thread) { return thread.isDedicatedWorkerThread(); }
+SPECIALIZE_TYPE_TRAITS_END()

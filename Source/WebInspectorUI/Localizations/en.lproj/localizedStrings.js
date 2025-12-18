@@ -794,6 +794,7 @@ localizedStrings["Filter Full URL"] = "Filter Full URL";
 localizedStrings["Filter:"] = "Filter:";
 localizedStrings["Find Next (%s)"] = "Find Next (%s)";
 localizedStrings["Find Previous (%s)"] = "Find Previous (%s)";
+localizedStrings["First Contentful Paint"] = "First Contentful Paint";
 /* Flexbox layout section name */
 localizedStrings["Flexbox @ Elements details sidebar"] = "Flexbox";
 localizedStrings["Flows"] = "Flows";
@@ -827,6 +828,7 @@ localizedStrings["Format: Short Hex with Alpha"] = "Format: Short Hex with Alpha
 localizedStrings["Forward (%s)"] = "Forward (%s)";
 localizedStrings["Fragment"] = "Fragment";
 localizedStrings["Fragment Shader"] = "Fragment Shader";
+localizedStrings["Frame"] = "Frame";
 localizedStrings["Frame %d"] = "Frame %d";
 localizedStrings["Frame %d \u2014 %s"] = "Frame %d \u2014 %s";
 localizedStrings["Frames"] = "Frames";
@@ -988,6 +990,7 @@ localizedStrings["Key Path"] = "Key Path";
 /* Label indicating that network activity is being simulated with LTE connectivity */
 localizedStrings["LTE"] = "LTE";
 localizedStrings["Label"] = "Label";
+localizedStrings["Largest Contentful Paint"] = "Largest Contentful Paint";
 localizedStrings["Latency"] = "Latency";
 localizedStrings["Layer Count: %d"] = "Layer Count: %d";
 localizedStrings["Layer Info"] = "Layer Info";
@@ -1516,6 +1519,7 @@ localizedStrings["Search Resource Content"] = "Search Resource Content";
 localizedStrings["Search Tab Name"] = "Search";
 /* Title of Search Tab with keyboard shortcut */
 localizedStrings["Search Tab Title"] = "Search (%s)";
+localizedStrings["Search:"] = "Search:";
 /* Settings tab label for search related settings */
 localizedStrings["Search: @ Settings"] = "Search:";
 localizedStrings["Searching %s"] = "Searching %s";
@@ -1881,6 +1885,7 @@ localizedStrings["Use case sensitive autocomplete"] = "Use case sensitive autoco
 localizedStrings["Use default media styles"] = "Use default media styles";
 localizedStrings["Use fuzzy matching for CSS code completion"] = "Use fuzzy matching for CSS code completion";
 localizedStrings["Use mock capture devices"] = "Use mock capture devices";
+localizedStrings["Use strict word boundary checks for glob pattern matching"] = "Use strict word boundary checks for glob pattern matching";
 localizedStrings["User Agent"] = "User Agent";
 localizedStrings["User Agent Style Sheet"] = "User Agent Style Sheet";
 localizedStrings["User Style Sheet"] = "User Style Sheet";

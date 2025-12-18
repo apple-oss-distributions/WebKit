@@ -100,7 +100,6 @@ enum class NSType : uint8_t {
     Date,
     Error,
     Dictionary,
-    Font,
     Locale,
     Number,
     Null,
@@ -171,6 +170,19 @@ template<typename T> void encodeObjectDirectly(StreamConnectionEncoder&, T);
 template<typename T> std::optional<RetainPtr<id>> decodeObjectDirectlyRequiringAllowedClasses(Decoder&);
 
 template<typename T, typename = IsObjCObject<T>> void encode(Encoder&, T *);
+
+#ifdef __OBJC__
+template<typename T> static inline bool arrayContainsAnythingBut(const RetainPtr<NSArray>& array)
+{
+    if (!array)
+        return false;
+    for (id element in array.get()) {
+        if (![element isKindOfClass:getClass<T>()])
+            return true;
+    }
+    return false;
+}
+#endif // __OBJC__
 
 #if ASSERT_ENABLED
 

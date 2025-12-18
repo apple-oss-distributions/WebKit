@@ -45,6 +45,7 @@
 #import <WebCore/RemoteFrame.h>
 #import <WebCore/ScrollView.h>
 #import <WebCore/Scrollbar.h>
+#import <WebCore/Settings.h>
 
 namespace ax = WebCore::Accessibility;
 
@@ -89,6 +90,12 @@ namespace ax = WebCore::Accessibility;
     return axPlugin.autorelease();
 }
 
+- (BOOL)shouldFallbackToWebContentAXObjectForMainFramePlugin
+{
+    RefPtr page = m_page.get();
+    return page && page->shouldFallbackToWebContentAXObjectForMainFramePlugin();
+}
+
 // Called directly by Accessibility framework.
 - (id)accessibilityRootObjectWrapper
 {
@@ -111,7 +118,7 @@ namespace ax = WebCore::Accessibility;
         if (!WebCore::AXObjectCache::accessibilityEnabled())
             [protectedSelf enableAccessibilityForAllProcesses];
 
-        if (protectedSelf.get()->m_hasMainFramePlugin) {
+        if (protectedSelf->m_hasMainFramePlugin) {
 #if ENABLE(ACCESSIBILITY_ISOLATED_TREE)
             // Even though we want to serve the PDF plugin tree for main-frame plugins, we still need to make sure the isolated tree
             // is built, so that when text annotations are created on-the-fly as users focus on text fields,
@@ -120,7 +127,16 @@ namespace ax = WebCore::Accessibility;
             if (auto cache = protectedSelf.get().axObjectCache)
                 cache->buildIsolatedTreeIfNeeded();
 #endif // ENABLE(ACCESSIBILITY_ISOLATED_TREE)
-            return protectedSelf.get().accessibilityPluginObject;
+            if (![protectedSelf shouldFallbackToWebContentAXObjectForMainFramePlugin])
+                return [protectedSelf accessibilityPluginObject];
+        }
+
+        RefPtr frame = protectedFrame ? WTFMove(protectedFrame) : [protectedSelf focusedLocalFrame];
+        if (RefPtr document = frame ? frame->document() : nullptr) {
+            if (CheckedPtr cache = document->axObjectCache()) {
+                if (RefPtr root = cache->rootObjectForFrame(*frame))
+                    return root->wrapper();
+            }
         }
 
         if (auto cache = protectedSelf.get().axObjectCache) {
@@ -181,6 +197,24 @@ namespace ax = WebCore::Accessibility;
         // of the plugin accessiblity tree.
         return;
     }
+
+    CheckedPtr cache = tree->axObjectCache();
+    if (!cache)
+        return;
+
+    std::optional isolatedTreeFrameID = cache->frameID();
+    if (!isolatedTreeFrameID)
+        return;
+
+    RefPtr mainFrame = m_page ? m_page->mainFrame() : nullptr;
+    if (!mainFrame)
+        return;
+
+    // Ignore an isolated tree that's not the main frame, otherwise VoiceOver might jump directly to an iframe
+    // when interacting with a page.
+    if (*isolatedTreeFrameID != mainFrame->frameID())
+        return;
+
     m_isolatedTree = tree.get();
 }
 

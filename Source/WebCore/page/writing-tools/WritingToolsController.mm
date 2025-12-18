@@ -33,17 +33,21 @@
 #import "ColorCocoa.h"
 #import "ContainerNodeInlines.h"
 #import "CompositeEditCommand.h"
-#import "DocumentInlines.h"
 #import "DocumentMarkerController.h"
+#import "DocumentMarkers.h"
+#import "DocumentView.h"
+#import "EditingHTMLConverter.h"
 #import "Editor.h"
 #import "FocusController.h"
+#import "FrameDestructionObserverInlines.h"
 #import "FrameSelection.h"
 #import "GeometryUtilities.h"
-#import "HTMLConverter.h"
 #import "HTMLBodyElement.h"
 #import "IntelligenceTextEffectsSupport.h"
+#import "LocalFrameInlines.h"
 #import "Logging.h"
 #import "NodeRenderStyle.h"
+#import "RenderStyleInlines.h"
 #import "RenderedDocumentMarker.h"
 #import "TextAnimationTypes.h"
 #import "TextIterator.h"
@@ -250,6 +254,7 @@ void WritingToolsController::willBeginWritingToolsSession(const std::optional<Wr
         IncludedElement::Attachments,
         IncludedElement::PreservedContent,
         IncludedElement::NonRenderedContent,
+        IncludedElement::TextLists,
     };
 
     auto selectedTextRange = document->selection().selection().firstRange();

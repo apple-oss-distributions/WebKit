@@ -30,6 +30,7 @@
 #include "RenderStyleConstants.h"
 #include "Settings.h"
 #include "TextFlags.h"
+#include "TrustedFonts.h"
 #include <memory>
 #include <wtf/AbstractRefCountedAndCanMakeWeakPtr.h>
 #include <wtf/Forward.h>
@@ -61,10 +62,10 @@ enum class ExternalResourceDownloadPolicy : bool;
 
 DECLARE_ALLOCATOR_WITH_HEAP_IDENTIFIER(CSSFontFace);
 class CSSFontFace final : public RefCountedAndCanMakeWeakPtr<CSSFontFace> {
-    WTF_MAKE_FAST_ALLOCATED_WITH_HEAP_IDENTIFIER(CSSFontFace);
+    WTF_DEPRECATED_MAKE_FAST_ALLOCATED_WITH_HEAP_IDENTIFIER(CSSFontFace, CSSFontFace);
 public:
     static Ref<CSSFontFace> create(CSSFontSelector&, StyleRuleFontFace* cssConnection = nullptr, FontFace* wrapper = nullptr, bool isLocalFallback = false);
-    virtual ~CSSFontFace();
+    ~CSSFontFace();
 
     void setFamily(CSSValue&);
     void setStyle(CSSValue&);
@@ -118,7 +119,7 @@ public:
 
     bool computeFailureState() const;
 
-    void opportunisticallyStartFontDataURLLoading();
+    void opportunisticallyStartFontDataURLLoading(DownloadableBinaryFontTrustedTypes);
 
     void adoptSource(std::unique_ptr<CSSFontFaceSource>&&);
     void sourcesPopulated() { m_sourcesPopulated = true; }
@@ -193,6 +194,7 @@ private:
     bool m_shouldIgnoreFontLoadCompletions : 1 { false };
     FontLoadTimingOverride m_fontLoadTimingOverride { FontLoadTimingOverride::None };
     AllowUserInstalledFonts m_allowUserInstalledFonts { AllowUserInstalledFonts::Yes };
+    DownloadableBinaryFontTrustedTypes m_trustedType { DownloadableBinaryFontTrustedTypes::Any };
 
     Timer m_timeoutTimer;
 };

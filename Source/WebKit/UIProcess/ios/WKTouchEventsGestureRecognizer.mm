@@ -31,6 +31,7 @@
 #import "UIKitSPI.h"
 #import "WKContentViewInteraction.h"
 #import "WKWebViewIOS.h"
+#import "WebPreferences.h"
 #import <objc/message.h>
 #import <objc/runtime.h>
 #import <wtf/RetainPtr.h>
@@ -56,20 +57,6 @@ static unsigned incrementingTouchIdentifier = 1;
 
     WebKit::WKTouchEvent _lastTouchEvent;
     RetainPtr<NSMapTable<NSNumber *, UITouch *>>_activeTouchesByIdentifier;
-}
-
-// UITouch's timestamp is a relative system time since startup, minus the time the device was suspended. This
-// function converts it into an estimated wall time (seconds since Epoch).
-static double approximateWallTime(NSTimeInterval timestamp)
-{
-    // mach_absolute_time() provides a relative system time since startup, minus the time the device was suspended.
-    auto elapsedTimeSinceStartup = CACurrentMediaTime();
-
-    auto elapsedTimeSinceTimestamp = elapsedTimeSinceStartup - timestamp;
-
-    // CFAbsoluteTimeGetCurrent() provides the absolute time in seconds since 2001 so we need to add kCFAbsoluteTimeIntervalSince1970
-    // to get a time since Epoch.
-    return kCFAbsoluteTimeIntervalSince1970 + CFAbsoluteTimeGetCurrent() - elapsedTimeSinceTimestamp;
 }
 
 @synthesize defaultPrevented = _defaultPrevented;
@@ -239,6 +226,18 @@ static CGPoint mapRootViewToViewport(CGPoint pointInRootView, WKContentView *con
     return CGPointMake(pointInRootView.x - offsetInRootView.x, pointInRootView.y - offsetInRootView.y);
 }
 
+// A roll angle of pi will be converted to the default twist angle value (0 degrees).
+static constexpr auto defaultRollAngle = std::numbers::pi;
+
+static CGFloat rollAngleOrDefault(UITouch *touch, bool shouldReadRollAngle)
+{
+#if HAVE(UITOUCH_ROLLANGLE)
+    if (shouldReadRollAngle)
+        return touch.rollAngle;
+#endif
+    return defaultRollAngle;
+}
+
 - (WebKit::WKTouchEvent)_touchEventForChildTouch:(UITouch *)touch withParent:(const WebKit::WKTouchPoint&)parentTouchPoint
 {
     auto locationInWindow = [touch locationInView:nil];
@@ -252,11 +251,13 @@ static CGPoint mapRootViewToViewport(CGPoint pointInRootView, WKContentView *con
     touchPoint.phase = touch.phase;
     touchPoint.majorRadiusInWindowCoordinates = touch.majorRadius;
     touchPoint.force = touch.maximumPossibleForce > 0 ? touch.force / touch.maximumPossibleForce : 0;
+    touchPoint.twist = defaultRollAngle;
 
     if (touch.type == UITouchTypeStylus) {
         touchPoint.touchType = WebKit::WKTouchPointType::Stylus;
         touchPoint.altitudeAngle = touch.altitudeAngle;
         touchPoint.azimuthAngle = [touch azimuthAngleInView:self.view.window];
+        touchPoint.twist = rollAngleOrDefault(touch, [contentView _shouldExposeRollAngleAsTwist]);
     } else {
         touchPoint.touchType = WebKit::WKTouchPointType::Direct;
         touchPoint.altitudeAngle = 0;
@@ -265,7 +266,7 @@ static CGPoint mapRootViewToViewport(CGPoint pointInRootView, WKContentView *con
 
     WebKit::WKTouchEvent event;
     event.type = WebKit::WKTouchEventType::Change;
-    event.timestamp = approximateWallTime(touch.timestamp);
+    event.timestamp = touch.timestamp;
     event.locationInRootViewCoordinates = locationInRootView;
     event.touchPoints = { touchPoint };
 
@@ -292,7 +293,7 @@ static CGPoint mapRootViewToViewport(CGPoint pointInRootView, WKContentView *con
     if (_lastTouchEvent.touchPoints.size() != touchCount)
         _lastTouchEvent.touchPoints.resize(touchCount);
 
-    _lastTouchEvent.timestamp = approximateWallTime(touches.anyObject.timestamp);
+    _lastTouchEvent.timestamp = touches.anyObject.timestamp;
 
     _lastTouchEvent.coalescedEvents = { };
     _lastTouchEvent.predictedEvents = { };
@@ -330,6 +331,7 @@ static CGPoint mapRootViewToViewport(CGPoint pointInRootView, WKContentView *con
         touchPoint.identifier = [associatedIdentifier unsignedIntValue];
         touchPoint.phase = touch.phase;
         touchPoint.majorRadiusInWindowCoordinates = touch.majorRadius;
+        touchPoint.twist = defaultRollAngle;
 
         if (touch.maximumPossibleForce > 0)
             touchPoint.force = touch.force / touch.maximumPossibleForce;
@@ -340,6 +342,7 @@ static CGPoint mapRootViewToViewport(CGPoint pointInRootView, WKContentView *con
             touchPoint.touchType = WebKit::WKTouchPointType::Stylus;
             touchPoint.altitudeAngle = touch.altitudeAngle;
             touchPoint.azimuthAngle = [touch azimuthAngleInView:self.view.window];
+            touchPoint.twist = rollAngleOrDefault(touch, [contentView _shouldExposeRollAngleAsTwist]);
         } else {
             touchPoint.touchType = WebKit::WKTouchPointType::Direct;
             touchPoint.altitudeAngle = 0;

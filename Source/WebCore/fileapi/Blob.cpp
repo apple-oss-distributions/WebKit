@@ -36,12 +36,14 @@
 #include "BlobLoader.h"
 #include "BlobPart.h"
 #include "BlobURL.h"
+#include "ContextDestructionObserverInlines.h"
 #include "File.h"
 #include "JSDOMPromiseDeferred.h"
 #include "PolicyContainer.h"
 #include "ReadableStream.h"
 #include "ReadableStreamSource.h"
 #include "ScriptExecutionContext.h"
+#include "ScriptWrappableInlines.h"
 #include "SecurityOrigin.h"
 #include "SharedBuffer.h"
 #include "ThreadableBlobRegistry.h"
@@ -181,6 +183,18 @@ Blob::Blob(ScriptExecutionContext* context, Vector<uint8_t>&& data, const String
     ThreadableBlobRegistry::registerInternalBlobURL(m_internalURL, { BlobPart(WTFMove(data)) }, contentType);
 }
 
+Blob::Blob(ScriptExecutionContext* context, Ref<FragmentedSharedBuffer>&& buffer, const String& contentType)
+    : ActiveDOMObject(context)
+    , m_type(contentType)
+    , m_size(buffer->size())
+    , m_memoryCost(buffer->size())
+    , m_internalURL(BlobURL::createInternalURL())
+{
+    BlobBuilder builder(EndingType::Transparent);
+    builder.append(WTFMove(buffer));
+    ThreadableBlobRegistry::registerInternalBlobURL(m_internalURL, builder.finalize(), contentType);
+}
+
 Blob::Blob(ReferencingExistingBlobConstructor, ScriptExecutionContext* context, const Blob& blob)
     : ActiveDOMObject(context)
     , m_type(blob.type())
@@ -218,7 +232,7 @@ Blob::~Blob()
 {
     ThreadableBlobRegistry::unregisterBlobURL(m_internalURL, std::nullopt);
     while (!m_blobLoaders.isEmpty())
-        (*m_blobLoaders.begin())->cancel();
+        RefPtr { (*m_blobLoaders.begin()).get() }->cancel();
 }
 
 Ref<Blob> Blob::slice(long long start, long long end, const String& contentType) const
@@ -268,7 +282,7 @@ String Blob::normalizedContentType(const String& contentType)
 
 void Blob::loadBlob(FileReaderLoader::ReadType readType, Function<void(BlobLoader&)>&& completionHandler)
 {
-    auto blobLoader = makeUnique<BlobLoader>([pendingActivity = makePendingActivity(*this), completionHandler = WTFMove(completionHandler)](BlobLoader& blobLoader) mutable {
+    Ref blobLoader = BlobLoader::create([pendingActivity = makePendingActivity(*this), completionHandler = WTFMove(completionHandler)](BlobLoader& blobLoader) mutable {
         completionHandler(blobLoader);
         pendingActivity->object().m_blobLoaders.take(&blobLoader);
     });

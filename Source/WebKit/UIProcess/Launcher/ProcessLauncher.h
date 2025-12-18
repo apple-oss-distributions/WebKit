@@ -27,6 +27,7 @@
 
 #include "Connection.h"
 #include <WebCore/ProcessIdentifier.h>
+#include <wtf/AbstractCanMakeCheckedPtr.h>
 #include <wtf/CheckedPtr.h>
 #include <wtf/HashMap.h>
 #include <wtf/ProcessID.h>
@@ -121,25 +122,22 @@ public:
     using ProcessType = ProcessLaunchType;
     using LaunchOptions = ProcessLaunchOptions;
 
-    class Client {
+    class Client : public AbstractCanMakeCheckedPtr {
     public:
         virtual ~Client() { }
         
+        virtual void ref() const = 0;
+        virtual void deref() const = 0;
         virtual void didFinishLaunching(ProcessLauncher*, IPC::Connection::Identifier&&) = 0;
         virtual bool shouldConfigureJSCForTesting() const { return false; }
         virtual bool isJITEnabled() const { return true; }
         virtual bool shouldEnableSharedArrayBuffer() const { return false; }
         virtual bool shouldEnableLockdownMode() const { return false; }
+        virtual bool shouldEnableEnhancedSecurity() const { return false; }
         virtual bool shouldDisableJITCage() const { return false; }
 #if PLATFORM(COCOA)
         virtual RefPtr<XPCEventHandler> xpcEventHandler() const { return nullptr; }
 #endif
-
-        // CanMakeCheckedPtr.
-        virtual uint32_t checkedPtrCount() const = 0;
-        virtual uint32_t checkedPtrCountWithoutThreadCheck() const = 0;
-        virtual void incrementCheckedPtrCount() const = 0;
-        virtual void decrementCheckedPtrCount() const = 0;
     };
 
     static Ref<ProcessLauncher> create(Client* client, LaunchOptions&& launchOptions)
@@ -173,8 +171,6 @@ private:
 
     void platformInvalidate();
     void platformDestroy();
-
-    CheckedPtr<Client> checkedClient() const;
 
 #if PLATFORM(COCOA)
     void terminateXPCConnection();

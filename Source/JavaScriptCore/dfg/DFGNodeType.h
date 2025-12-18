@@ -390,6 +390,7 @@ namespace JSC { namespace DFG {
     macro(TailCallForwardVarargsInlinedCaller, NodeResultJS | NodeMustGenerate) \
     macro(CallDirectEval, NodeResultJS | NodeMustGenerate | NodeHasVarArgs) \
     macro(CallWasm, NodeResultJS | NodeMustGenerate | NodeHasVarArgs) \
+    macro(TailCallInlinedCallerWasm, NodeResultJS | NodeMustGenerate | NodeHasVarArgs) \
     \
     macro(CallCustomAccessorGetter, NodeResultJS | NodeMustGenerate) \
     macro(CallCustomAccessorSetter, NodeMustGenerate) \
@@ -402,13 +403,15 @@ namespace JSC { namespace DFG {
     macro(NewObject, NodeResultJS) \
     macro(NewGenerator, NodeResultJS) \
     macro(NewAsyncGenerator, NodeResultJS) \
+    /* FIXME: A lot of these could likely be consolidated but there's some subtle differences between them, particularly when having a bad time. */ \
     macro(NewArray, NodeResultJS | NodeHasVarArgs) \
     macro(NewArrayWithSpread, NodeResultJS | NodeHasVarArgs) \
     macro(NewArrayWithSpecies, NodeResultJS | NodeMustGenerate) \
     macro(NewArrayWithSize, NodeResultJS | NodeMustGenerate) \
-    macro(NewArrayWithConstantSize, NodeResultJS | NodeMustGenerate) \
     macro(NewArrayWithSizeAndStructure, NodeResultJS | NodeMustGenerate) \
     macro(NewArrayBuffer, NodeResultJS) \
+    macro(NewArrayWithButterfly, NodeResultJS) \
+    macro(NewButterflyWithSize, NodeResultStorage) \
     macro(NewInternalFieldObject, NodeResultJS) \
     macro(NewTypedArray, NodeResultJS | NodeMustGenerate) \
     macro(NewTypedArrayBuffer, NodeResultJS | NodeMustGenerate) \
@@ -424,8 +427,10 @@ namespace JSC { namespace DFG {
     \
     macro(Spread, NodeResultJS | NodeMustGenerate) \
     /* Support for allocation sinking. */\
-    macro(PhantomNewArrayWithConstantSize, NodeResultJS | NodeMustGenerate) \
-    macro(MaterializeNewArrayWithConstantSize, NodeResultJS | NodeHasVarArgs) \
+    macro(PhantomNewButterflyWithSize, NodeResultStorage | NodeMustGenerate) \
+    /* PhantomNewButterflyWithSize can materialize back to NewButterflyWithSize since it doesn't track any properties */ \
+    macro(PhantomNewArrayWithButterfly, NodeResultJS | NodeMustGenerate) \
+    macro(MaterializeNewArrayWithButterfly, NodeResultJS | NodeHasVarArgs) \
     macro(PhantomNewObject, NodeResultJS | NodeMustGenerate) \
     macro(PutHint, NodeMustGenerate) \
     macro(CheckStructureImmediate, NodeMustGenerate) \
@@ -629,6 +634,13 @@ namespace JSC { namespace DFG {
     macro(DateGetInt32OrNaN, NodeResultJS) \
     macro(DateGetTime, NodeResultDouble) \
     macro(DateSetTime, NodeMustGenerate | NodeResultDouble) \
+    /* Promise */ \
+    macro(ResolvePromiseFirstResolving, NodeMustGenerate) \
+    macro(RejectPromiseFirstResolving, NodeMustGenerate) \
+    macro(FulfillPromiseFirstResolving, NodeMustGenerate) \
+    macro(PromiseResolve, NodeMustGenerate | NodeResultJS) \
+    macro(PromiseReject, NodeMustGenerate | NodeResultJS) \
+    macro(PromiseThen, NodeMustGenerate | NodeResultJS) \
 
 
 // This enum generates a monotonically increasing id for all Node types,

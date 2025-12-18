@@ -45,7 +45,7 @@ public:
     virtual ~PlaceholderRenderingContextSource() = default;
 
     // Called by the offscreen context to submit the frame.
-    void setPlaceholderBuffer(ImageBuffer&, bool opaque);
+    void setPlaceholderBuffer(ImageBuffer&, bool originClean, bool opaque);
 
     // Called by the placeholder context to attach to compositor layer.
     void setContentsToLayer(GraphicsLayer&, ImageBuffer*, bool opaque);
@@ -69,14 +69,14 @@ public:
     HTMLCanvasElement& canvas() const;
     Ref<HTMLCanvasElement> protectedCanvas() const { return canvas(); }
     IntSize size() const;
-    void setPlaceholderBuffer(Ref<ImageBuffer>&&, bool opaque);
+    void setPlaceholderBuffer(Ref<ImageBuffer>&&, bool originClean, bool opaque);
 
     PlaceholderRenderingContextSource& source() const { return m_source; }
 
 private:
     PlaceholderRenderingContext(HTMLCanvasElement&);
     void setContentsToLayer(GraphicsLayer&) final;
-    ImageBufferPixelFormat pixelFormat() const final;
+    PixelFormat pixelFormat() const final;
     bool isOpaque() const final { return m_opaque; }
 
     const Ref<PlaceholderRenderingContextSource> m_source;

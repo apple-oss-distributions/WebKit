@@ -45,6 +45,7 @@
 #include "AudioWorkletNodeOptions.h"
 #include "AudioWorkletProcessor.h"
 #include "BaseAudioContext.h"
+#include "ContextDestructionObserverInlines.h"
 #include "ErrorEvent.h"
 #include "EventNames.h"
 #include "JSAudioWorkletNodeOptions.h"
@@ -65,6 +66,12 @@ ExceptionOr<Ref<AudioWorkletNode>> AudioWorkletNode::create(JSC::JSGlobalObject&
     if (!options.numberOfInputs && !options.numberOfOutputs)
         return Exception { ExceptionCode::NotSupportedError, "Number of inputs and outputs cannot both be 0"_s };
 
+    if (options.numberOfInputs > UINT16_MAX)
+        return Exception { ExceptionCode::RangeError, "Number of inputs is out of range"_s };
+
+    if (options.numberOfOutputs > UINT16_MAX)
+        return Exception { ExceptionCode::RangeError, "Number of outputs is out of range"_s };
+
     if (options.outputChannelCount) {
         if (options.numberOfOutputs != options.outputChannelCount->size())
             return Exception { ExceptionCode::IndexSizeError, "Length of specified outputChannelCount does not match the given number of outputs"_s };
@@ -83,7 +90,7 @@ ExceptionOr<Ref<AudioWorkletNode>> AudioWorkletNode::create(JSC::JSGlobalObject&
     if (!context.scriptExecutionContext())
         return Exception { ExceptionCode::InvalidStateError, "Audio context's frame is detached"_s };
 
-    auto messageChannel = MessageChannel::create(*context.scriptExecutionContext());
+    auto messageChannel = MessageChannel::create(*context.protectedScriptExecutionContext());
     auto& nodeMessagePort = messageChannel->port1();
     auto& processorMessagePort = messageChannel->port2();
 

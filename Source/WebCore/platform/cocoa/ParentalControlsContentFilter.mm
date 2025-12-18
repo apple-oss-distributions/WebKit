@@ -55,16 +55,6 @@ namespace WebCore {
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(ParentalControlsContentFilter);
 
-#if HAVE(WEBCONTENTRESTRICTIONS)
-
-static WorkQueue& globalQueue()
-{
-    static MainThreadNeverDestroyed<Ref<WorkQueue>> queue = WorkQueue::create("ParentalControlsContentFilter queue"_s);
-    return queue.get();
-}
-
-#endif
-
 bool ParentalControlsContentFilter::enabled() const
 {
 #if HAVE(WEBCONTENTRESTRICTIONS)
@@ -79,7 +69,7 @@ bool ParentalControlsContentFilter::enabled() const
 #endif // HAVE(WEBCONTENTRESTRICTIONS)
 
 #if HAVE(WEBCONTENTANALYSIS_FRAMEWORK)
-    bool enabled = [getWebFilterEvaluatorClass() isManagedSession];
+    bool enabled = [getWebFilterEvaluatorClassSingleton() isManagedSession];
     LOG(ContentFiltering, "ParentalControlsContentFilter is %s.\n", enabled ? "enabled" : "not enabled");
     return enabled;
 #else
@@ -103,6 +93,11 @@ ParentalControlsContentFilter::ParentalControlsContentFilter(const PlatformConte
     UNUSED_PARAM(params);
 }
 
+void ParentalControlsContentFilter::willSendRequest(ResourceRequest&&, const ResourceResponse&, CompletionHandler<void(String&&)>&& completionHandler)
+{
+    completionHandler({ });
+}
+
 static inline bool canHandleResponse(const ResourceResponse& response)
 {
 #if HAVE(SYSTEM_HTTP_CONTENT_FILTERING)
@@ -121,6 +116,7 @@ void ParentalControlsContentFilter::responseReceived(const ResourceResponse& res
 
 #if HAVE(WEBCONTENTRESTRICTIONS)
     if (m_usesWebContentRestrictions) {
+        ASSERT(!m_evaluatedURL);
         m_evaluatedURL = response.url();
         m_state = State::Filtering;
 #if HAVE(WEBCONTENTRESTRICTIONS_PATH_SPI)
@@ -128,10 +124,7 @@ void ParentalControlsContentFilter::responseReceived(const ResourceResponse& res
 #else
         auto& filter = ParentalControlsURLFilter::singleton();
 #endif
-        filter.isURLAllowedWithQueue(*m_evaluatedURL, [weakThis = ThreadSafeWeakPtr { *this }](bool isAllowed, auto replacementData) {
-            if (RefPtr protectedThis = weakThis.get())
-                protectedThis->didReceiveAllowDecisionOnQueue(isAllowed, replacementData);
-        }, globalQueue());
+        filter.isURLAllowed(*m_evaluatedURL, *this);
         return;
     }
 #endif

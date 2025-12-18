@@ -44,16 +44,17 @@
 
 #pragma once
 
-#include "ClipRect.h"
-#include "GraphicsLayer.h"
-#include "LayerFragment.h"
-#include "LayoutRect.h"
-#include "PaintFrequencyTracker.h"
-#include "PaintInfo.h"
-#include "RenderBox.h"
-#include "RenderPtr.h"
-#include "RenderSVGModelObject.h"
-#include "ScrollBehavior.h"
+#include <WebCore/ClipRect.h>
+#include <WebCore/GraphicsLayerEnums.h>
+#include <WebCore/LayerFragment.h>
+#include <WebCore/LayoutRect.h>
+#include <WebCore/PaintFrequencyTracker.h>
+#include <WebCore/PaintInfo.h>
+#include <WebCore/RenderBox.h>
+#include <WebCore/RenderPtr.h>
+#include <WebCore/RenderSVGModelObject.h>
+#include <WebCore/ScrollBehavior.h>
+#include <WebCore/TransformationMatrix.h>
 #include <memory>
 #include <wtf/CheckedRef.h>
 #include <wtf/Markable.h>
@@ -67,7 +68,6 @@ void outputLayerPositionTreeRecursive(TextStream&, const WebCore::RenderLayer&, 
 
 namespace WebCore {
 
-class CSSFilter;
 class ClipRects;
 class ClipRectsCache;
 class HitTestRequest;
@@ -143,11 +143,12 @@ enum class ShouldAllowCrossOriginScrolling : bool { No, Yes };
 
 struct ScrollRectToVisibleOptions {
     SelectionRevealMode revealMode { SelectionRevealMode::Reveal };
-    const ScrollAlignment& alignX { ScrollAlignment::alignCenterIfNeeded };
-    const ScrollAlignment& alignY { ScrollAlignment::alignCenterIfNeeded };
+    ScrollAlignment alignX { ScrollAlignment::alignCenterIfNeeded };
+    ScrollAlignment alignY { ScrollAlignment::alignCenterIfNeeded };
     ShouldAllowCrossOriginScrolling shouldAllowCrossOriginScrolling { ShouldAllowCrossOriginScrolling::No };
     ScrollBehavior behavior { ScrollBehavior::Auto };
     OnlyAllowForwardScrolling onlyAllowForwardScrolling { OnlyAllowForwardScrolling::No };
+    AllowScrollingOverflowHidden allowScrollingOverflowHidden { AllowScrollingOverflowHidden::Yes };
     std::optional<LayoutRect> visibilityCheckRect { std::nullopt };
 };
 
@@ -158,7 +159,7 @@ enum class UpdateBackingSharingFlags {
 using ScrollingScope = uint64_t;
 
 class RenderLayer final : public CanMakeSingleThreadWeakPtr<RenderLayer>, public CanMakeCheckedPtr<RenderLayer> {
-    WTF_MAKE_TZONE_OR_ISO_ALLOCATED(RenderLayer);
+    WTF_MAKE_PREFERABLY_COMPACT_TZONE_OR_ISO_ALLOCATED(RenderLayer);
     WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(RenderLayer);
 public:
     friend class RenderReplica;
@@ -452,10 +453,10 @@ public:
 
     // Indicate that the layer contents need to be repainted. Only has an effect
     // if layer compositing is being used.
-    void setBackingNeedsRepaint(GraphicsLayer::ShouldClipToLayer = GraphicsLayer::ClipToLayer);
+    void setBackingNeedsRepaint(GraphicsLayerShouldClipToLayer = GraphicsLayerShouldClipToLayer::Clip);
 
     // The rect is in the coordinate space of the layer's render object.
-    void setBackingNeedsRepaintInRect(const LayoutRect&, GraphicsLayer::ShouldClipToLayer = GraphicsLayer::ClipToLayer);
+    void setBackingNeedsRepaintInRect(const LayoutRect&, GraphicsLayerShouldClipToLayer = GraphicsLayerShouldClipToLayer::Clip);
     void repaintIncludingNonCompositingDescendants(const RenderLayerModelObject* repaintContainer);
 
     void styleChanged(StyleDifference, const RenderStyle* oldStyle);
@@ -503,7 +504,7 @@ public:
     void updateScrollbarSteps();
 
     // Returns true if this RenderLayer is a candidate for scrolling during scrollIntoView operations.
-    bool shouldTryToScrollForScrollIntoView() const;
+    bool shouldTryToScrollForScrollIntoView(const ScrollRectToVisibleOptions&) const;
     void autoscroll(const IntPoint&);
 
     bool canResize() const;
@@ -520,7 +521,8 @@ public:
 
     // Notification from the renderer that its content changed (e.g. current frame of image changed).
     // Allows updates of layer content without repainting.
-    void contentChanged(ContentChangeType);
+    // Also, allows specifying the changed rectangle to limit the painting when patform supports it.
+    void contentChanged(ContentChangeType, const std::optional<FloatRect>& = std::nullopt);
 
     bool canRender3DTransforms() const;
 
@@ -568,7 +570,6 @@ public:
 
     struct PaintedContentRequest {
         PaintedContentRequest() = default;
-        PaintedContentRequest(const RenderLayer& owningLayer);
 
         void setHasPaintedContent() { hasPaintedContent = RequestState::True; }
         void makePaintedContentUndetermined() { hasPaintedContent = RequestState::Undetermined; }
@@ -578,7 +579,8 @@ public:
 #if HAVE(SUPPORT_HDR_DISPLAY)
         void setHasHDRContent() { hasHDRContent = RequestState::True; }
         void makeHDRContentFalse() { hasHDRContent = RequestState::False; }
-        void makeHDRContentUnknown() { hasHDRContent = RequestState::Unknown; }
+
+        void setHDRRequestState(RequestState state) { hasHDRContent = state; }
         bool isHDRContentSatisfied() const { return hasHDRContent != RequestState::Unknown; }
 #endif
 
@@ -598,6 +600,7 @@ public:
     };
 
     bool isVisibilityHiddenOrOpacityZero() const;
+    bool isSubtreeVisibilityHiddenOrOpacityZero() const;
 
     // Returns true if this layer has visible content (ignoring any child layers).
     bool isVisuallyNonEmpty(PaintedContentRequest* = nullptr) const;
@@ -720,7 +723,7 @@ public:
     // |rootLayer|. It also computes our background and foreground clip rects
     // for painting/event handling.
     // Pass offsetFromRoot if known.
-    void calculateRects(const ClipRectsContext&, const LayoutRect& paintDirtyRect, LayoutRect& layerBounds, ClipRect& backgroundRect, ClipRect& foregroundRect, const LayoutSize& offsetFromRoot) const;
+    LayerFragment::Rects calculateRects(const ClipRectsContext&, const LayoutSize& offsetFromRoot, const LayoutRect& paintDirtyRect = LayoutRect::infiniteRect()) const;
 
     // Public just for RenderTreeAsText.
     void collectFragments(LayerFragments&, const RenderLayer* rootLayer, const LayoutRect& dirtyRect,
@@ -819,9 +822,9 @@ public:
     bool hasTransformedAncestor() const { return m_hasTransformedAncestor; }
     bool participatesInPreserve3D() const;
 
-    std::optional<LayoutSize> snapshottedScrollOffsetForAnchorPositioning() const { return m_snapshottedScrollOffsetForAnchorPositioning; };
-    void setSnapshottedScrollOffsetForAnchorPositioning(LayoutSize);
-    void clearSnapshottedScrollOffsetForAnchorPositioning();
+    std::optional<LayoutSize> anchorScrollAdjustment() const { return m_anchorScrollAdjustment; };
+    bool setAnchorScrollAdjustment(LayoutSize); // Returns true if changed.
+    void clearAnchorScrollAdjustment();
 
     bool hasFixedContainingBlockAncestor() const { return m_hasFixedContainingBlockAncestor; }
 
@@ -1027,7 +1030,7 @@ private:
 
     LayoutPoint paintOffsetForRenderer(const LayerFragment& fragment, const LayerPaintingInfo& paintingInfo) const
     {
-        return toLayoutPoint(fragment.layerBounds.location() - rendererLocation() + paintingInfo.subpixelOffset);
+        return toLayoutPoint(fragment.layerBounds().location() - rendererLocation() + paintingInfo.subpixelOffset);
     }
 
     // Compute, cache and return clip rects computed with the given layer as the root.
@@ -1281,6 +1284,9 @@ private:
 
     RefPtr<ClipRects> parentClipRects(const ClipRectsContext&) const;
     ClipRect backgroundClipRect(const ClipRectsContext&) const;
+    ClipRect calculateBackgroundClipRect(const ClipRectsContext&, const LayoutSize& offsetFromRoot) const;
+    ClipRect calculateBackgroundRect(const ClipRectsContext&, const LayoutSize& offsetFromRoot) const;
+    ClipRect calculateForegroundRect(const ClipRectsContext&, const LayoutSize& offsetFromRoot) const;
 
     RenderLayer* enclosingTransformedAncestor() const;
 
@@ -1446,7 +1452,7 @@ private:
     // If the RenderLayer contains an anchor-positioned box, this is the "default scroll shift"
     // for scroll compensation purpose. This offset aligns the anchor-positioned box with the anchor
     // after scroll, and is applied as a transform.
-    std::optional<LayoutSize> m_snapshottedScrollOffsetForAnchorPositioning;
+    std::optional<LayoutSize> m_anchorScrollAdjustment;
 
     // May ultimately be extended to many replicas (with their own paint order).
     RenderPtr<RenderReplica> m_reflection;

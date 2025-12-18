@@ -30,6 +30,7 @@
 #include "RenderListMarker.h"
 #include "RenderMenuList.h"
 #include "RenderMultiColumnFlow.h"
+#include "RenderObjectStyle.h"
 #include "RenderTable.h"
 #include <wtf/TZoneMallocInlines.h>
 
@@ -83,8 +84,13 @@ static std::pair<RenderBlock*, RenderBlock*> findParentOfEmptyOrFirstLineBox(Ren
 static RenderBlock* parentCandidateForMarker(RenderListItem& listItemRenderer, const RenderListMarker& marker)
 {
     if (marker.isInside()) {
-        if (auto* firstChild = dynamicDowncast<RenderBlock>(listItemRenderer.firstChild()); firstChild && !firstChild->isAnonymous())
-            return &listItemRenderer;
+        if (auto* firstChild = dynamicDowncast<RenderBlock>(listItemRenderer.firstChild())) {
+            if (!firstChild->isAnonymous())
+                return &listItemRenderer;
+            // We may have created this anonymous block for the marker itself. Let's keep it in there.
+            if (firstChild->firstChild() == &marker && !marker.nextSibling())
+                return firstChild;
+        }
         return findParentOfEmptyOrFirstLineBox(listItemRenderer, marker).first;
     }
     auto [parentCandidate, fallbackParent] = findParentOfEmptyOrFirstLineBox(listItemRenderer, marker);
@@ -108,7 +114,7 @@ void RenderTreeBuilder::List::updateItemMarker(RenderListItem& listItemRenderer)
 {
     auto& style = listItemRenderer.style();
 
-    if (style.listStyleType().type == ListStyleType::Type::None && (!style.listStyleImage() || style.listStyleImage()->errorOccurred())) {
+    if (RefPtr styleImage = style.listStyleImage().tryStyleImage(); style.listStyleType().isNone() && (!styleImage || styleImage->errorOccurred())) {
         if (auto* marker = listItemRenderer.markerRenderer())
             m_builder.destroy(*marker);
         return;

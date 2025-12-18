@@ -28,12 +28,12 @@
 
 #if ENABLE(VIDEO)
 
-#include "CachedRawResourceClient.h"
-#include "CachedResourceHandle.h"
-#include "ContextDestructionObserver.h"
-#include "FetchOptions.h"
-#include "PlatformMediaResourceLoader.h"
-#include "ResourceResponse.h"
+#include <WebCore/CachedRawResourceClient.h>
+#include <WebCore/CachedResourceHandle.h>
+#include <WebCore/ContextDestructionObserver.h>
+#include <WebCore/FetchOptions.h>
+#include <WebCore/PlatformMediaResourceLoader.h>
+#include <WebCore/ResourceResponse.h>
 #include <wtf/Atomics.h>
 #include <wtf/HashSet.h>
 #include <wtf/Ref.h>
@@ -48,6 +48,8 @@ class Document;
 class Element;
 class MediaResource;
 class WeakPtrImplWithEventTargetData;
+
+enum class LoadedFromOpaqueSource : bool;
 
 class MediaResourceLoader final : public PlatformMediaResourceLoader, public CanMakeWeakPtr<MediaResourceLoader>, public ContextDestructionObserver {
     WTF_MAKE_TZONE_ALLOCATED_EXPORT(MediaResourceLoader, WEBCORE_EXPORT);
@@ -68,6 +70,7 @@ public:
     void addResponseForTesting(const ResourceResponse&);
 
     bool verifyMediaResponse(const URL& requestURL, const ResourceResponse&, const SecurityOrigin*);
+    void redirectReceived(const URL&);
 
 private:
     WEBCORE_EXPORT MediaResourceLoader(Document&, Element&, const String& crossOriginMode, FetchOptions::Destination);
@@ -87,6 +90,9 @@ private:
         bool usedServiceWorker { false };
     };
     HashMap<URL, ValidationInformation> m_validationLoadInformations WTF_GUARDED_BY_CAPABILITY(mainThread);
+
+    HashSet<URL> m_nonOpaqueLoadURLs;
+    std::optional<LoadedFromOpaqueSource> m_loadedFromOpaqueSource;
 };
 
 class MediaResource : public PlatformMediaResource, public CachedRawResourceClient {

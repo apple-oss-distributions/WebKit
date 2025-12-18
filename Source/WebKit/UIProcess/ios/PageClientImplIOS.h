@@ -57,7 +57,7 @@ class PageClientImpl final : public PageClientImplCocoa
     , public WebFullScreenManagerProxyClient
 #endif
     {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_DEPRECATED_MAKE_FAST_ALLOCATED(PageClientImpl);
 #if ENABLE(FULLSCREEN_API)
     WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(PageClientImpl);
 #endif
@@ -91,10 +91,11 @@ private:
 #endif // ENABLE(GPU_PROCESS)
 #if ENABLE(MODEL_PROCESS)
     void didCreateContextInModelProcessForVisibilityPropagation(LayerHostingContextID) override;
-    void didReceiveInteractiveModelElement(std::optional<WebCore::ElementIdentifier>) override;
+    void didReceiveInteractiveModelElement(std::optional<WebCore::NodeIdentifier>) override;
 #endif // ENABLE(MODEL_PROCESS)
 #if USE(EXTENSIONKIT)
     UIView *createVisibilityPropagationView() override;
+    void removeVisibilityPropagationView(UIView *) override;
 #endif
 #endif // HAVE(VISIBILITY_PROPAGATION_VIEW)
 
@@ -299,9 +300,9 @@ private:
 
 #if ENABLE(DRAG_SUPPORT)
     void didPerformDragOperation(bool handled) override;
-    void startDrag(const WebCore::DragItem&, WebCore::ShareableBitmap::Handle&& image, const std::optional<WebCore::ElementIdentifier>&) override;
+    void startDrag(const WebCore::DragItem&, WebCore::ShareableBitmap::Handle&& image, const std::optional<WebCore::NodeIdentifier>&) override;
     void willReceiveEditDragSnapshot() override;
-    void didReceiveEditDragSnapshot(std::optional<WebCore::TextIndicatorData>) override;
+    void didReceiveEditDragSnapshot(RefPtr<WebCore::TextIndicator>&&) override;
     void didChangeDragCaretRect(const WebCore::IntRect& previousCaretRect, const WebCore::IntRect& caretRect) override;
 #endif
 
@@ -330,6 +331,7 @@ private:
 
     bool isSimulatingCompatibilityPointerTouches() const final;
 
+    WebCore::FloatBoxExtent computedObscuredInset() const final;
     WebCore::Color contentViewBackgroundColor() final;
     WebCore::Color insertionPointColor() final;
     bool isScreenBeingCaptured() final;
@@ -348,8 +350,8 @@ private:
     bool hasResizableWindows() const final;
 
 #if ENABLE(VIDEO_PRESENTATION_MODE)
-    void didEnterFullscreen() final { };
-    void didExitFullscreen() final { };
+    void didEnterFullscreen() final;
+    void didExitFullscreen() final;
     void didCleanupFullscreen() final;
 #endif
 
@@ -373,6 +375,11 @@ private:
 #endif
 
     void scheduleVisibleContentRectUpdate() final;
+
+#if ENABLE(POINTER_LOCK)
+    void beginPointerLockMouseTracking() final;
+    void endPointerLockMouseTracking() final;
+#endif
 
     RetainPtr<WKContentView> contentView() const { return m_contentView.get(); }
 

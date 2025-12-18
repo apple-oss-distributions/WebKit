@@ -4,6 +4,10 @@
 // found in the LICENSE file.
 //
 
+#ifdef UNSAFE_BUFFERS_BUILD
+#    pragma allow_unsafe_buffers
+#endif
+
 #include "compiler/translator/Compiler.h"
 
 #include <sstream>
@@ -59,7 +63,6 @@
 #include "compiler/translator/tree_ops/glsl/RewriteRepeatedAssignToSwizzled.h"
 #include "compiler/translator/tree_ops/glsl/UseInterfaceBlockFields.h"
 #include "compiler/translator/tree_ops/glsl/apple/AddAndTrueToLoopCondition.h"
-#include "compiler/translator/tree_ops/glsl/apple/RewriteDoWhile.h"
 #include "compiler/translator/tree_ops/glsl/apple/UnfoldShortCircuitAST.h"
 #include "compiler/translator/tree_ops/msl/EnsureLoopForwardProgress.h"
 #include "compiler/translator/tree_util/BuiltIn.h"
@@ -237,35 +240,41 @@ struct UniformSortComparator
                                       ->getAsSymbolNode()
                                       ->variable()
                                       .getType();
-        // First, sort by precision: lowp and mediump are smaller than highp
-        if (firstType.getPrecision() != secondType.getPrecision())
-        {
-            return firstType.getPrecision() != TPrecision::EbpHigh;
-        }
-
-        // We don't sort highp uniforms. If both uniforms are highp, consider them as equivalent
-        if (firstType.getPrecision() == TPrecision::EbpHigh &&
-            secondType.getPrecision() == TPrecision::EbpHigh)
+        // If both uniforms are structs, do not reorder them
+        if (firstType.getStruct() != nullptr && secondType.getStruct() != nullptr)
         {
             return false;
         }
-        // If both uniforms are mediump or lowp, we further sort them based on a list of criteria
+
+        // Next sort by precisions
+        // Group uniforms into high-precision and non-high-precision. A non-highp uniform is
+        // considered "smaller" than a highp uniform.
+        const TPrecision firstPrecision  = firstType.getPrecision();
+        const TPrecision secondPrecision = secondType.getPrecision();
+        const bool firstIsHighP          = (firstPrecision == TPrecision::EbpHigh);
+        const bool secondIsHighP         = (secondPrecision == TPrecision::EbpHigh);
+        if (firstIsHighP != secondIsHighP)
+        {
+            return secondIsHighP;
+        }
+        // If both are highp, they are equivalent. Do not reorder them.
+        if (firstIsHighP)
+        {
+            return false;
+        }
+        // If we reach here, both uniforms are non-highp. We further sort them based on a list of
+        // criteria
         ASSERT(firstType.getPrecision() != TPrecision::EbpHigh &&
                secondType.getPrecision() != TPrecision::EbpHigh);
-        // criteria 1: sort by arrayness. Non-array element is smaller.
-        if (firstType.isArray() != secondType.isArray())
-        {
-            return !firstType.isArray();
-        }
-        // criteria 2: sort by whether the uniform is a struct. Non-structs is smaller.
+        // criteria 1: sort by whether the uniform is a struct. Non-structs is smaller.
         if ((firstType.getStruct() == nullptr) != (secondType.getStruct() == nullptr))
         {
             return firstType.getStruct() == nullptr;
         }
-        // If both are struct, place the one that has specifier in the front
-        if (firstType.getStruct() != nullptr && secondType.getStruct() != nullptr)
+        // criteria 2: sort by arrayness. Non-array element is smaller.
+        if (firstType.isArray() != secondType.isArray())
         {
-            return firstType.isStructSpecifier();
+            return !firstType.isArray();
         }
         // criteria 3, non-matrix is smaller than matrix
         if (firstType.isMatrix() != secondType.isMatrix())
@@ -377,23 +386,6 @@ int GetMaxUniformVectorsForShaderType(GLenum shaderType, const ShBuiltInResource
 namespace
 {
 
-class [[nodiscard]] TScopedPoolAllocator
-{
-  public:
-    TScopedPoolAllocator(angle::PoolAllocator *allocator) : mAllocator(allocator)
-    {
-        mAllocator->push();
-        SetGlobalPoolAllocator(mAllocator);
-    }
-    ~TScopedPoolAllocator()
-    {
-        SetGlobalPoolAllocator(nullptr);
-        mAllocator->pop(angle::PoolAllocator::ReleaseStrategy::All);
-    }
-
-  private:
-    angle::PoolAllocator *mAllocator;
-};
 
 class [[nodiscard]] TScopedSymbolTableLevel
 {
@@ -483,14 +475,12 @@ bool ValidateFragColorAndFragData(GLenum shaderType,
 
 TShHandleBase::TShHandleBase()
 {
-    allocator.push();
     SetGlobalPoolAllocator(&allocator);
 }
 
 TShHandleBase::~TShHandleBase()
 {
     SetGlobalPoolAllocator(nullptr);
-    allocator.popAll();
 }
 
 TCompiler::TCompiler(sh::GLenum type, ShShaderSpec spec, ShShaderOutput output)
@@ -645,9 +635,16 @@ TIntermBlock *TCompiler::compileTreeImpl(const char *const shaderStrings[],
     }
 
     TIntermBlock *root = parseContext.getTreeRoot();
-    if (!checkAndSimplifyAST(root, parseContext, compileOptions))
+    if (compileOptions.skipAllValidationAndTransforms)
     {
-        return nullptr;
+        collectVariables(root);
+    }
+    else
+    {
+        if (!checkAndSimplifyAST(root, parseContext, compileOptions))
+        {
+            return nullptr;
+        }
     }
 
     return root;
@@ -818,7 +815,10 @@ bool TCompiler::getShaderBinary(const ShHandle compilerHandle,
     gl::BinaryOutputStream stream;
     gl::ShaderType shaderType = gl::FromGLenum<gl::ShaderType>(mShaderType);
     gl::CompiledShaderState state(shaderType);
-    state.buildCompiledShaderState(compilerHandle, IsOutputSPIRV(mOutputType));
+    state.buildCompiledShaderState(
+        compilerHandle,
+        gl::JoinShaderSources(static_cast<GLsizei>(numStrings), shaderStrings, nullptr),
+        mOutputType);
 
     stream.writeBytes(
         reinterpret_cast<const unsigned char *>(angle::GetANGLEShaderProgramVersion()),
@@ -926,24 +926,6 @@ bool TCompiler::checkAndSimplifyAST(TIntermBlock *root,
     {
         if (!RemoveUnusedFramebufferFetch(this, root, &mSymbolTable))
         {
-            return false;
-        }
-    }
-
-    // For now, rewrite pixel local storage before collecting variables or any operations on images.
-    //
-    // TODO(anglebug.com/40096838):
-    //   Should this actually run after collecting variables?
-    //   Do we need more introspection?
-    //   Do we want to hide rewritten shader image uniforms from glGetActiveUniform?
-    if (hasPixelLocalStorageUniforms())
-    {
-        ASSERT(
-            IsExtensionEnabled(mExtensionBehavior, TExtension::ANGLE_shader_pixel_local_storage));
-        if (!RewritePixelLocalStorage(this, root, getSymbolTable(), compileOptions,
-                                      getShaderVersion()))
-        {
-            mDiagnostics.globalError("internal compiler error translating pixel local storage");
             return false;
         }
     }
@@ -1089,6 +1071,24 @@ bool TCompiler::checkAndSimplifyAST(TIntermBlock *root,
         return false;
     }
 
+    // For now, rewrite pixel local storage before collecting variables or any operations on images.
+    //
+    // TODO(anglebug.com/40096838):
+    //   Should this actually run after collecting variables?
+    //   Do we need more introspection?
+    //   Do we want to hide rewritten shader image uniforms from glGetActiveUniform?
+    if (hasPixelLocalStorageUniforms())
+    {
+        ASSERT(
+            IsExtensionEnabled(mExtensionBehavior, TExtension::ANGLE_shader_pixel_local_storage));
+        if (!RewritePixelLocalStorage(this, root, getSymbolTable(), compileOptions,
+                                      getShaderVersion()))
+        {
+            mDiagnostics.globalError("internal compiler error translating pixel local storage");
+            return false;
+        }
+    }
+
     // Clamping uniform array bounds needs to happen after validateLimitations pass.
     if (compileOptions.clampIndirectArrayBounds)
     {
@@ -1105,15 +1105,6 @@ bool TCompiler::checkAndSimplifyAST(TIntermBlock *root,
     {
         if (!DeclareAndInitBuiltinsForInstancedMultiview(
                 this, root, mNumViews, mShaderType, compileOptions, mOutputType, &mSymbolTable))
-        {
-            return false;
-        }
-    }
-
-    // This pass might emit short circuits so keep it before the short circuit unfolding
-    if (compileOptions.rewriteDoWhileLoops)
-    {
-        if (!RewriteDoWhile(this, root, &mSymbolTable))
         {
             return false;
         }
@@ -1141,6 +1132,17 @@ bool TCompiler::checkAndSimplifyAST(TIntermBlock *root,
         {
             return false;
         }
+    }
+
+    // https://crbug.com/437678149:
+    // On Mac, if ANGLE internal uniforms are not placed on the top of ANGLE_UserUniforms struct,
+    // the other user-defined uniforms are not intercepted correctly by the shader code.
+    // Sort user-defined uniforms first before adding ANGLE internal uniforms like
+    // angle_DrawID on top of them, so that the sort doesn't reorder the ANGLE internal uniforms
+    // and trigger the bug on Mac.
+    if (!sortUniforms(root))
+    {
+        return false;
     }
 
     if (mShaderType == GL_VERTEX_SHADER &&
@@ -1306,17 +1308,8 @@ bool TCompiler::checkAndSimplifyAST(TIntermBlock *root,
         }
     }
 
-    ASSERT(!mVariablesCollected);
-    if (!sortUniforms(root))
-    {
-        return false;
-    }
-    CollectVariables(root, &mAttributes, &mOutputVariables, &mUniforms, &mInputVaryings,
-                     &mOutputVaryings, &mSharedVariables, &mUniformBlocks, &mShaderStorageBlocks,
-                     mResources.HashFunction, &mSymbolTable, mShaderType, mExtensionBehavior,
-                     mResources, mTessControlShaderOutputVertices);
-    collectInterfaceBlocks();
-    mVariablesCollected = true;
+    collectVariables(root);
+
     if (compileOptions.useUnusedStandardSharedBlocks)
     {
         if (!useAllMembersInUnusedStandardAndSharedBlocks(root))
@@ -1515,7 +1508,7 @@ bool TCompiler::compile(const char *const shaderStrings[],
         compileOptions.flattenPragmaSTDGLInvariantAll = true;
     }
 
-    TScopedPoolAllocator scopedAlloc(&allocator);
+    TScopedPoolAllocator scopedAlloc;
     TIntermBlock *root = compileTreeImpl(shaderStrings, numStrings, compileOptions);
 
     if (root)
@@ -1604,6 +1597,10 @@ void TCompiler::setResourceString()
         << ":MaxTextureImageUnits:" << mResources.MaxTextureImageUnits
         << ":MaxFragmentUniformVectors:" << mResources.MaxFragmentUniformVectors
         << ":MaxDrawBuffers:" << mResources.MaxDrawBuffers
+        << ":ShadingRateFlag2VerticalPixelsEXT:" << mResources.ShadingRateFlag2VerticalPixelsEXT
+        << ":ShadingRateFlag2VerticalPixelsEXT:" << mResources.ShadingRateFlag2VerticalPixelsEXT
+        << ":ShadingRateFlag2HorizontalPixelsEXT:" << mResources.ShadingRateFlag2HorizontalPixelsEXT
+        << ":ShadingRateFlag4HorizontalPixelsEXT:" << mResources.ShadingRateFlag4HorizontalPixelsEXT
         << ":OES_standard_derivatives:" << mResources.OES_standard_derivatives
         << ":OES_EGL_image_external:" << mResources.OES_EGL_image_external
         << ":OES_EGL_image_external_essl3:" << mResources.OES_EGL_image_external_essl3
@@ -1657,6 +1654,8 @@ void TCompiler::setResourceString()
         << ":OES_tessellation_shader:" << mResources.OES_tessellation_shader
         << ":OES_texture_buffer:" << mResources.OES_texture_buffer
         << ":EXT_texture_buffer:" << mResources.EXT_texture_buffer
+        << ":EXT_fragment_shading_rate:" << mResources.EXT_fragment_shading_rate
+        << ":EXT_fragment_shading_rate_primitive:" << mResources.EXT_fragment_shading_rate_primitive
         << ":OES_sample_variables:" << mResources.OES_sample_variables
         << ":EXT_clip_cull_distance:" << mResources.EXT_clip_cull_distance
         << ":ANGLE_clip_cull_distance:" << mResources.ANGLE_clip_cull_distance
@@ -1723,6 +1722,17 @@ void TCompiler::setResourceString()
     // clang-format on
 
     mBuiltInResourcesString = strstream.str();
+}
+
+void TCompiler::collectVariables(TIntermBlock *root)
+{
+    ASSERT(!mVariablesCollected);
+    CollectVariables(root, &mAttributes, &mOutputVariables, &mUniforms, &mInputVaryings,
+                     &mOutputVaryings, &mSharedVariables, &mUniformBlocks, &mShaderStorageBlocks,
+                     mResources.UserVariableNamePrefix, mResources.HashFunction, &mSymbolTable,
+                     mShaderType, mExtensionBehavior, mResources, mTessControlShaderOutputVertices);
+    collectInterfaceBlocks();
+    mVariablesCollected = true;
 }
 
 void TCompiler::collectInterfaceBlocks()

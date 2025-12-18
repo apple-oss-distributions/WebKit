@@ -28,6 +28,7 @@
 
 #if PLATFORM(MAC)
 
+#import "ColorCocoa.h"
 #import "FloatPoint.h"
 #import "IntRect.h"
 #import "NSScrollerImpDetails.h"
@@ -36,6 +37,7 @@
 #import "ScrollerPairMac.h"
 #import "ScrollingTreeScrollingNode.h"
 #import <QuartzCore/CALayer.h>
+#import <QuartzCore/QuartzCore.h>
 #import <pal/spi/mac/NSScrollerImpSPI.h>
 #import <wtf/BlockObjCExceptions.h>
 
@@ -100,7 +102,7 @@ enum class FeatureToAnimate {
     else
         currentValue = progress;
 
-    _scroller->updateProgress(_featureToAnimate, currentValue);
+    CheckedPtr { _scroller }->updateProgress(_featureToAnimate, currentValue);
 }
 
 - (void)invalidate
@@ -205,9 +207,10 @@ enum class FeatureToAnimate {
         scrollbarPartAnimation = nil;
     }
 
-    CGFloat currentAlpha = featureToAnimate == FeatureToAnimate::KnobAlpha ? _scroller->knobAlpha() : _scroller->trackAlpha();
+    CheckedPtr scroller = _scroller;
+    CGFloat currentAlpha = featureToAnimate == FeatureToAnimate::KnobAlpha ? scroller->knobAlpha() : scroller->trackAlpha();
 
-    scrollbarPartAnimation = adoptNS([[WebScrollbarPartAnimationMac alloc] initWithScroller:_scroller.get()
+    scrollbarPartAnimation = adoptNS([[WebScrollbarPartAnimationMac alloc] initWithScroller:scroller.get()
         featureToAnimate:featureToAnimate
         animateFrom:currentAlpha
         animateTo:newAlpha
@@ -318,12 +321,17 @@ ScrollerMac::~ScrollerMac()
 void ScrollerMac::attach()
 {
     Locker locker { m_scrollerImpLock };
+
+    [CATransaction lock];
+
     RefPtr pair = m_pair.get();
 
     [m_scrollerImpDelegate invalidate];
     m_scrollerImpDelegate = adoptNS([[WebScrollerImpDelegateMac alloc] initWithScroller:this]);
     setScrollerImp([NSScrollerImp scrollerImpWithStyle:nsScrollerStyle(pair->scrollbarStyle()) controlSize:nsControlSizeFromScrollbarWidth(pair->scrollbarWidthStyle()) horizontal:m_orientation == ScrollbarOrientation::Horizontal replacingScrollerImp:nil]);
     [m_scrollerImp setDelegate:m_scrollerImpDelegate.get()];
+
+    [CATransaction unlock];
 }
 
 void ScrollerMac::detach()
@@ -350,6 +358,9 @@ void ScrollerMac::setHostLayer(CALayer *layer)
 void ScrollerMac::setHiddenByStyle(NativeScrollbarVisibility visibility)
 {
     Locker locker { m_scrollerImpLock };
+
+    [CATransaction lock];
+
     m_isHiddenByStyle = visibility != NativeScrollbarVisibility::Visible;
     if (m_isHiddenByStyle) {
         detach();
@@ -360,6 +371,8 @@ void ScrollerMac::setHiddenByStyle(NativeScrollbarVisibility visibility)
         updateValues();
     }
     updatePairScrollerImps();
+
+    [CATransaction unlock];
 }
 
 void ScrollerMac::updateValues()
@@ -376,13 +389,18 @@ void ScrollerMac::updateValues()
     [m_scrollerImp setDoubleValue:values.value];
     [m_scrollerImp setPresentationValue:values.value];
     [m_scrollerImp setKnobProportion:values.proportion];
-
+#if HAVE(APPKIT_SCROLLBAR_COLOR_SPI)
+    [m_scrollerImp setTrackColor:m_trackColor.get()];
+    [m_scrollerImp setKnobColor:m_thumbColor.get()];
+#endif
     END_BLOCK_OBJC_EXCEPTIONS
 }
 
 void ScrollerMac::updateScrollbarStyle()
 {
     Locker locker { m_scrollerImpLock };
+
+    [CATransaction lock];
 
     RefPtr pair = m_pair.get();
     setScrollerImp([NSScrollerImp scrollerImpWithStyle:nsScrollerStyle(pair->scrollbarStyle()) controlSize:nsControlSizeFromScrollbarWidth(pair->scrollbarWidthStyle()) horizontal:m_orientation == ScrollbarOrientation::Horizontal replacingScrollerImp:nil]);
@@ -392,6 +410,8 @@ void ScrollerMac::updateScrollbarStyle()
 
     updatePairScrollerImps();
     updateValues();
+
+    [CATransaction unlock];
 }
 
 void ScrollerMac::updatePairScrollerImps()
@@ -499,6 +519,18 @@ void ScrollerMac::setNeedsDisplay()
     [m_scrollerImp setNeedsDisplay:YES];
 }
 
+void ScrollerMac::scrollbarColorChanged(const std::optional<ScrollbarColor>& scrollbarColor)
+{
+    if (scrollbarColor) {
+        m_trackColor = cocoaColor(scrollbarColor->trackColor);
+        m_thumbColor = cocoaColor(scrollbarColor->thumbColor);
+    } else {
+        m_trackColor = nullptr;
+        m_thumbColor = nullptr;
+    }
+    updateValues();
+}
+
 RetainPtr<NSScrollerImp> ScrollerMac::takeScrollerImp()
 {
     Locker locker { m_scrollerImpLock };
@@ -515,8 +547,7 @@ void ScrollerMac::setUsePresentationValue(bool inMomentumPhase)
 
 void ScrollerMac::updateProgress(FeatureToAnimate featureToAnimate, double currentValue)
 {
-    Locker locker { m_scrollerImpLock };
-
+    // CATransaction lock should be held when this function is called
     switch (featureToAnimate) {
     case FeatureToAnimate::KnobAlpha:
         [m_scrollerImp setKnobAlpha:currentValue];
@@ -590,6 +621,17 @@ String ScrollerMac::scrollbarState() const
     if ([m_scrollerImp controlSize] != NSControlSizeRegular)
         result.append(",thin"_s);
 
+#if HAVE(APPKIT_SCROLLBAR_COLOR_SPI)
+    if ([m_scrollerImp trackColor] != nil) {
+        result.append(",trackColor:"_s);
+        result.append(colorFromCocoaColor([m_scrollerImp trackColor]).debugDescription());
+    }
+
+    if ([m_scrollerImp knobColor] != nil) {
+        result.append(",knobColor:"_s);
+        result.append(colorFromCocoaColor([m_scrollerImp knobColor]).debugDescription());
+    }
+#endif
     return result.toString();
 }
 

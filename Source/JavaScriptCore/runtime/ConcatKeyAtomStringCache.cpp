@@ -26,7 +26,7 @@
 #include "config.h"
 #include "ConcatKeyAtomStringCache.h"
 
-#include "AbstractSlotVisitor.h"
+#include "SlotVisitorInlines.h"
 #include <wtf/TZoneMallocInlines.h>
 
 namespace JSC {
@@ -36,9 +36,15 @@ WTF_MAKE_TZONE_ALLOCATED_IMPL(ConcatKeyAtomStringCache);
 template<typename Visitor>
 void ConcatKeyAtomStringCache::visitAggregateImpl(Visitor& visitor)
 {
-    Locker locker { m_lock };
-    for (auto& entry : m_cache)
-        visitor.appendUnbarriered(entry.value);
+    {
+        Locker locker { m_lock };
+        for (auto& entry : m_cache)
+            visitor.appendUnbarriered(entry.value);
+    }
+    for (auto& entry : m_quickCache) {
+        visitor.append(entry.m_key);
+        visitor.append(entry.m_value);
+    }
 }
 
 DEFINE_VISIT_AGGREGATE(ConcatKeyAtomStringCache);

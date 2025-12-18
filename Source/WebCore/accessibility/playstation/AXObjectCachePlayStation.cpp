@@ -26,11 +26,16 @@
 #include "config.h"
 #include "AXObjectCache.h"
 
+#include "AXNotifications.h"
 #include "AccessibilityObject.h"
 #include "Chrome.h"
 #include "ChromeClient.h"
+#include "DocumentPage.h"
+#include "DocumentView.h"
+#include "FrameDestructionObserverInlines.h"
 #include "HTMLSelectElement.h"
 #include "LocalFrame.h"
+#include "NodeDocument.h"
 #include "Page.h"
 
 namespace WebCore {
@@ -115,17 +120,20 @@ void AXObjectCache::nodeTextChangePlatformNotification(AccessibilityObject* obje
     client.postAccessibilityNodeTextChangeNotification(object, textChange, offset, text);
 }
 
-void AXObjectCache::frameLoadingEventPlatformNotification(AccessibilityObject* object, AXLoadingEvent loadingEvent)
+void AXObjectCache::frameLoadingEventPlatformNotification(RenderView* renderView, AXLoadingEvent loadingEvent)
 {
-    if (!document()
-        || !object
+    if (!renderView || !document())
+        return;
+
+    RefPtr object = getOrCreate(*renderView);
+    if (!object
         || !object->document()
         || !object->document()->view()
         || object->document()->view()->layoutContext().layoutState()
         || object->document()->childNeedsStyleRecalc())
         return;
     ChromeClient& client = document()->frame()->page()->chrome().client();
-    client.postAccessibilityFrameLoadingEventNotification(object, loadingEvent);
+    client.postAccessibilityFrameLoadingEventNotification(object.get(), loadingEvent);
 }
 
 void AXObjectCache::handleScrolledToAnchor(const Node& scrolledToNode)

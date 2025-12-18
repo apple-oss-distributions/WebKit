@@ -45,7 +45,7 @@ std::unique_ptr<SandboxExtensionImpl> SandboxExtensionImpl::create(const char* p
 }
 
 SandboxExtensionImpl::SandboxExtensionImpl(std::span<const uint8_t> serializedFormat)
-    : m_token { serializedFormat }
+    : m_token { byteCast<Latin1Character>(serializedFormat) }
 {
     ASSERT(!serializedFormat.empty());
 }
@@ -127,6 +127,11 @@ SandboxExtensionHandle::SandboxExtensionHandle()
 {
 }
 
+SandboxExtensionHandle::SandboxExtensionHandle(const SandboxExtensionHandle& handle)
+{
+    m_sandboxExtension = WTF::makeUnique<SandboxExtensionImpl>(handle.m_sandboxExtension->getSerializedFormat());
+}
+
 SandboxExtensionHandle::SandboxExtensionHandle(SandboxExtensionHandle&&) = default;
 SandboxExtensionHandle& SandboxExtensionHandle::operator=(SandboxExtensionHandle&&) = default;
 
@@ -182,9 +187,11 @@ auto SandboxExtension::createHandleWithoutResolvingPath(StringView path, Type ty
 
     handle.m_sandboxExtension = SandboxExtensionImpl::create(path.utf8().data(), type, std::nullopt, Flags::DoNotCanonicalize);
     if (!handle.m_sandboxExtension) {
-        RELEASE_LOG_ERROR(Sandbox, "Could not create a sandbox extension for '%s'", path.utf8().data());
+        RELEASE_LOG_ERROR(Sandbox, "Could not create a sandbox extension for '%{private}s'", path.utf8().data());
         return std::nullopt;
     }
+
+    RELEASE_LOG(Sandbox, "Successfully created a sandbox extension for '%{private}s'", path.utf8().data());
     return WTFMove(handle);
 }
 
@@ -317,10 +324,11 @@ auto SandboxExtension::createHandleForReadByAuditToken(StringView path, audit_to
 
     handle.m_sandboxExtension = SandboxExtensionImpl::create(path.utf8().data(), Type::ReadByProcess, auditToken);
     if (!handle.m_sandboxExtension) {
-        RELEASE_LOG_ERROR(Sandbox, "Could not create a sandbox extension for '%s'", path.utf8().data());
+        RELEASE_LOG_ERROR(Sandbox, "Could not create a sandbox extension for '%{private}s'", path.utf8().data());
         return std::nullopt;
     }
     
+    RELEASE_LOG(Sandbox, "Successfully created sandbox extension for '%{private}s'", path.utf8().data());
     return WTFMove(handle);
 }
 

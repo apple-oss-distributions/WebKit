@@ -25,10 +25,12 @@
 
 #include "config.h"
 #include "AXTextRun.h"
+
 #include "Logging.h"
 
 #if ENABLE(AX_THREAD_TEXT_APIS)
 
+#include <algorithm>
 #include <wtf/text/MakeString.h>
 
 namespace WebCore {
@@ -136,6 +138,8 @@ FloatRect AXTextRuns::localRect(unsigned start, unsigned end, FontOrientation or
         unsigned startIndexInRun = startIndex - offsetOfFirstCharacterInRun;
         unsigned endIndexInRun = endIndex - offsetOfFirstCharacterInRun;
         ASSERT(startIndexInRun <= endIndexInRun);
+        ASSERT(endIndexInRun <= characterAdvances.size());
+        endIndexInRun = std::min(endIndexInRun, static_cast<unsigned>(characterAdvances.size()));
         for (size_t i = startIndexInRun; i < endIndexInRun; i++)
             totalAdvance += (float)characterAdvances[i];
         return totalAdvance;

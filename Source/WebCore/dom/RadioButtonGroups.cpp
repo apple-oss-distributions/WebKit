@@ -21,7 +21,9 @@
 #include "config.h"
 #include "RadioButtonGroups.h"
 
+#include "AXObjectCache.h"
 #include "HTMLInputElement.h"
+#include "NodeDocument.h"
 #include "Range.h"
 #include <ranges>
 #include <wtf/HashSet.h>
@@ -203,6 +205,11 @@ bool RadioButtonGroup::contains(HTMLInputElement& button) const
 RadioButtonGroups::RadioButtonGroups() = default;
 RadioButtonGroups::~RadioButtonGroups() = default;
 
+void RadioButtonGroups::clear()
+{
+    m_nameToGroupMap.clear();
+}
+
 void RadioButtonGroups::addButton(HTMLInputElement& element)
 {
     ASSERT(element.isRadioButton());
@@ -213,6 +220,9 @@ void RadioButtonGroups::addButton(HTMLInputElement& element)
     if (!group)
         group = makeUnique<RadioButtonGroup>();
     group->add(element);
+
+    if (CheckedPtr cache = element.protectedDocument()->existingAXObjectCache())
+        cache->onRadioGroupMembershipChanged(element);
 }
 
 Vector<Ref<HTMLInputElement>> RadioButtonGroups::groupMembers(const HTMLInputElement& element) const
@@ -287,6 +297,9 @@ void RadioButtonGroups::removeButton(HTMLInputElement& element)
     it->value->remove(element);
     if (it->value->isEmpty())
         m_nameToGroupMap.remove(it);
+
+    if (CheckedPtr cache = element.protectedDocument()->existingAXObjectCache())
+        cache->onRadioGroupMembershipChanged(element);
 }
 
 } // namespace

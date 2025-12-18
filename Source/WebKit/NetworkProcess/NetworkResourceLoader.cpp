@@ -105,7 +105,7 @@ namespace WebKit {
 using namespace WebCore;
 
 struct NetworkResourceLoader::SynchronousLoadData {
-    WTF_MAKE_STRUCT_FAST_ALLOCATED;
+    WTF_DEPRECATED_MAKE_STRUCT_FAST_ALLOCATED(NetworkResourceLoader);
 
     SynchronousLoadData(CompletionHandler<void(const ResourceError&, const ResourceResponse, Vector<uint8_t>&&)>&& reply)
         : delayedReply(WTFMove(reply))
@@ -284,21 +284,26 @@ void NetworkResourceLoader::startRequest(const ResourceRequest& newRequest)
 }
 
 #if ENABLE(CONTENT_FILTERING)
-bool NetworkResourceLoader::startContentFiltering(ResourceRequest& request)
+void NetworkResourceLoader::startContentFiltering(ResourceRequest&& request, CompletionHandler<void(ResourceRequest)>&& completionHandler)
 {
-    if (!isMainResource())
-        return true;
+    if (!isMainResource()) {
+        completionHandler(WTFMove(request));
+        return;
+    }
     m_contentFilter = ContentFilter::create(*this);
     CheckedPtr contentFilter = m_contentFilter.get();
 #if HAVE(AUDIT_TOKEN)
     contentFilter->setHostProcessAuditToken(protectedConnectionToWebProcess()->networkProcess().sourceApplicationAuditToken());
 #endif
     contentFilter->startFilteringMainResource(request.url());
-    if (!contentFilter->continueAfterWillSendRequest(request, ResourceResponse())) {
-        contentFilter->stopFilteringMainResource();
-        return false;
-    }
-    return true;
+
+    CompletionHandler<void(ResourceRequest)> completion = [contentFilter, completionHandler = WTFMove(completionHandler)](ResourceRequest&& request) mutable {
+        ASSERT(isMainRunLoop());
+        if (CheckedPtr filter = std::exchange(contentFilter, nullptr); request.isNull())
+            filter->stopFilteringMainResource();
+        completionHandler(WTFMove(request));
+    };
+    contentFilter->continueAfterWillSendRequest(WTFMove(request), ResourceResponse(), WTFMove(completion));
 }
 
 #endif
@@ -466,7 +471,7 @@ ResourceLoadInfo NetworkResourceLoader::resourceLoadInfo()
         case ResourceResponse::Source::DiskCacheAfterValidation:
         case ResourceResponse::Source::MemoryCache:
         case ResourceResponse::Source::MemoryCacheAfterValidation:
-        case ResourceResponse::Source::ApplicationCache:
+        case ResourceResponse::Source::LegacyApplicationCachePlaceholder:
         case ResourceResponse::Source::DOMCache:
             return true;
         case ResourceResponse::Source::Unknown:
@@ -502,6 +507,8 @@ ResourceLoadInfo NetworkResourceLoader::resourceLoadInfo()
         case WebCore::FetchOptions::Destination::Document:
         case WebCore::FetchOptions::Destination::Iframe:
             return ResourceLoadInfo::Type::Document;
+        case WebCore::FetchOptions::Destination::Json:
+            return ResourceLoadInfo::Type::Script;
         case WebCore::FetchOptions::Destination::Embed:
             return ResourceLoadInfo::Type::Object;
         case WebCore::FetchOptions::Destination::Environmentmap:
@@ -525,6 +532,8 @@ ResourceLoadInfo NetworkResourceLoader::resourceLoadInfo()
         case WebCore::FetchOptions::Destination::Serviceworker:
             return ResourceLoadInfo::Type::Other;
         case WebCore::FetchOptions::Destination::Sharedworker:
+            return ResourceLoadInfo::Type::Other;
+        case WebCore::FetchOptions::Destination::Speculationrules:
             return ResourceLoadInfo::Type::Other;
         case WebCore::FetchOptions::Destination::Style:
             return ResourceLoadInfo::Type::Stylesheet;
@@ -1241,7 +1250,7 @@ std::optional<Seconds> NetworkResourceLoader::validateCacheEntryForMaxAgeCapVali
     
     if (!existingCacheEntryMatchesNewResponse) {
         if (CheckedPtr networkStorageSession = protectedConnectionToWebProcess()->networkProcess().storageSession(sessionID()))
-            return networkStorageSession->maxAgeCacheCap(request);
+            return networkStorageSession->maxAgeCacheCap(request, NetworkSession::isRequestToKnownCrossSiteTracker(request));
     }
     return std::nullopt;
 }
@@ -1984,7 +1993,7 @@ void NetworkResourceLoader::logCookieInformation(NetworkConnectionToWebProcess& 
 {
     ASSERT(shouldLogCookieInformation(connection, networkStorageSession.sessionID()));
 
-    if (networkStorageSession.shouldBlockCookies(firstParty, url, frameID, pageID, ShouldRelaxThirdPartyCookieBlocking::No))
+    if (networkStorageSession.shouldBlockCookies(firstParty, url, frameID, pageID, ShouldRelaxThirdPartyCookieBlocking::No, IsKnownCrossSiteTracker::No))
         logBlockedCookieInformation(connection, label, loggedObject, networkStorageSession, firstParty, sameSiteInfo, url, referrer, frameID, pageID, identifier);
     else
         logCookieInformationInternal(connection, label, loggedObject, networkStorageSession, firstParty, sameSiteInfo, url, referrer, frameID, pageID, identifier);
@@ -2010,7 +2019,7 @@ void NetworkResourceLoader::logSlowCacheRetrieveIfNeeded(const NetworkCache::Cac
     if (duration < 1_s)
         return;
     LOADER_RELEASE_LOG("logSlowCacheRetrieveIfNeeded: Took %.0fms, priority %d", duration.milliseconds(), info.priority);
-    if (info.wasSpeculativeLoad)
+    if (info.speculativeLoadDecision && *info.speculativeLoadDecision == NetworkCache::SpeculativeLoadDecision::Yes)
         LOADER_RELEASE_LOG("logSlowCacheRetrieveIfNeeded: Was speculative load");
     if (!info.storageTimings.startTime)
         return;
@@ -2035,8 +2044,7 @@ void NetworkResourceLoader::logSlowCacheRetrieveIfNeeded(const NetworkCache::Cac
 
 bool NetworkResourceLoader::isCrossOriginPrefetch() const
 {
-    auto& request = originalRequest();
-    return request.httpHeaderField(HTTPHeaderName::SecPurpose) == "prefetch"_s && !m_parameters.protectedSourceOrigin()->canRequest(request.url(), connectionToWebProcess().originAccessPatterns());
+    return parameters().isInitiatorPrefetch && !m_parameters.protectedSourceOrigin()->canRequest(originalRequest().url(), connectionToWebProcess().originAccessPatterns());
 }
 
 void NetworkResourceLoader::setWorkerStart(MonotonicTime value)
@@ -2049,23 +2057,31 @@ void NetworkResourceLoader::startWithServiceWorker()
 {
     LOADER_RELEASE_LOG("startWithServiceWorker:");
 
-    auto newRequest = ResourceRequest { originalRequest() };
+    CompletionHandler<void(ResourceRequest)> completionHandler = [protectedThis = Ref { *this }](ResourceRequest&& request) {
+        ASSERT(RunLoop::isMain());
+
+        if (request.isNull())
+            return;
+
+        ASSERT(!protectedThis->m_serviceWorkerFetchTask);
+        protectedThis->m_serviceWorkerFetchTask = protectedThis->protectedConnectionToWebProcess()->createFetchTask(protectedThis, request);
+        if (protectedThis->m_serviceWorkerFetchTask) {
+            LOADER_RELEASE_LOG_WITH_THIS(protectedThis, "startWithServiceWorker: Created a ServiceWorkerFetchTask (fetchIdentifier=%" PRIu64 ")", protectedThis->m_serviceWorkerFetchTask->fetchIdentifier().toUInt64());
+            return;
+        }
+
+        if (protectedThis->abortIfServiceWorkersOnly())
+            return;
+
+        protectedThis->startRequest(WTFMove(request));
+    };
+
+    ResourceRequest newRequest { originalRequest() };
 #if ENABLE(CONTENT_FILTERING)
-    if (!startContentFiltering(newRequest))
-        return;
+    startContentFiltering(WTFMove(newRequest), WTFMove(completionHandler));
+#else
+    completionHandler(WTFMove(newRequest));
 #endif
-
-    ASSERT(!m_serviceWorkerFetchTask);
-    m_serviceWorkerFetchTask = protectedConnectionToWebProcess()->createFetchTask(*this, newRequest);
-    if (m_serviceWorkerFetchTask) {
-        LOADER_RELEASE_LOG("startWithServiceWorker: Created a ServiceWorkerFetchTask (fetchIdentifier=%" PRIu64 ")", m_serviceWorkerFetchTask->fetchIdentifier().toUInt64());
-        return;
-    }
-
-    if (abortIfServiceWorkersOnly())
-        return;
-
-    startRequest(newRequest);
 }
 
 bool NetworkResourceLoader::abortIfServiceWorkersOnly()
@@ -2167,19 +2183,19 @@ void NetworkResourceLoader::dataReceivedThroughContentFilter(const SharedBuffer&
     sendDidReceiveDataMessage(buffer);
 }
 
-WebCore::ResourceError NetworkResourceLoader::contentFilterDidBlock(WebCore::ContentFilterUnblockHandler unblockHandler, String&& unblockRequestDeniedScript)
+WebCore::ResourceError NetworkResourceLoader::contentFilterDidBlock(WebCore::ContentFilterUnblockHandler&& unblockHandler, String&& unblockRequestDeniedScript)
 {
     auto error = WebKit::blockedByContentFilterError(m_parameters.request);
     CheckedPtr contentFilter = m_contentFilter.get();
 
-    m_unblockHandler = unblockHandler;
+    m_unblockHandler = WTFMove(unblockHandler);
     m_unblockRequestDeniedScript = unblockRequestDeniedScript;
     
-    if (unblockHandler.needsUIProcess()) {
+    if (m_unblockHandler.needsUIProcess()) {
         contentFilter->setBlockedError(error);
         contentFilter->handleProvisionalLoadFailure(error);
     } else {
-        unblockHandler.requestUnblockAsync([this, protectedThis = Ref { *this }, contentFilter](bool unblocked) mutable {
+        m_unblockHandler.requestUnblockAsync([this, protectedThis = Ref { *this }, contentFilter](bool unblocked) mutable {
             m_unblockHandler.setUnblockedAfterRequest(unblocked);
 
             ResourceRequest request;

@@ -41,6 +41,7 @@
 #import "RemoteLayerTreeDrawingAreaProxyIOS.h"
 #import "SmartMagnificationController.h"
 #import "UIKitSPI.h"
+#import "UIKitUtilities.h"
 #import "VisibleContentRectUpdateInfo.h"
 #import "WKBrowsingContextGroupPrivate.h"
 #import "WKInspectorHighlightView.h"
@@ -59,6 +60,8 @@
 #import "_WKFrameHandleInternal.h"
 #import "_WKWebViewPrintFormatterInternal.h"
 #import <CoreGraphics/CoreGraphics.h>
+#import <WebCore/AXObjectCache.h>
+#import <WebCore/AXRemoteTokenIOS.h>
 #import <WebCore/AccessibilityObject.h>
 #import <WebCore/FloatConversion.h>
 #import <WebCore/FloatQuad.h>
@@ -77,15 +80,21 @@
 #import <wtf/cocoa/RuntimeApplicationChecksCocoa.h>
 #import <wtf/cocoa/SpanCocoa.h>
 #import <wtf/cocoa/VectorCocoa.h>
+#import <wtf/darwin/DispatchExtras.h>
 #import <wtf/text/MakeString.h>
 #import <wtf/text/TextStream.h>
 #import <wtf/threads/BinarySemaphore.h>
-#import "AppKitSoftLink.h"
 
 #if USE(EXTENSIONKIT)
 #import <UIKit/UIInteraction.h>
 #import "ExtensionKitSPI.h"
 #endif
+
+#if ENABLE(MODEL_PROCESS)
+#import "ModelPresentationManagerProxy.h"
+#endif
+
+#import "AppKitSoftLink.h"
 
 @interface _WKPrintFormattingAttributes : NSObject
 @property (nonatomic, readonly) size_t pageCount;
@@ -217,7 +226,7 @@ typedef NS_ENUM(NSInteger, _WKPrintRenderingCallbackType) {
 #if USE(EXTENSIONKIT)
     RetainPtr<UIView> _visibilityPropagationViewForWebProcess;
     RetainPtr<UIView> _visibilityPropagationViewForGPUProcess;
-    RetainPtr<NSHashTable<WKVisibilityPropagationView *>> _visibilityPropagationViews;
+    RetainPtr<NSMutableSet<WKVisibilityPropagationView *>> _visibilityPropagationViews;
 #else
 #if HAVE(NON_HOSTING_VISIBILITY_PROPAGATION_VIEW)
     RetainPtr<_UINonHostingVisibilityPropagationView> _visibilityPropagationViewForWebProcess;
@@ -252,7 +261,7 @@ typedef NS_ENUM(NSInteger, _WKPrintRenderingCallbackType) {
 
     _page = processPool.createWebPage(*_pageClient, WTFMove(configuration));
     auto& pageConfiguration = _page->configuration();
-    _page->initializeWebPage(pageConfiguration.openedSite(), pageConfiguration.initialSandboxFlags());
+    _page->initializeWebPage(pageConfiguration.openedSite(), pageConfiguration.initialSandboxFlags(), pageConfiguration.initialReferrerPolicy());
 
     [self _updateRuntimeProtocolConformanceIfNeeded];
 
@@ -523,7 +532,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
         }
     });
 
-    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), deleteTemporaryFiles.get());
+    dispatch_async(globalDispatchQueueSingleton(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), deleteTemporaryFiles.get());
 }
 
 - (void)_removeTemporaryDirectoriesWhenDeallocated:(Vector<RetainPtr<NSURL>>&&)urls
@@ -657,11 +666,6 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     [_textInteractionWrapper deactivateSelection];
 }
 
-static WebCore::FloatBoxExtent floatBoxExtent(UIEdgeInsets insets)
-{
-    return { WebCore::narrowPrecisionToFloatFromCGFloat(insets.top), WebCore::narrowPrecisionToFloatFromCGFloat(insets.right), WebCore::narrowPrecisionToFloatFromCGFloat(insets.bottom), WebCore::narrowPrecisionToFloatFromCGFloat(insets.left) };
-}
-
 - (CGRect)_computeUnobscuredContentRectRespectingInputViewBounds:(CGRect)unobscuredContentRect inputViewBounds:(CGRect)inputViewBounds
 {
     // The input view bounds are in window coordinates, but the unobscured rect is in content coordinates. Account for this by converting input view bounds to content coordinates.
@@ -703,17 +707,18 @@ static WebCore::FloatBoxExtent floatBoxExtent(UIEdgeInsets insets)
     WebKit::VisibleContentRectUpdateInfo visibleContentRectUpdateInfo(
         visibleContentRect,
         unobscuredContentRect,
-        floatBoxExtent(contentInsets),
+        WebKit::floatBoxExtent(contentInsets),
         unobscuredRectInScrollViewCoordinates,
         unobscuredContentRectRespectingInputViewBounds,
         fixedPositionRectForLayout,
-        floatBoxExtent(obscuredInsets),
-        floatBoxExtent(unobscuredSafeAreaInsets),
+        WebKit::floatBoxExtent(obscuredInsets),
+        WebKit::floatBoxExtent(unobscuredSafeAreaInsets),
         zoomScale,
         viewStability,
         !!_sizeChangedSinceLastVisibleContentRectUpdate,
         !!self.webView._allowsViewportShrinkToFit,
         !!enclosedInScrollableAncestorView,
+        self.webView->_needsScrollend,
         velocityData,
         downcast<WebKit::RemoteLayerTreeDrawingAreaProxy>(*drawingArea).lastCommittedMainFrameLayerTreeTransactionID());
 
@@ -727,6 +732,7 @@ static WebCore::FloatBoxExtent floatBoxExtent(UIEdgeInsets insets)
     _page->adjustLayersForLayoutViewport(_page->unobscuredContentRect().location(), layoutViewport, _page->displayedContentScale());
 
     _sizeChangedSinceLastVisibleContentRectUpdate = NO;
+    self.webView->_needsScrollend = NO;
 
     drawingArea->updateDebugIndicator();
 
@@ -738,6 +744,7 @@ static WebCore::FloatBoxExtent floatBoxExtent(UIEdgeInsets insets)
 
 - (void)didFinishScrolling
 {
+    self.webView->_needsScrollend = YES;
     [self _didEndScrollingOrZooming];
 }
 
@@ -830,10 +837,10 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     [self _accessibilityRegisterUIProcessTokens];
 }
 
-static void storeAccessibilityRemoteConnectionInformation(id element, pid_t pid, NSUUID *uuid)
+static void storeAccessibilityRemoteConnectionInformation(id element, pid_t pid, WTF::UUID uuid)
 {
     // The accessibility bundle needs to know the uuid, pid and mach_port that this object will refer to.
-    objc_setAssociatedObject(element, (void*)[@"ax-uuid" hash], uuid, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    objc_setAssociatedObject(element, (void*)[@"ax-uuid" hash], uuid.createNSUUID().get(), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     objc_setAssociatedObject(element, (void*)[@"ax-pid" hash], @(pid), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 }
 
@@ -850,25 +857,21 @@ static void storeAccessibilityRemoteConnectionInformation(id element, pid_t pid,
         return;
 
     if (registerProcess)
-        [WebKit::getNSAccessibilityRemoteUIElementClass() registerRemoteUIProcessIdentifier:pid];
+        [WebKit::getNSAccessibilityRemoteUIElementClassSingleton() registerRemoteUIProcessIdentifier:pid];
     else
-        [WebKit::getNSAccessibilityRemoteUIElementClass() unregisterRemoteUIProcessIdentifier:pid];
+        [WebKit::getNSAccessibilityRemoteUIElementClassSingleton() unregisterRemoteUIProcessIdentifier:pid];
 #endif
 }
 
 - (void)_accessibilityRegisterUIProcessTokens
 {
-    auto uuid = [NSUUID UUID];
-    if (RetainPtr remoteElementToken = WebCore::Accessibility::newAccessibilityRemoteToken(uuid.UUIDString)) {
         // Store information about the WebProcess that can later be retrieved by the iOS Accessibility runtime.
-        if (_page->legacyMainFrameProcess().state() == WebKit::WebProcessProxy::State::Running) {
-            [self _updateRemoteAccessibilityRegistration:YES];
-            storeAccessibilityRemoteConnectionInformation(self, _page->legacyMainFrameProcess().processID(), uuid);
+    if (_page->legacyMainFrameProcess().state() == WebKit::WebProcessProxy::State::Running) {
+        [self _updateRemoteAccessibilityRegistration:YES];
+        auto elementToken = WebCore::AccessibilityRemoteToken(WTF::UUID::createVersion4(), getpid());
 
-            auto elementToken = makeVector(remoteElementToken.get());
-            _page->registerUIProcessAccessibilityTokens(elementToken, elementToken);
-        }
-
+        storeAccessibilityRemoteConnectionInformation(self, _page->legacyMainFrameProcess().processID(), elementToken.uuid);
+        _page->registerUIProcessAccessibilityTokens(elementToken, elementToken);
     }
 }
 
@@ -970,7 +973,7 @@ static void storeAccessibilityRemoteConnectionInformation(id element, pid_t pid,
 - (WKVisibilityPropagationView *)_createVisibilityPropagationView
 {
     if (!_visibilityPropagationViews)
-        _visibilityPropagationViews = [NSHashTable weakObjectsHashTable];
+        _visibilityPropagationViews = adoptNS([[NSMutableSet alloc] init]);
 
     RetainPtr visibilityPropagationView = adoptNS([[WKVisibilityPropagationView alloc] init]);
     [_visibilityPropagationViews addObject:visibilityPropagationView.get()];
@@ -984,6 +987,12 @@ static void storeAccessibilityRemoteConnectionInformation(id element, pid_t pid,
 #endif
 
     return visibilityPropagationView.autorelease();
+}
+
+- (void)_removeVisibilityPropagationView:(UIView *)view
+{
+    if (RetainPtr visibilityPropagationView = dynamic_objc_cast<WKVisibilityPropagationView>(view))
+        [_visibilityPropagationViews removeObject:visibilityPropagationView.get()];
 }
 #endif // USE(EXTENSIONKIT)
 #endif // HAVE(VISIBILITY_PROPAGATION_VIEW)
@@ -1085,6 +1094,14 @@ static void storeAccessibilityRemoteConnectionInformation(id element, pid_t pid,
     return [_webView _targetContentZoomScaleForRect:targetRect currentScale:currentScale fitEntireRect:fitEntireRect minimumScale:minimumScale maximumScale:maximumScale];
 }
 
+#if ENABLE(MODEL_PROCESS)
+- (void)_setTransform3DForModelViews:(CGFloat)newScale
+{
+    if (RefPtr modelPresentationManager = _page->modelPresentationManagerProxy())
+        modelPresentationManager->pageScaleDidChange(newScale);
+}
+#endif
+
 - (void)_applicationWillResignActive:(NSNotification*)notification
 {
     _page->applicationWillResignActive();
@@ -1110,6 +1127,11 @@ static void storeAccessibilityRemoteConnectionInformation(id element, pid_t pid,
 - (void)_screenCapturedDidChange:(NSNotification *)notification
 {
     _page->setScreenIsBeingCaptured([self screenIsBeingCaptured]);
+}
+
+- (BOOL)_shouldExposeRollAngleAsTwist
+{
+    return _page->preferences().exposeRollAngleAsTwistEnabled();
 }
 
 @end
@@ -1254,7 +1276,7 @@ static void storeAccessibilityRemoteConnectionInformation(id element, pid_t pid,
                 return;
             }
 
-            auto image = bitmap->makeCGImageCopy();
+            RetainPtr image = bitmap->createPlatformImage();
             [printFormatter _setPrintPreviewImage:image.get()];
         });
 

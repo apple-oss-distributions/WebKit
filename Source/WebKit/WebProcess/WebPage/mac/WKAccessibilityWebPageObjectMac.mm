@@ -38,6 +38,7 @@
 #import "WKString.h"
 #import "WKStringCF.h"
 #import <WebCore/AXObjectCache.h>
+#import <WebCore/DocumentView.h>
 #import <WebCore/LocalFrame.h>
 #import <WebCore/LocalFrameView.h>
 #import <WebCore/Page.h>
@@ -202,16 +203,16 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
     }
 
     if ([attribute isEqualToString:NSAccessibilityParentAttribute])
-        return [self accessibilityAttributeParentValue].get();
+        return [self accessibilityAttributeParentValue].unsafeGet();
 
     if ([attribute isEqualToString:NSAccessibilityPrimaryScreenHeightAttribute])
         return @(screenHeight.load());
 
     if ([attribute isEqualToString:NSAccessibilityWindowAttribute])
-        return [self accessibilityAttributeWindowValue].get();
+        return [self accessibilityAttributeWindowValue].unsafeGet();
 
     if ([attribute isEqualToString:NSAccessibilityTopLevelUIElementAttribute])
-        return [self accessibilityAttributeTopLevelUIElementValue].get();
+        return [self accessibilityAttributeTopLevelUIElementValue].unsafeGet();
 
     return nil;
 }
@@ -332,23 +333,27 @@ ALLOW_DEPRECATED_DECLARATIONS_BEGIN
 - (id)accessibilityHitTest:(NSPoint)point
 {
     return ax::retrieveAutoreleasedValueFromMainThread<id>([&point, PROTECTED_SELF] () -> id {
-        // PDF plug-in handles the scroll view offset natively as part of the layer conversions, so don't
-        // do a coordinate conversion for those hit tests.
-        if (!protectedSelf->m_page || protectedSelf->m_page->mainFramePlugIn())
-            return [[protectedSelf accessibilityRootObjectWrapper:[protectedSelf focusedLocalFrame]] accessibilityHitTest:WebCore::IntPoint(point)];
+        WebCore::IntPoint convertedPoint;
 
-        auto convertedPoint = protectedSelf->m_page->screenToRootView(WebCore::IntPoint(point));
+        bool shouldFallbackToWebContentAXObject = !protectedSelf->m_hasMainFramePlugin || [protectedSelf shouldFallbackToWebContentAXObjectForMainFramePlugin];
+        if (!shouldFallbackToWebContentAXObject) {
+            // PDF plug-in handles the scroll view offset natively as part of the layer conversions, so don't
+            // do a coordinate conversion for those hit tests.
+            convertedPoint = WebCore::IntPoint { point };
+        } else {
+            convertedPoint = protectedSelf->m_page->screenToRootView(WebCore::IntPoint(point));
+            if (CheckedPtr localFrameView = protectedSelf->m_page->localMainFrameView())
+                convertedPoint.moveBy(localFrameView->scrollPosition());
+            else if (RefPtr focusedLocalFrame = [protectedSelf focusedLocalFrame]) {
+                if (CheckedPtr frameView = focusedLocalFrame->view())
+                    convertedPoint.moveBy(frameView->scrollPosition());
+            }
+            if (RefPtr page = protectedSelf->m_page->corePage()) {
+                auto obscuredContentInsets = page->obscuredContentInsets();
+                convertedPoint.move(-obscuredContentInsets.left(), -obscuredContentInsets.top());
+            }
+        }
 
-        if (CheckedPtr localFrameView = protectedSelf->m_page->localMainFrameView())
-            convertedPoint.moveBy(localFrameView->scrollPosition());
-        else if (RefPtr focusedLocalFrame = [protectedSelf focusedLocalFrame]) {
-            if (CheckedPtr frameView = focusedLocalFrame->view())
-                convertedPoint.moveBy(frameView->scrollPosition());
-        }
-        if (RefPtr page = protectedSelf->m_page->corePage()) {
-            auto obscuredContentInsets = page->obscuredContentInsets();
-            convertedPoint.move(-obscuredContentInsets.left(), -obscuredContentInsets.top());
-        }
         return [[protectedSelf accessibilityRootObjectWrapper:[protectedSelf focusedLocalFrame]] accessibilityHitTest:convertedPoint];
     });
 }

@@ -115,6 +115,7 @@ enum class ViewStabilityFlag : uint8_t;
 #endif // ENABLE(MODEL_PROCESS)
 #if USE(EXTENSIONKIT)
 - (UIView *)_createVisibilityPropagationView;
+- (void)_removeVisibilityPropagationView:(UIView *)view;
 #endif
 #endif // HAVE(VISIBILITY_PROPAGATION_VIEW)
 
@@ -137,5 +138,8 @@ enum class ViewStabilityFlag : uint8_t;
 - (double)_initialScaleFactor;
 - (double)_contentZoomScale;
 - (double)_targetContentZoomScaleForRect:(const WebCore::FloatRect&)targetRect currentScale:(double)currentScale fitEntireRect:(BOOL)fitEntireRect minimumScale:(double)minimumScale maximumScale:(double)maximumScale;
-
+#if ENABLE(MODEL_PROCESS)
+- (void)_setTransform3DForModelViews:(CGFloat)newScale;
+#endif
+- (BOOL)_shouldExposeRollAngleAsTwist;
 @end

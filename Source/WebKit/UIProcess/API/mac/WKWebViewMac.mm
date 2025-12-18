@@ -719,7 +719,7 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_BEGIN
 
 - (NSArray *)validAttributesForMarkedText
 {
-    return _impl->validAttributesForMarkedText();
+    return _impl->validAttributesForMarkedTextSingleton();
 }
 
 - (void)insertTextPlaceholderWithSize:(CGSize)size completionHandler:(void (^)(NSTextPlaceholder *))completionHandler
@@ -1151,7 +1151,7 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
     if (!_page->preferences().contentInsetBackgroundFillEnabled())
         return NO;
 
-    return _page->obscuredContentInsets().top() > 0;
+    return _page->obscuredContentInsets().top() > 0 || _page->overflowHeightForTopScrollEdgeEffect() > 0;
 }
 
 - (void)registerPocketContainer:(NSView *)container onEdge:(NSScrollPocketEdge)edge
@@ -1288,7 +1288,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 - (id)_web_immediateActionAnimationControllerForHitTestResultInternal:(API::HitTestResult*)hitTestResult withType:(uint32_t)type userData:(API::Object*)userData
 {
     RetainPtr data = userData ? static_cast<id<NSSecureCoding>>(userData->wrapper()) : nil;
-    return [self _immediateActionAnimationControllerForHitTestResult:wrapper(*hitTestResult) withType:(_WKImmediateActionType)type userData:data.get()];
+    return [self _immediateActionAnimationControllerForHitTestResult:protectedWrapper(*hitTestResult).get() withType:(_WKImmediateActionType)type userData:data.get()];
 }
 
 - (void)_web_prepareForImmediateActionAnimation
@@ -1566,9 +1566,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 
 - (void)_setTopContentInset:(CGFloat)inset
 {
-    auto insets = _impl->obscuredContentInsets();
-    insets.setTop(static_cast<float>(inset));
-    _impl->setObscuredContentInsets(insets);
+    [self _setTopContentInset:inset immediate:NO];
 }
 
 - (CGFloat)_topContentInset
@@ -1592,6 +1590,10 @@ ALLOW_DEPRECATED_DECLARATIONS_END
         return;
     }
 
+#if ENABLE(CONTENT_INSET_BACKGROUND_FILL)
+    _impl->setCanInstallScrollPocket();
+#endif
+
     _impl->setObscuredContentInsets(coreBoxExtentsFromEdgeInsets(insets));
 
     if (immediate)
@@ -1609,6 +1611,30 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     );
 }
 
+- (CGFloat)_overflowHeightForTopScrollEdgeEffect
+{
+    return _page->overflowHeightForTopScrollEdgeEffect();
+}
+
+- (void)_setOverflowHeightForTopScrollEdgeEffect:(CGFloat)height
+{
+#if ENABLE(CONTENT_INSET_BACKGROUND_FILL)
+    _impl->setCanInstallScrollPocket();
+#endif
+
+    if (_page->overflowHeightForTopScrollEdgeEffect() == height)
+        return;
+
+    _page->setOverflowHeightForTopScrollEdgeEffect(height);
+
+#if ENABLE(CONTENT_INSET_BACKGROUND_FILL)
+    _impl->updateScrollPocket();
+#endif
+
+    if (RetainPtr attachedInspectorWebView = [self _horizontallyAttachedInspectorWebView])
+        [attachedInspectorWebView _setOverflowHeightForTopScrollEdgeEffect:height];
+}
+
 - (NSColor *)_overrideTopScrollEdgeEffectColor
 {
     return _overrideTopScrollEdgeEffectColor.get();
@@ -1616,6 +1642,10 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 
 - (void)_setOverrideTopScrollEdgeEffectColor:(NSColor *)color
 {
+#if ENABLE(CONTENT_INSET_BACKGROUND_FILL)
+    _impl->setCanInstallScrollPocket();
+#endif
+
     if (_overrideTopScrollEdgeEffectColor == color || [_overrideTopScrollEdgeEffectColor isEqual:color])
         return;
 
@@ -1635,10 +1665,27 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     return _impl->topScrollPocket();
 }
 
-#endif
+- (BOOL)_prefersSolidColorHardScrollPocket
+{
+    return _preferSolidColorHardPocketReasons.contains(WebKit::PreferSolidColorHardPocketReason::RequestedByClient);
+}
+
+- (void)_setPrefersSolidColorHardScrollPocket:(BOOL)value
+{
+    if (value)
+        [self _addReasonToPreferSolidColorHardPocket:WebKit::PreferSolidColorHardPocketReason::RequestedByClient];
+    else
+        [self _removeReasonToPreferSolidColorHardPocket:WebKit::PreferSolidColorHardPocketReason::RequestedByClient];
+}
+
+#endif // ENABLE(CONTENT_INSET_BACKGROUND_FILL)
 
 - (void)_setUsesAutomaticContentInsetBackgroundFill:(BOOL)value
 {
+#if ENABLE(CONTENT_INSET_BACKGROUND_FILL)
+    _impl->setCanInstallScrollPocket();
+#endif
+
     if (_usesAutomaticContentInsetBackgroundFill == value)
         return;
 
@@ -2010,6 +2057,21 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 #endif
 }
 
+- (BOOL)_isSmartListsEnabled
+{
+    return _impl->isSmartListsEnabled();
+}
+
+- (void)_setSmartListsEnabled:(BOOL)flag
+{
+    _impl->setSmartListsEnabled(flag);
+}
+
+- (void)_toggleSmartLists:(id)sender
+{
+    _impl->toggleSmartLists();
+}
+
 @end // WKWebView (WKPrivateMac)
 
 @implementation WKWebView (WKWindowSnapshot)
@@ -2019,7 +2081,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     if (!snapshot)
         return nil;
 
-    return [[NSImage alloc] initWithCGImage:snapshot.get() size:NSZeroSize];
+    SUPPRESS_RETAINPTR_CTOR_ADOPT return [[NSImage alloc] initWithCGImage:snapshot.get() size:NSZeroSize];
 }
 @end
 

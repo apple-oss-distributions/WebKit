@@ -39,6 +39,7 @@
 #include "SourceBufferPrivateClient.h"
 #include "TimeRanges.h"
 #include "TrackBuffer.h"
+#include "TrackInfo.h"
 #include "VideoTrackPrivate.h"
 #include <wtf/CheckedArithmetic.h>
 #include <wtf/IteratorRange.h>
@@ -294,7 +295,7 @@ void SourceBufferPrivate::provideMediaData(TrackID trackID)
 
 void SourceBufferPrivate::provideMediaData(TrackBuffer& trackBuffer, TrackID trackID)
 {
-    if (isSeeking())
+    if (trackBuffer.needsReenqueueing() || isSeeking())
         return;
     RefPtr client = this->client();
     if (!client)
@@ -689,21 +690,21 @@ bool SourceBufferPrivate::validateInitializationSegment(const SourceBufferPrivat
     //   IDs match the ones in the first initialization segment.
     if (segment.audioTracks.size() >= 2) {
         for (auto& audioTrackInfo : segment.audioTracks) {
-            if (m_trackBufferMap.find(audioTrackInfo.track->id()) == m_trackBufferMap.end())
+            if (m_trackBufferMap.find(RefPtr { audioTrackInfo.track }->id()) == m_trackBufferMap.end())
                 return false;
         }
     }
 
     if (segment.videoTracks.size() >= 2) {
         for (auto& videoTrackInfo : segment.videoTracks) {
-            if (m_trackBufferMap.find(videoTrackInfo.track->id()) == m_trackBufferMap.end())
+            if (m_trackBufferMap.find(RefPtr { videoTrackInfo.track }->id()) == m_trackBufferMap.end())
                 return false;
         }
     }
 
     if (segment.textTracks.size() >= 2) {
         for (auto& textTrackInfo : segment.videoTracks) {
-            if (m_trackBufferMap.find(textTrackInfo.track->id()) == m_trackBufferMap.end())
+            if (m_trackBufferMap.find(RefPtr { textTrackInfo.track }->id()) == m_trackBufferMap.end())
                 return false;
         }
     }
@@ -978,9 +979,9 @@ bool SourceBufferPrivate::processMediaSample(SourceBufferPrivateClient& client, 
             // Audio MediaSamples are typically made of packed audio samples. Trim sample to make it fit within the appendWindow.
             if (sample->isDivisable()) {
                 std::pair<RefPtr<MediaSample>, RefPtr<MediaSample>> replacementSamples = sample->divide(m_appendWindowStart);
-                if (replacementSamples.second) {
-                    ASSERT(replacementSamples.second->presentationTime() >= m_appendWindowStart);
-                    replacementSamples = replacementSamples.second->divide(m_appendWindowEnd, MediaSample::UseEndTime::Use);
+                if (RefPtr endMediaSample = replacementSamples.second) {
+                    ASSERT(endMediaSample->presentationTime() >= m_appendWindowStart);
+                    replacementSamples = endMediaSample->divide(m_appendWindowEnd, MediaSample::UseEndTime::Use);
                     if (replacementSamples.first) {
                         sample = replacementSamples.first.releaseNonNull();
                         ASSERT(sample->presentationTime() >= m_appendWindowStart && sample->presentationTime() + sample->duration() <= m_appendWindowEnd);
@@ -1143,9 +1144,8 @@ bool SourceBufferPrivate::processMediaSample(SourceBufferPrivateClient& client, 
             // timestamp < presentationTime, but whose decode timestamp >= decodeTime. These will eventually cause
             // a decode error if left in place, so remove these samples as well.
             DecodeOrderSampleMap::KeyType decodeKey(sample->decodeTime(), sample->presentationTime());
-            auto samplesWithHigherDecodeTimes = trackBuffer.samples().decodeOrder().findSamplesBetweenDecodeKeys(decodeKey, erasedSamples.decodeOrder().begin()->first);
-            if (samplesWithHigherDecodeTimes.first != trackBuffer.samples().decodeOrder().end() && samplesWithHigherDecodeTimes.first != samplesWithHigherDecodeTimes.second)
-                dependentSamples.insert(samplesWithHigherDecodeTimes.first, samplesWithHigherDecodeTimes.second);
+            if (auto samplesWithHigherDecodeTimes = trackBuffer.samples().decodeOrder().findSamplesBetweenDecodeKeys(decodeKey, erasedSamples.decodeOrder().begin()->first); samplesWithHigherDecodeTimes.size())
+                dependentSamples.insert(samplesWithHigherDecodeTimes.begin(), samplesWithHigherDecodeTimes.end());
 
             PlatformTimeRanges erasedRanges = removeSamplesFromTrackBuffer(dependentSamples, trackBuffer, "didReceiveSample"_s);
 

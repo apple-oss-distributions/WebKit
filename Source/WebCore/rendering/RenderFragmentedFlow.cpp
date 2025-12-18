@@ -750,7 +750,7 @@ bool RenderFragmentedFlow::addForcedFragmentBreak(const RenderBlock* block, Layo
     return false;
 }
 
-void RenderFragmentedFlow::collectLayerFragments(LayerFragments& layerFragments, const LayoutRect& layerBoundingBox, const LayoutRect& dirtyRect)
+void RenderFragmentedFlow::collectLayerFragments(LayerFragments& layerFragments, const LayoutRect& layerBoundingBox, const LayoutRect& dirtyRect) const
 {
     ASSERT(!m_fragmentsInvalidated || isSkippedContent());
 
@@ -758,7 +758,7 @@ void RenderFragmentedFlow::collectLayerFragments(LayerFragments& layerFragments,
         fragment.collectLayerFragments(layerFragments, layerBoundingBox, dirtyRect);
 }
 
-LayoutRect RenderFragmentedFlow::fragmentsBoundingBox(const LayoutRect& layerBoundingBox)
+LayoutRect RenderFragmentedFlow::fragmentsBoundingBox(const LayoutRect& layerBoundingBox) const
 {
     ASSERT(!m_fragmentsInvalidated);
     
@@ -821,7 +821,7 @@ void RenderFragmentedFlow::mapLocalToContainer(const RenderLayerModelObject* anc
 
         // If the repaint container is nullptr, we have to climb up to the RenderView, otherwise swap
         // it with the fragment's repaint container.
-        ancestorContainer = ancestorContainer ? fragment->containerForRepaint().renderer.get() : nullptr;
+        ancestorContainer = ancestorContainer ? fragment->containerForRepaint().renderer.unsafeGet() : nullptr;
 
         if (RenderFragmentedFlow* fragmentFragmentedFlow = fragment->enclosingFragmentedFlow()) {
             RenderFragmentContainer* startFragment = nullptr;

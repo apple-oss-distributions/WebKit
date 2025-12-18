@@ -25,9 +25,9 @@
 
 #pragma once
 
-#include "HashMapHelper.h"
-#include "JSImmutableButterfly.h"
-#include "JSObject.h"
+#include <JavaScriptCore/HashMapHelper.h>
+#include <JavaScriptCore/JSCellButterfly.h>
+#include <JavaScriptCore/JSObject.h>
 
 WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 
@@ -103,12 +103,12 @@ class OrderedHashTable;
 // - DeletedEntries: An array of the previously deleted entries used for updating iterator's index.
 // - ClearedTableSentinel: The sentinel to indicate whether the obsolete table is retired due to a clearance.
 //
-// Note that all elements in the JSImmutableButterfly are in JSValue type. However, only the key and value in the DataTable are real JSValues.
+// Note that all elements in the JSCellButterfly are in JSValue type. However, only the key and value in the DataTable are real JSValues.
 // The others are used as unsigned integers wrapped by JSValue.
 template<typename Traits>
 class OrderedHashTableHelper {
 public:
-    using Storage = JSImmutableButterfly;
+    using Storage = JSCellButterfly;
     using Helper = OrderedHashTableHelper<Traits>;
     using HashTable = OrderedHashTable<Traits>;
     using TableSize = uint32_t;
@@ -223,7 +223,8 @@ public:
 
     ALWAYS_INLINE static Storage* tryCreate(VM& vm, int length)
     {
-        return Storage::tryCreate(vm, vm.immutableButterflyStructure(CopyOnWriteArrayWithContiguous), length);
+        // FIXME: Why is this CopyOnWrite? We definitely modify it...
+        return Storage::tryCreate(vm, vm.cellButterflyStructure(CopyOnWriteArrayWithContiguous), length);
     }
     ALWAYS_INLINE static Storage* tryCreate(JSGlobalObject* globalObject, TableSize aliveEntryCount = 0, TableSize deletedEntryCount = 0, TableSize capacity = InitialCapacity)
     {
@@ -313,23 +314,9 @@ public:
         return copyImpl<>(globalObject, base, capacity(base));
     }
 
-    enum class UpdateOwnerStorage : uint8_t {
-        Yes,
-        No
-    };
-    template<UpdateOwnerStorage update>
-    ALWAYS_INLINE static Storage* rehash(JSGlobalObject* globalObject, HashTable* owner, Storage& base, TableSize newCapacity)
+    ALWAYS_INLINE static Storage* rehash(JSGlobalObject* globalObject, Storage& base, TableSize newCapacity)
     {
-        VM& vm = getVM(globalObject);
-        auto scope = DECLARE_THROW_SCOPE(vm);
-
-        Storage* copy = copyImpl<UpdateDeletedEntries::Yes>(globalObject, base, newCapacity);
-        RETURN_IF_EXCEPTION(scope, nullptr);
-
-        setNextTable(vm, base, copy);
-        if constexpr (update == UpdateOwnerStorage::Yes)
-            owner->m_storage.set(vm, owner, copy);
-        return copy;
+        return copyImpl<UpdateDeletedEntries::Yes>(globalObject, base, newCapacity);
     }
 
     ALWAYS_INLINE static void clear(JSGlobalObject* globalObject, HashTable* owner, Storage& base)
@@ -386,7 +373,7 @@ public:
         return { normalizedKey, hash, bucketIndex, InvalidTableIndex, nullptr };
     }
 
-    ALWAYS_INLINE static Storage* expandIfNeeded(JSGlobalObject* globalObject, HashTable* owner, Storage& base)
+    ALWAYS_INLINE static Storage* expandIfNeeded(JSGlobalObject* globalObject, Storage& base)
     {
         ASSERT(!isObsolete(base));
         TableSize capacity = Helper::capacity(base);
@@ -394,20 +381,22 @@ public:
         TableSize usedCapacity = Helper::aliveEntryCount(base) + deletedEntryCount;
 
         bool isSmallCapacity = capacity < LargeCapacity;
-        TableSize expandFactor = isSmallCapacity ? 2 : 1;
-
         if (isSmallCapacity) {
-            if (usedCapacity < (capacity >> 1))
-                return &base;
+            if (usedCapacity < (capacity / 2))
+                return nullptr;
         } else {
-            if (usedCapacity < ((capacity >> 2) * 3))
-                return &base;
+            if (usedCapacity < ((capacity / 4) * 3))
+                return nullptr;
         }
 
-        TableSize newCapacity = Checked<TableSize>(capacity) << expandFactor;
-        if (deletedEntryCount >= (capacity >> 1))
-            newCapacity = capacity; // No need to expanded. Just clear the deleted entries.
-        return rehash<UpdateOwnerStorage::No>(globalObject, owner, base, newCapacity);
+        TableSize expansionFactor = isSmallCapacity ? 4 : 2;
+        TableSize newCapacity = Checked<TableSize>(capacity) * expansionFactor;
+        if (deletedEntryCount >= (capacity  / 2)) {
+            // No need to expand. Just clear the deleted entries.
+            // FIXME: Can we do this in place?
+            newCapacity = capacity;
+        }
+        return rehash(globalObject, base, newCapacity);
     }
     template<typename FindKeyFunctor>
     ALWAYS_INLINE static void addImpl(JSGlobalObject* globalObject, HashTable* owner, Storage& base, JSValue key, JSValue value, const FindKeyFunctor& findKeyFunctor)
@@ -433,11 +422,7 @@ public:
         VM& vm = getVM(globalObject);
         auto scope = DECLARE_THROW_SCOPE(vm);
         ASSERT(!isObsolete(base));
-
         ASSERT(!isValidTableIndex(result.entryKeyIndex));
-
-        Storage* candidate = expandIfNeeded(globalObject, owner, base);
-        RETURN_IF_EXCEPTION(scope, void());
 
         bool firstAliveEntry = result.normalizedKey.isEmpty();
         if (firstAliveEntry) [[unlikely]] {
@@ -446,23 +431,31 @@ public:
             RETURN_IF_EXCEPTION(scope, void());
         }
 
-        Storage& candidateRef = *candidate;
-        TableSize capacity = Helper::capacity(candidateRef);
-        Entry newEntry = usedCapacity(candidateRef);
-        TableIndex newEntryKeyIndex = entryDataStartIndex(dataTableStartIndex(capacity), newEntry);
-        incrementAliveEntryCount(candidateRef);
+        Storage* newBuffer = expandIfNeeded(globalObject, base);
+        RETURN_IF_EXCEPTION(scope, void());
 
-        bool rehashed = &base != candidate;
+        bool rehashed = newBuffer;
+        Storage& storage = newBuffer ? *newBuffer : base;
+
+        TableSize capacity = Helper::capacity(storage);
+        Entry newEntry = usedCapacity(storage);
+        TableIndex newEntryKeyIndex = entryDataStartIndex(dataTableStartIndex(capacity), newEntry);
+        incrementAliveEntryCount(storage);
+
         if (rehashed || firstAliveEntry) [[unlikely]]
             result.bucketIndex = bucketIndex(capacity, result.hash);
 
-        addToChain(candidateRef, result.bucketIndex, newEntryKeyIndex);
-        setKeyOrValueData(vm, candidateRef, newEntryKeyIndex, result.normalizedKey);
+        addToChain(storage, result.bucketIndex, newEntryKeyIndex);
+        setKeyOrValueData(vm, storage, newEntryKeyIndex, result.normalizedKey);
         if constexpr (Traits::hasValueData)
-            setKeyOrValueData(vm, candidateRef, newEntryKeyIndex + 1, value);
+            setKeyOrValueData(vm, storage, newEntryKeyIndex + 1, value);
 
-        if (rehashed) [[unlikely]]
-            owner->m_storage.set(vm, owner, candidate);
+        if (rehashed) [[unlikely]] {
+            // Only commit the new buffer once everything is set up. This way if things change and we end up throwing an exception in the middle we're not left in an inconsistent state.
+            ASSERT(&storage == newBuffer);
+            setNextTable(vm, base, newBuffer);
+            owner->m_storage.set(vm, owner, newBuffer);
+        }
     }
     ALWAYS_INLINE static void add(JSGlobalObject* globalObject, HashTable* owner, Storage& storage, JSValue key, JSValue value)
     {
@@ -480,6 +473,8 @@ public:
 
     ALWAYS_INLINE static void shrinkIfNeeded(JSGlobalObject* globalObject, HashTable* owner, Storage& base)
     {
+        VM& vm = globalObject->vm();
+        auto scope = DECLARE_THROW_SCOPE(vm);
         ASSERT(!isObsolete(base));
         TableSize capacity = Helper::capacity(base);
         TableSize aliveEntryCount = Helper::aliveEntryCount(base);
@@ -487,7 +482,12 @@ public:
             return;
         if (capacity == InitialCapacity)
             return;
-        rehash<UpdateOwnerStorage::Yes>(globalObject, owner, base, capacity >> 1);
+
+        Storage* newBuffer = rehash(globalObject, base, capacity / 2);
+        RETURN_IF_EXCEPTION(scope, void());
+
+        setNextTable(vm, base, newBuffer);
+        owner->m_storage.set(vm, owner, newBuffer);
     }
     template<typename FindKeyFunctor>
     ALWAYS_INLINE static bool removeImpl(JSGlobalObject* globalObject, HashTable* owner, Storage& storage, const FindKeyFunctor& findKeyFunctor)

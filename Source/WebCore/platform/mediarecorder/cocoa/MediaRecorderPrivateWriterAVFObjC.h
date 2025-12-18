@@ -26,7 +26,7 @@
 
 #if ENABLE(MEDIA_RECORDER)
 
-#include "MediaRecorderPrivateWriter.h"
+#include <WebCore/MediaRecorderPrivateWriter.h>
 #include <wtf/RetainPtr.h>
 #include <wtf/TZoneMalloc.h>
 
@@ -51,11 +51,12 @@ private:
     bool allTracksAdded() final;
     Result writeFrame(const MediaSamplesBlock&) final;
     void forceNewSegment(const WTF::MediaTime&) final;
-    Ref<GenericPromise> close(const WTF::MediaTime&) final;
+    Ref<GenericPromise> close(Deque<UniqueRef<MediaSamplesBlock>>&&, const WTF::MediaTime&) final;
 
     RetainPtr<AVAssetWriterInput> m_audioAssetWriterInput;
     RetainPtr<AVAssetWriterInput> m_videoAssetWriterInput;
     bool m_hasAddedVideoFrame { false };
+    bool m_writerStarted { false };
 
     uint8_t m_currentTrackIndex { 0 };
     uint8_t m_audioTrackIndex { 0 };
@@ -64,6 +65,7 @@ private:
     RetainPtr<CMFormatDescriptionRef> m_videoDescription;
     const RetainPtr<WebAVAssetWriterDelegate> m_delegate;
     const RetainPtr<AVAssetWriter> m_writer;
+    const Ref<WorkQueue> m_waitingQueue;
 };
 
 } // namespace WebCore

@@ -35,6 +35,7 @@
 #import <WebCore/NSURLUtilities.h>
 #import <WebCore/ShareData.h>
 #import <pal/spi/mac/QuarantineSPI.h>
+#import <wtf/MainThread.h>
 #import <wtf/RetainPtr.h>
 #import <wtf/RunLoop.h>
 #import <wtf/RuntimeApplicationChecks.h>
@@ -146,6 +147,8 @@ static RetainPtr<LPLinkMetadata> placeholderMetadataWithFileURL(NSURL *url)
 
 - (instancetype)initWithURL:(NSURL *)url
 {
+    RELEASE_ASSERT(isMainRunLoop());
+
     if (!(self = [super initWithPlaceholderItem:[NSData data]]))
         return nil;
 
@@ -187,6 +190,8 @@ static RetainPtr<LPLinkMetadata> placeholderMetadataWithFileURL(NSURL *url)
 
 - (instancetype)initWithURL:(NSURL *)url title:(NSString *)title
 {
+    RELEASE_ASSERT(isMainRunLoop());
+
     if (!(self = [super initWithPlaceholderItem:url]))
         return nil;
 
@@ -237,7 +242,7 @@ static RetainPtr<LPLinkMetadata> placeholderMetadataWithFileURL(NSURL *url)
 
 - (id<WKShareSheetDelegate>)delegate
 {
-    return _delegate.get().get();
+    return _delegate.get().unsafeGet();
 }
 
 - (void)setDelegate:(id<WKShareSheetDelegate>)delegate
@@ -267,28 +272,35 @@ static void appendFilesAsShareableURLs(RetainPtr<NSMutableArray>&& shareDataArra
 
     auto queue = WorkQueue::create("com.apple.WebKit.WKShareSheet.ShareableFileWriter"_s);
     queue->dispatch([shareDataArray = WTFMove(shareDataArray), fileWriteTasks = WTFMove(fileWriteTasks), temporaryDirectory = retainPtr(temporaryDirectory), usePlaceholderFiles, completionHandler = WTFMove(completionHandler)]() mutable {
+        RetainPtr fileURLs = adoptNS([[NSMutableArray alloc] initWithCapacity:fileWriteTasks.size()]);
         for (auto& fileWriteTask : fileWriteTasks) {
             RetainPtr fileURL = [WKShareSheet writeFileToShareableURL:WebCore::ResourceResponseBase::sanitizeSuggestedFilename(fileWriteTask.fileName).createNSString().get() data:fileWriteTask.fileData.get() temporaryDirectory:temporaryDirectory.get()];
-            if (!fileURL) {
-                shareDataArray = nil;
-                break;
-            }
+            if (!fileURL)
+                continue;
 
-            if (usePlaceholderFiles) {
-#if PLATFORM(IOS_FAMILY)
-                RetainPtr item = adoptNS([[WKShareSheetFileItemProvider alloc] initWithURL:fileURL.get()]);
-#else
-                RetainPtr item = adoptNS([[NSPreviewRepresentingActivityItem alloc] initWithItem:fileURL.get() linkMetadata:placeholderMetadataWithFileURL(fileURL.get()).get()]);
-#endif
-                if (!item) {
-                    shareDataArray = nil;
-                    break;
-                }
-                [shareDataArray addObject:item.get()];
-            } else
-                [shareDataArray addObject:fileURL.get()];
+            [fileURLs addObject:fileURL.get()];
         }
-        RunLoop::mainSingleton().dispatch([completionHandler = WTFMove(completionHandler), shareDataArray = WTFMove(shareDataArray)]() mutable {
+
+        RunLoop::mainSingleton().dispatch([completionHandler = WTFMove(completionHandler), shareDataArray = WTFMove(shareDataArray), fileURLs = WTFMove(fileURLs), usePlaceholderFiles] mutable {
+            if (usePlaceholderFiles) {
+                RetainPtr placeholderShareDataArray = adoptNS([[NSMutableArray alloc] initWithCapacity:[fileURLs count]]);
+                for (NSURL *fileURL in fileURLs.get()) {
+#if PLATFORM(IOS_FAMILY)
+                    RetainPtr item = adoptNS([[WKShareSheetFileItemProvider alloc] initWithURL:fileURL]);
+#else
+                    RetainPtr item = adoptNS([[NSPreviewRepresentingActivityItem alloc] initWithItem:fileURL linkMetadata:placeholderMetadataWithFileURL(fileURL).get()]);
+#endif
+
+                    if (!item)
+                        continue;
+
+                    [placeholderShareDataArray addObject:item.get()];
+                }
+
+                [shareDataArray addObjectsFromArray:placeholderShareDataArray.get()];
+            } else
+                [shareDataArray addObjectsFromArray:fileURLs.get()];
+
             completionHandler(WTFMove(shareDataArray));
         });
     });
@@ -328,7 +340,7 @@ static void appendFilesAsShareableURLs(RetainPtr<NSMutableArray>&& shareDataArra
 
     _completionHandler = WTFMove(completionHandler);
 
-    if (auto resolution = [_webView _resolutionForShareSheetImmediateCompletionForTesting]) {
+    if (auto resolution = [_webView.get() _resolutionForShareSheetImmediateCompletionForTesting]) {
         _didShareSuccessfully = *resolution;
         [self dismiss];
         return;
@@ -403,8 +415,9 @@ static void appendFilesAsShareableURLs(RetainPtr<NSMutableArray>&& shareDataArra
             popoverController.permittedArrowDirections = 0;
     }
 
-    if ([_delegate respondsToSelector:@selector(shareSheet:willShowActivityItems:)])
-        [_delegate shareSheet:self willShowActivityItems:sharingItems];
+    RetainPtr delegate = _delegate.get();
+    if ([delegate respondsToSelector:@selector(shareSheet:willShowActivityItems:)])
+        [delegate shareSheet:self willShowActivityItems:sharingItems];
 
     _presentationViewController = webView.get()._wk_viewControllerForFullScreenPresentation;
     [_presentationViewController presentViewController:_shareSheetViewController.get() animated:YES completion:nil];
@@ -425,7 +438,7 @@ static void appendFilesAsShareableURLs(RetainPtr<NSMutableArray>&& shareDataArra
 
 - (NSWindow *)sharingService:(NSSharingService *)sharingService sourceWindowForShareItems:(NSArray *)items sharingContentScope:(NSSharingContentScope *)sharingContentScope
 {
-    return [_webView window];
+    return [_webView.get() window];
 }
 
 - (void)sharingService:(NSSharingService *)sharingService didFailToShareItems:(NSArray *)items error:(NSError *)error
@@ -459,8 +472,9 @@ static void appendFilesAsShareableURLs(RetainPtr<NSMutableArray>&& shareDataArra
     _temporaryFileShareDirectory = nullptr;
 
     auto dispatchDidDismiss = ^{
-        if ([_delegate respondsToSelector:@selector(shareSheetDidDismiss:)])
-            [_delegate shareSheetDidDismiss:self];
+        RetainPtr delegate = _delegate.get();
+        if ([delegate respondsToSelector:@selector(shareSheetDidDismiss:)])
+            [delegate shareSheetDidDismiss:self];
     };
 
 #if PLATFORM(MAC)

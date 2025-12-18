@@ -1054,6 +1054,7 @@ private:
         case ConstructForwardVarargs:
         case TailCallForwardVarargsInlinedCaller:
         case CallWasm:
+        case TailCallInlinedCallerWasm:
         case CallCustomAccessorGetter:
         case GetGlobalVar:
         case GetGlobalLexicalVariable:
@@ -1330,7 +1331,6 @@ private:
         case NewArrayWithSpread:
         case NewArray:
         case NewArrayWithSize:
-        case NewArrayWithConstantSize:
         case NewArrayWithSizeAndStructure:
         case CreateRest:
         case NewArrayBuffer:
@@ -1572,6 +1572,8 @@ private:
             break;
         }
 
+        case NewArrayWithButterfly:
+        case NewButterflyWithSize:
         case PutByValAlias:
         case DoubleAsInt32:
         case CheckTypeInfoFlags:
@@ -1592,7 +1594,8 @@ private:
         case Identity:
         case BooleanToNumber:
         case PhantomNewObject:
-        case PhantomNewArrayWithConstantSize:
+        case PhantomNewArrayWithButterfly:
+        case PhantomNewButterflyWithSize:
         case PhantomNewFunction:
         case PhantomNewGeneratorFunction:
         case PhantomNewAsyncGeneratorFunction:
@@ -1613,7 +1616,7 @@ private:
         case CheckStructureOrEmpty:
         case CheckArrayOrEmpty:
         case MaterializeNewObject:
-        case MaterializeNewArrayWithConstantSize:
+        case MaterializeNewArrayWithButterfly:
         case MaterializeCreateActivation:
         case MaterializeNewInternalFieldObject:
         case PutStack:
@@ -1732,6 +1735,12 @@ private:
         case DataViewSet:
         case InvalidationPoint:
         case ObjectAssign:
+        case ResolvePromiseFirstResolving:
+        case RejectPromiseFirstResolving:
+        case FulfillPromiseFirstResolving:
+        case PromiseResolve:
+        case PromiseReject:
+        case PromiseThen:
             break;
             
         // This gets ignored because it only pretends to produce a value.

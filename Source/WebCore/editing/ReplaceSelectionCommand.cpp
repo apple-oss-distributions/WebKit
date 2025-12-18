@@ -41,6 +41,7 @@
 #include "DataTransfer.h"
 #include "Document.h"
 #include "DocumentFragment.h"
+#include "Editing.h"
 #include "EditingBehavior.h"
 #include "EditingInlines.h"
 #include "ElementIteratorInlines.h"
@@ -68,6 +69,7 @@
 #include "RenderText.h"
 #include "ScriptDisallowedScope.h"
 #include "ScriptElement.h"
+#include "Settings.h"
 #include "SimplifyMarkupCommand.h"
 #include "SmartReplace.h"
 #include "StyleExtractor.h"
@@ -196,7 +198,7 @@ ReplacementFragment::ReplacementFragment(RefPtr<DocumentFragment>&& inputFragmen
         return;
     }
 
-    Ref page = createPageForSanitizingWebContent();
+    Ref page = createPageForSanitizingWebContent(&editableRoot->document());
     RefPtr stagingDocument = page->localTopDocument();
     if (!stagingDocument)
         return;
@@ -415,7 +417,7 @@ inline void ReplaceSelectionCommand::InsertedNodes::willRemoveNodePreservingChil
             // If the last inserted node is at the end of the document and doesn't have any children, look backwards for the
             // previous node as the last inserted node, clamping to the first inserted node if needed to ensure that the
             // document position of the last inserted node is not behind the first inserted node.
-            auto* previousNode = NodeTraversal::previousSkippingChildren(*node);
+            RefPtr previousNode = NodeTraversal::previousSkippingChildren(*node);
             ASSERT(previousNode);
             m_lastNodeInserted = m_firstNodeInserted->compareDocumentPosition(*previousNode) & Node::DOCUMENT_POSITION_FOLLOWING ? previousNode : m_firstNodeInserted;
         }
@@ -660,11 +662,11 @@ void ReplaceSelectionCommand::inverseTransformColor(InsertedNodes& insertedNodes
         if (!element)
             continue;
 
-        auto* inlineStyle = element->inlineStyle();
+        RefPtr inlineStyle = element->inlineStyle();
         if (!inlineStyle)
             continue;
 
-        auto editingStyle = EditingStyle::create(inlineStyle);
+        Ref editingStyle = EditingStyle::create(inlineStyle.get());
         auto transformedStyle = editingStyle->inverseTransformColorIfNeeded(*element);
         if (editingStyle.ptr() == transformedStyle.ptr())
             continue;
@@ -698,7 +700,7 @@ void ReplaceSelectionCommand::removeRedundantStylesAndKeepStyleSpanInline(Insert
                     node = replaceElementWithSpanPreservingChildrenAndAttributes(*htmlElement);
                     element = downcast<StyledElement>(node.get());
                     insertedNodes.didReplaceNode(htmlElement.get(), node.get());
-                } else if (newInlineStyle->extractConflictingImplicitStyleOfAttributes(*htmlElement, EditingStyle::PreserveWritingDirection, nullptr, attributes, EditingStyle::DoNotExtractMatchingStyle)) {
+                } else if (newInlineStyle->extractConflictingImplicitStyleOfAttributes(*htmlElement, EditingStyle::ShouldPreserveWritingDirection::Yes, nullptr, attributes, EditingStyle::ShouldExtractMatchingStyle::No)) {
                     // e.g. <font size="3" style="font-size: 20px;"> is converted to <font style="font-size: 20px;">
                     for (auto& attribute : attributes)
                         removeNodeAttribute(*element, attribute);
@@ -729,7 +731,7 @@ void ReplaceSelectionCommand::removeRedundantStylesAndKeepStyleSpanInline(Insert
                 continue;
             }
             removeNodeAttribute(*element, styleAttr);
-        } else if (newInlineStyle->style()->propertyCount() != inlineStyle->propertyCount())
+        } else if (newInlineStyle->style()->propertyCount() != inlineStyle->propertyCount()) // FIXME: It seems wrong to rely only on the difference of properties set, and not on which properties are set.
             setNodeAttribute(*element, styleAttr, newInlineStyle->style()->asTextAtom(CSS::defaultSerializationContext()));
 
         // FIXME: Tolerate differences in id, class, and style attributes.
@@ -1384,7 +1386,10 @@ void ReplaceSelectionCommand::doApply()
 
     if (insertedNodes.isEmpty())
         return;
-    removeUnrenderedTextNodesAtEnds(insertedNodes);
+
+    // removeUnrenderedTextNodesAtEnds can trigger layout, so for performance, only do it when the presence of richly-editable text requires us to.
+    if (isRichlyEditablePosition(insertionPos))
+        removeUnrenderedTextNodesAtEnds(insertedNodes);
 
     if (!handledStyleSpans)
         handleStyleSpans(insertedNodes);
@@ -1422,12 +1427,17 @@ void ReplaceSelectionCommand::doApply()
     if (!insertedNodes.firstNodeInserted()->isConnected())
         return;
 
-    if (needsColorTransformed)
-        inverseTransformColor(insertedNodes);
-
     removeRedundantStylesAndKeepStyleSpanInline(insertedNodes);
     if (insertedNodes.isEmpty())
         return;
+
+    if (needsColorTransformed) {
+        inverseTransformColor(insertedNodes);
+
+        removeRedundantStylesAndKeepStyleSpanInline(insertedNodes);
+        if (insertedNodes.isEmpty())
+            return;
+    }
 
     if (m_sanitizeFragment)
         applyCommandToComposite(SimplifyMarkupCommand::create(document(), insertedNodes.firstNodeInserted(), insertedNodes.pastLastLeaf()));
@@ -1920,32 +1930,64 @@ void ReplaceSelectionCommand::updateDirectionForStartOfInsertedContentIfNeeded(c
     if (editAction != EditAction::Paste && editAction != EditAction::InsertFromDrop)
         return;
 
-    VisiblePosition visibleStartOfInsertedContent { m_startOfInsertedContent };
-    auto firstParagraphRange = makeSimpleRange({ visibleStartOfInsertedContent, endOfParagraph(visibleStartOfInsertedContent) });
-    if (!firstParagraphRange)
-        return;
+    auto startOfInsertedContent = positionAtStartOfInsertedContent();
+    auto endOfInsertedContent = positionAtEndOfInsertedContent();
 
-    auto newDirection = [&] -> std::optional<TextDirection> {
-        if (RefPtr node = insertedNodes.firstNodeInserted(); node && node->usesEffectiveTextDirection())
-            return node->effectiveTextDirection();
+    VisibleSelection originalEndingSelection = endingSelection();
+    bool restoreOriginalEndingSelection = false;
+    bool isFirstParagraph = true;
+    VisiblePosition visibleStartOfParagraph = startOfParagraph(startOfInsertedContent);
+    VisiblePosition visibleEndOfParagraph = endOfParagraph(visibleStartOfParagraph);
+    do {
+        auto paragraphRange = makeSimpleRange({ visibleStartOfParagraph, visibleEndOfParagraph });
+        if (!paragraphRange)
+            break;
 
-        return baseTextDirection(plainText(*firstParagraphRange));
-    }();
+        auto paragraphStart = visibleStartOfParagraph.deepEquivalent();
+        auto paragraphEnd = visibleEndOfParagraph.deepEquivalent();
 
-    if (!newDirection)
-        return;
+        RefPtr startContainer = paragraphStart.containerNode();
+        RefPtr blockContainer = enclosingBlock(startContainer.get());
+        if (!blockContainer)
+            break;
 
-    RefPtr blockContainer = enclosingBlock(m_startOfInsertedContent.protectedContainerNode());
-    if (!blockContainer)
-        return;
+        auto newDirection = [&] -> std::optional<TextDirection> {
+            if (blockContainer->usesEffectiveTextDirection())
+                return blockContainer->effectiveTextDirection();
 
-    if (CheckedPtr renderer = blockContainer->renderer(); !renderer || renderer->writingMode().bidiDirection() == newDirection)
-        return;
+            if (RefPtr firstNode = insertedNodes.firstNodeInserted()) {
+                // This is a workaround to ensure that a single pasted RTL paragraph that doesn't have an explicit direction attribute
+                // but begins with LTR text is still pasted as RTL text. In the future, we should remove this logic and instead use platform
+                // heuristics to determine the writing direction of text — e.g., using `CFAttributedStringGetStatisticalWritingDirections`
+                // on Cocoa platforms.
+                if (isFirstParagraph && firstNode->isComposedTreeDescendantOf(*blockContainer) && firstNode->usesEffectiveTextDirection())
+                    return firstNode->effectiveTextDirection();
+            }
 
-    auto directionValueID = toCSSValueID(*newDirection);
-    Ref style = EditingStyle::create(CSSPropertyDirection, directionValueID);
-    applyStyle(style.ptr(), m_startOfInsertedContent, m_startOfInsertedContent, EditAction::SetBlockWritingDirection, ApplyStylePropertyLevel::ForceBlock);
-    setNodeAttribute(*blockContainer, dirAttr, nameLiteral(directionValueID));
+            return baseTextDirection(plainText(*paragraphRange));
+        }();
+
+        if (!newDirection)
+            break;
+
+        if (CheckedPtr renderer = blockContainer->renderer(); renderer && renderer->writingMode().bidiDirection() != newDirection) {
+            auto directionValueID = toCSSValueID(*newDirection);
+            Ref style = EditingStyle::create(CSSPropertyDirection, directionValueID);
+            applyStyle(style.ptr(), paragraphEnd, paragraphEnd, EditAction::SetBlockWritingDirection, ApplyStylePropertyLevel::ForceBlock);
+            setNodeAttribute(*blockContainer, dirAttr, nameLiteral(directionValueID));
+            restoreOriginalEndingSelection = true;
+        }
+
+        visibleStartOfParagraph = startOfNextParagraph(visibleEndOfParagraph);
+        if (visibleStartOfParagraph == visibleEndOfParagraph)
+            break;
+
+        visibleEndOfParagraph = endOfParagraph(visibleStartOfParagraph);
+        isFirstParagraph = false;
+    } while (visibleStartOfParagraph.isNotNull() && visibleStartOfParagraph < endOfInsertedContent);
+
+    if (restoreOriginalEndingSelection)
+        setEndingSelection(originalEndingSelection);
 }
 
 } // namespace WebCore
