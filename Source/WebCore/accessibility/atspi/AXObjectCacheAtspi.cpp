@@ -237,16 +237,15 @@ void AXObjectCache::postTextReplacementPlatformNotification(AccessibilityObject*
         wrapper->textInserted(insertedText, position);
 }
 
-void AXObjectCache::frameLoadingEventPlatformNotification(RenderView* renderView, AXLoadingEvent loadingEvent)
+void AXObjectCache::frameLoadingEventPlatformNotification(AccessibilityObject* coreObject, AXLoadingEvent loadingEvent)
 {
-    if (!renderView)
+    if (!coreObject)
         return;
 
-    RefPtr object = getOrCreate(*renderView);
-    if (!object || object->role() != AccessibilityRole::WebArea)
+    if (coreObject->role() != AccessibilityRole::WebArea)
         return;
 
-    auto* wrapper = object->wrapper();
+    auto* wrapper = coreObject->wrapper();
     if (!wrapper)
         return;
 

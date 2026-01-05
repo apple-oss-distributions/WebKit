@@ -411,7 +411,6 @@ private:
 
 public:
     bool didEnterVM { false };
-    bool m_isInService { false };
 private:
     VMIdentifier m_identifier;
     const Ref<JSLock> m_apiLock;
@@ -1205,6 +1204,7 @@ private:
     std::unique_ptr<TypeProfiler> m_typeProfiler;
     std::unique_ptr<TypeProfilerLog> m_typeProfilerLog;
     unsigned m_typeProfilerEnabledCount { 0 };
+    bool m_isInService { false };
     Lock m_scratchBufferLock;
     Vector<ScratchBuffer*> m_scratchBuffers;
     size_t m_sizeOfLastScratchBuffer { 0 };

@@ -8783,11 +8783,12 @@ FORWARD(toggleUnderline)
 
 - (void)_willStartRenderingUpdateDisplay
 {
+    if (_private->page) {
 #if PLATFORM(IOS_FAMILY)
-    WebThreadLock();
+        WebThreadLock();
 #endif
-    if (RefPtr page = _private->page.get())
-        page->willStartRenderingUpdateDisplay();
+        _private->page->willStartRenderingUpdateDisplay();
+    }
 }
 
 - (void)_didCompleteRenderingUpdateDisplay

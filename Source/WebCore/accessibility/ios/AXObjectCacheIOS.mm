@@ -157,18 +157,13 @@ void AXObjectCache::postTextReplacementPlatformNotificationForTextControl(Access
         postPlatformNotification(*object, AXNotification::ValueChanged);
 }
 
-void AXObjectCache::frameLoadingEventPlatformNotification(RenderView* renderView, AXLoadingEvent loadingEvent)
+void AXObjectCache::frameLoadingEventPlatformNotification(AccessibilityObject* axFrameObject, AXLoadingEvent loadingEvent)
 {
-    if (!renderView || loadingEvent != AXLoadingEvent::Finished) {
-        // It's not always safe to call getOrCreate (e.g. if layout is dirty), so
-        // only do so if necessary based on the loading event type.
+    if (!axFrameObject)
         return;
-    }
 
-    if (renderView->document().isTopDocument()) {
-        if (RefPtr axWebArea = getOrCreate(*renderView))
-            postPlatformNotification(*axWebArea, AXNotification::LoadComplete);
-    }
+    if (loadingEvent == AXLoadingEvent::Finished && axFrameObject->document() == axFrameObject->topDocument())
+        postPlatformNotification(*axFrameObject, AXNotification::LoadComplete);
 }
 
 void AXObjectCache::platformHandleFocusedUIElementChanged(Element*, Element* newElement)

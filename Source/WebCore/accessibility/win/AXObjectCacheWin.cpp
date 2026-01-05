@@ -128,29 +128,23 @@ void AXObjectCache::nodeTextChangePlatformNotification(AccessibilityObject*, AXT
 {
 }
 
-void AXObjectCache::frameLoadingEventPlatformNotification(RenderView* renderView, AXLoadingEvent eventType)
+void AXObjectCache::frameLoadingEventPlatformNotification(AccessibilityObject* obj, AXLoadingEvent notification)
 {
-    if (!renderView)
+    if (!obj)
         return;
 
-    bool isLoadStart = eventType == AXLoadingEvent::Started;
-    bool isLoadFinished = eventType == AXLoadingEvent::Finished;
-    if (!isLoadStart && !isLoadFinished)
-        return;
-
-    RefPtr axWebArea = getOrCreate(*renderView);
-    RefPtr document = axWebArea ? axWebArea->document() : nullptr;
+    Document* document = obj->document();
     if (!document)
         return;
 
-    if (RefPtr page = document->page()) {
-        if (isLoadStart)
-            page->chrome().client().AXStartFrameLoad();
-        else if (isLoadFinished)
-            page->chrome().client().AXFinishFrameLoad();
-        else
-            ASSERT_NOT_REACHED();
-    }
+    Page* page = document->page();
+    if (!page)
+        return;
+
+    if (notification == AXLoadingEvent::Started)
+        page->chrome().client().AXStartFrameLoad();
+    else if (notification == AXLoadingEvent::Finished)
+        page->chrome().client().AXFinishFrameLoad();
 }
 
 void AXObjectCache::platformHandleFocusedUIElementChanged(Element*, Element* newFocus)

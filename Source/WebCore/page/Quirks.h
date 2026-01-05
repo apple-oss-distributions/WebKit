@@ -295,6 +295,8 @@ public:
 
     bool shouldDisableDOMAudioSessionQuirk() const;
 
+    bool needsSuppressPostLayoutBoundaryEventsQuirk() const;
+
     void determineRelevantQuirks();
 
 private:

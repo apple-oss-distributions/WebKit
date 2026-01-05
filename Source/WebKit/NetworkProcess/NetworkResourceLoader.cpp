@@ -284,26 +284,21 @@ void NetworkResourceLoader::startRequest(const ResourceRequest& newRequest)
 }
 
 #if ENABLE(CONTENT_FILTERING)
-void NetworkResourceLoader::startContentFiltering(ResourceRequest&& request, CompletionHandler<void(ResourceRequest)>&& completionHandler)
+bool NetworkResourceLoader::startContentFiltering(ResourceRequest& request)
 {
-    if (!isMainResource()) {
-        completionHandler(WTFMove(request));
-        return;
-    }
+    if (!isMainResource())
+        return true;
     m_contentFilter = ContentFilter::create(*this);
     CheckedPtr contentFilter = m_contentFilter.get();
 #if HAVE(AUDIT_TOKEN)
     contentFilter->setHostProcessAuditToken(protectedConnectionToWebProcess()->networkProcess().sourceApplicationAuditToken());
 #endif
     contentFilter->startFilteringMainResource(request.url());
-
-    CompletionHandler<void(ResourceRequest)> completion = [contentFilter, completionHandler = WTFMove(completionHandler)](ResourceRequest&& request) mutable {
-        ASSERT(isMainRunLoop());
-        if (CheckedPtr filter = std::exchange(contentFilter, nullptr); request.isNull())
-            filter->stopFilteringMainResource();
-        completionHandler(WTFMove(request));
-    };
-    contentFilter->continueAfterWillSendRequest(WTFMove(request), ResourceResponse(), WTFMove(completion));
+    if (!contentFilter->continueAfterWillSendRequest(request, ResourceResponse())) {
+        contentFilter->stopFilteringMainResource();
+        return false;
+    }
+    return true;
 }
 
 #endif
@@ -2057,31 +2052,23 @@ void NetworkResourceLoader::startWithServiceWorker()
 {
     LOADER_RELEASE_LOG("startWithServiceWorker:");
 
-    CompletionHandler<void(ResourceRequest)> completionHandler = [protectedThis = Ref { *this }](ResourceRequest&& request) {
-        ASSERT(RunLoop::isMain());
-
-        if (request.isNull())
-            return;
-
-        ASSERT(!protectedThis->m_serviceWorkerFetchTask);
-        protectedThis->m_serviceWorkerFetchTask = protectedThis->protectedConnectionToWebProcess()->createFetchTask(protectedThis, request);
-        if (protectedThis->m_serviceWorkerFetchTask) {
-            LOADER_RELEASE_LOG_WITH_THIS(protectedThis, "startWithServiceWorker: Created a ServiceWorkerFetchTask (fetchIdentifier=%" PRIu64 ")", protectedThis->m_serviceWorkerFetchTask->fetchIdentifier().toUInt64());
-            return;
-        }
-
-        if (protectedThis->abortIfServiceWorkersOnly())
-            return;
-
-        protectedThis->startRequest(WTFMove(request));
-    };
-
-    ResourceRequest newRequest { originalRequest() };
+    auto newRequest = ResourceRequest { originalRequest() };
 #if ENABLE(CONTENT_FILTERING)
-    startContentFiltering(WTFMove(newRequest), WTFMove(completionHandler));
-#else
-    completionHandler(WTFMove(newRequest));
+    if (!startContentFiltering(newRequest))
+        return;
 #endif
+
+    ASSERT(!m_serviceWorkerFetchTask);
+    m_serviceWorkerFetchTask = protectedConnectionToWebProcess()->createFetchTask(*this, newRequest);
+    if (m_serviceWorkerFetchTask) {
+        LOADER_RELEASE_LOG("startWithServiceWorker: Created a ServiceWorkerFetchTask (fetchIdentifier=%" PRIu64 ")", m_serviceWorkerFetchTask->fetchIdentifier().toUInt64());
+        return;
+    }
+
+    if (abortIfServiceWorkersOnly())
+        return;
+
+    startRequest(newRequest);
 }
 
 bool NetworkResourceLoader::abortIfServiceWorkersOnly()

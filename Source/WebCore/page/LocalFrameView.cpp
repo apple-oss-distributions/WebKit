@@ -4651,7 +4651,10 @@ void LocalFrameView::performPostLayoutTasks()
     resnapAfterLayout();
 
     m_frame->document()->scheduleDeferredAXObjectCacheUpdate();
-    m_frame->eventHandler().scheduleMouseEventTargetUpdateAfterLayout();
+
+    RefPtr document = m_frame->document();
+    if (document && !document->quirks().needsSuppressPostLayoutBoundaryEventsQuirk())
+        m_frame->eventHandler().scheduleMouseEventTargetUpdateAfterLayout();
 }
 
 void LocalFrameView::dequeueScrollableAreaForScrollAnchoringUpdate(ScrollableArea& scrollableArea)

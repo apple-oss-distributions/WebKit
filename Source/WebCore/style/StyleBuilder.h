@@ -83,7 +83,7 @@ private:
     const PropertyCascade* ensureRollbackCascadeForRevert();
     const PropertyCascade* ensureRollbackCascadeForRevertLayer();
 
-    using RollbackCascadeKey = std::tuple<unsigned, unsigned, unsigned>;
+    using RollbackCascadeKey = std::tuple<unsigned, unsigned, unsigned, bool>;
     RollbackCascadeKey makeRollbackCascadeKey(PropertyCascade::Origin, ScopeOrdinal = ScopeOrdinal::Element, CascadeLayerPriority = 0);
 
     const PropertyCascade m_cascade;

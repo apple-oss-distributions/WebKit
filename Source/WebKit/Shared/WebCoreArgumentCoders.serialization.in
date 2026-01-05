@@ -1755,7 +1755,6 @@ enum class WebCore::RotationDirection : bool
     WebCore::MockContentFilterSettings::Decision m_unblockRequestDecision;
     String m_blockedString;
     String m_modifiedRequestURL;
-    Seconds m_willSendRequestDecisionDelay;
 }
 [Nested] enum class WebCore::MockContentFilterSettings::DecisionPoint : uint8_t {
     AfterWillSendRequest,

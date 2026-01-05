@@ -3128,9 +3128,7 @@ RefPtr<HTMLMediaElement> Page::bestMediaElementForRemoteControls(MediaElementSes
 
 void Page::playbackControlsManagerUpdateTimerFired()
 {
-    WeakPtr localMainFrame = dynamicDowncast<LocalFrame>(m_mainFrame.get());
-    RefPtr document = localMainFrame ? localMainFrame->document() : nullptr;
-    if (auto bestMediaElement = bestMediaElementForRemoteControls(MediaElementSession::PlaybackControlsPurpose::ControlsManager, document.get()))
+    if (auto bestMediaElement = bestMediaElementForRemoteControls(MediaElementSession::PlaybackControlsPurpose::ControlsManager, nullptr))
         chrome().client().setUpPlaybackControlsManager(*bestMediaElement);
     else
         chrome().client().clearPlaybackControlsManager();

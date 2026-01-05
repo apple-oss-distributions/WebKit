@@ -114,7 +114,6 @@ std::optional<uint8_t> MediaRecorderPrivateWriterAVFObjC::addAudioTrack(const Au
     [m_audioAssetWriterInput setExpectsMediaDataInRealTime:true];
     if (![m_writer canAddInput:m_audioAssetWriterInput.get()]) {
         RELEASE_LOG_ERROR(MediaStream, "MediaRecorderPrivateWriterAVFObjC::addAudioTrack failed canAddInput for audio with %ld", static_cast<long>([m_writer error].code));
-        m_audioAssetWriterInput.clear();
         return { };
     }
     [m_writer addInput:m_audioAssetWriterInput.get()];
@@ -134,7 +133,6 @@ std::optional<uint8_t> MediaRecorderPrivateWriterAVFObjC::addVideoTrack(const Vi
 
     if (![m_writer canAddInput:m_videoAssetWriterInput.get()]) {
         RELEASE_LOG_ERROR(MediaStream, "MediaRecorderPrivateWriterAVFObjC::addVideoTrack failed canAddInput for video with %ld", static_cast<long>([m_writer error].code));
-        m_videoAssetWriterInput.clear();
         return { };
     }
     [m_writer addInput:m_videoAssetWriterInput.get()];
@@ -158,7 +156,6 @@ bool MediaRecorderPrivateWriterAVFObjC::allTracksAdded()
     END_BLOCK_OBJC_EXCEPTIONS
 
     [m_writer startSessionAtSourceTime:PAL::kCMTimeZero];
-    m_writerStarted = true;
     return true;
 }
 
@@ -225,9 +222,6 @@ void MediaRecorderPrivateWriterAVFObjC::forceNewSegment(const MediaTime& endTime
 
 Ref<GenericPromise> MediaRecorderPrivateWriterAVFObjC::close(Deque<UniqueRef<MediaSamplesBlock>>&& samples, const MediaTime& endTime)
 {
-    if (!m_writerStarted || [m_writer status] == AVAssetWriterStatusFailed)
-        return GenericPromise::createAndReject();
-
     Deque<RetainPtr<CMSampleBufferRef>> audioSamples;
     Deque<RetainPtr<CMSampleBufferRef>> videoSamples;
 
@@ -253,8 +247,7 @@ Ref<GenericPromise> MediaRecorderPrivateWriterAVFObjC::close(Deque<UniqueRef<Med
 
     RetainPtr queue = m_waitingQueue->dispatchQueue();
     Vector<Ref<GenericPromise>> promises;
-
-    if (m_audioAssetWriterInput && audioSamples.size()) {
+    if (audioSamples.size()) {
         GenericPromise::Producer producer;
         promises.append(producer.promise());
         [m_audioAssetWriterInput requestMediaDataWhenReadyOnQueue:queue.get() usingBlock:makeBlockPtr([producer = WTFMove(producer), samples = WTFMove(audioSamples), writerInput = m_audioAssetWriterInput]() mutable {
@@ -269,7 +262,7 @@ Ref<GenericPromise> MediaRecorderPrivateWriterAVFObjC::close(Deque<UniqueRef<Med
             }
         }).get()];
     }
-    if (m_videoAssetWriterInput && videoSamples.size()) {
+    if (videoSamples.size()) {
         GenericPromise::Producer producer;
         promises.append(producer.promise());
         [m_videoAssetWriterInput requestMediaDataWhenReadyOnQueue:queue.get() usingBlock:makeBlockPtr([producer = WTFMove(producer), samples = WTFMove(audioSamples), writerInput = m_videoAssetWriterInput, hasAddedVideoFrame = m_hasAddedVideoFrame, endTime]() mutable {

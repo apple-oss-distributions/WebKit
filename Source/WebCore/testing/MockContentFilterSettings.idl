@@ -51,6 +51,4 @@ enum Decision {
     attribute Decision unblockRequestDecision;
 
     readonly attribute DOMString unblockRequestURL;
-
-    attribute double willSendRequestDecisionDelay;
 };

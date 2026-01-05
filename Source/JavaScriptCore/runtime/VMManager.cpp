@@ -43,10 +43,6 @@ VMManager& VMManager::singleton()
 VMThreadContext::VMThreadContext()
 {
     VM* vm = VM::fromThreadContext(this);
-    // Ensure that VM is not in-service yet. Since notifyVMConstruction has memory barrier (lock),
-    // if we are ensuring this condition here, concurrent threads will see this consistent state.
-    // Make sure m_isInService is initialized to false before VMThreadContext is initialized.
-    RELEASE_ASSERT(!vm->isInService());
     VMManager::singleton().notifyVMConstruction(*vm);
 }
 

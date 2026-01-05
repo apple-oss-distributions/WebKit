@@ -237,6 +237,21 @@ AccessibilityObject* AccessibilityNodeObject::parentObject() const
     if (!node)
         return nullptr;
 
+#if USE(ATSPI)
+    // FIXME: Consider removing this ATSPI-only branch with https://bugs.webkit.org/show_bug.cgi?id=282117.
+    RefPtr domParent = node->parentNode();
+#else
+    RefPtr domParent = composedParentIgnoringDocumentFragments(*node);
+#endif // USE(ATSPI)
+
+    if (!domParent) {
+        // This null-check is especially important because Node::parentNode will return nullptr
+        // when |node| is in the midst of being destroyed. If we try to call
+        // dynamicDowncast<HTMLAreaElement>(*node) on any mid-destruction node, we will crash
+        // because m_tagName has already been cleared.
+        return nullptr;
+    }
+
     CheckedPtr cache = axObjectCache();
     if (!cache)
         return nullptr;
@@ -249,12 +264,7 @@ AccessibilityObject* AccessibilityNodeObject::parentObject() const
     if (RefPtr ownerParent = ownerParentObject()) [[unlikely]]
         return ownerParent.unsafeGet();
 
-#if USE(ATSPI)
-    // FIXME: Consider removing this ATSPI-only branch with https://bugs.webkit.org/show_bug.cgi?id=282117.
-    return cache->getOrCreate(node->parentNode());
-#else
-    return cache->getOrCreate(composedParentIgnoringDocumentFragments(*node));
-#endif // USE(ATSPI)
+    return cache->getOrCreate(*domParent);
 }
 
 #if PLATFORM(IOS_FAMILY)

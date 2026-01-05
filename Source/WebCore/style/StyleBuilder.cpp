@@ -756,7 +756,8 @@ const PropertyCascade* Builder::ensureRollbackCascadeForRevertLayer()
 
 auto Builder::makeRollbackCascadeKey(PropertyCascade::Origin cascadeOrigin, ScopeOrdinal scopeOrdinal, CascadeLayerPriority cascadeLayerPriority) -> RollbackCascadeKey
 {
-    return { static_cast<unsigned>(cascadeOrigin), static_cast<unsigned>(scopeOrdinal), static_cast<unsigned>(cascadeLayerPriority) };
+    static constexpr auto isNonEmptyValue = true;
+    return { static_cast<unsigned>(cascadeOrigin), static_cast<unsigned>(scopeOrdinal), static_cast<unsigned>(cascadeLayerPriority), isNonEmptyValue };
 }
 
 }
