@@ -434,6 +434,11 @@ void PrivateClickMeasurementManager::handleAttribution(AttributionTriggerData&& 
     attribute(SourceSite { WTFMove(sourceDomain) }, AttributionDestinationSite { firstPartyURL }, WTFMove(attributionTriggerData), m_privateClickMeasurementAppBundleIDForTesting ? *m_privateClickMeasurementAppBundleIDForTesting : applicationBundleIdentifier);
 }
 
+void PrivateClickMeasurementManager::checkAttributionTimer()
+{
+    startTimer(5_s);
+}
+
 void PrivateClickMeasurementManager::startTimerImmediatelyForTesting()
 {
     startTimer(0_s);

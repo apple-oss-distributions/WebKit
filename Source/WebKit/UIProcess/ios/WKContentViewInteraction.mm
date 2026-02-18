@@ -486,8 +486,11 @@ public:
 
     ~ImageAnalysisGestureDeferralToken()
     {
-        if (auto view = m_view.get())
-            [view _endImageAnalysisGestureDeferral:m_shouldPreventTextSelection ? WebKit::ShouldPreventGestures::Yes : WebKit::ShouldPreventGestures::No];
+        auto shouldPreventGestures = m_shouldPreventTextSelection ? WebKit::ShouldPreventGestures::Yes : WebKit::ShouldPreventGestures::No;
+        ensureOnMainRunLoop([weakView = m_view, shouldPreventGestures] {
+            if (RetainPtr view = weakView.get())
+                [view _endImageAnalysisGestureDeferral:shouldPreventGestures];
+        });
     }
 
     void setShouldPreventTextSelection()
@@ -1501,6 +1504,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     _isBlurringFocusedElement = NO;
 #if USE(UICONTEXTMENU)
     _isDisplayingContextMenuWithAnimation = NO;
+    _isPreparingToDisplayContextMenu = NO;
 #endif
     _isUpdatingAccessoryView = NO;
 
@@ -1641,10 +1645,6 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 
     _layerTreeTransactionIdAtLastInteractionStart = { };
 
-#if USE(UICONTEXTMENU)
-    [self _removeContextMenuHintContainerIfPossible];
-#endif // USE(UICONTEXTMENU)
-
 #if ENABLE(DRAG_SUPPORT)
     [existingLocalDragSessionContext(_dragDropInteractionState.dragSession()) cleanUpTemporaryDirectories];
     [self teardownDragAndDropInteractions];
@@ -1690,7 +1690,9 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 
     [_webView _updateFixedContainerEdges:WebCore::FixedContainerEdges { }];
 
-    [self _removeContainerForContextMenuHintPreviews];
+#if USE(UICONTEXTMENU)
+    [self _removeContextMenuHintContainerIfPossible];
+#endif
     [self _removeContainerForDragPreviews];
     [self _removeContainerForDropPreviews];
     [self unsuppressSoftwareKeyboardUsingLastAutocorrectionContextIfNeeded];
@@ -1719,7 +1721,9 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 
 - (void)cleanUpInteractionPreviewContainers
 {
-    [self _removeContainerForContextMenuHintPreviews];
+#if USE(UICONTEXTMENU)
+    [self _removeContextMenuHintContainerIfPossible];
+#endif
 }
 
 - (void)_cancelPendingKeyEventHandlers:(BOOL)handled
@@ -6147,7 +6151,9 @@ static void logTextInteraction(const char* methodName, UIGestureRecognizer *loup
 
     [self _elementDidBlur];
     [self _cancelLongPressGestureRecognizer];
-    [self _removeContainerForContextMenuHintPreviews];
+#if USE(UICONTEXTMENU)
+    [self _removeContextMenuHintContainerIfPossible];
+#endif
     [self _removeContainerForDragPreviews];
     [self _removeContainerForDropPreviews];
     [_webView _didCommitLoadForMainFrame];
@@ -10320,6 +10326,8 @@ static WebCore::DataOwnerType coreDataOwnerType(_UIDataOwner platformType)
 {
     if (!_contextMenuHintContainerView) {
         _contextMenuHintContainerView = [self _createPreviewContainerWithLayerName:@"Context Menu Hint Preview Container"];
+        RELEASE_LOG(ViewState, "%p - [pageProxyID=%" PRIu64 "] Created container for context menu hint previews: %p"
+            , self, _page ? _page->identifier().toUInt64() : 0, _contextMenuHintContainerView.get());
 
         RetainPtr<UIView> containerView;
 
@@ -10343,6 +10351,8 @@ static WebCore::DataOwnerType coreDataOwnerType(_UIDataOwner platformType)
     if (!_contextMenuHintContainerView)
         return;
 
+    RELEASE_LOG(ViewState, "%p - [pageProxyID=%" PRIu64 "] Removing container for context menu hint previews: %p"
+        , self, _page ? _page->identifier().toUInt64() : 0, _contextMenuHintContainerView.get());
     [std::exchange(_contextMenuHintContainerView, nil) removeFromSuperview];
 
     _scrollViewForTargetedPreview = nil;
@@ -11829,6 +11839,10 @@ static RetainPtr<UITargetedPreview> createFallbackTargetedPreview(UIView *rootVi
 #endif
     if (_isDisplayingContextMenuWithAnimation)
         return;
+
+    if (_isPreparingToDisplayContextMenu)
+        return;
+
 #if ENABLE(DATA_DETECTION)
     // We are also using this container for the action sheet assistant...
     if ([_actionSheetAssistant hasContextMenuInteraction])
@@ -15278,6 +15292,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 {
     [self _startSuppressingSelectionAssistantForReason:WebKit::InteractionIsHappening];
     [self _cancelTouchEventGestureRecognizer];
+    _isPreparingToDisplayContextMenu = YES;
     return [self _createTargetedContextMenuHintPreviewIfPossible];
 }
 
@@ -15287,6 +15302,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
         return;
 
     _page->willBeginContextMenuInteraction();
+    _isPreparingToDisplayContextMenu = NO;
     _isDisplayingContextMenuWithAnimation = YES;
     [animator addCompletion:[weakSelf = WeakObjCPtr<WKContentView>(self)] {
         if (auto strongSelf = weakSelf.get()) {

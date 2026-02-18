@@ -569,18 +569,20 @@ ipintOp(_call_indirect, macro()
     // The operationCall below already calls validateOpcodeConfig().
     saveCallSiteIndex()
 
-    loadb IPInt::CallIndirectMetadata::length[MC], t2
-    advancePCByReg(t2)
-
     # Get function index by pointer, use it as a return for callee
     move sp, a2
 
     # Get callIndirectMetadata
     move cfr, a1
     move MC, a3
-    advanceMC(IPInt::CallIndirectMetadata::signature)
 
     operationCallMayThrow(macro() cCall4(_ipint_extern_prepare_call_indirect) end)
+
+    # operationCallMayThrow saves the call site index, so we have to advance the PC after.
+    # Otherwise, the wrong call site index will be saved.
+    loadb IPInt::CallIndirectMetadata::length[MC], t2
+    advancePCByReg(t2)
+    advanceMC(IPInt::CallIndirectMetadata::signature)
 
     loadq [sp], IPIntCallCallee
     loadq 8[sp], IPIntCallFunctionSlot
@@ -618,9 +620,6 @@ ipintOp(_return_call_indirect, macro()
     // The operationCallMayThrow below already calls validateOpcodeConfig().
     saveCallSiteIndex()
 
-    loadb IPInt::TailCallIndirectMetadata::length[MC], t2
-    advancePCByReg(t2)
-
     # Get function index by pointer, use it as a return for callee
     move sp, a2
 
@@ -628,6 +627,11 @@ ipintOp(_return_call_indirect, macro()
     move cfr, a1
     move MC, a3
     operationCallMayThrow(macro() cCall4(_ipint_extern_prepare_call_indirect) end)
+
+    # operationCallMayThrow saves the call site index, so we have to advance the PC after.
+    # Otherwise, the wrong call site index will be saved.
+    loadb IPInt::TailCallIndirectMetadata::length[MC], t2
+    advancePCByReg(t2)
 
     loadq [sp], IPIntCallCallee
     loadq 8[sp], IPIntCallFunctionSlot
@@ -662,13 +666,16 @@ ipintOp(_return_call_ref, macro()
     // The operationCallMayThrow below already calls validateOpcodeConfig().
     saveCallSiteIndex()
 
-    loadb IPInt::TailCallRefMetadata::length[MC], t2
-    advancePCByReg(t2)
-
     move cfr, a1
     move MC, a2
     move sp, a3
     operationCallMayThrow(macro() cCall4(_ipint_extern_prepare_call_ref) end)
+
+    # operationCallMayThrow saves the call site index, so we have to advance the PC after.
+    # Otherwise, the wrong call site index will be saved.
+    loadb IPInt::TailCallRefMetadata::length[MC], t2
+    advancePCByReg(t2)
+
     loadq [sp], IPIntCallCallee
     loadq 8[sp], IPIntCallFunctionSlot
     addq 16, sp
@@ -3493,7 +3500,9 @@ ipintOp(_array_len, macro()
     bqeq t0, ValueNull, .nullArray
     loadi JSWebAssemblyArray::m_size[t0], t0
     pushInt32(t0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 
 .nullArray:
@@ -3506,9 +3515,9 @@ ipintOp(_array_fill, macro()
 
     addp StackValueSize * 4, sp
 
-    loadb IPInt::ArrayFillMetadata::length[MC], t0
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
     advancePCByReg(t0)
-    advanceMC(constexpr (sizeof(IPInt::ArrayFillMetadata)))
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -3518,9 +3527,9 @@ ipintOp(_array_copy, macro()
 
     addp StackValueSize * 5, sp
 
-    loadb IPInt::ArrayFillMetadata::length[MC], t0
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
     advancePCByReg(t0)
-    advanceMC(constexpr (sizeof(IPInt::ArrayCopyMetadata)))
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -3646,13 +3655,17 @@ ipintOp(_any_convert_extern, macro()
     popQuad(a1)
     operationCall(macro() cCall2(_ipint_extern_any_convert_extern) end)
     pushQuad(r0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
 ipintOp(_extern_convert_any, macro()
     # do nothing
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -3663,7 +3676,9 @@ ipintOp(_ref_i31, macro()
     orq TagNumber, t0
     pushQuad(t0)
 
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -3672,7 +3687,9 @@ ipintOp(_i31_get_s, macro()
     bqeq t0, ValueNull, .i31_get_throw
     pushInt32(t0)
 
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 .i31_get_throw:
     throwException(NullI31Get)
@@ -3684,7 +3701,9 @@ ipintOp(_i31_get_u, macro()
     andq 0x7fffffff, t0
     pushInt32(t0)
 
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 .i31_get_throw:
     throwException(NullI31Get)
@@ -4309,7 +4328,9 @@ ipintOp(_simd_v128_const, macro()
     # v128.const
     loadv 2[PC], v0
     pushVec(v0)
-    advancePC(18)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -4362,7 +4383,9 @@ ipintOp(_simd_i8x16_shuffle, macro()
         addp 2 * V128ISize, sp            # Pop temp result and right vector
     end
 
-    advancePC(18)  # 2 bytes opcode + 16 bytes immediate
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -4389,7 +4412,9 @@ ipintOp(_simd_i8x16_swizzle, macro()
     end
 
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -4410,7 +4435,9 @@ ipintOp(_simd_i8x16_splat, macro()
     end
 
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -4430,7 +4457,9 @@ ipintOp(_simd_i16x8_splat, macro()
     end
 
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -4449,7 +4478,9 @@ ipintOp(_simd_i32x4_splat, macro()
     end
 
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -4468,7 +4499,9 @@ ipintOp(_simd_i64x2_splat, macro()
     end
 
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -4486,7 +4519,9 @@ ipintOp(_simd_f32x4_splat, macro()
     end
 
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -4504,7 +4539,9 @@ ipintOp(_simd_f64x2_splat, macro()
     end
 
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -4516,7 +4553,9 @@ ipintOp(_simd_i8x16_extract_lane_s, macro()
     loadbsi [sp, t0], t0
     addp V128ISize, sp
     pushInt32(t0)
-    advancePC(3)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -4527,7 +4566,9 @@ ipintOp(_simd_i8x16_extract_lane_u, macro()
     loadb [sp, t0], t0
     addp V128ISize, sp
     pushInt32(t0)
-    advancePC(3)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -4537,7 +4578,9 @@ ipintOp(_simd_i8x16_replace_lane, macro()
     andi ImmLaneIdx16Mask, t0
     popInt32(t1)  # value to replace with
     storeb t1, [sp, t0]  # replace the byte at lane index
-    advancePC(3)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -4548,7 +4591,9 @@ ipintOp(_simd_i16x8_extract_lane_s, macro()
     loadhsi [sp, t0, 2], t0
     addp V128ISize, sp
     pushInt32(t0)
-    advancePC(3)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -4559,7 +4604,9 @@ ipintOp(_simd_i16x8_extract_lane_u, macro()
     loadh [sp, t0, 2], t0
     addp V128ISize, sp
     pushInt32(t0)
-    advancePC(3)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -4569,7 +4616,9 @@ ipintOp(_simd_i16x8_replace_lane, macro()
     andi ImmLaneIdx8Mask, t0
     popInt32(t1)  # value to replace with
     storeh t1, [sp, t0, 2]  # replace the 16-bit value at lane index
-    advancePC(3)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -4580,7 +4629,9 @@ ipintOp(_simd_i32x4_extract_lane, macro()
     loadi [sp, t0, 4], t0
     addp V128ISize, sp
     pushInt32(t0)
-    advancePC(3)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -4590,7 +4641,9 @@ ipintOp(_simd_i32x4_replace_lane, macro()
     andi ImmLaneIdx4Mask, t0
     popInt32(t1)  # value to replace with
     storei t1, [sp, t0, 4]  # replace the 32-bit value at lane index
-    advancePC(3)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -4601,7 +4654,9 @@ ipintOp(_simd_i64x2_extract_lane, macro()
     loadq [sp, t0, 8], t0
     addp V128ISize, sp
     pushInt64(t0)
-    advancePC(3)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -4611,7 +4666,9 @@ ipintOp(_simd_i64x2_replace_lane, macro()
     andi ImmLaneIdx2Mask, t0
     popInt64(t1)  # value to replace with
     storeq t1, [sp, t0, 8]  # replace the 64-bit value at lane index
-    advancePC(3)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -4622,7 +4679,9 @@ ipintOp(_simd_f32x4_extract_lane, macro()
     loadf [sp, t0, 4], ft0
     addp V128ISize, sp
     pushFloat32(ft0)
-    advancePC(3)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -4632,7 +4691,9 @@ ipintOp(_simd_f32x4_replace_lane, macro()
     andi ImmLaneIdx4Mask, t0
     popFloat32(ft0)  # value to replace with
     storef ft0, [sp, t0, 4]  # replace the 32-bit float at lane index
-    advancePC(3)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -4643,7 +4704,9 @@ ipintOp(_simd_f64x2_extract_lane, macro()
     loadd [sp, t0, 8], ft0
     addp V128ISize, sp
     pushFloat64(ft0)
-    advancePC(3)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -4653,7 +4716,9 @@ ipintOp(_simd_f64x2_replace_lane, macro()
     andi ImmLaneIdx2Mask, t0
     popFloat64(ft0)  # value to replace with
     stored ft0, [sp, t0, 8]  # replace the 64-bit float at lane index
-    advancePC(3)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -4670,7 +4735,9 @@ ipintOp(_simd_i8x16_eq, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -4691,7 +4758,9 @@ ipintOp(_simd_i8x16_ne, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -4709,7 +4778,9 @@ ipintOp(_simd_i8x16_lt_s, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -4730,7 +4801,9 @@ ipintOp(_simd_i8x16_lt_u, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -4746,7 +4819,9 @@ ipintOp(_simd_i8x16_gt_s, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -4766,7 +4841,9 @@ ipintOp(_simd_i8x16_gt_u, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -4786,7 +4863,9 @@ ipintOp(_simd_i8x16_le_s, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -4805,7 +4884,9 @@ ipintOp(_simd_i8x16_le_u, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -4824,7 +4905,9 @@ ipintOp(_simd_i8x16_ge_s, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -4842,7 +4925,9 @@ ipintOp(_simd_i8x16_ge_u, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -4860,7 +4945,9 @@ ipintOp(_simd_i16x8_eq, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -4880,7 +4967,9 @@ ipintOp(_simd_i16x8_ne, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -4898,7 +4987,9 @@ ipintOp(_simd_i16x8_lt_s, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -4919,7 +5010,9 @@ ipintOp(_simd_i16x8_lt_u, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -4935,7 +5028,9 @@ ipintOp(_simd_i16x8_gt_s, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -4955,7 +5050,9 @@ ipintOp(_simd_i16x8_gt_u, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -4975,7 +5072,9 @@ ipintOp(_simd_i16x8_le_s, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -4994,7 +5093,9 @@ ipintOp(_simd_i16x8_le_u, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -5013,7 +5114,9 @@ ipintOp(_simd_i16x8_ge_s, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -5031,7 +5134,9 @@ ipintOp(_simd_i16x8_ge_u, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -5048,7 +5153,9 @@ ipintOp(_simd_i32x4_eq, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -5068,7 +5175,9 @@ ipintOp(_simd_i32x4_ne, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -5086,7 +5195,9 @@ ipintOp(_simd_i32x4_lt_s, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -5107,7 +5218,9 @@ ipintOp(_simd_i32x4_lt_u, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -5123,7 +5236,9 @@ ipintOp(_simd_i32x4_gt_s, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -5143,7 +5258,9 @@ ipintOp(_simd_i32x4_gt_u, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -5163,7 +5280,9 @@ ipintOp(_simd_i32x4_le_s, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -5182,7 +5301,9 @@ ipintOp(_simd_i32x4_le_u, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -5201,7 +5322,9 @@ ipintOp(_simd_i32x4_ge_s, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -5219,7 +5342,9 @@ ipintOp(_simd_i32x4_ge_u, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -5236,7 +5361,9 @@ ipintOp(_simd_f32x4_eq, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -5253,7 +5380,9 @@ ipintOp(_simd_f32x4_ne, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -5270,7 +5399,9 @@ ipintOp(_simd_f32x4_lt, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -5286,7 +5417,9 @@ ipintOp(_simd_f32x4_gt, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -5303,7 +5436,9 @@ ipintOp(_simd_f32x4_le, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -5319,7 +5454,9 @@ ipintOp(_simd_f32x4_ge, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -5336,7 +5473,9 @@ ipintOp(_simd_f64x2_eq, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -5353,7 +5492,9 @@ ipintOp(_simd_f64x2_ne, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -5370,7 +5511,9 @@ ipintOp(_simd_f64x2_lt, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -5386,7 +5529,9 @@ ipintOp(_simd_f64x2_gt, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -5403,7 +5548,9 @@ ipintOp(_simd_f64x2_le, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -5419,7 +5566,9 @@ ipintOp(_simd_f64x2_ge, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -5437,7 +5586,9 @@ ipintOp(_simd_v128_not, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -5453,7 +5604,9 @@ ipintOp(_simd_v128_and, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -5469,7 +5622,9 @@ ipintOp(_simd_v128_andnot, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -5485,7 +5640,9 @@ ipintOp(_simd_v128_or, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -5501,7 +5658,9 @@ ipintOp(_simd_v128_xor, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -5526,7 +5685,9 @@ ipintOp(_simd_v128_bitselect, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -5549,7 +5710,9 @@ ipintOp(_simd_v128_any_true, macro()
         break # Not implemented
     end
     pushInt32(t0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -5797,7 +5960,9 @@ ipintOp(_simd_f32x4_demote_f64x2_zero, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -5812,7 +5977,9 @@ ipintOp(_simd_f64x2_promote_low_f32x4, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -5829,7 +5996,9 @@ ipintOp(_simd_i8x16_abs, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -5846,7 +6015,9 @@ ipintOp(_simd_i8x16_neg, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -5888,7 +6059,9 @@ ipintOp(_simd_i8x16_popcnt, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -5913,7 +6086,9 @@ ipintOp(_simd_i8x16_all_true, macro()
         break # Not implemented
     end
     pushInt32(t0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -5941,7 +6116,9 @@ ipintOp(_simd_i8x16_bitmask, macro()
 
     addp V128ISize, sp  # Pop the vector
     pushInt32(t0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -5959,7 +6136,9 @@ ipintOp(_simd_i8x16_narrow_i16x8_s, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -5977,7 +6156,9 @@ ipintOp(_simd_i8x16_narrow_i16x8_u, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -5994,7 +6175,9 @@ ipintOp(_simd_f32x4_ceil, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -6009,7 +6192,9 @@ ipintOp(_simd_f32x4_floor, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -6024,7 +6209,9 @@ ipintOp(_simd_f32x4_trunc, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -6039,7 +6226,9 @@ ipintOp(_simd_f32x4_nearest, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -6087,7 +6276,9 @@ ipintOp(_simd_i8x16_shl, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -6129,7 +6320,9 @@ ipintOp(_simd_i8x16_shr_s, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -6171,7 +6364,9 @@ ipintOp(_simd_i8x16_shr_u, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -6187,7 +6382,9 @@ ipintOp(_simd_i8x16_add, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -6203,7 +6400,9 @@ ipintOp(_simd_i8x16_add_sat_s, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -6219,7 +6418,9 @@ ipintOp(_simd_i8x16_add_sat_u, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -6235,7 +6436,9 @@ ipintOp(_simd_i8x16_sub, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -6251,7 +6454,9 @@ ipintOp(_simd_i8x16_sub_sat_s, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -6267,7 +6472,9 @@ ipintOp(_simd_i8x16_sub_sat_u, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -6284,7 +6491,9 @@ ipintOp(_simd_f64x2_ceil, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -6299,7 +6508,9 @@ ipintOp(_simd_f64x2_floor, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -6316,7 +6527,9 @@ ipintOp(_simd_i8x16_min_s, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -6332,7 +6545,9 @@ ipintOp(_simd_i8x16_min_u, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -6348,7 +6563,9 @@ ipintOp(_simd_i8x16_max_s, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -6364,7 +6581,9 @@ ipintOp(_simd_i8x16_max_u, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -6381,7 +6600,9 @@ ipintOp(_simd_f64x2_trunc, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -6399,7 +6620,9 @@ ipintOp(_simd_i8x16_avgr_u, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -6419,7 +6642,9 @@ ipintOp(_simd_i16x8_extadd_pairwise_i8x16_s, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -6437,7 +6662,9 @@ ipintOp(_simd_i16x8_extadd_pairwise_i8x16_u, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -6455,7 +6682,9 @@ ipintOp(_simd_i32x4_extadd_pairwise_i16x8_s, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -6472,7 +6701,9 @@ ipintOp(_simd_i32x4_extadd_pairwise_i16x8_u, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -6489,7 +6720,9 @@ ipintOp(_simd_i16x8_abs, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -6506,7 +6739,9 @@ ipintOp(_simd_i16x8_neg, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -6530,7 +6765,9 @@ ipintOp(_simd_i16x8_q15mulr_sat_s, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -6557,7 +6794,9 @@ ipintOp(_simd_i16x8_all_true, macro()
         break # Not implemented
     end
     pushInt32(t0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -6585,7 +6824,9 @@ ipintOp(_simd_i16x8_bitmask, macro()
 
     addp V128ISize, sp  # Pop the vector
     pushInt32(t0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -6603,7 +6844,9 @@ ipintOp(_simd_i16x8_narrow_i32x4_s, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -6621,7 +6864,9 @@ ipintOp(_simd_i16x8_narrow_i32x4_u, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -6636,7 +6881,9 @@ ipintOp(_simd_i16x8_extend_low_i8x16_s, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -6653,7 +6900,9 @@ ipintOp(_simd_i16x8_extend_high_i8x16_s, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -6668,7 +6917,9 @@ ipintOp(_simd_i16x8_extend_low_i8x16_u, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -6685,7 +6936,9 @@ ipintOp(_simd_i16x8_extend_high_i8x16_u, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -6710,7 +6963,9 @@ ipintOp(_simd_i16x8_shl, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -6737,7 +6992,9 @@ ipintOp(_simd_i16x8_shr_s, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -6762,7 +7019,9 @@ ipintOp(_simd_i16x8_shr_u, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -6778,7 +7037,9 @@ ipintOp(_simd_i16x8_add, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -6794,7 +7055,9 @@ ipintOp(_simd_i16x8_add_sat_s, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -6810,7 +7073,9 @@ ipintOp(_simd_i16x8_add_sat_u, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -6826,7 +7091,9 @@ ipintOp(_simd_i16x8_sub, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -6842,7 +7109,9 @@ ipintOp(_simd_i16x8_sub_sat_s, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -6858,7 +7127,9 @@ ipintOp(_simd_i16x8_sub_sat_u, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -6875,7 +7146,9 @@ ipintOp(_simd_f64x2_nearest, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -6893,7 +7166,9 @@ ipintOp(_simd_i16x8_mul, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -6909,7 +7184,9 @@ ipintOp(_simd_i16x8_min_s, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -6925,7 +7202,9 @@ ipintOp(_simd_i16x8_min_u, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -6941,7 +7220,9 @@ ipintOp(_simd_i16x8_max_s, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -6957,7 +7238,9 @@ ipintOp(_simd_i16x8_max_u, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -6974,7 +7257,9 @@ ipintOp(_simd_i16x8_avgr_u, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -6993,7 +7278,9 @@ ipintOp(_simd_i16x8_extmul_low_i8x16_s, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -7014,7 +7301,9 @@ ipintOp(_simd_i16x8_extmul_high_i8x16_s, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -7033,7 +7322,9 @@ ipintOp(_simd_i16x8_extmul_low_i8x16_u, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -7053,7 +7344,9 @@ ipintOp(_simd_i16x8_extmul_high_i8x16_u, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -7070,7 +7363,9 @@ ipintOp(_simd_i32x4_abs, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -7087,7 +7382,9 @@ ipintOp(_simd_i32x4_neg, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -7116,7 +7413,9 @@ ipintOp(_simd_i32x4_all_true, macro()
         break # Not implemented
     end
     pushInt32(t0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -7144,7 +7443,9 @@ ipintOp(_simd_i32x4_bitmask, macro()
 
     addp V128ISize, sp  # Pop the vector
     pushInt32(t0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -7162,7 +7463,9 @@ ipintOp(_simd_i32x4_extend_low_i16x8_s, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -7179,7 +7482,9 @@ ipintOp(_simd_i32x4_extend_high_i16x8_s, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -7194,7 +7499,9 @@ ipintOp(_simd_i32x4_extend_low_i16x8_u, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -7211,7 +7518,9 @@ ipintOp(_simd_i32x4_extend_high_i16x8_u, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -7234,7 +7543,9 @@ ipintOp(_simd_i32x4_shl, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -7259,7 +7570,9 @@ ipintOp(_simd_i32x4_shr_s, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -7284,7 +7597,9 @@ ipintOp(_simd_i32x4_shr_u, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -7300,7 +7615,9 @@ ipintOp(_simd_i32x4_add, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -7319,7 +7636,9 @@ ipintOp(_simd_i32x4_sub, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -7339,7 +7658,9 @@ ipintOp(_simd_i32x4_mul, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -7355,7 +7676,9 @@ ipintOp(_simd_i32x4_min_s, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -7371,7 +7694,9 @@ ipintOp(_simd_i32x4_min_u, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -7387,7 +7712,9 @@ ipintOp(_simd_i32x4_max_s, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -7403,7 +7730,9 @@ ipintOp(_simd_i32x4_max_u, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -7424,7 +7753,9 @@ ipintOp(_simd_i32x4_dot_i16x8_s, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 reservedOpcode(0xfdbb01)
@@ -7444,7 +7775,9 @@ ipintOp(_simd_i32x4_extmul_low_i16x8_s, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -7463,7 +7796,9 @@ ipintOp(_simd_i32x4_extmul_high_i16x8_s, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -7482,7 +7817,9 @@ ipintOp(_simd_i32x4_extmul_low_i16x8_u, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -7501,7 +7838,9 @@ ipintOp(_simd_i32x4_extmul_high_i16x8_u, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -7523,7 +7862,9 @@ ipintOp(_simd_i64x2_abs, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -7540,7 +7881,9 @@ ipintOp(_simd_i64x2_neg, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -7569,7 +7912,9 @@ ipintOp(_simd_i64x2_all_true, macro()
         break # Not implemented
     end
     pushInt32(t0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -7599,7 +7944,9 @@ ipintOp(_simd_i64x2_bitmask, macro()
 
 .bitmask_i64x2_done:
     pushInt32(t2)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -7617,7 +7964,9 @@ ipintOp(_simd_i64x2_extend_low_i32x4_s, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -7634,7 +7983,9 @@ ipintOp(_simd_i64x2_extend_high_i32x4_s, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -7649,7 +8000,9 @@ ipintOp(_simd_i64x2_extend_low_i32x4_u, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -7666,7 +8019,9 @@ ipintOp(_simd_i64x2_extend_high_i32x4_u, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -7689,7 +8044,9 @@ ipintOp(_simd_i64x2_shl, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -7707,7 +8064,9 @@ ipintOp(_simd_i64x2_shr_s, macro()
     rshiftq t0, t1
     storeq t1, [sp]
 
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -7732,7 +8091,9 @@ ipintOp(_simd_i64x2_shr_u, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -7748,7 +8109,9 @@ ipintOp(_simd_i64x2_add, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -7767,7 +8130,9 @@ ipintOp(_simd_i64x2_sub, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -7792,7 +8157,9 @@ ipintOp(_simd_i64x2_mul, macro()
 
     # Pop vector1, result in vector0
     addp V128ISize, sp        # Remove first vector from stack, leaving result
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -7808,7 +8175,9 @@ ipintOp(_simd_i64x2_eq, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -7828,7 +8197,9 @@ ipintOp(_simd_i64x2_ne, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -7846,7 +8217,9 @@ ipintOp(_simd_i64x2_lt_s, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -7862,7 +8235,9 @@ ipintOp(_simd_i64x2_gt_s, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -7882,7 +8257,9 @@ ipintOp(_simd_i64x2_le_s, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -7901,7 +8278,9 @@ ipintOp(_simd_i64x2_ge_s, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -7920,7 +8299,9 @@ ipintOp(_simd_i64x2_extmul_low_i32x4_s, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -7939,7 +8320,9 @@ ipintOp(_simd_i64x2_extmul_high_i32x4_s, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -7958,7 +8341,9 @@ ipintOp(_simd_i64x2_extmul_low_i32x4_u, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -7977,7 +8362,9 @@ ipintOp(_simd_i64x2_extmul_high_i32x4_u, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -7998,7 +8385,9 @@ ipintOp(_simd_f32x4_abs, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -8017,7 +8406,9 @@ ipintOp(_simd_f32x4_neg, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -8034,7 +8425,9 @@ ipintOp(_simd_f32x4_sqrt, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -8050,7 +8443,9 @@ ipintOp(_simd_f32x4_add, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -8066,7 +8461,9 @@ ipintOp(_simd_f32x4_sub, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -8082,7 +8479,9 @@ ipintOp(_simd_f32x4_mul, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -8098,7 +8497,9 @@ ipintOp(_simd_f32x4_div, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -8127,7 +8528,9 @@ ipintOp(_simd_f32x4_min, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -8161,7 +8564,9 @@ ipintOp(_simd_f32x4_max, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -8181,7 +8586,9 @@ ipintOp(_simd_f32x4_pmin, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -8201,7 +8608,9 @@ ipintOp(_simd_f32x4_pmax, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -8222,7 +8631,9 @@ ipintOp(_simd_f64x2_abs, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -8241,7 +8652,9 @@ ipintOp(_simd_f64x2_neg, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -8258,7 +8671,9 @@ ipintOp(_simd_f64x2_sqrt, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -8274,7 +8689,9 @@ ipintOp(_simd_f64x2_add, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -8290,7 +8707,9 @@ ipintOp(_simd_f64x2_sub, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -8306,7 +8725,9 @@ ipintOp(_simd_f64x2_mul, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -8322,7 +8743,9 @@ ipintOp(_simd_f64x2_div, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -8351,7 +8774,9 @@ ipintOp(_simd_f64x2_min, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -8385,7 +8810,9 @@ ipintOp(_simd_f64x2_max, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -8405,7 +8832,9 @@ ipintOp(_simd_f64x2_pmin, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -8425,7 +8854,9 @@ ipintOp(_simd_f64x2_pmax, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -8454,7 +8885,9 @@ ipintOp(_simd_i32x4_trunc_sat_f32x4_s, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -8488,7 +8921,9 @@ ipintOp(_simd_i32x4_trunc_sat_f32x4_u, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -8503,7 +8938,9 @@ ipintOp(_simd_f32x4_convert_i32x4_s, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -8526,7 +8963,9 @@ ipintOp(_simd_f32x4_convert_i32x4_u, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -8555,7 +8994,9 @@ ipintOp(_simd_i32x4_trunc_sat_f64x2_s_zero, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -8590,7 +9031,9 @@ ipintOp(_simd_i32x4_trunc_sat_f64x2_u_zero, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -8607,7 +9050,9 @@ ipintOp(_simd_f64x2_convert_low_i32x4_s, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
@@ -8639,7 +9084,9 @@ ipintOp(_simd_f64x2_convert_low_i32x4_u, macro()
         break # Not implemented
     end
     pushVec(v0)
-    advancePC(2)
+    loadb IPInt::InstructionLengthMetadata::length[MC], t0
+    advancePCByReg(t0)
+    advanceMC(constexpr (sizeof(IPInt::InstructionLengthMetadata)))
     nextIPIntInstruction()
 end)
 
