@@ -1645,6 +1645,10 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 
     _layerTreeTransactionIdAtLastInteractionStart = { };
 
+#if USE(UICONTEXTMENU)
+    [self _removeContextMenuHintContainerIfPossible];
+#endif // USE(UICONTEXTMENU)
+
 #if ENABLE(DRAG_SUPPORT)
     [existingLocalDragSessionContext(_dragDropInteractionState.dragSession()) cleanUpTemporaryDirectories];
     [self teardownDragAndDropInteractions];
@@ -1690,9 +1694,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 
     [_webView _updateFixedContainerEdges:WebCore::FixedContainerEdges { }];
 
-#if USE(UICONTEXTMENU)
-    [self _removeContextMenuHintContainerIfPossible];
-#endif
+    [self _removeContainerForContextMenuHintPreviews];
     [self _removeContainerForDragPreviews];
     [self _removeContainerForDropPreviews];
     [self unsuppressSoftwareKeyboardUsingLastAutocorrectionContextIfNeeded];
@@ -1721,9 +1723,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 
 - (void)cleanUpInteractionPreviewContainers
 {
-#if USE(UICONTEXTMENU)
-    [self _removeContextMenuHintContainerIfPossible];
-#endif
+    [self _removeContainerForContextMenuHintPreviews];
 }
 
 - (void)_cancelPendingKeyEventHandlers:(BOOL)handled
@@ -6151,9 +6151,7 @@ static void logTextInteraction(const char* methodName, UIGestureRecognizer *loup
 
     [self _elementDidBlur];
     [self _cancelLongPressGestureRecognizer];
-#if USE(UICONTEXTMENU)
-    [self _removeContextMenuHintContainerIfPossible];
-#endif
+    [self _removeContainerForContextMenuHintPreviews];
     [self _removeContainerForDragPreviews];
     [self _removeContainerForDropPreviews];
     [_webView _didCommitLoadForMainFrame];
