@@ -63,7 +63,7 @@ class RemoteBuffer final : public IPC::StreamMessageReceiver {
 public:
     static Ref<RemoteBuffer> create(WebCore::WebGPU::Buffer& buffer, WebGPU::ObjectHeap& objectHeap, Ref<IPC::StreamServerConnection>&& streamConnection, RemoteGPU& gpu, bool mappedAtCreation, WebGPUIdentifier identifier)
     {
-        return adoptRef(*new RemoteBuffer(buffer, objectHeap, WTFMove(streamConnection), gpu, mappedAtCreation, identifier));
+        return adoptRef(*new RemoteBuffer(buffer, objectHeap, WTF::move(streamConnection), gpu, mappedAtCreation, identifier));
     }
 
     virtual ~RemoteBuffer();
@@ -106,6 +106,7 @@ private:
     WeakRef<RemoteGPU> m_gpu;
     WebGPUIdentifier m_identifier;
     bool m_isMapped { false };
+    bool m_pendingMap { false };
     WebCore::WebGPU::MapModeFlags m_mapModeFlags;
 };
 

@@ -28,9 +28,9 @@ classes = [
     "WCRBrowserEngineClient",
 ]
 selectors = [
-    { name = "allowURL:withCompletion:", class = "?" },
-    { name = "evaluateURL:withCompletion:onCompletionQueue:", class = "?" },
-    { name = "shouldEvaluateURLs", class = "?" },
+    { name = "allowURL:withCompletion:", class = "WCRBrowserEngineClient" },
+    { name = "evaluateURL:withCompletion:onCompletionQueue:", class = "WCRBrowserEngineClient" },
+    { name = "shouldEvaluateURLs", class = "WCRBrowserEngineClient" },
 ]
 requires = ["HAVE_WEBCONTENTRESTRICTIONS"]
 
@@ -79,7 +79,6 @@ selectors = [
     { name = "collapsesBorders", class = "?" },
     { name = "hidesEmptyCells", class = "?" },
     { name = "layoutAlgorithm", class = "?" },
-    { name = "setBrowserAuditToken:", class = "?" },
     { name = "transferVideoViewTo:", class = "?" },
     { name = "valueForDimension:", class = "?" },
     { name = "verticalAlignment", class = "?" },
@@ -114,6 +113,13 @@ selectors = [
     { name = "initWithWebsiteIdentifier:", class = "?" },
 ]
 requires = ["USE_APPLE_INTERNAL_SDK"]
+
+[[legacy]]
+# These are needed to only show built-in voices to reduce fingerprinting surface area.
+selectors = [
+    { name = "speechVoicesIncludingSuperCompact", class = "?" },
+    { name = "speechVoicesIncludingSuperCompactWithCompletionHandler:", class = "?" },
+]
 
 [[legacy]]
 classes = [
@@ -240,7 +246,6 @@ selectors = [
     { name = "_setUseEnhancedPrivacyMode:", class = "?" },
     { name = "_standardMarkerAttributesForAttributes:", class = "?" },
     { name = "_storagePartition", class = "?" },
-    { name = "_strictlyUnarchivedObjectOfClasses:fromData:error:", class = "?" },
     { name = "_useEnhancedPrivacyMode", class = "?" },
     { name = "_web_URLWithString:relativeToURL:", class = "?" },
     { name = "_web_createFileAtPath:contents:attributes:", class = "?" },
@@ -250,7 +255,6 @@ selectors = [
     { name = "_willStartScrollingOrZooming", class = "?" },
     { name = "acquireWithHandler:invalidationHandler:", class = "?" },
     { name = "activateTokenWithServerResponse:error:", class = "?" },
-    { name = "addData:", class = "?" },
     { name = "addNetworkReachableObserver:selector:", class = "?" },
     { name = "alphaComponent", class = "?" },
     { name = "alphaThreshold", class = "?" },
@@ -276,7 +280,6 @@ selectors = [
     { name = "createPluginBindingsInstance:", class = "?" },
     { name = "currentTimeStamp", class = "?" },
     { name = "currentValue", class = "AVValueTiming" },
-    { name = "dataComplete", class = "?" },
     { name = "defaultContentKeyGroup", class = "?" },
     { name = "deviceFeatures", class = "?" },
     { name = "document:attachment:forURL:", class = "?" },
@@ -285,7 +288,6 @@ selectors = [
     { name = "extensionsForMIMEType:", class = "?" },
     { name = "feature", class = "?" },
     { name = "filterRequired", class = "?" },
-    { name = "filterState", class = "?" },
     { name = "filterWithType:", class = "?" },
     { name = "finalizeForWebScript", class = "?" },
     { name = "finishConverting", class = "?" },
@@ -305,7 +307,6 @@ selectors = [
     { name = "initWithPublicKey:error:", class = "?" },
     { name = "initWithRTF:documentAttributes:", class = "?" },
     { name = "initWithRTFD:documentAttributes:", class = "?" },
-    { name = "initWithResponse:", class = "?" },
     { name = "initWithStorageDirectoryAtURL:", class = "?" },
     { name = "initWithTable:startingRow:rowSpan:startingColumn:columnSpan:", class = "?" },
     { name = "initWithText:selectedRange:", class = "?" },
@@ -318,7 +319,6 @@ selectors = [
     { name = "invokeUndefinedMethodFromWebScript:withArguments:", class = "?" },
     { name = "isInStorePurchase", class = "?" },
     { name = "isKeyExcludedFromWebScript:", class = "?" },
-    { name = "isManagedSession", class = "?" },
     { name = "isNetworkReachable", class = "?" },
     { name = "isPlayableExtendedMIMEType:options:", class = "?" },
     { name = "isSelectorExcludedFromWebScript:", class = "?" },
@@ -326,7 +326,6 @@ selectors = [
     { name = "lastModifiedDateOfEntryForKey:", class = "?" },
     { name = "makeContentKeyGroup", class = "?" },
     { name = "maxAlpha", class = "?" },
-    { name = "merchandisingImageData", class = "?" },
     { name = "objectForWebScript", class = "?" },
     { name = "openToBuyThresholdAmount", class = "?" },
     { name = "optionID", class = "?" },
@@ -387,7 +386,6 @@ selectors = [
     { name = "setInstallmentItems:", class = "?" },
     { name = "setInstallmentMerchantIdentifier:", class = "?" },
     { name = "setLayoutAlgorithm:", class = "?" },
-    { name = "setMerchandisingImageData:", class = "?" },
     { name = "setNeedsLayoutOnGeometryChange:", class = "?" },
     { name = "setOpenToBuyThresholdAmount:", class = "?" },
     { name = "setPIPModeEnabled:", class = "?" },
@@ -418,7 +416,6 @@ selectors = [
     { name = "sharedTextEffectsWindowForWindowScene:", class = "?" },
     { name = "signature", class = "RSABSSATokenReady" },
     { name = "sizeValue", class = "?" },
-    { name = "speechVoicesIncludingSuperCompact", class = "?" },
     { name = "startRoutingVideoToPictureInPicturePlayerLayerView", class = "?" },
     { name = "startingColumn", class = "?" },
     { name = "startingRow", class = "?" },
@@ -430,7 +427,6 @@ selectors = [
     { name = "textBlocks", class = "?" },
     { name = "tokenContent", class = "?" },
     { name = "tokenWaitingActivationWithContent:error:", class = "?" },
-    { name = "unblockWithCompletion:", class = "?" },
     { name = "valueForTimeStamp:", class = "?" },
     { name = "valueTimingWithAnchorValue:anchorTimeStamp:rate:", class = "?" },
     { name = "valueWithCAColorMatrix:", class = "?" },

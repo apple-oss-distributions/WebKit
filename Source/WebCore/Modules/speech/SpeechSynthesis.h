@@ -44,13 +44,15 @@ class PlatformSpeechSynthesizerClient;
 class SpeechSynthesisVoice;
 
 class SpeechSynthesis : public PlatformSpeechSynthesizerClient, public SpeechSynthesisClientObserver, public RefCounted<SpeechSynthesis>, public ActiveDOMObject, public EventTarget {
-    WTF_MAKE_TZONE_OR_ISO_ALLOCATED(SpeechSynthesis);
+    WTF_MAKE_TZONE_ALLOCATED(SpeechSynthesis);
 public:
     static Ref<SpeechSynthesis> create(ScriptExecutionContext&);
     virtual ~SpeechSynthesis();
 
+    // ContextDestructionObserver.
     void ref() const final { RefCounted::ref(); }
     void deref() const final { RefCounted::deref(); }
+    USING_CAN_MAKE_WEAKPTR(EventTarget);
 
     bool pending() const;
     bool speaking() const;
@@ -135,5 +137,7 @@ template<> struct EnumTraits<WebCore::SpeechSynthesis::BehaviorRestrictionFlags>
 };
 
 } // namespace WTF
+
+SPECIALIZE_TYPE_TRAITS_EVENTTARGET(SpeechSynthesis)
 
 #endif // ENABLE(SPEECH_SYNTHESIS)

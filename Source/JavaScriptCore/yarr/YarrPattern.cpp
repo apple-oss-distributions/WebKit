@@ -419,7 +419,7 @@ public:
         // Sort the incoming Unicode matches, since Unicode case folding canonicalization may cause
         // characters to be added to rhsMatches out of code point order.
         Vector<char32_t> rhsSortedMatchesUnicode(rhsMatchesUnicode);
-        std::sort(rhsSortedMatchesUnicode.begin(), rhsSortedMatchesUnicode.end());
+        std::ranges::sort(rhsSortedMatchesUnicode);
 
         unicodeOpSorted(rhsSortedMatchesUnicode, rhsRangesUnicode);
     }
@@ -449,10 +449,9 @@ public:
 
     static void sort(Vector<Vector<char32_t>>& utf32Strings)
     {
-        std::sort(utf32Strings.begin(), utf32Strings.end(), [](const Vector<char32_t>& a, const Vector<char32_t>& b)
-            {
-                return compareUTF32Strings(a, b) < 0;
-            });
+        std::ranges::sort(utf32Strings, [](const auto& a, const auto& b) {
+            return compareUTF32Strings(a, b) < 0;
+        });
     }
 
     std::unique_ptr<CharacterClass> charClass()
@@ -1128,7 +1127,7 @@ public:
         auto body = makeUnique<PatternDisjunction>();
         m_pattern.m_body = body.get();
         m_alternative = body->addNewAlternative();
-        m_pattern.m_disjunctions.append(WTFMove(body));
+        m_pattern.m_disjunctions.append(WTF::move(body));
 
         m_flags = m_initialFlags;
         m_parenthesisContext.setFlags(m_initialFlags);
@@ -1151,7 +1150,7 @@ public:
         auto body = makeUnique<PatternDisjunction>();
         m_pattern.m_body = body.get();
         m_alternative = body->addNewAlternative();
-        m_pattern.m_disjunctions.append(WTFMove(body));
+        m_pattern.m_disjunctions.append(WTF::move(body));
 
         m_flags = m_initialFlags;
     }
@@ -1195,10 +1194,10 @@ public:
                     continue;
                 }
                 term->backReferenceSubpatternId = namedGroupSubpatternId;
-                term->convertToBackreference();
+                term->convertToNamedBackreference();
                 m_pattern.m_containsBackreferences = true;
             } else if (term->backReferenceSubpatternId && term->backReferenceSubpatternId <= m_pattern.m_numSubpatterns) {
-                term->convertToBackreference();
+                term->convertToNumberedBackreference();
                 m_pattern.m_containsBackreferences = true;
             }
         }
@@ -1245,7 +1244,7 @@ public:
         m_currentCharacterClassConstructor->putUnicodeIgnoreCase(ch, info);
         auto newCharacterClass = m_currentCharacterClassConstructor->charClass();
         m_alternative->m_terms.append(PatternTerm(newCharacterClass.get(), false, m_flags, parenthesisMatchDirection()));
-        m_pattern.m_userCharacterClasses.append(WTFMove(newCharacterClass));
+        m_pattern.m_userCharacterClasses.append(WTF::move(newCharacterClass));
     }
 
     void atomBuiltInCharacterClass(BuiltInCharacterClassID classID, bool invert)
@@ -1437,7 +1436,7 @@ public:
             atomParenthesesEnd();
         }
 
-        m_pattern.m_userCharacterClasses.append(WTFMove(newCharacterClass));
+        m_pattern.m_userCharacterClasses.append(WTF::move(newCharacterClass));
     }
 
     void atomParenthesesSubpatternBegin(bool capture = true, std::optional<String> optGroupName = std::nullopt)
@@ -1455,7 +1454,7 @@ public:
         m_alternative->m_terms.append(PatternTerm(PatternTerm::Type::ParenthesesSubpattern, subpatternId, parenthesesDisjunction.get(), m_flags, capture, false, parenthesisMatchDirection()));
         m_alternative = parenthesesDisjunction->addNewAlternative(m_pattern.m_numSubpatterns, parenthesisMatchDirection());
         pushParenthesisContext();
-        m_pattern.m_disjunctions.append(WTFMove(parenthesesDisjunction));
+        m_pattern.m_disjunctions.append(WTF::move(parenthesesDisjunction));
     }
 
     void atomParentheticalAssertionBegin(bool invert, MatchDirection matchDirection)
@@ -1468,7 +1467,7 @@ public:
         setParenthesisMatchDirection(matchDirection);
         if (matchDirection == Backward)
             m_pattern.m_containsLookbehinds = true;
-        m_pattern.m_disjunctions.append(WTFMove(parenthesesDisjunction));
+        m_pattern.m_disjunctions.append(WTF::move(parenthesesDisjunction));
     }
 
     void atomParentheticalModifierBegin(OptionSet<Flags> set, OptionSet<Flags> unset)
@@ -1477,7 +1476,7 @@ public:
         m_alternative->m_terms.append(PatternTerm(PatternTerm::Type::ParenthesesSubpattern, m_pattern.m_numSubpatterns + 1, parenthesesDisjunction.get(), m_flags, false, false, parenthesisMatchDirection()));
         m_alternative = parenthesesDisjunction->addNewAlternative(m_pattern.m_numSubpatterns, parenthesisMatchDirection());
         pushParenthesisContext();
-        m_pattern.m_disjunctions.append(WTFMove(parenthesesDisjunction));
+        m_pattern.m_disjunctions.append(WTF::move(parenthesesDisjunction));
 
         // Mark this context as a modifier, so we restore the flags afterwards
         m_parenthesisContext.setModifier(true);
@@ -1537,7 +1536,7 @@ public:
     {
         ASSERT(subpatternId);
         if (subpatternId > m_pattern.m_numSubpatterns) {
-            m_alternative->m_terms.append(PatternTerm::ForwardReference(m_flags));
+            m_alternative->m_terms.append(PatternTerm::NumberedForwardReference(m_flags));
             if (parenthesisMatchDirection() == Backward) {
                 // When matching backwards, this forward reference could actually be
                 // a backreference for a captured paren in the lookbehind yet to be parsed.
@@ -1558,7 +1557,7 @@ public:
             ASSERT((term.type == PatternTerm::Type::ParenthesesSubpattern) || (term.type == PatternTerm::Type::ParentheticalAssertion));
 
             if ((term.type == PatternTerm::Type::ParenthesesSubpattern) && term.capture() && (subpatternId == term.parentheses.subpatternId)) {
-                m_alternative->m_terms.append(PatternTerm::ForwardReference(m_flags));
+                m_alternative->m_terms.append(PatternTerm::NumberedForwardReference(m_flags));
                 return;
             }
         }
@@ -1586,14 +1585,14 @@ public:
                 ASSERT((term.type == PatternTerm::Type::ParenthesesSubpattern) || (term.type == PatternTerm::Type::ParentheticalAssertion));
 
                 if ((term.type == PatternTerm::Type::ParenthesesSubpattern) && term.capture() && (subpatternId == term.parentheses.subpatternId)) {
-                    m_alternative->m_terms.append(PatternTerm::ForwardReference(m_flags));
+                    m_alternative->m_terms.append(PatternTerm::NamedForwardReference(m_flags));
                     return;
                 }
             }
         }
 
         if (parenthesisMatchDirection() == Forward) {
-            m_alternative->m_terms.append(PatternTerm(parenIndices.last(), m_flags));
+            m_alternative->m_terms.append(PatternTerm::NamedBackReference(parenIndices.last(), m_flags));
             PatternTerm& lastTerm = m_alternative->lastTerm();
             lastTerm.m_matchDirection = parenthesisMatchDirection();
             m_pattern.m_containsBackreferences = true;
@@ -1603,7 +1602,7 @@ public:
         // When part of a lookbehind, it could be the case that a prior alternative has a duplicate
         // named capture. Therefore we create a ForwardReference that will be converted to a
         // Backreference when the lookbehind or alternative is closed.
-        m_alternative->m_terms.append(PatternTerm::ForwardReference(m_flags));
+        m_alternative->m_terms.append(PatternTerm::NamedForwardReference(m_flags));
         PatternTerm& term = m_alternative->lastTerm();
         term.m_matchDirection = parenthesisMatchDirection();
         // We record the current subpatternId, which we use when we try to convert to a back reference.
@@ -1615,7 +1614,7 @@ public:
 
     void atomNamedForwardReference(const String& subpatternName)
     {
-        m_alternative->m_terms.append(PatternTerm::ForwardReference(m_flags));
+        m_alternative->m_terms.append(PatternTerm::NamedForwardReference(m_flags));
 
         if (parenthesisMatchDirection() == Backward) {
             PatternTerm& term = m_alternative->lastTerm();
@@ -1646,7 +1645,7 @@ public:
                 newAlternative->m_terms.reserveCapacity(alternative->m_terms.size());
                 for (auto& term : alternative->m_terms) {
                     if (auto copied = copyTerm(term, filterStartsWithBOL))
-                        newAlternative->m_terms.append(WTFMove(*copied));
+                        newAlternative->m_terms.append(WTF::move(*copied));
                 }
             }
         }
@@ -1660,7 +1659,7 @@ public:
             return nullptr;
 
         PatternDisjunction* copiedDisjunction = newDisjunction.get();
-        m_pattern.m_disjunctions.append(WTFMove(newDisjunction));
+        m_pattern.m_disjunctions.append(WTF::move(newDisjunction));
         return copiedDisjunction;
     }
     
@@ -1769,7 +1768,7 @@ public:
         return m_error;
     }
 
-    ErrorCode setupAlternativeOffsets(PatternAlternative* alternative, unsigned currentCallFrameSize, unsigned initialInputPosition, unsigned& newCallFrameSize) WARN_UNUSED_RETURN
+    WARN_UNUSED_RETURN ErrorCode setupAlternativeOffsets(PatternAlternative* alternative, unsigned currentCallFrameSize, unsigned initialInputPosition, unsigned& newCallFrameSize)
     {
         if (!isSafeToRecurse()) [[unlikely]]
             return ErrorCode::TooManyDisjunctions;
@@ -1788,14 +1787,16 @@ public:
                 term.inputPosition = currentInputPosition;
                 break;
 
-            case PatternTerm::Type::BackReference:
+            case PatternTerm::Type::NumberedBackReference:
+            case PatternTerm::Type::NamedBackReference:
                 term.inputPosition = currentInputPosition;
                 term.frameLocation = currentCallFrameSize;
                 currentCallFrameSize += YarrStackSpaceForBackTrackInfoBackReference;
                 alternative->m_hasFixedSize = false;
                 break;
 
-            case PatternTerm::Type::ForwardReference:
+            case PatternTerm::Type::NumberedForwardReference:
+            case PatternTerm::Type::NamedForwardReference:
                 break;
 
             case PatternTerm::Type::PatternCharacter:
@@ -2219,7 +2220,7 @@ public:
             }
             String atom = builder.toString();
             if (atom.length() > 0) {
-                m_pattern.m_atom = WTFMove(atom);
+                m_pattern.m_atom = WTF::move(atom);
                 m_pattern.m_specificPattern = SpecificPattern::Atom;
                 return true;
             }
@@ -2346,10 +2347,81 @@ public:
             return false;
         };
 
+        auto tryExtractNewlines = [&]() -> bool {
+            // Detect patterns: \r\n?|\n or \n|\r\n?
+            // These patterns match LF (\n), CR (\r), and CRLF (\r\n)
+
+            PatternDisjunction* disjunction = m_pattern.m_body;
+            auto& alternatives = disjunction->m_alternatives;
+
+            if (alternatives.size() != 2)
+                return false;
+
+            auto isCROptionalLF = [](PatternAlternative* alternative) -> bool {
+                if (alternative->m_terms.size() != 2)
+                    return false;
+
+                auto& term0 = alternative->m_terms[0];
+                if (term0.type != PatternTerm::Type::PatternCharacter)
+                    return false;
+                if (term0.patternCharacter != '\r')
+                    return false;
+                if (term0.quantityType != QuantifierType::FixedCount)
+                    return false;
+                if (term0.quantityMinCount != 1 || term0.quantityMaxCount != 1)
+                    return false;
+
+                auto& term1 = alternative->m_terms[1];
+                if (term1.type != PatternTerm::Type::PatternCharacter)
+                    return false;
+                if (term1.patternCharacter != '\n')
+                    return false;
+                if (term1.quantityType != QuantifierType::Greedy)
+                    return false;
+                if (term1.quantityMinCount || term1.quantityMaxCount != 1)
+                    return false;
+
+                return true;
+            };
+
+            auto isLF = [](PatternAlternative* alternative) -> bool {
+                if (alternative->m_terms.size() != 1)
+                    return false;
+
+                auto& term = alternative->m_terms[0];
+                if (term.type != PatternTerm::Type::PatternCharacter)
+                    return false;
+                if (term.patternCharacter != '\n')
+                    return false;
+                if (term.quantityType != QuantifierType::FixedCount)
+                    return false;
+                if (term.quantityMinCount != 1 || term.quantityMaxCount != 1)
+                    return false;
+
+                return true;
+            };
+
+            auto* alternative1 = alternatives[0].get();
+            auto* alternative2 = alternatives[1].get();
+
+            bool matches = (isCROptionalLF(alternative1) && isLF(alternative2))
+                || (isLF(alternative1) && isCROptionalLF(alternative2));
+
+            if (matches) {
+                m_pattern.m_specificPattern = SpecificPattern::Newlines;
+                return true;
+            }
+
+            return false;
+        };
+
         if (tryExtractAtom())
             return;
 
         if (tryExtractSpaces())
+            return;
+
+        if (tryExtractNewlines())
             return;
     }
 
@@ -2791,13 +2863,18 @@ void PatternTerm::dump(PrintStream& out, YarrPattern* thisPattern, unsigned nest
             out.print(",frame location ", frameLocation);
         out.println();
         break;
-    case Type::BackReference:
+    case Type::NumberedBackReference:
+    case Type::NamedBackReference:
+        out.print(type == Type::NumberedBackReference ? "numbered " : "named ");
         out.print("back reference of subpattern #", backReferenceSubpatternId);
         out.printf(" inputPosition %u", inputPosition);
         out.println();
         break;
-    case Type::ForwardReference:
-        out.println("forward reference");
+    case Type::NumberedForwardReference:
+        out.println("numbered forward reference");
+        break;
+    case Type::NamedForwardReference:
+        out.println("named forward reference");
         break;
     case Type::ParenthesesSubpattern:
         if (m_capture)

@@ -42,7 +42,7 @@
 
 namespace WebCore {
 
-WTF_MAKE_TZONE_OR_ISO_ALLOCATED_IMPL(DOMAudioSession);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(DOMAudioSession);
 
 static inline AudioSessionCategory fromDOMAudioSessionType(DOMAudioSession::Type type)
 {
@@ -103,7 +103,7 @@ ExceptionOr<void> DOMAudioSession::setType(Type type)
     AudioSession::singleton().setCategoryOverride(categoryOverride);
 
     if (categoryOverride == AudioSessionCategory::None) {
-        if (RefPtr manager = page->mediaSessionManager())
+        if (RefPtr manager = page->mediaSessionManagerIfExists())
             manager->updateAudioSessionCategoryIfNecessary();
     }
 

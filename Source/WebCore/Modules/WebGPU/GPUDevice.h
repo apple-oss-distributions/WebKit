@@ -35,7 +35,6 @@
 #include "GPUErrorFilter.h"
 #include "GPURenderPipeline.h"
 #include "GPUQueue.h"
-#include "HTMLVideoElement.h"
 #include "JSDOMPromiseDeferredForward.h"
 #include "ScriptExecutionContext.h"
 #include "WebGPUDevice.h"
@@ -81,6 +80,7 @@ class GPUSupportedFeatures;
 class GPUSupportedLimits;
 class GPUTexture;
 struct GPUTextureDescriptor;
+class HTMLVideoElement;
 class WebXRSession;
 class XRGPUBinding;
 
@@ -89,17 +89,19 @@ class XRBinding;
 }
 
 class GPUDevice : public RefCounted<GPUDevice>, public ActiveDOMObject, public EventTarget {
-    WTF_MAKE_TZONE_OR_ISO_ALLOCATED(GPUDevice);
+    WTF_MAKE_TZONE_ALLOCATED(GPUDevice);
 public:
-    void ref() const final { RefCounted::ref(); }
-    void deref() const final { RefCounted::deref(); }
-
     static Ref<GPUDevice> create(ScriptExecutionContext* scriptExecutionContext, Ref<WebGPU::Device>&& backing, String&& queueLabel, GPUAdapterInfo& info)
     {
-        return adoptRef(*new GPUDevice(scriptExecutionContext, WTFMove(backing), WTFMove(queueLabel), info));
+        return adoptRef(*new GPUDevice(scriptExecutionContext, WTF::move(backing), WTF::move(queueLabel), info));
     }
 
     virtual ~GPUDevice();
+
+    // ContextDestructionObserver.
+    void ref() const final { RefCounted::ref(); }
+    void deref() const final { RefCounted::deref(); }
+    USING_CAN_MAKE_WEAKPTR(EventTarget);
 
     String label() const;
     void setLabel(String&&);
@@ -186,4 +188,6 @@ private:
     bool m_waitingForDeviceLostPromise { false };
 };
 
-}
+} // namespace WebCore
+
+SPECIALIZE_TYPE_TRAITS_EVENTTARGET(GPUDevice)

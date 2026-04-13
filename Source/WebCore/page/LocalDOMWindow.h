@@ -35,22 +35,13 @@
 #include <WebCore/PushSubscriptionOwner.h>
 #include <WebCore/Supplementable.h>
 #include <WebCore/WindowOrWorkerGlobalScope.h>
+#include <wtf/AbstractRefCountedAndCanMakeWeakPtr.h>
 #include <wtf/FixedVector.h>
 #include <wtf/Function.h>
 #include <wtf/HashSet.h>
 #include <wtf/MonotonicTime.h>
 #include <wtf/Platform.h>
 #include <wtf/WeakHashSet.h>
-#include <wtf/WeakPtr.h>
-
-namespace WebCore {
-class LocalDOMWindowObserver;
-}
-
-namespace WTF {
-template<typename T> struct IsDeprecatedWeakRefSmartPointerException;
-template<> struct IsDeprecatedWeakRefSmartPointerException<WebCore::LocalDOMWindowObserver> : std::true_type { };
-}
 
 namespace JSC {
 class CallFrame;
@@ -72,7 +63,7 @@ using ReducedResolutionSeconds = Seconds;
 
 template<typename> class ExceptionOr;
 
-class LocalDOMWindowObserver : public CanMakeWeakPtr<LocalDOMWindowObserver> {
+class LocalDOMWindowObserver : public AbstractRefCountedAndCanMakeWeakPtr<LocalDOMWindowObserver> {
 public:
     virtual ~LocalDOMWindowObserver() { }
 
@@ -92,11 +83,16 @@ class LocalDOMWindow final
     , public PushSubscriptionOwner
 #endif
     {
-    WTF_MAKE_TZONE_OR_ISO_ALLOCATED(LocalDOMWindow);
+    WTF_MAKE_TZONE_ALLOCATED(LocalDOMWindow);
 public:
 
     static Ref<LocalDOMWindow> create(Document& document) { return adoptRef(*new LocalDOMWindow(document)); }
     WEBCORE_EXPORT virtual ~LocalDOMWindow();
+
+    // ContextDestructionObserver.
+    void ref() const final { DOMWindow::ref(); }
+    void deref() const final { DOMWindow::deref(); }
+    USING_CAN_MAKE_WEAKPTR(DOMWindow);
 
     // In some rare cases, we'll reuse a LocalDOMWindow for a new Document. For example,
     // when a script calls window.open("..."), the browser gives JavaScript a window
@@ -236,7 +232,7 @@ public:
     RefPtr<WebKitPoint> webkitConvertPointFromNodeToPage(Node*, const WebKitPoint*) const;
 
     ExceptionOr<void> postMessage(JSC::JSGlobalObject&, LocalDOMWindow& incumbentWindow, JSC::JSValue message, WindowPostMessageOptions&&);
-    WEBCORE_EXPORT void postMessageFromRemoteFrame(JSC::JSGlobalObject&, RefPtr<WindowProxy>&& source, const String& sourceOrigin, std::optional<WebCore::SecurityOriginData>&& targetOrigin, const WebCore::MessageWithMessagePorts&);
+    WEBCORE_EXPORT void postMessageFromRemoteFrame(JSC::JSGlobalObject&, RefPtr<WindowProxy>&& source, const SecurityOriginData& sourceOrigin, std::optional<WebCore::SecurityOriginData>&& targetOrigin, const WebCore::MessageWithMessagePorts&);
 
     void languagesChanged();
 
@@ -358,7 +354,7 @@ public:
 #endif
 
     // Navigation API
-    Navigation& navigation();
+    WEBCORE_EXPORT Navigation& navigation();
     Ref<Navigation> protectedNavigation();
 
     void willDetachDocumentFromFrame();
@@ -387,9 +383,6 @@ public:
 
 #if ENABLE(DECLARATIVE_WEB_PUSH)
     PushManager& pushManager();
-
-    void ref() const final { DOMWindow::ref(); }
-    void deref() const final { DOMWindow::deref(); }
 #endif
 
 private:
@@ -417,6 +410,7 @@ private:
     EventTimingInteractionID& ensureUserInteractionValue();
     EventTimingInteractionID generateInteractionID();
     EventTimingInteractionID generateInteractionIDWithoutIncreasingInteractionCount();
+    void queueEventTimingCandidateForDispatch(PerformanceEventTimingCandidate&);
 
     bool isSameSecurityOriginAsMainFrame() const;
 
@@ -425,7 +419,7 @@ private:
     void decrementGamepadEventListenerCount();
 #endif
 
-    void processPostMessage(JSC::JSGlobalObject&, const String& origin, const MessageWithMessagePorts&, RefPtr<WindowProxy>&&, RefPtr<SecurityOrigin>&&);
+    void processPostMessage(JSC::JSGlobalObject&, Ref<SecurityOrigin>&&, const MessageWithMessagePorts&, RefPtr<WindowProxy>&&, RefPtr<SecurityOrigin>&&);
 
 #if ENABLE(DECLARATIVE_WEB_PUSH)
     bool isActive() const final { return true; }
@@ -537,5 +531,5 @@ inline String LocalDOMWindow::status() const
 
 SPECIALIZE_TYPE_TRAITS_BEGIN(WebCore::LocalDOMWindow)
     static bool isType(const WebCore::DOMWindow& window) { return window.isLocalDOMWindow(); }
-    static bool isType(const WebCore::EventTarget& target) { return target.eventTargetInterface() == WebCore::EventTargetInterfaceType::DOMWindow; }
+    static bool isType(const WebCore::EventTarget& target) { return is<WebCore::DOMWindow>(target) && is<WebCore::LocalDOMWindow>(downcast<WebCore::DOMWindow>(target)); }
 SPECIALIZE_TYPE_TRAITS_END()

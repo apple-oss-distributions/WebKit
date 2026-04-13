@@ -49,13 +49,15 @@ class RemotePlayback final
     , public ActiveDOMObject
     , public EventTarget
 {
-    WTF_MAKE_TZONE_OR_ISO_ALLOCATED(RemotePlayback);
+    WTF_MAKE_TZONE_ALLOCATED(RemotePlayback);
 public:
-    void ref() const final { RefCounted::ref(); }
-    void deref() const final { RefCounted::deref(); }
-
     static Ref<RemotePlayback> create(HTMLMediaElement&);
     ~RemotePlayback();
+
+    // ContextDestructionObserver.
+    void ref() const final { RefCounted::ref(); }
+    void deref() const final { RefCounted::deref(); }
+    USING_CAN_MAKE_WEAKPTR(EventTarget);
 
     void watchAvailability(Ref<RemotePlaybackAvailabilityCallback>&&, Ref<DeferredPromise>&&);
     void cancelWatchAvailability(std::optional<int32_t> id, Ref<DeferredPromise>&&);
@@ -119,7 +121,9 @@ private:
     bool m_available { false };
 };
 
-}
+} // namespace WebCore
+
+SPECIALIZE_TYPE_TRAITS_EVENTTARGET(RemotePlayback)
 
 #endif // ENABLE(WIRELESS_PLAYBACK_TARGET)
 

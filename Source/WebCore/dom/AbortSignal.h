@@ -42,10 +42,15 @@ class ScriptExecutionContext;
 class WebCoreOpaqueRoot;
 
 class AbortSignal final : public RefCounted<AbortSignal>, public EventTarget, private ContextDestructionObserver {
-    WTF_MAKE_TZONE_OR_ISO_ALLOCATED_EXPORT(AbortSignal, WEBCORE_EXPORT);
+    WTF_MAKE_TZONE_ALLOCATED_EXPORT(AbortSignal, WEBCORE_EXPORT);
 public:
     static Ref<AbortSignal> create(ScriptExecutionContext*);
     WEBCORE_EXPORT ~AbortSignal();
+
+    // ContextDestructionObserver.
+    void ref() const final { RefCounted::ref(); }
+    void deref() const final { RefCounted::deref(); }
+    USING_CAN_MAKE_WEAKPTR(EventTarget);
 
     static Ref<AbortSignal> abort(JSDOMGlobalObject&, ScriptExecutionContext&, JSC::JSValue reason);
     static Ref<AbortSignal> timeout(ScriptExecutionContext&, uint64_t milliseconds);
@@ -63,9 +68,6 @@ public:
     bool hasActiveTimeoutTimer() const { return m_hasActiveTimeoutTimer; }
     bool hasAbortEventListener() const { return m_hasAbortEventListener; }
 
-    using RefCounted::ref;
-    using RefCounted::deref;
-
     using Algorithm = Function<void(JSC::JSValue reason)>;
     uint32_t addAlgorithm(Algorithm&&);
     void removeAlgorithm(uint32_t);
@@ -82,7 +84,7 @@ public:
 
 private:
     enum class Aborted : bool { No, Yes };
-    explicit AbortSignal(ScriptExecutionContext*, Aborted = Aborted::No, JSC::JSValue reason = JSC::jsUndefined());
+    AbortSignal(ScriptExecutionContext*, Aborted = Aborted::No, JSC::JSValue reason = JSC::jsUndefined());
 
     void setHasActiveTimeoutTimer(bool hasActiveTimeoutTimer) { m_hasActiveTimeoutTimer = hasActiveTimeoutTimer; }
 
@@ -116,3 +118,5 @@ private:
 WebCoreOpaqueRoot root(AbortSignal*);
 
 } // namespace WebCore
+
+SPECIALIZE_TYPE_TRAITS_EVENTTARGET(AbortSignal)

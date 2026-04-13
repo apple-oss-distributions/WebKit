@@ -31,7 +31,6 @@
 #include "MessageReceiver.h"
 #include <WebCore/BoxExtents.h>
 #include <WebCore/FrameIdentifier.h>
-#include <WebCore/HTMLMediaElement.h>
 #include <WebCore/HTMLMediaElementEnums.h>
 #include <WebCore/ProcessIdentifier.h>
 #include <wtf/CheckedRef.h>
@@ -97,7 +96,7 @@ public:
     bool isVideoElement() const { return m_isVideoElement; }
 #endif
 #if ENABLE(QUICKLOOK_FULLSCREEN)
-    bool isImageElement() const { return m_imageBuffer; }
+    bool isImageElement() const { return m_mediaDetails && m_mediaDetails->type == FullScreenMediaDetails::Type::Image; }
     void prepareQuickLookImageURL(CompletionHandler<void(URL&&)>&&) const;
 #endif // QUICKLOOK_FULLSCREEN
     void close();
@@ -154,8 +153,7 @@ private:
     bool m_isVideoElement { false };
 #endif
 #if ENABLE(QUICKLOOK_FULLSCREEN)
-    String m_imageMIMEType;
-    RefPtr<WebCore::SharedBuffer> m_imageBuffer;
+    std::optional<FullScreenMediaDetails> m_mediaDetails;
 #endif // QUICKLOOK_FULLSCREEN
     Vector<CompletionHandler<void()>> m_closeCompletionHandlers;
     WeakPtr<WebProcessProxy> m_fullScreenProcess;

@@ -464,7 +464,7 @@ inline CapabilityLevel canCompile(Node* node)
     case MultiGetByVal:
     case MultiPutByVal:
     case PutByVal:
-    case PutByValAlias:
+    case PutByValDirectResolved:
     case PutByValMegamorphic:
     case PutByValDirect:
     case PutByValWithThis:
@@ -567,6 +567,7 @@ CapabilityLevel canCompile(Graph& graph)
                 case KnownBooleanUse:
                 case CellUse:
                 case KnownCellUse:
+                case KnownStorageUse:
                 case CellOrOtherUse:
                 case ObjectUse:
                 case ArrayUse:

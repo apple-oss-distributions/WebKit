@@ -75,6 +75,7 @@ private:
     void applyProperty(CSSPropertyID, CSSValue&, SelectorChecker::LinkMatchMask, PropertyCascade::Origin);
     void applyCustomProperty(const AtomString& name, Variant<Ref<const Style::CustomProperty>, CSSWideKeyword>&&);
 
+    Ref<CSSValue> resolveInternalAutoBaseFunction(CSSValue&);
     Ref<CSSValue> resolveVariableReferences(CSSPropertyID, CSSValue&);
     std::optional<Variant<Ref<const Style::CustomProperty>, CSSWideKeyword>> resolveCustomPropertyValue(CSSCustomPropertyValue&);
 
@@ -83,7 +84,7 @@ private:
     const PropertyCascade* ensureRollbackCascadeForRevert();
     const PropertyCascade* ensureRollbackCascadeForRevertLayer();
 
-    using RollbackCascadeKey = std::tuple<unsigned, unsigned, unsigned>;
+    using RollbackCascadeKey = std::tuple<unsigned, unsigned, unsigned, bool>;
     RollbackCascadeKey makeRollbackCascadeKey(PropertyCascade::Origin, ScopeOrdinal = ScopeOrdinal::Element, CascadeLayerPriority = 0);
 
     const PropertyCascade m_cascade;

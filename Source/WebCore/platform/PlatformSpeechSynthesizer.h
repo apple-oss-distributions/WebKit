@@ -36,6 +36,8 @@
 
 #if PLATFORM(COCOA)
 #include <wtf/RetainPtr.h>
+OBJC_CLASS AVSpeechSynthesisVoice;
+OBJC_CLASS NSArray;
 OBJC_CLASS WebSpeechSynthesisWrapper;
 #endif
 
@@ -77,7 +79,7 @@ public:
     // Seems wasteful. Would be nice to find a better way.
     WEBCORE_EXPORT virtual ~PlatformSpeechSynthesizer();
 
-    const Vector<RefPtr<PlatformSpeechSynthesisVoice>>& voiceList() const;
+    const Vector<Ref<PlatformSpeechSynthesisVoice>>& voiceList() const;
     virtual void speak(RefPtr<PlatformSpeechSynthesisUtterance>&&);
     virtual void pause();
     virtual void resume();
@@ -89,11 +91,15 @@ public:
 
 protected:
     explicit PlatformSpeechSynthesizer(PlatformSpeechSynthesizerClient&);
-    Vector<RefPtr<PlatformSpeechSynthesisVoice>> m_voiceList;
+    Vector<Ref<PlatformSpeechSynthesisVoice>> m_voiceList;
 
 private:
     virtual void initializeVoiceList();
     virtual void resetVoiceList();
+
+#if PLATFORM(COCOA)
+    void appendVoices(NSArray *);
+#endif
 
     bool m_voiceListIsInitialized { false };
     PlatformSpeechSynthesizerClient& m_speechSynthesizerClient;

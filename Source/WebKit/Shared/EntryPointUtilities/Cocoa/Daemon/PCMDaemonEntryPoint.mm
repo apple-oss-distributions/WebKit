@@ -48,14 +48,15 @@
 
 namespace WebKit {
 
-static CompletionHandler<void(PCM::EncodedMessage&&)> replySender(PCM::MessageType messageType, OSObjectPtr<xpc_object_t>&& request)
+static CompletionHandler<void(PCM::EncodedMessage&&)> replySender(PCM::MessageType messageType, XPCObjectPtr<xpc_object_t>&& request)
 {
     if (!PCM::messageTypeSendsReply(messageType))
         return nullptr;
-    return [request = WTFMove(request)] (PCM::EncodedMessage&& message) {
-        auto reply = adoptOSObject(xpc_dictionary_create_reply(request.get()));
-        PCM::addVersionAndEncodedMessageToDictionary(WTFMove(message), reply.get());
-        xpc_connection_send_message(xpc_dictionary_get_remote_connection(request.get()), reply.get());
+    return [request = WTF::move(request)] (PCM::EncodedMessage&& message) {
+        // FIXME: This is a false positive. <rdar://164843889>
+        SUPPRESS_RETAINPTR_CTOR_ADOPT auto reply = adoptXPCObject(xpc_dictionary_create_reply(request.get()));
+        PCM::addVersionAndEncodedMessageToDictionary(WTF::move(message), reply.get());
+        xpc_connection_send_message(XPCObjectPtr<xpc_connection_t> { xpc_dictionary_get_remote_connection(request.get()) }.get(), reply.get());
     };
 }
 
@@ -81,7 +82,8 @@ ALLOW_DEPRECATED_DECLARATIONS_BEGIN
     xpc_activity_register("com.apple.webkit.adattributiond.activity", XPC_ACTIVITY_CHECK_IN, ^(xpc_activity_t activity) {
         if (xpc_activity_get_state(activity) == XPC_ACTIVITY_STATE_CHECK_IN) {
             NSLog(@"Activity checking in");
-            auto criteria = adoptOSObject(xpc_activity_copy_criteria(activity));
+            // FIXME: This is a false positive. <rdar://164843889>
+            SUPPRESS_RETAINPTR_CTOR_ADOPT auto criteria = adoptXPCObject(xpc_activity_copy_criteria(activity));
 
             // These values should align with values from com.apple.webkit.adattributiond.plist
             constexpr auto oneHourSeconds = 3600;
@@ -125,6 +127,12 @@ static void connectionRemoved(xpc_connection_t connection)
 
 int PCMDaemonMain(int argc, const char** argv)
 {
+#if PLATFORM(IOS) || PLATFORM(VISION)
+    constexpr auto safariApplicationBundleIdentifier { "com.apple.mobilesafari"_s };
+#else
+    constexpr auto safariApplicationBundleIdentifier { "com.apple.safari"_s };
+#endif
+
     auto arguments = unsafeMakeSpan(argv, argc);
     if (arguments.size() < 5 || !equalSpans(unsafeSpan(arguments[1]), "--machServiceName"_span) || !equalSpans(unsafeSpan(arguments[3]), "--storageLocation"_span)) {
         NSLog(@"Usage: %s --machServiceName <name> --storageLocation <location> [--startActivity]", arguments[0]);
@@ -144,7 +152,7 @@ int PCMDaemonMain(int argc, const char** argv)
         if (startActivity)
             registerScheduledActivityHandler();
         WTF::initializeMainThread();
-        PCM::initializePCMStorageInDirectory(FileSystem::stringFromFileSystemRepresentation(storageLocation));
+        PCM::initializePCMStorageInDirectory(FileSystem::stringFromFileSystemRepresentation(storageLocation), safariApplicationBundleIdentifier);
     }
     CFRunLoopRun();
     return 0;

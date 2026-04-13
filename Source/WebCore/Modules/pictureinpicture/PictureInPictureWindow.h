@@ -40,13 +40,15 @@ class PictureInPictureWindow final
     : public ActiveDOMObject
     , public EventTarget
     , public RefCounted<PictureInPictureWindow> {
-    WTF_MAKE_TZONE_OR_ISO_ALLOCATED(PictureInPictureWindow);
+    WTF_MAKE_TZONE_ALLOCATED(PictureInPictureWindow);
 public:
-    void ref() const final { RefCounted::ref(); }
-    void deref() const final { RefCounted::deref(); }
-
     static Ref<PictureInPictureWindow> create(Document&);
     virtual ~PictureInPictureWindow();
+
+    // ContextDestructionObserver.
+    void ref() const final { RefCounted::ref(); }
+    void deref() const final { RefCounted::deref(); }
+    USING_CAN_MAKE_WEAKPTR(EventTarget);
 
     int width() const { return m_size.width(); }
     int height() const { return m_size.height(); }
@@ -66,5 +68,7 @@ private:
 };
 
 } // namespace WebCore
+
+SPECIALIZE_TYPE_TRAITS_EVENTTARGET(PictureInPictureWindow)
 
 #endif // ENABLE(PICTURE_IN_PICTURE_API)

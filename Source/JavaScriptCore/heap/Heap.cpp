@@ -53,8 +53,8 @@
 #include "JSFinalizationRegistry.h"
 #include "JSFunctionWithFields.h"
 #include "JSIterator.h"
-#include "JSPromiseAllContext.h"
-#include "JSPromiseAllGlobalContext.h"
+#include "JSPromiseCombinatorsContext.h"
+#include "JSPromiseCombinatorsGlobalContext.h"
 #include "JSPromiseReaction.h"
 #include "JSRawJSONObject.h"
 #include "JSRemoteFunction.h"
@@ -95,6 +95,7 @@
 #include <wtf/Scope.h>
 #include <wtf/SimpleStats.h>
 #include <wtf/SystemTracing.h>
+#include <wtf/TZoneMallocInlines.h>
 #include <wtf/Threading.h>
 
 #if USE(BMALLOC_MEMORY_FOOTPRINT_API)
@@ -270,6 +271,8 @@ private:
 } // anonymous namespace
 
 class Heap::HeapThread final : public AutomaticThread {
+    WTF_MAKE_TZONE_ALLOCATED_INLINE(HeapThread);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(HeapThread);
 public:
     HeapThread(const AbstractLocker& locker, JSC::Heap& heap)
         : AutomaticThread(locker, heap.m_threadLock, heap.m_threadCondition.copyRef())
@@ -436,7 +439,7 @@ Heap::Heap(VM& vm, HeapType heapType)
         if (Options::optimizeParallelSlotVisitorsForStoppedMutator())
             visitor->optimizeForStoppedMutator();
         m_availableParallelSlotVisitors.append(visitor.get());
-        m_parallelSlotVisitors.append(WTFMove(visitor));
+        m_parallelSlotVisitors.append(WTF::move(visitor));
     }
     
     if (Options::useConcurrentGC()) {
@@ -460,7 +463,7 @@ Heap::Heap(VM& vm, HeapType heapType)
     m_maxEdenSizeWhenCritical = memoryAboveCriticalThreshold / 4;
 
     Locker locker { *m_threadLock };
-    m_thread = adoptRef(new HeapThread(locker, *this));
+    lazyInitialize(m_thread, adoptRef(*new HeapThread(locker, *this)));
 }
 
 #undef INIT_SERVER_ISO_SUBSPACE
@@ -613,7 +616,7 @@ void Heap::releaseDelayedReleasedObjects()
         while (!m_delayedReleaseObjects.isEmpty()) {
             ASSERT(vm().currentThreadIsHoldingAPILock());
 
-            auto objectsToRelease = WTFMove(m_delayedReleaseObjects);
+            auto objectsToRelease = WTF::move(m_delayedReleaseObjects);
 
             {
                 // We need to drop locks before calling out to arbitrary code.
@@ -2063,7 +2066,7 @@ NEVER_INLINE void Heap::collectInMutatorThread()
                     }
                 }
             };
-            callWithCurrentThreadState(scopedLambda<void(CurrentThreadState&)>(WTFMove(lambda)));
+            callWithCurrentThreadState(scopedLambda<void(CurrentThreadState&)>(WTF::move(lambda)));
             return;
         }
     }
@@ -2498,6 +2501,9 @@ void Heap::updateAllocationLimits()
 
     dataLogLnIf(verbose, "extraMemorySize() = ", computedExtraMemorySize, ", currentHeapSize = ", currentHeapSize);
 
+    // Get critical memory threshold for next cycle.
+    bool isCritical = overCriticalMemoryThreshold(MemoryThresholdCallType::Direct);
+
     if (m_collectionScope && m_collectionScope.value() == CollectionScope::Full) {
         // To avoid pathological GC churn in very small and very large heaps, we set
         // the new allocation limit based on the current size of the heap, with a
@@ -2505,7 +2511,7 @@ void Heap::updateAllocationLimits()
         size_t lastMaxHeapSize = m_maxHeapSize;
         m_maxHeapSize = std::max(m_minBytesPerCycle, proportionalHeapSize(currentHeapSize, m_growthMode, m_ramSize));
         m_maxEdenSize = m_maxHeapSize - currentHeapSize;
-        if (m_isInOpportunisticTask) {
+        if (m_isInOpportunisticTask && !isCritical) {
             // After an Opportunistic Full GC, we allow eden to occupy all the space we recovered.
             // In this case, m_maxHeapSize may be larger than currentHeapSize + m_maxEdenSize.
             // Note that m_maxEdenSize is still used when we increase m_maxHeapSize after an
@@ -2538,11 +2544,6 @@ void Heap::updateAllocationLimits()
             m_fullActivityCallback->didAllocate(*this, currentHeapSize - m_sizeAfterLastFullCollect);
         }
     }
-
-#if USE(BMALLOC_MEMORY_FOOTPRINT_API)
-    // Get critical memory threshold for next cycle.
-    overCriticalMemoryThreshold(MemoryThresholdCallType::Direct);
-#endif
 
     m_sizeAfterLastCollect = currentHeapSize;
     dataLogLnIf(verbose, "sizeAfterLastCollect = ", m_sizeAfterLastCollect);
@@ -2675,12 +2676,12 @@ void Heap::collectNowFullIfNotDoneRecently(Synchronousness synchronousness)
 
 void Heap::setFullActivityCallback(RefPtr<GCActivityCallback>&& callback)
 {
-    m_fullActivityCallback = WTFMove(callback);
+    m_fullActivityCallback = WTF::move(callback);
 }
 
 void Heap::setEdenActivityCallback(RefPtr<GCActivityCallback>&& callback)
 {
-    m_edenActivityCallback = WTFMove(callback);
+    m_edenActivityCallback = WTF::move(callback);
 }
 
 void Heap::disableStopIfNecessaryTimer()
@@ -2695,7 +2696,8 @@ bool Heap::useGenerationalGC()
 
 bool Heap::shouldSweepSynchronously()
 {
-    return Options::sweepSynchronously() || VM::isInMiniMode();
+    // updateAllocationLimits() updates info that overCriticalMemoryThreshold() needs.
+    return overCriticalMemoryThreshold() || Options::sweepSynchronously() || VM::isInMiniMode();
 }
 
 bool Heap::shouldDoFullCollection()
@@ -2874,12 +2876,9 @@ void Heap::collectIfNecessaryOrDefer(GCDeferralContext* deferralContext)
         ASSERT(m_maxHeapSize > m_sizeAfterLastCollect);
         size_t bytesAllowedThisCycle = m_maxHeapSize - m_sizeAfterLastCollect;
 
-        bool isCritical = false;
-#if USE(BMALLOC_MEMORY_FOOTPRINT_API)
-        isCritical = overCriticalMemoryThreshold();
+        bool isCritical = overCriticalMemoryThreshold();
         if (isCritical)
             bytesAllowedThisCycle = std::min(m_maxEdenSizeWhenCritical, bytesAllowedThisCycle);
-#endif
 
         size_t bytesAllocatedThisCycle = totalBytesAllocatedThisCycle();
         if (bytesAllocatedThisCycle <= bytesAllowedThisCycle)
@@ -3108,7 +3107,7 @@ void Heap::addCoreConstraints()
         MAKE_MARKING_CONSTRAINT_EXECUTOR_PAIR(([this] (auto& visitor) {
             SetRootMarkReasonScope rootScope(visitor, RootMarkReason::WeakSets);
             RefPtr<SharedTask<void(decltype(visitor)&)>> task = m_objectSpace.forEachWeakInParallel<decltype(visitor)>(visitor);
-            visitor.addParallelConstraintTask(WTFMove(task));
+            visitor.addParallelConstraintTask(WTF::move(task));
         })),
         ConstraintVolatility::GreyedByMarking,
         ConstraintParallelism::Parallel);
@@ -3126,7 +3125,7 @@ void Heap::addCoreConstraints()
             
             auto add = [&] (auto& set) {
                 RefPtr<SharedTask<void(decltype(visitor)&)>> task = set.template forEachMarkedCellInParallel<decltype(visitor)>(callOutputConstraint);
-                visitor.addParallelConstraintTask(WTFMove(task));
+                visitor.addParallelConstraintTask(WTF::move(task));
             };
 
             {
@@ -3190,7 +3189,7 @@ void Heap::addCoreConstraints()
 void Heap::addMarkingConstraint(std::unique_ptr<MarkingConstraint> constraint)
 {
     PreventCollectionScope preventCollectionScope(*this);
-    m_constraintSet->add(WTFMove(constraint));
+    m_constraintSet->add(WTF::move(constraint));
 }
 
 void Heap::notifyIsSafeToCollect()
@@ -3427,7 +3426,7 @@ void Heap::scheduleOpportunisticFullCollection()
         ASSERT(!m_##name); \
         auto space = makeUnique<IsoSubspace> ISO_SUBSPACE_INIT(*this, heapCellType, type); \
         WTF::storeStoreFence(); \
-        m_##name = WTFMove(space); \
+        m_##name = WTF::move(space); \
         return m_##name.get(); \
     }
 
@@ -3441,7 +3440,7 @@ FOR_EACH_JSC_DYNAMIC_ISO_SUBSPACE(DEFINE_DYNAMIC_ISO_SUBSPACE_MEMBER_SLOW)
         ASSERT(!m_##name); \
         auto space = makeUnique<spaceType> ISO_SUBSPACE_INIT(*this, heapCellType, type); \
         WTF::storeStoreFence(); \
-        m_##name = WTFMove(space); \
+        m_##name = WTF::move(space); \
         return &m_##name->space; \
     }
 
@@ -3456,7 +3455,7 @@ DEFINE_DYNAMIC_SPACE_AND_SET_MEMBER_SLOW(moduleProgramExecutableSpace, destructi
         ASSERT(!m_##name); \
         auto space = makeUnique<SubspaceType>(ASCIILiteral(#SubspaceType " " #name), *this, heapCellType, fastMallocAllocator.get()); \
         WTF::storeStoreFence(); \
-        m_##name = WTFMove(space); \
+        m_##name = WTF::move(space); \
         return m_##name.get(); \
     }
 
@@ -3472,7 +3471,7 @@ void Heap::reportWasmCalleePendingDestruction(Ref<Wasm::Callee>&& callee)
     ASSERT_UNUSED(boxedCallee, boxedCallee == removeArrayPtrTag(boxedCallee));
 
     Locker locker(m_wasmCalleesPendingDestructionLock);
-    m_wasmCalleesPendingDestruction.add(WTFMove(callee));
+    m_wasmCalleesPendingDestruction.add(WTF::move(callee));
 }
 
 bool Heap::isWasmCalleePendingDestruction(Wasm::Callee& callee)
@@ -3516,7 +3515,7 @@ Heap::~Heap()
         JSC::IsoSubspace& serverSpace = *server().name<SubspaceAccess::OnMainThread>(); \
         auto space = makeUnique<IsoSubspace>(serverSpace); \
         WTF::storeStoreFence(); \
-        m_##name = WTFMove(space); \
+        m_##name = WTF::move(space); \
         return m_##name.get(); \
     }
 

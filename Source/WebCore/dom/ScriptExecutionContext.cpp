@@ -102,9 +102,9 @@ using namespace Inspector;
 static std::atomic<CrossOriginMode> globalCrossOriginMode { CrossOriginMode::Shared };
 
 static Lock allScriptExecutionContextsMapLock;
-static HashMap<ScriptExecutionContextIdentifier, ScriptExecutionContext*>& allScriptExecutionContextsMap() WTF_REQUIRES_LOCK(allScriptExecutionContextsMapLock)
+static HashMap<ScriptExecutionContextIdentifier, WeakRef<ScriptExecutionContext>>& allScriptExecutionContextsMap() WTF_REQUIRES_LOCK(allScriptExecutionContextsMapLock)
 {
-    static NeverDestroyed<HashMap<ScriptExecutionContextIdentifier, ScriptExecutionContext*>> contexts;
+    static NeverDestroyed<HashMap<ScriptExecutionContextIdentifier, WeakRef<ScriptExecutionContext>>> contexts;
     ASSERT(allScriptExecutionContextsMapLock.isLocked());
     return contexts;
 }
@@ -117,7 +117,7 @@ public:
         , m_lineNumber(lineNumber)
         , m_columnNumber(columnNumber)
         , m_sourceURL(sourceURL)
-        , m_callStack(WTFMove(callStack))
+        , m_callStack(WTF::move(callStack))
     {
     }
     String m_errorMessage;
@@ -153,14 +153,14 @@ void ScriptExecutionContext::regenerateIdentifier()
     m_identifier = ScriptExecutionContextIdentifier::generate();
 
     ASSERT(!allScriptExecutionContextsMap().contains(m_identifier));
-    allScriptExecutionContextsMap().add(m_identifier, this);
+    allScriptExecutionContextsMap().add(m_identifier, *this);
 }
 
 void ScriptExecutionContext::addToContextsMap()
 {
     Locker locker { allScriptExecutionContextsMapLock };
     ASSERT(!allScriptExecutionContextsMap().contains(m_identifier));
-    allScriptExecutionContextsMap().add(m_identifier, this);
+    allScriptExecutionContextsMap().add(m_identifier, *this);
 }
 
 void ScriptExecutionContext::removeFromContextsMap()
@@ -180,16 +180,16 @@ inline void ScriptExecutionContext::checkConsistency() const
 
 void ScriptExecutionContext::checkConsistency() const
 {
-    for (auto* messagePort : m_messagePorts)
-        ASSERT(messagePort->scriptExecutionContext() == this);
+    for (auto& messagePort : m_messagePorts)
+        ASSERT(messagePort.scriptExecutionContext() == this);
 
-    for (auto* destructionObserver : m_destructionObservers)
-        ASSERT(destructionObserver->scriptExecutionContext() == this);
+    for (auto& destructionObserver : m_destructionObservers)
+        ASSERT(destructionObserver.scriptExecutionContext() == this);
 
     // This can run on the GC thread.
-    for (SUPPRESS_UNCOUNTED_LOCAL auto* activeDOMObject : m_activeDOMObjects) {
-        ASSERT(activeDOMObject->scriptExecutionContext() == this);
-        activeDOMObject->assertSuspendIfNeededWasCalled();
+    for (SUPPRESS_UNCOUNTED_LOCAL auto& activeDOMObject : m_activeDOMObjects) {
+        ASSERT(activeDOMObject.scriptExecutionContext() == this);
+        activeDOMObject.assertSuspendIfNeededWasCalled();
     }
 }
 
@@ -208,17 +208,17 @@ ScriptExecutionContext::~ScriptExecutionContext()
     m_inScriptExecutionContextDestructor = true;
 #endif // ASSERT_ENABLED
 
-    auto callbacks = WTFMove(m_notificationCallbacks);
+    auto callbacks = WTF::move(m_notificationCallbacks);
     for (auto& callback : callbacks.values())
         callback();
 
-    auto postMessageCompletionHandlers = WTFMove(m_processMessageWithMessagePortsSoonHandlers);
+    auto postMessageCompletionHandlers = WTF::move(m_processMessageWithMessagePortsSoonHandlers);
     for (auto& completionHandler : postMessageCompletionHandlers)
         completionHandler();
 
     setActiveServiceWorker(nullptr);
 
-    while (auto* destructionObserver = m_destructionObservers.takeAny())
+    while (RefPtr destructionObserver = m_destructionObservers.takeAny())
         destructionObserver->contextDestroyed();
 
     setContentSecurityPolicy(nullptr);
@@ -231,7 +231,7 @@ ScriptExecutionContext::~ScriptExecutionContext()
 void ScriptExecutionContext::processMessageWithMessagePortsSoon(CompletionHandler<void()>&& completionHandler)
 {
     ASSERT(isContextThread());
-    m_processMessageWithMessagePortsSoonHandlers.append(WTFMove(completionHandler));
+    m_processMessageWithMessagePortsSoonHandlers.append(WTF::move(completionHandler));
 
     if (m_willprocessMessageWithMessagePortsSoon)
         return;
@@ -253,14 +253,10 @@ void ScriptExecutionContext::dispatchMessagePortEvents()
 
     auto completionHandlers = std::exchange(m_processMessageWithMessagePortsSoonHandlers, Vector<CompletionHandler<void()>> { });
 
-    // Make a frozen copy of the ports so we can iterate while new ones might be added or destroyed.
-    for (RefPtr messagePort : copyToVectorOf<RefPtr<MessagePort>>(m_messagePorts)) {
-        // The port may be destroyed, and another one created at the same address,
-        // but this is harmless. The worst that can happen as a result is that
-        // dispatchMessages() will be called needlessly.
-        if (m_messagePorts.contains(messagePort.get()) && messagePort->started())
-            messagePort->dispatchMessages();
-    }
+    m_messagePorts.forEach([](auto& messagePort) {
+        if (messagePort.started())
+            messagePort.dispatchMessages();
+    });
 
     for (auto& completionHandler : completionHandlers)
         completionHandler();
@@ -270,14 +266,14 @@ void ScriptExecutionContext::createdMessagePort(MessagePort& messagePort)
 {
     ASSERT(isContextThread());
 
-    m_messagePorts.add(&messagePort);
+    m_messagePorts.add(messagePort);
 }
 
 void ScriptExecutionContext::destroyedMessagePort(MessagePort& messagePort)
 {
     ASSERT(isContextThread());
 
-    m_messagePorts.remove(&messagePort);
+    m_messagePorts.remove(messagePort);
 }
 
 void ScriptExecutionContext::didLoadResourceSynchronously(const URL&)
@@ -289,7 +285,7 @@ CSSValuePool& ScriptExecutionContext::cssValuePool()
     return CSSValuePool::singleton();
 }
 
-std::unique_ptr<FontLoadRequest> ScriptExecutionContext::fontLoadRequest(const String&, bool, bool, LoadedFromOpaqueSource)
+RefPtr<FontLoadRequest> ScriptExecutionContext::fontLoadRequest(const String&, bool, bool, LoadedFromOpaqueSource)
 {
     return nullptr;
 }
@@ -303,17 +299,10 @@ void ScriptExecutionContext::forEachActiveDOMObject(NOESCAPE const Function<Shou
     SetForScope activeDOMObjectAdditionForbiddenScope(m_activeDOMObjectAdditionForbidden, true);
 
     // Make a frozen copy of the objects so we can iterate while new ones might be destroyed.
-    auto possibleActiveDOMObjects = copyToVectorOf<RefPtr<ActiveDOMObject>>(m_activeDOMObjects);
-
-    for (auto& activeDOMObject : possibleActiveDOMObjects) {
-        // Check if this object was deleted already. If so, just skip it.
-        // Calling contains on a possibly-already-deleted object is OK because we guarantee
-        // no new object can be added, so even if a new object ends up allocated with the
-        // same address, that will be *after* this function exits.
-        if (!m_activeDOMObjects.contains(activeDOMObject.get()))
-            continue;
-
-        if (apply(*activeDOMObject) == ShouldContinue::No)
+    auto possibleActiveDOMObjects = copyToVectorOf<WeakPtr<ActiveDOMObject>>(m_activeDOMObjects);
+    for (auto& weakActiveDOMObject : possibleActiveDOMObjects) {
+        RefPtr activeDOMObject = weakActiveDOMObject.get();
+        if (activeDOMObject && apply(*activeDOMObject) == ShouldContinue::No)
             break;
     }
 }
@@ -347,11 +336,11 @@ URL ScriptExecutionContext::currentSourceURL(CallStackPosition position) const
         if (urlString.isEmpty())
             return IterationStatus::Continue;
 
-        auto newSourceURL = URL { WTFMove(urlString) };
+        auto newSourceURL = URL { WTF::move(urlString) };
         if (!newSourceURL.isValid())
             return IterationStatus::Continue;
 
-        sourceURL = WTFMove(newSourceURL);
+        sourceURL = WTF::move(newSourceURL);
         return position == CallStackPosition::BottomMost ? IterationStatus::Continue : IterationStatus::Done;
     });
     return sourceURL;
@@ -420,7 +409,7 @@ void ScriptExecutionContext::stopActiveDOMObjects()
 
 void ScriptExecutionContext::suspendActiveDOMObjectIfNeeded(ActiveDOMObject& activeDOMObject)
 {
-    ASSERT(m_activeDOMObjects.contains(&activeDOMObject));
+    ASSERT(m_activeDOMObjects.contains(activeDOMObject));
     if (m_activeDOMObjectsAreSuspended)
         activeDOMObject.suspend(m_reasonForSuspendingActiveDOMObjects);
     if (m_activeDOMObjectsAreStopped)
@@ -435,23 +424,23 @@ void ScriptExecutionContext::didCreateActiveDOMObject(ActiveDOMObject& activeDOM
     // rather have a crash than continue running with the set possibly compromised.
     ASSERT(!m_inScriptExecutionContextDestructor);
     RELEASE_ASSERT(!m_activeDOMObjectAdditionForbidden);
-    m_activeDOMObjects.add(&activeDOMObject);
+    m_activeDOMObjects.add(activeDOMObject);
 }
 
 void ScriptExecutionContext::willDestroyActiveDOMObject(ActiveDOMObject& activeDOMObject)
 {
-    m_activeDOMObjects.remove(&activeDOMObject);
+    m_activeDOMObjects.remove(activeDOMObject);
 }
 
 void ScriptExecutionContext::didCreateDestructionObserver(ContextDestructionObserver& observer)
 {
     ASSERT(!m_inScriptExecutionContextDestructor);
-    m_destructionObservers.add(&observer);
+    m_destructionObservers.add(observer);
 }
 
 void ScriptExecutionContext::willDestroyDestructionObserver(ContextDestructionObserver& observer)
 {
-    m_destructionObservers.remove(&observer);
+    m_destructionObservers.remove(observer);
 }
 
 std::optional<PAL::SessionID> ScriptExecutionContext::sessionID() const
@@ -487,7 +476,7 @@ void ScriptExecutionContext::reportException(const String& errorMessage, int lin
     if (m_inDispatchErrorEvent) {
         if (!m_pendingExceptions)
             m_pendingExceptions = makeUnique<Vector<std::unique_ptr<PendingException>>>();
-        m_pendingExceptions->append(makeUnique<PendingException>(errorMessage, lineNumber, columnNumber, sourceURL, WTFMove(callStack)));
+        m_pendingExceptions->append(makeUnique<PendingException>(errorMessage, lineNumber, columnNumber, sourceURL, WTF::move(callStack)));
         return;
     }
 
@@ -498,9 +487,9 @@ void ScriptExecutionContext::reportException(const String& errorMessage, int lin
     if (!m_pendingExceptions)
         return;
 
-    auto pendingExceptions = WTFMove(m_pendingExceptions);
+    auto pendingExceptions = WTF::move(m_pendingExceptions);
     for (auto& exception : *pendingExceptions)
-        logExceptionToConsole(exception->m_errorMessage, exception->m_sourceURL, exception->m_lineNumber, exception->m_columnNumber, WTFMove(exception->m_callStack));
+        logExceptionToConsole(exception->m_errorMessage, exception->m_sourceURL, exception->m_lineNumber, exception->m_columnNumber, WTF::move(exception->m_callStack));
 }
 
 void ScriptExecutionContext::reportUnhandledPromiseRejection(JSC::JSGlobalObject& state, JSC::JSPromise& promise, RefPtr<Inspector::ScriptCallStack>&& callStack)
@@ -540,7 +529,7 @@ void ScriptExecutionContext::reportUnhandledPromiseRejection(JSC::JSGlobalObject
         message = makeUnique<Inspector::ConsoleMessage>(MessageSource::JS, MessageType::Log, MessageLevel::Error, errorMessage, callStack.releaseNonNull());
     else
         message = makeUnique<Inspector::ConsoleMessage>(MessageSource::JS, MessageType::Log, MessageLevel::Error, errorMessage);
-    addConsoleMessage(WTFMove(message));
+    addConsoleMessage(WTF::move(message));
 }
 
 void ScriptExecutionContext::addConsoleMessage(MessageSource source, MessageLevel level, const String& message, const String& sourceURL, unsigned lineNumber, unsigned columnNumber, JSC::JSGlobalObject* state, unsigned long requestIdentifier)
@@ -658,8 +647,8 @@ bool ScriptExecutionContext::hasPendingActivity() const
     checkConsistency();
 
     // This runs on the GC thread.
-    for (SUPPRESS_UNCOUNTED_LOCAL auto* activeDOMObject : m_activeDOMObjects) {
-        if (activeDOMObject->hasPendingActivity())
+    for (SUPPRESS_UNCOUNTED_LOCAL auto& activeDOMObject : m_activeDOMObjects) {
+        if (activeDOMObject.hasPendingActivity())
             return true;
     }
 
@@ -708,12 +697,12 @@ bool ScriptExecutionContext::allowsMediaDevices() const
 
 void ScriptExecutionContext::setActiveServiceWorker(RefPtr<ServiceWorker>&& serviceWorker)
 {
-    m_activeServiceWorker = WTFMove(serviceWorker);
+    m_activeServiceWorker = WTF::move(serviceWorker);
 }
 
 void ScriptExecutionContext::registerServiceWorker(ServiceWorker& serviceWorker)
 {
-    auto addResult = m_serviceWorkers.add(serviceWorker.identifier(), &serviceWorker);
+    auto addResult = m_serviceWorkers.add(serviceWorker.identifier(), serviceWorker);
     ASSERT_UNUSED(addResult, addResult.isNewEntry);
 
     ensureOnMainThread([identifier = serviceWorker.identifier()] {
@@ -775,7 +764,7 @@ bool ScriptExecutionContext::postTaskTo(ScriptExecutionContextIdentifier identif
     if (!context)
         return false;
 
-    context->postTask(WTFMove(task));
+    context->postTask(WTF::move(task));
     return true;
 }
 
@@ -788,7 +777,7 @@ bool ScriptExecutionContext::postTaskForModeToWorkerOrWorklet(ScriptExecutionCon
     if (!context)
         return false;
 
-    context->postTaskForMode(WTFMove(task), mode);
+    context->postTaskForMode(WTF::move(task), mode);
     return true;
 }
 
@@ -811,7 +800,7 @@ bool ScriptExecutionContext::ensureOnContextThread(ScriptExecutionContextIdentif
             return false;
 
         if (!context->isContextThread()) {
-            context->postTask(WTFMove(task));
+            context->postTask(WTF::move(task));
             return true;
         }
     }
@@ -831,7 +820,7 @@ bool ScriptExecutionContext::ensureOnContextThreadForCrossThreadTask(ScriptExecu
             return false;
 
         if (!context->isContextThread()) {
-            context->postTask([crossThreadTask = WTFMove(crossThreadTask)](ScriptExecutionContext&) mutable {
+            context->postTask([crossThreadTask = WTF::move(crossThreadTask)](ScriptExecutionContext&) mutable {
                 crossThreadTask.performTask();
             });
             return true;
@@ -856,7 +845,7 @@ void ScriptExecutionContext::postTaskToResponsibleDocument(Function<void(Documen
 
     if (RefPtr thread = workerOrWorketGlobalScope->workerOrWorkletThread()) {
         if (CheckedPtr workerLoaderProxy = thread->workerLoaderProxy()) {
-            workerLoaderProxy->postTaskToLoader([callback = WTFMove(callback)](auto&& context) {
+            workerLoaderProxy->postTaskToLoader([callback = WTF::move(callback)](auto&& context) {
                 callback(downcast<Document>(context));
             });
         }
@@ -903,7 +892,7 @@ ScriptExecutionContext::HasResourceAccess ScriptExecutionContext::canAccessResou
 ScriptExecutionContext::NotificationCallbackIdentifier ScriptExecutionContext::addNotificationCallback(CompletionHandler<void()>&& callback)
 {
     auto identifier = NotificationCallbackIdentifier::generate();
-    m_notificationCallbacks.add(identifier, WTFMove(callback));
+    m_notificationCallbacks.add(identifier, WTF::move(callback));
     return identifier;
 }
 
@@ -961,10 +950,10 @@ private:
     void dispatch(Function<void()>&& callback) final
     {
         if (m_threadId == 1) {
-            callOnMainThread(WTFMove(callback));
+            callOnMainThread(WTF::move(callback));
             return;
         }
-        ScriptExecutionContext::postTaskTo(m_identifier, WTFMove(callback));
+        ScriptExecutionContext::postTaskTo(m_identifier, WTF::move(callback));
     }
     bool isCurrent() const final { return m_threadId == Thread::currentSingleton().uid(); }
 
@@ -975,8 +964,13 @@ private:
 GuaranteedSerialFunctionDispatcher& ScriptExecutionContext::nativePromiseDispatcher()
 {
     if (!m_nativePromiseDispatcher)
-        m_nativePromiseDispatcher = ScriptExecutionContextDispatcher::create(*this);
+        lazyInitialize(m_nativePromiseDispatcher, ScriptExecutionContextDispatcher::create(*this));
     return *m_nativePromiseDispatcher;
+}
+
+Ref<GuaranteedSerialFunctionDispatcher> ScriptExecutionContext::protectedNativePromiseDispatcher()
+{
+    return nativePromiseDispatcher();
 }
 
 bool ScriptExecutionContext::requiresScriptTrackingPrivacyProtection(ScriptTrackingPrivacyCategory category, IncludeConsoleLog includeConsoleLog)

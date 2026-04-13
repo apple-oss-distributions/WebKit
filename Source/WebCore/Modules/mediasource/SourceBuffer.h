@@ -62,7 +62,6 @@ template<typename> class ExceptionOr;
 
 class SourceBuffer
     : public RefCounted<SourceBuffer>
-    , public CanMakeWeakPtr<SourceBuffer>
     , public ActiveDOMObject
     , public EventTarget
     , private AudioTrackClient
@@ -72,7 +71,7 @@ class SourceBuffer
     , private LoggerHelper
 #endif
 {
-    WTF_MAKE_TZONE_OR_ISO_ALLOCATED(SourceBuffer);
+    WTF_MAKE_TZONE_ALLOCATED(SourceBuffer);
 public:
     void ref() const final { RefCounted::ref(); }
     void deref() const final { RefCounted::deref(); }
@@ -80,7 +79,7 @@ public:
     static Ref<SourceBuffer> create(Ref<SourceBufferPrivate>&&, MediaSource&);
     virtual ~SourceBuffer();
 
-    USING_CAN_MAKE_WEAKPTR(CanMakeWeakPtr<SourceBuffer>);
+    USING_CAN_MAKE_WEAKPTR(ActiveDOMObject);
 
     static bool enabledForContext(ScriptExecutionContext&);
 
@@ -171,7 +170,6 @@ private:
     void sourceBufferPrivateHighestPresentationTimestampChanged(const MediaTime&);
     Ref<MediaPromise> sourceBufferPrivateDurationChanged(const MediaTime& duration);
     void sourceBufferPrivateDidDropSample();
-    void sourceBufferPrivateDidReceiveRenderingError(int64_t errorCode);
     Ref<MediaPromise> sourceBufferPrivateDidAttach(SourceBufferPrivateClient::InitializationSegment&&);
 
     // AudioTrackClient
@@ -192,7 +190,7 @@ private:
     void videoTrackSelectedChanged(VideoTrack&) final;
 
     // EventTarget
-    enum EventTargetInterfaceType eventTargetInterface() const final { return EventTargetInterfaceType::SourceBuffer; }
+    enum EventTargetInterfaceType eventTargetInterface() const override { return EventTargetInterfaceType::SourceBuffer; }
 
     bool isRemoved() const;
     void scheduleEvent(const AtomString& eventName);
@@ -236,7 +234,7 @@ private:
     WeakPtr<MediaSource> m_source;
     AppendMode m_mode { AppendMode::Segments };
 
-    WTF::Observer<WebCoreOpaqueRoot()> m_opaqueRootProvider;
+    const Ref<WTF::Observer<WebCoreOpaqueRoot()>> m_opaqueRootProvider;
 
     RefPtr<SharedBuffer> m_pendingAppendData;
 
@@ -282,5 +280,7 @@ private:
 };
 
 } // namespace WebCore
+
+SPECIALIZE_TYPE_TRAITS_EVENTTARGET(SourceBuffer)
 
 #endif

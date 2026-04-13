@@ -52,20 +52,17 @@ public:
     static Ref<WebSocketChannel> create(WebPageProxyIdentifier, WebCore::Document&, WebCore::WebSocketChannelClient&);
     ~WebSocketChannel();
 
+    // IPC::MessageReceiver, WebCore::ThreadableWebSocketChannel.
     void ref() const final { RefCounted::ref(); }
     void deref() const final { RefCounted::deref(); }
 
     void didReceiveMessage(IPC::Connection&, IPC::Decoder&);
-
     void networkProcessCrashed();
-
-    using RefCounted<WebSocketChannel>::ref;
-    using RefCounted<WebSocketChannel>::deref;
 
 private:
     WebSocketChannel(WebPageProxyIdentifier, WebCore::Document&, WebCore::WebSocketChannelClient&);
 
-    static WebCore::NetworkSendQueue createMessageQueue(WebCore::Document&, WebSocketChannel&);
+    static Ref<WebCore::NetworkSendQueue> createMessageQueue(WebCore::Document&, WebSocketChannel&);
 
     // ThreadableWebSocketChannel
     ConnectStatus connect(const URL&, const String& protocol) final;
@@ -79,8 +76,6 @@ private:
     void disconnect() final;
     void suspend() final;
     void resume() final;
-    void refThreadableWebSocketChannel() final { ref(); }
-    void derefThreadableWebSocketChannel() final { deref(); }
 
     void notifySendFrame(WebCore::WebSocketFrame::OpCode, std::span<const uint8_t> data);
     void logErrorMessage(const String&);
@@ -116,7 +111,7 @@ private:
     String m_extensions;
     size_t m_bufferedAmount { 0 };
     bool m_isClosing { false };
-    WebCore::NetworkSendQueue m_messageQueue;
+    const Ref<WebCore::NetworkSendQueue> m_messageQueue;
     WebCore::WebSocketChannelInspector m_inspector;
     WebCore::ResourceRequest m_handshakeRequest;
     WebCore::ResourceResponse m_handshakeResponse;

@@ -47,7 +47,7 @@ class SimpleReadableStreamSource;
 class WritableStream;
 
 class RTCRtpSFrameTransform : public ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr<RTCRtpSFrameTransform>, public ActiveDOMObject, public EventTarget {
-    WTF_MAKE_TZONE_OR_ISO_ALLOCATED(RTCRtpSFrameTransform);
+    WTF_MAKE_TZONE_ALLOCATED(RTCRtpSFrameTransform);
 public:
     enum class Role { Encrypt, Decrypt };
     using CompatibilityMode = RTCRtpSFrameTransformer::CompatibilityMode;
@@ -79,6 +79,7 @@ public:
     // ActiveDOMObject.
     void ref() const final { ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr::ref(); }
     void deref() const final { ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr::deref(); }
+    USING_CAN_MAKE_WEAKPTR(EventTarget);
 
 private:
     RTCRtpSFrameTransform(ScriptExecutionContext&, Options);
@@ -106,5 +107,7 @@ private:
 };
 
 } // namespace WebCore
+
+SPECIALIZE_TYPE_TRAITS_EVENTTARGET(RTCRtpSFrameTransform)
 
 #endif // ENABLE(WEB_RTC)

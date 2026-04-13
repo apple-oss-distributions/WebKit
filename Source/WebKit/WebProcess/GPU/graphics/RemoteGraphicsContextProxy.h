@@ -62,7 +62,7 @@ public:
     using GraphicsContext::drawDisplayList;
     void drawDisplayList(const WebCore::DisplayList::DisplayList&, WebCore::ControlFactory&) final;
 
-    void setClient(ThreadSafeWeakPtr<RemoteImageBufferProxy>&& client) { m_client = WTFMove(client); }
+    void setClient(ThreadSafeWeakPtr<RemoteImageBufferProxy>&& client) { m_client = WTF::move(client); }
     // Returns false if there has not been any potential draws since last call.
     // Returns true if there has been potential draws since last call.
     bool consumeHasDrawn();
@@ -125,7 +125,7 @@ private:
     void fillRectWithRoundedHole(const WebCore::FloatRect&, const WebCore::FloatRoundedRect&, const WebCore::Color&) final;
     void fillEllipse(const WebCore::FloatRect&) final;
 #if ENABLE(VIDEO)
-    void drawVideoFrame(WebCore::VideoFrame&, const WebCore::FloatRect& distination, WebCore::ImageOrientation, bool shouldDiscardAlpha) final;
+    void drawVideoFrame(const WebCore::VideoFrame&, const WebCore::FloatRect& distination, WebCore::ImageOrientation, bool shouldDiscardAlpha) final;
 #endif
     void strokePath(const WebCore::Path&) final;
     void strokeRect(const WebCore::FloatRect&, float) final;
@@ -145,8 +145,8 @@ private:
     void endPage() final;
     void setURLForRect(const URL&, const WebCore::FloatRect&) final;
 
-    bool recordResourceUse(WebCore::NativeImage&);
-    bool recordResourceUse(WebCore::ImageBuffer&);
+    [[nodiscard]] bool recordResourceUse(WebCore::NativeImage&);
+    [[nodiscard]] bool recordResourceUse(WebCore::ImageBuffer&);
     bool recordResourceUse(const WebCore::SourceImage&);
     bool recordResourceUse(WebCore::Font&);
     std::optional<RemoteGradientIdentifier> recordResourceUse(WebCore::Gradient&);

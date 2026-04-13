@@ -66,7 +66,7 @@ class IDBConnectionToServer;
 }
 
 class IDBRequest : public EventTarget, public IDBActiveDOMObject, public ThreadSafeRefCounted<IDBRequest> {
-    WTF_MAKE_TZONE_OR_ISO_ALLOCATED(IDBRequest);
+    WTF_MAKE_TZONE_ALLOCATED(IDBRequest);
 public:
     enum class NullResultType {
         Empty,
@@ -78,6 +78,8 @@ public:
     static Ref<IDBRequest> create(ScriptExecutionContext&, IDBIndex&, IDBTransaction&);
     static Ref<IDBRequest> createObjectStoreGet(ScriptExecutionContext&, IDBObjectStore&, IndexedDB::ObjectStoreRecordType, IDBTransaction&);
     static Ref<IDBRequest> createIndexGet(ScriptExecutionContext&, IDBIndex&, IndexedDB::IndexRecordType, IDBTransaction&);
+
+    USING_CAN_MAKE_WEAKPTR(EventTarget);
 
     const IDBResourceIdentifier& resourceIdentifier() const { return m_resourceIdentifier; }
 
@@ -216,6 +218,4 @@ WebCoreOpaqueRoot root(IDBRequest*);
 
 } // namespace WebCore
 
-SPECIALIZE_TYPE_TRAITS_BEGIN(WebCore::IDBRequest)
-    static bool isType(const WebCore::EventTarget& eventTarget) { return eventTarget.eventTargetInterface() == WebCore::EventTargetInterfaceType::IDBRequest; }
-SPECIALIZE_TYPE_TRAITS_END()
+SPECIALIZE_TYPE_TRAITS_EVENTTARGET(IDBRequest)

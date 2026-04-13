@@ -221,7 +221,8 @@ void RemoteGraphicsContextProxy::clipOutRoundedRect(const FloatRoundedRect& rect
 void RemoteGraphicsContextProxy::clipToImageBuffer(ImageBuffer& imageBuffer, const FloatRect& destinationRect)
 {
     updateStateForClipToImageBuffer(destinationRect);
-    recordResourceUse(imageBuffer);
+    if (!recordResourceUse(imageBuffer))
+        return;
     send(Messages::RemoteGraphicsContext::ClipToImageBuffer(imageBuffer.renderingResourceIdentifier(), destinationRect));
 }
 
@@ -269,7 +270,7 @@ void RemoteGraphicsContextProxy::drawFilteredImageBuffer(ImageBuffer* sourceImag
         identifier = sourceImage->renderingResourceIdentifier();
     }
 
-    send(Messages::RemoteGraphicsContext::DrawFilteredImageBuffer(WTFMove(identifier), sourceImageRect, filter));
+    send(Messages::RemoteGraphicsContext::DrawFilteredImageBuffer(WTF::move(identifier), sourceImageRect, filter));
 }
 
 void RemoteGraphicsContextProxy::drawGlyphs(const Font& font, std::span<const GlyphBufferGlyph> glyphs, std::span<const GlyphBufferAdvance> advances, const FloatPoint& localAnchor, FontSmoothingMode smoothingMode)
@@ -323,7 +324,8 @@ void RemoteGraphicsContextProxy::drawNativeImage(NativeImage& image, const Float
     ImagePaintingOptions clampedOptions(options, headroom);
 #endif
     appendStateChangeItemIfNecessary();
-    recordResourceUse(image);
+    if (!recordResourceUse(image))
+        return;
 #if HAVE(SUPPORT_HDR_DISPLAY_APIS)
     send(Messages::RemoteGraphicsContext::DrawNativeImage(image.renderingResourceIdentifier(), destRect, srcRect, clampedOptions));
 #else
@@ -340,7 +342,8 @@ void RemoteGraphicsContextProxy::drawSystemImage(SystemImage& systemImage, const
             auto nativeImage = image->nativeImage();
             if (!nativeImage)
                 return;
-            recordResourceUse(*nativeImage);
+            if (!recordResourceUse(*nativeImage))
+                return;
         }
     }
 #endif
@@ -350,7 +353,8 @@ void RemoteGraphicsContextProxy::drawSystemImage(SystemImage& systemImage, const
 void RemoteGraphicsContextProxy::drawPattern(NativeImage& image, const FloatRect& destRect, const FloatRect& tileRect, const AffineTransform& patternTransform, const FloatPoint& phase, const FloatSize& spacing, ImagePaintingOptions options)
 {
     appendStateChangeItemIfNecessary();
-    recordResourceUse(image);
+    if (!recordResourceUse(image))
+        return;
     send(Messages::RemoteGraphicsContext::DrawPatternNativeImage(image.renderingResourceIdentifier(), destRect, tileRect, patternTransform, phase, spacing, options));
 }
 
@@ -512,7 +516,7 @@ void RemoteGraphicsContextProxy::fillEllipse(const FloatRect& rect)
 }
 
 #if ENABLE(VIDEO)
-void RemoteGraphicsContextProxy::drawVideoFrame(VideoFrame& frame, const FloatRect& destination, ImageOrientation orientation, bool shouldDiscardAlpha)
+void RemoteGraphicsContextProxy::drawVideoFrame(const VideoFrame& frame, const FloatRect& destination, ImageOrientation orientation, bool shouldDiscardAlpha)
 {
     appendStateChangeItemIfNecessary();
 #if PLATFORM(COCOA)
@@ -523,11 +527,11 @@ void RemoteGraphicsContextProxy::drawVideoFrame(VideoFrame& frame, const FloatRe
     auto sharedVideoFrame = m_sharedVideoFrameWriter->write(frame, [&](auto& semaphore) {
         send(Messages::RemoteGraphicsContext::SetSharedVideoFrameSemaphore { semaphore });
     }, [&](SharedMemory::Handle&& handle) {
-        send(Messages::RemoteGraphicsContext::SetSharedVideoFrameMemory { WTFMove(handle) });
+        send(Messages::RemoteGraphicsContext::SetSharedVideoFrameMemory { WTF::move(handle) });
     });
     if (!sharedVideoFrame)
         return;
-    send(Messages::RemoteGraphicsContext::DrawVideoFrame(WTFMove(*sharedVideoFrame), destination, orientation, shouldDiscardAlpha));
+    send(Messages::RemoteGraphicsContext::DrawVideoFrame(WTF::move(*sharedVideoFrame), destination, orientation, shouldDiscardAlpha));
 #endif
 }
 #endif
@@ -664,8 +668,7 @@ bool RemoteGraphicsContextProxy::recordResourceUse(NativeImage& image)
 #endif
     }
 
-    renderingBackend->remoteResourceCacheProxy().recordNativeImageUse(image, colorSpace);
-    return true;
+    return renderingBackend->remoteResourceCacheProxy().recordNativeImageUse(image, colorSpace);
 }
 
 bool RemoteGraphicsContextProxy::recordResourceUse(ImageBuffer& imageBuffer)

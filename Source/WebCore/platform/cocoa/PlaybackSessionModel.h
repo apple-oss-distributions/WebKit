@@ -47,8 +47,7 @@ namespace WebCore {
 class PlatformTimeRanges;
 class PlaybackSessionModelClient;
 struct MediaSelectionOption;
-struct SpatialVideoMetadata;
-struct VideoProjectionMetadata;
+struct ImmersiveVideoMetadata;
 
 enum class AudioSessionSoundStageSize : uint8_t;
 
@@ -100,7 +99,7 @@ public:
     virtual void setVideoReceiverEndpoint(const VideoReceiverEndpoint&) = 0;
 
 #if HAVE(SPATIAL_TRACKING_LABEL)
-    virtual const String& spatialTrackingLabel() const { return emptyString(); }
+    virtual String spatialTrackingLabel() const { return emptyString(); }
     virtual void setSpatialTrackingLabel(const String&) { }
 #endif
 
@@ -145,7 +144,7 @@ public:
     virtual bool supportsLinearMediaPlayer() const { return false; }
 #endif
 
-    virtual bool prefersAutoDimming() const { return false; }
+    virtual bool prefersAutoDimming() const { return true; }
     virtual void setPrefersAutoDimming(bool) { }
 
 #if !RELEASE_LOG_DISABLED
@@ -183,8 +182,7 @@ public:
     virtual void supportsLinearMediaPlayerChanged(bool) { }
     virtual void didSetVideoReceiverEndpoint() { };
 #endif
-    virtual void spatialVideoMetadataChanged(const std::optional<SpatialVideoMetadata>&) { };
-    virtual void videoProjectionMetadataChanged(const std::optional<VideoProjectionMetadata>&) { };
+    virtual void immersiveVideoMetadataChanged(const std::optional<ImmersiveVideoMetadata>&) { };
     virtual void ensureControlsManager() { }
     virtual void modelDestroyed() { }
 };

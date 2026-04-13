@@ -54,7 +54,7 @@ public:
     // Decoding
     bool isLargeForDecoding() const { return m_source->isLargeForDecoding(); }
     void stopDecodingWorkQueue() { m_source->stopDecodingWorkQueue(); }
-    void decode(Function<void(DecodingStatus)>&& decodeCallback) { m_source->decode(WTFMove(decodeCallback)); }
+    void decode(Function<void(DecodingStatus)>&& decodeCallback) { m_source->decode(WTF::move(decodeCallback)); }
 
     // Current ImageFrame
     unsigned currentFrameIndex() const { return m_source->currentFrameIndex(); }
@@ -95,6 +95,13 @@ public:
     unsigned decodeCountForTesting() const { return m_source->decodeCountForTesting(); }
     unsigned blankDrawCountForTesting() const { return m_source->blankDrawCountForTesting(); }
 
+#if ENABLE(SPATIAL_IMAGE_DETECTION)
+    bool isSpatial() const final { return m_source->isSpatial(); }
+    std::optional<unsigned> spatialLeftEyeFrameIndex() const { return m_source->spatialLeftEyeFrameIndex(); }
+    std::optional<unsigned> spatialRightEyeFrameIndex() const { return m_source->spatialRightEyeFrameIndex(); }
+    std::optional<SpatialImageEyeProperties> spatialEyePropertiesAtIndex(unsigned index) const { return m_source->spatialEyePropertiesAtIndex(index); }
+#endif
+
 private:
     BitmapImage(ImageObserver*, AlphaOption, GammaAndColorProfileOption);
     BitmapImage(Ref<NativeImage>&&);
@@ -117,14 +124,6 @@ private:
     String accessibilityDescription() const final { return m_source->accessibilityDescription(); }
     std::optional<IntPoint> hotSpot() const final { return m_source->hotSpot(); }
     std::optional<Color> singlePixelSolidColor() const final { return m_source->singlePixelSolidColor(); }
-
-#if ENABLE(QUICKLOOK_FULLSCREEN)
-    bool shouldUseQuickLookForFullscreen() const final { return m_source->shouldUseQuickLookForFullscreen(); }
-#endif
-
-#if ENABLE(SPATIAL_IMAGE_DETECTION)
-    bool isSpatial() const final { return m_source->isSpatial(); }
-#endif
 
 #if ENABLE(SPATIAL_IMAGE_CONTROLS)
     bool isMaybePanoramic() const final { return m_source->isMaybePanoramic(); }

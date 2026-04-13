@@ -29,6 +29,7 @@
 #if ENABLE(GPU_PROCESS)
 
 #include "RemoteBufferMessages.h"
+#include "RemoteBufferProxy.h"
 #include "StreamServerConnection.h"
 #include "WebGPUObjectHeap.h"
 
@@ -43,7 +44,7 @@ WTF_MAKE_TZONE_ALLOCATED_IMPL(RemoteBuffer);
 RemoteBuffer::RemoteBuffer(WebCore::WebGPU::Buffer& buffer, WebGPU::ObjectHeap& objectHeap, Ref<IPC::StreamServerConnection>&& streamConnection, RemoteGPU& gpu, bool mappedAtCreation, WebGPUIdentifier identifier)
     : m_backing(buffer)
     , m_objectHeap(objectHeap)
-    , m_streamConnection(WTFMove(streamConnection))
+    , m_streamConnection(WTF::move(streamConnection))
     , m_gpu(gpu)
     , m_identifier(identifier)
     , m_isMapped(mappedAtCreation)
@@ -61,15 +62,25 @@ void RemoteBuffer::stopListeningForIPC()
 
 void RemoteBuffer::mapAsync(WebCore::WebGPU::MapModeFlags mapModeFlags, WebCore::WebGPU::Size64 offset, std::optional<WebCore::WebGPU::Size64> size, CompletionHandler<void(bool)>&& callback)
 {
-    m_isMapped = true;
-    m_mapModeFlags = mapModeFlags;
+    if (m_pendingMap) {
+        callback(false);
+        return;
+    }
 
-    protectedBacking()->mapAsync(mapModeFlags, offset, size, [protectedThis = Ref<RemoteBuffer>(*this), callback = WTFMove(callback)] (bool success) mutable {
+    m_pendingMap = true;
+
+    protectedBacking()->mapAsync(mapModeFlags, offset, size, [protectedThis = Ref<RemoteBuffer>(*this), callback = WTF::move(callback), mapModeFlags] (bool success) mutable {
+        bool mapWasPending = protectedThis->m_pendingMap;
+        protectedThis->m_pendingMap = false;
         if (!success) {
             callback(false);
             return;
         }
 
+        if (mapWasPending) {
+            protectedThis->m_isMapped = true;
+            protectedThis->m_mapModeFlags = mapModeFlags;
+        }
         callback(true);
     });
 }
@@ -84,15 +95,16 @@ void RemoteBuffer::getMappedRange(WebCore::WebGPU::Size64 offset, std::optional<
 
 void RemoteBuffer::unmap()
 {
-    if (m_isMapped)
+    if (m_isMapped || m_pendingMap)
         protectedBacking()->unmap();
     m_isMapped = false;
+    m_pendingMap = false;
     m_mapModeFlags = { };
 }
 
 void RemoteBuffer::copyWithCopy(Vector<uint8_t>&& data, uint64_t offset)
 {
-    if (!m_isMapped || !m_mapModeFlags.contains(WebCore::WebGPU::MapMode::Write))
+    if (m_pendingMap || !m_isMapped || !m_mapModeFlags.contains(WebCore::WebGPU::MapMode::Write))
         return;
 
     auto buffer = protectedBacking()->getBufferContents();
@@ -109,9 +121,14 @@ void RemoteBuffer::copyWithCopy(Vector<uint8_t>&& data, uint64_t offset)
 
 void RemoteBuffer::copy(std::optional<WebCore::SharedMemoryHandle>&& dataHandle, uint64_t offset, CompletionHandler<void(bool)>&& completionHandler)
 {
-    auto sharedData = dataHandle ? WebCore::SharedMemory::map(WTFMove(*dataHandle), WebCore::SharedMemory::Protection::ReadOnly) : nullptr;
+    if (m_pendingMap || !m_isMapped || !m_mapModeFlags.contains(WebCore::WebGPU::MapMode::Write)) {
+        completionHandler(false);
+        return;
+    }
+
+    auto sharedData = dataHandle ? WebCore::SharedMemory::map(WTF::move(*dataHandle), WebCore::SharedMemory::Protection::ReadOnly) : nullptr;
     auto data = sharedData ? sharedData->span() : std::span<const uint8_t> { };
-    if (!m_isMapped || !m_mapModeFlags.contains(WebCore::WebGPU::MapMode::Write)) {
+    if (data.size() <= WebGPU::maxCrossProcessResourceCopySize) {
         completionHandler(false);
         return;
     }
@@ -150,7 +167,7 @@ void RemoteBuffer::destruct()
 
 void RemoteBuffer::setLabel(String&& label)
 {
-    protectedBacking()->setLabel(WTFMove(label));
+    protectedBacking()->setLabel(WTF::move(label));
 }
 
 Ref<WebCore::WebGPU::Buffer> RemoteBuffer::protectedBacking()

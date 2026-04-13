@@ -32,7 +32,7 @@
 #include "RenderChildIterator.h"
 #include "RenderGrid.h"
 #include "RenderStyleConstants.h"
-#include "RenderStyleInlines.h"
+#include "RenderStyle+GettersInlines.h"
 #include "StyleGridTrackSizingDirection.h"
 
 namespace WebCore {
@@ -51,10 +51,13 @@ static inline bool marginEndIsAuto(const RenderBox& gridItem, Style::GridTrackSi
 
 static bool gridItemHasMargin(const RenderBox& gridItem, Style::GridTrackSizingDirection direction)
 {
-    // `isPossiblyZero` returns true for 'auto' margins, which is aligned with the purpose of this function.
+    auto hasMarginEdge = [](auto& edge) {
+        return !edge.isKnownZero() && !edge.isAuto();
+    };
+
     if (direction == Style::GridTrackSizingDirection::Columns)
-        return !gridItem.style().marginStart().isPossiblyZero() || !gridItem.style().marginEnd().isPossiblyZero();
-    return !gridItem.style().marginBefore().isPossiblyZero() || !gridItem.style().marginAfter().isPossiblyZero();
+        return hasMarginEdge(gridItem.style().marginStart()) || hasMarginEdge(gridItem.style().marginEnd());
+    return hasMarginEdge(gridItem.style().marginBefore()) || hasMarginEdge(gridItem.style().marginAfter());
 }
 
 LayoutUnit computeMarginLogicalSizeForGridItem(const RenderGrid& grid, Style::GridTrackSizingDirection direction, const RenderBox& gridItem)
@@ -245,48 +248,50 @@ bool hasAutoMarginsInRowAxis(const RenderBox& gridItem, WritingMode parentWritin
     return gridItem.style().marginTop().isAuto() || gridItem.style().marginBottom().isAuto();
 }
 
-bool hasAutoSizeInColumnAxis(const RenderBox& gridItem, WritingMode parentWritingMode)
+bool hasStretchableSizeInColumnAxis(const RenderBox& gridItem, const RenderGrid& gridContainer)
 {
-    if (gridItem.style().hasAspectRatio()) {
-        // FIXME: should align-items + align-self: auto/justify-items + justify-self: auto be taken into account?
-        if (parentWritingMode.isHorizontal() == gridItem.isHorizontalWritingMode() && gridItem.style().alignSelf().position() != ItemPosition::Stretch) {
+    // Only auto sizes are stretchable.
+    if (!(gridContainer.isHorizontalWritingMode() ? gridItem.style().height().isAuto() : gridItem.style().width().isAuto()))
+        return false;
+
+    if (gridItem.style().hasAspectRatio() && !gridContainer.selfAlignmentForGridItem(gridItem, LogicalBoxAxis::Block, StretchingMode::Explicit).isStretch()) {
+        if (gridContainer.isHorizontalWritingMode() == gridItem.isHorizontalWritingMode()) {
             // A non-auto inline size means the same for block size (column axis size) because of the aspect ratio.
             if (!gridItem.style().logicalWidth().isAuto())
                 return false;
-        } else if (gridItem.style().justifySelf().position() != ItemPosition::Stretch) {
+        } else {
             auto& logicalHeight = gridItem.style().logicalHeight();
             if (logicalHeight.isFixed() || (logicalHeight.isPercentOrCalculated() && gridItem.percentageLogicalHeightIsResolvable()))
                 return false;
         }
+        // Explicit stretching is like an explicit size.
+        if (gridContainer.willStretchItem(gridItem, LogicalBoxAxis::Inline, StretchingMode::Explicit))
+            return false;
     }
-    return parentWritingMode.isHorizontal() ? gridItem.style().height().isAuto() : gridItem.style().width().isAuto();
+    return true;
 }
 
-bool hasAutoSizeInRowAxis(const RenderBox& gridItem, WritingMode parentWritingMode)
+bool hasStretchableSizeInRowAxis(const RenderBox& gridItem, const RenderGrid& gridContainer)
 {
-    if (gridItem.style().hasAspectRatio()) {
-        // FIXME: should align-items + align-self: auto/justify-items + justify-self: auto be taken into account?
-        if (parentWritingMode.isHorizontal() == gridItem.isHorizontalWritingMode() && gridItem.style().alignSelf().position() != ItemPosition::Stretch) {
-            // A non-auto block size means the same for inline size (row axis size) because of the aspect ratio.
-            auto& logicalHeight = gridItem.style().logicalHeight();
-            if (logicalHeight.isFixed() || (logicalHeight.isPercentOrCalculated() && gridItem.percentageLogicalHeightIsResolvable()))
-                return false;
-        } else if (gridItem.style().justifySelf().position() != ItemPosition::Stretch) {
+    // Only auto sizes are stretchable.
+    if (!(gridContainer.isHorizontalWritingMode() ? gridItem.style().width().isAuto() : gridItem.style().height().isAuto()))
+        return false;
+
+    if (gridItem.style().hasAspectRatio() && !gridContainer.selfAlignmentForGridItem(gridItem, LogicalBoxAxis::Inline, StretchingMode::Explicit).isStretch()) {
+        if (gridContainer.isHorizontalWritingMode() != gridItem.isHorizontalWritingMode()) {
+            // A non-auto inline size (column axis size) means the same for block size (row axis size) because of the aspect ratio.
             if (!gridItem.style().logicalWidth().isAuto())
                 return false;
+        } else {
+            auto& logicalHeight = gridItem.style().logicalHeight();
+            if (logicalHeight.isFixed() || (logicalHeight.isPercentOrCalculated() && gridItem.percentageLogicalHeightIsResolvable()))
+                return false;
         }
+        // Explicit stretching is like an explicit size.
+        if (gridContainer.willStretchItem(gridItem, LogicalBoxAxis::Block, StretchingMode::Explicit))
+            return false;
     }
-    return parentWritingMode.isHorizontal() ? gridItem.style().width().isAuto() : gridItem.style().height().isAuto();
-}
-
-bool allowedToStretchGridItemAlongColumnAxis(const RenderBox& gridItem, ItemPosition alignSelf, WritingMode writingMode)
-{
-    return alignSelf == ItemPosition::Stretch && hasAutoSizeInColumnAxis(gridItem, writingMode) && !hasAutoMarginsInColumnAxis(gridItem, writingMode);
-}
-
-bool allowedToStretchGridItemAlongRowAxis(const RenderBox& gridItem, ItemPosition justifySelf, WritingMode writingMode)
-{
-    return justifySelf == ItemPosition::Stretch && hasAutoSizeInRowAxis(gridItem, writingMode) && !hasAutoMarginsInRowAxis(gridItem, writingMode);
+    return true;
 }
 
 LayoutUnit availableAlignmentSpaceForGridItemBeforeStretching(const RenderGrid& grid, LayoutUnit gridAreaBreadthForGridItem, const RenderBox& gridItem, Style::GridTrackSizingDirection direction)

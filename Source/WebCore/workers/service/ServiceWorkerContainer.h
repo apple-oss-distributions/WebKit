@@ -56,15 +56,16 @@ struct CookieChangeSubscription;
 
 class ServiceWorkerContainer final : public EventTarget, public ActiveDOMObject, public ServiceWorkerJobClient {
     WTF_MAKE_NONCOPYABLE(ServiceWorkerContainer);
-    WTF_MAKE_TZONE_OR_ISO_ALLOCATED(ServiceWorkerContainer);
+    WTF_MAKE_TZONE_ALLOCATED(ServiceWorkerContainer);
 public:
     static UniqueRef<ServiceWorkerContainer> create(ScriptExecutionContext*, NavigatorBase&);
 
     ~ServiceWorkerContainer();
 
-    // ActiveDOMObject.
+    // ContextDestructionObserver.
     void ref() const final;
     void deref() const final;
+    USING_CAN_MAKE_WEAKPTR(EventTarget);
 
     ServiceWorker* controller() const;
 
@@ -82,7 +83,7 @@ public:
     void queueTaskToFireUpdateFoundEvent(ServiceWorkerRegistrationIdentifier);
     void queueTaskToDispatchControllerChangeEvent();
 
-    void postMessage(MessageWithMessagePorts&&, ServiceWorkerData&& sourceData, String&& sourceOrigin);
+    void postMessage(MessageWithMessagePorts&&, ServiceWorkerData&& sourceData, Ref<SecurityOrigin>&& sourceOrigin);
 
     void getRegistrations(Ref<DeferredPromise>&&);
 
@@ -182,3 +183,5 @@ private:
 };
 
 } // namespace WebCore
+
+SPECIALIZE_TYPE_TRAITS_EVENTTARGET(ServiceWorkerContainer)

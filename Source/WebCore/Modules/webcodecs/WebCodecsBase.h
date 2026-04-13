@@ -46,7 +46,7 @@ class WebCodecsBase
     : public ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr<WebCodecsBase>
     , public ActiveDOMObject
     , public EventTarget {
-    WTF_MAKE_TZONE_OR_ISO_ALLOCATED(WebCodecsBase);
+    WTF_MAKE_TZONE_ALLOCATED(WebCodecsBase);
 public:
     virtual ~WebCodecsBase();
 
@@ -56,6 +56,7 @@ public:
     void ref() const final { ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr::ref(); }
     void deref() const final { ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr::deref(); }
     bool virtualHasPendingActivity() const final;
+    USING_CAN_MAKE_WEAKPTR(EventTarget);
 
 protected:
     WebCodecsBase(ScriptExecutionContext&);

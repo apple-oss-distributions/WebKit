@@ -354,7 +354,7 @@ bool BitmapImageSource::isCompatibleWithOptionsAtIndex(unsigned index, Subsampli
 
 void BitmapImageSource::decode(Function<void(DecodingStatus)>&& decodeCallback)
 {
-    m_decodeCallbacks.append(WTFMove(decodeCallback));
+    m_decodeCallbacks.append(WTF::move(decodeCallback));
     unsigned index = currentFrameIndex();
 
     if (isPendingDecodingAtIndex(index, SubsamplingLevel::Default, DecodingMode::Asynchronous)) {
@@ -480,9 +480,9 @@ void BitmapImageSource::cacheNativeImageAtIndex(unsigned index, SubsamplingLevel
 
     auto& frame = m_frames[index];
     auto& source = frame.source(options.shouldDecodeToHDR());
-    source.nativeImage = WTFMove(nativeImage);
+    source.nativeImage = nativeImage.copyRef();
     source.decodingOptions = options;
-    source.headroom = source.nativeImage->headroom();
+    source.headroom = nativeImage->headroom();
 
     cacheMetadataAtIndex(index, subsamplingLevel, options);
     decodedSizeIncreased(frame.sizeInBytes());
@@ -571,7 +571,7 @@ Expected<Ref<NativeImage>, DecodingStatus> BitmapImageSource::nativeImageAtIndex
         DecodingOptions decodingOptions = { DecodingMode::Synchronous, options.shouldDecodeToHDR() };
         PlatformImagePtr platformImage = m_decoder->createFrameImageAtIndex(index, subsamplingLevel, decodingOptions);
 
-        RefPtr nativeImage = NativeImage::create(WTFMove(platformImage));
+        RefPtr nativeImage = NativeImage::create(WTF::move(platformImage));
         if (!nativeImage)
             return makeUnexpected(DecodingStatus::Invalid);
 
@@ -655,7 +655,7 @@ RefPtr<NativeImage> BitmapImageSource::preTransformedNativeImageAtIndex(unsigned
     auto sourceRect = FloatRect { FloatPoint(), sourceSize };
 
     buffer->context().drawNativeImage(*nativeImage, destinationRect, sourceRect, { orientation });
-    return ImageBuffer::sinkIntoNativeImage(WTFMove(buffer));
+    return ImageBuffer::sinkIntoNativeImage(WTF::move(buffer));
 }
 
 IntSize BitmapImageSource::frameSizeAtIndex(unsigned index, SubsamplingLevel subsamplingLevel) const
@@ -729,5 +729,28 @@ void BitmapImageSource::dump(TextStream& ts) const
     ts.dumpProperty("decoded-size"_s, m_decodedSize);
     ts.dumpProperty("decode-count-for-testing"_s, m_decodeCountForTesting);
 }
+
+#if ENABLE(SPATIAL_IMAGE_DETECTION)
+std::optional<unsigned> BitmapImageSource::spatialLeftEyeFrameIndex() const
+{
+    if (RefPtr decoder = decoderIfExists())
+        return decoder->spatialLeftEyeFrameIndex();
+    return std::nullopt;
+}
+
+std::optional<unsigned> BitmapImageSource::spatialRightEyeFrameIndex() const
+{
+    if (RefPtr decoder = decoderIfExists())
+        return decoder->spatialRightEyeFrameIndex();
+    return std::nullopt;
+}
+
+std::optional<SpatialImageEyeProperties> BitmapImageSource::spatialEyePropertiesAtIndex(unsigned index) const
+{
+    if (RefPtr decoder = decoderIfExists())
+        return decoder->spatialEyePropertiesAtIndex(index);
+    return std::nullopt;
+}
+#endif
 
 } // namespace WebCore

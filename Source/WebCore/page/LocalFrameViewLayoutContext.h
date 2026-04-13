@@ -65,7 +65,7 @@ struct UpdateScrollInfoAfterLayoutTransaction {
     SingleThreadWeakHashSet<RenderBlock> blocks;
 };
 
-class LocalFrameViewLayoutContext final : public CanMakeCheckedPtr<LocalFrameViewLayoutContext> {
+class LocalFrameViewLayoutContext final : public CanMakeCheckedPtr<LocalFrameViewLayoutContext, WTF::DefaultedOperatorEqual::No, WTF::CheckedPtrDeleteCheckException::Yes> {
     WTF_MAKE_TZONE_ALLOCATED(LocalFrameViewLayoutContext);
     WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(LocalFrameViewLayoutContext);
 public:
@@ -162,7 +162,7 @@ public:
     void startTrackingRenderLayerPositionUpdates() { m_renderLayerPositionUpdateCount = 0; }
     unsigned renderLayerPositionUpdateCount() const { return m_renderLayerPositionUpdateCount; }
 
-    bool addToDetachedRendererList(RenderPtr<RenderObject>&& renderer) const { return m_detachedRendererList.append(WTFMove(renderer)); }
+    bool addToDetachedRendererList(RenderPtr<RenderObject>&& renderer) const { return m_detachedRendererList.append(WTF::move(renderer)); }
     void deleteDetachedRenderersNow() const { m_detachedRendererList.clear(); }
 
     Vector<AnchorScrollAdjuster>& anchorScrollAdjusters() { return m_anchorScrollAdjusters; }
@@ -172,6 +172,8 @@ public:
     void invalidateAnchorDependenciesForScroller(const RenderBox& scroller);
     void removeScrollerFromAnchorScrollAdjusters(const RenderBox& scroller);
 
+    bool repaintsBlocked() const { return m_repaintsBlocked; }
+
 private:
     friend class LayoutFrameScope;
     friend class LayoutStateMaintainer;
@@ -179,6 +181,7 @@ private:
     friend class SubtreeLayoutStateMaintainer;
     friend class FlexPercentResolveDisabler;
     friend class ContentVisibilityOverrideScope;
+    friend class RepaintBlocker;
 
     bool needsLayoutInternal() const;
 
@@ -226,6 +229,9 @@ private:
     void disablePercentHeightResolveFor(const RenderBox& flexItem);
     void enablePercentHeightResolveFor(const RenderBox& flexItem);
 
+    void allowRepaints() { m_repaintsBlocked = false; }
+    void blockRepaints() { m_repaintsBlocked = true; }
+
     LocalFrame& frame() const;
     Ref<LocalFrame> protectedFrame();
     LocalFrameView& view() const;
@@ -248,6 +254,7 @@ private:
     bool m_visiblityAutoIsIgnored { false };
     bool m_revealedWhenFoundIgnored { false };
     bool m_updateCompositingLayersIsPending { false };
+    bool m_repaintsBlocked { false };
     LayoutPhase m_layoutPhase { LayoutPhase::OutsideLayout };
     enum class LayoutNestedState : uint8_t  { NotInLayout, NotNested, Nested };
     LayoutNestedState m_layoutNestedState { LayoutNestedState::NotInLayout };
@@ -290,6 +297,15 @@ private:
         SegmentedVector<std::unique_ptr<RenderObject>, 50> m_renderers;
     };
     mutable DetachedRendererList m_detachedRendererList;
+};
+
+class RepaintBlocker {
+public:
+    explicit RepaintBlocker(Document&);
+    ~RepaintBlocker();
+
+private:
+    const Ref<Document> m_document;
 };
 
 } // namespace WebCore

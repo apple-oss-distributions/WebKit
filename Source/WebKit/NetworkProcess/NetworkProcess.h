@@ -70,7 +70,8 @@
 
 #if PLATFORM(COCOA)
 #include <notify.h>
-#include <wtf/OSObjectPtr.h>
+#include <wtf/darwin/DispatchOSObject.h>
+#include <wtf/darwin/NetworkOSObject.h>
 typedef struct OpaqueCFHTTPCookieStorage*  CFHTTPCookieStorageRef;
 #endif
 
@@ -155,6 +156,8 @@ public:
     using DomainInNeedOfStorageAccess = WebCore::RegistrableDomain;
     using OpenerDomain = WebCore::RegistrableDomain;
 
+    static void setSharedParentalControlsURLFilterIfNecessary();
+
     NetworkProcess(AuxiliaryProcessInitializationParameters&&);
     ~NetworkProcess();
     static constexpr WTF::AuxiliaryProcessType processType = WTF::AuxiliaryProcessType::Network;
@@ -164,6 +167,7 @@ public:
     uint32_t checkedPtrCountWithoutThreadCheck() const final { return AuxiliaryProcess::checkedPtrCountWithoutThreadCheck(); }
     void incrementCheckedPtrCount() const final { AuxiliaryProcess::incrementCheckedPtrCount(); }
     void decrementCheckedPtrCount() const final { AuxiliaryProcess::decrementCheckedPtrCount(); }
+    void setDidBeginCheckedPtrDeletion() final { AuxiliaryProcess::setDidBeginCheckedPtrDeletion(); }
 
     template<typename T>
     T* supplement()
@@ -227,7 +231,9 @@ public:
     void logDiagnosticMessage(WebPageProxyIdentifier, const String& message, const String& description, WebCore::ShouldSample);
     void logDiagnosticMessageWithResult(WebPageProxyIdentifier, const String& message, const String& description, WebCore::DiagnosticLoggingResultType, WebCore::ShouldSample);
     void logDiagnosticMessageWithValue(WebPageProxyIdentifier, const String& message, const String& description, double value, unsigned significantFigures, WebCore::ShouldSample);
-
+#if PLATFORM(MAC)
+    void systemDidWake();
+#endif
 #if PLATFORM(COCOA)
     RetainPtr<CFDataRef> sourceApplicationAuditData() const;
     std::optional<audit_token_t> sourceApplicationAuditToken() const;
@@ -266,6 +272,7 @@ public:
     void setPruneEntriesDownTo(PAL::SessionID, uint64_t pruneTargetCount, CompletionHandler<void()>&&);
     void hadUserInteraction(PAL::SessionID, RegistrableDomain&&, CompletionHandler<void(bool)>&&);
     void isRelationshipOnlyInDatabaseOnce(PAL::SessionID, RegistrableDomain&& subDomain, RegistrableDomain&& topDomain, CompletionHandler<void(bool)>&&);
+    void hasLocalStorageOrCookies(PAL::SessionID, const RegistrableDomain&, CompletionHandler<void(bool)>&&);
     void hasLocalStorage(PAL::SessionID, const RegistrableDomain&, CompletionHandler<void(bool)>&&);
     void getAllStorageAccessEntries(PAL::SessionID, CompletionHandler<void(Vector<String> domains)>&&);
     void logFrameNavigation(PAL::SessionID, NavigatedToDomain&&, TopFrameDomain&&, NavigatedFromDomain&&, bool isRedirect, bool isMainFrame, Seconds delayAfterMainFrameDocumentLoad, bool wasPotentiallyInitiatedByUser);
@@ -373,6 +380,7 @@ public:
     void deref() const final { ThreadSafeRefCounted<NetworkProcess>::deref(); }
 
     void storePrivateClickMeasurement(PAL::SessionID, WebCore::PrivateClickMeasurement&&);
+    void simulatePrivateClickMeasurementConversion(PAL::SessionID, int priority, int triggerData, const URL& sourceURL, const URL& destinationURL);
     void dumpPrivateClickMeasurement(PAL::SessionID, CompletionHandler<void(String)>&&);
     void clearPrivateClickMeasurement(PAL::SessionID, CompletionHandler<void()>&&);
     bool allowsPrivateClickMeasurementTestFunctionality() const;

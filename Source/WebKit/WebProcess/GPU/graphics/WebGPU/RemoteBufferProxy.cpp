@@ -52,7 +52,7 @@ RemoteBufferProxy::~RemoteBufferProxy()
 
 void RemoteBufferProxy::mapAsync(WebCore::WebGPU::MapModeFlags mapModeFlags, WebCore::WebGPU::Size64 offset, std::optional<WebCore::WebGPU::Size64> size, CompletionHandler<void(bool)>&& callback)
 {
-    auto sendResult = sendWithAsyncReply(Messages::RemoteBuffer::MapAsync(mapModeFlags, offset, size), [callback = WTFMove(callback), mapModeFlags, protectedThis = Ref { *this }](auto success) mutable {
+    auto sendResult = sendWithAsyncReply(Messages::RemoteBuffer::MapAsync(mapModeFlags, offset, size), [callback = WTF::move(callback), mapModeFlags, protectedThis = Ref { *this }](auto success) mutable {
         if (!success)
             return callback(false);
         protectedThis->m_mapModeFlags = mapModeFlags;
@@ -90,14 +90,9 @@ void RemoteBufferProxy::copyFrom(std::span<const uint8_t> span, size_t offset)
     if (!m_mapModeFlags.contains(WebCore::WebGPU::MapMode::Write))
         return;
 
-    size_t actualCopySize = span.size() - offset;
-    if (actualCopySize > maxCrossProcessResourceCopySize) {
-        auto sharedMemory = WebCore::SharedMemory::copySpan(span);
-        std::optional<WebCore::SharedMemoryHandle> handle;
-        if (sharedMemory)
-            handle = sharedMemory->createHandle(WebCore::SharedMemory::Protection::ReadOnly);
-        auto sendResult = sendWithAsyncReply(Messages::RemoteBuffer::Copy(WTFMove(handle), offset), [sharedMemory = sharedMemory.copyRef(), handleHasValue = handle.has_value()](auto) mutable {
-            RELEASE_ASSERT(sharedMemory.get() || !handleHasValue);
+    if (span.size() > maxCrossProcessResourceCopySize) {
+        auto handle = WebCore::SharedMemoryHandle::createCopy(span, WebCore::SharedMemory::Protection::ReadOnly);
+        auto sendResult = sendWithAsyncReply(Messages::RemoteBuffer::Copy(WTF::move(handle), offset), [](auto) {
         });
         UNUSED_VARIABLE(sendResult);
     } else {
