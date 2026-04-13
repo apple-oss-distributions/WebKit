@@ -552,10 +552,10 @@ void VideoPresentationModelContext::setTextTrackRepresentationBounds(const IntRe
 }
 
 #if ENABLE(MEDIA_CONTROLS_CONTEXT_MENUS)
-void VideoPresentationModelContext::requestShowCaptionDisplaySettingsPreview(const String& profileID)
+void VideoPresentationModelContext::requestShowCaptionDisplaySettingsPreview()
 {
     if (RefPtr manager = m_manager.get())
-        manager->requestShowCaptionDisplaySettingsPreview(m_contextId, profileID);
+        manager->requestShowCaptionDisplaySettingsPreview(m_contextId);
 }
 
 void VideoPresentationModelContext::requestHideCaptionDisplaySettingsPreview()
@@ -1397,10 +1397,9 @@ void VideoPresentationManagerProxy::performCaptionDisplaySettingsAction(Playback
     });
 }
 
-void VideoPresentationManagerProxy::requestShowCaptionDisplaySettingsPreview(PlaybackSessionContextIdentifier contextId, const String& profileID)
+void VideoPresentationManagerProxy::requestShowCaptionDisplaySettingsPreview(PlaybackSessionContextIdentifier contextId)
 {
-    performCaptionDisplaySettingsAction(contextId, [profileID](WebPageProxy& page, const FrameInfoData& frameInfo, WebCore::HTMLMediaElementIdentifier htmlMediaElementIdentifier) {
-        page.setCaptionDisplaySettingsPreviewProfileID(frameInfo, profileID);
+    performCaptionDisplaySettingsAction(contextId, [](WebPageProxy& page, const FrameInfoData& frameInfo, WebCore::HTMLMediaElementIdentifier htmlMediaElementIdentifier) {
         page.showCaptionDisplaySettingsPreview(frameInfo, htmlMediaElementIdentifier);
     });
 }
@@ -1408,7 +1407,6 @@ void VideoPresentationManagerProxy::requestShowCaptionDisplaySettingsPreview(Pla
 void VideoPresentationManagerProxy::requestHideCaptionDisplaySettingsPreview(PlaybackSessionContextIdentifier contextId)
 {
     performCaptionDisplaySettingsAction(contextId, [](WebPageProxy& page, const FrameInfoData& frameInfo, WebCore::HTMLMediaElementIdentifier htmlMediaElementIdentifier) {
-        page.setCaptionDisplaySettingsPreviewProfileID(frameInfo, emptyString());
         page.hideCaptionDisplaySettingsPreview(frameInfo, htmlMediaElementIdentifier);
     });
 }

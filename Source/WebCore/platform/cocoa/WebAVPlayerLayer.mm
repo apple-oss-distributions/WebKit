@@ -420,9 +420,11 @@ static bool areFramesEssentiallyEqualWithTolerance(const FloatRect& a, const Flo
 
 - (void)setCaptionPreviewProfileID:(NSString * _Nonnull)profileID position:(CGPoint)position text:(nullable NSString *)text
 {
+    CaptionUserPreferencesMediaAF::setActiveProfileID(profileID);
+
 #if ENABLE(MEDIA_CONTROLS_CONTEXT_MENUS)
     if (RefPtr model = _presentationModel.get())
-        model->requestShowCaptionDisplaySettingsPreview(profileID);
+        model->requestShowCaptionDisplaySettingsPreview();
 #endif
 
     _showingCaptionPreview = YES;

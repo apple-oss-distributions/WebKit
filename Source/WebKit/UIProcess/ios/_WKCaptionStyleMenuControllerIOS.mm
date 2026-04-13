@@ -259,8 +259,13 @@ static bool menuHasMenuAncestor(UIMenu *targetMenu, UIMenu *ancestorMenu)
 #pragma mark - Internal
 - (void)setPreviewProfileID:(NSString *)profileID
 {
-    if (auto delegate = self.delegate; delegate && [delegate respondsToSelector:@selector(captionStyleMenu:setPreviewProfileID:)])
-        [delegate captionStyleMenu:self.menu setPreviewProfileID:profileID];
+    if (profileID) {
+        CaptionUserPreferencesMediaAF::setActiveProfileID(WTF::String(profileID));
+        return;
+    }
+
+    if (self.savedActiveProfileID && self.savedActiveProfileID.length > 0)
+        CaptionUserPreferencesMediaAF::setActiveProfileID(WTF::String(self.savedActiveProfileID));
 }
 @end
 

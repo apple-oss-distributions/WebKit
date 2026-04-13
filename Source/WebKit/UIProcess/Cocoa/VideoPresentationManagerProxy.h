@@ -126,7 +126,7 @@ private:
     void setTextTrackRepresentationBounds(const WebCore::IntRect&) final;
 
 #if ENABLE(MEDIA_CONTROLS_CONTEXT_MENUS)
-    void requestShowCaptionDisplaySettingsPreview(const String&) final;
+    void requestShowCaptionDisplaySettingsPreview() final;
     void requestHideCaptionDisplaySettingsPreview() final;
 #endif
 
@@ -263,7 +263,7 @@ private:
     void setTextTrackRepresentationBounds(PlaybackSessionContextIdentifier, const WebCore::IntRect&);
 
 #if ENABLE(MEDIA_CONTROLS_CONTEXT_MENUS)
-    void requestShowCaptionDisplaySettingsPreview(PlaybackSessionContextIdentifier, const String&);
+    void requestShowCaptionDisplaySettingsPreview(PlaybackSessionContextIdentifier);
     void requestHideCaptionDisplaySettingsPreview(PlaybackSessionContextIdentifier);
     void performCaptionDisplaySettingsAction(PlaybackSessionContextIdentifier, Function<void(WebPageProxy&, const FrameInfoData&, WebCore::HTMLMediaElementIdentifier)>&& action);
 #endif
